@@ -5,12 +5,21 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "Ember",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.Ember"
+      "bundleIdentifier": "com.anonymous.Ember",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds"
+            ]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
