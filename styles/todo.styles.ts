@@ -167,9 +167,14 @@ const styles = StyleSheet.create({
       backgroundColor: 'white',
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
-      width: '100%',          // ⬅️ full width
-      marginHorizontal: 0,    // ⬅️ no side margins
-      overflow: 'hidden',     // optional, makes it clean
+      width: '100%',
+      marginHorizontal: 0,
+      overflow: 'hidden',
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      zIndex: 1000,
     },
 
     dimBackground: {

@@ -1,4 +1,5 @@
 import { useRootNavigationState, Redirect } from 'expo-router';
+import 'react-native-reanimated';
 
 
 export default function InitalRouting() {

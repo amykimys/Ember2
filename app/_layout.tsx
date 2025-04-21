@@ -11,6 +11,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import * as Linking from 'expo-linking';
 import { supabase } from '../supabase';
 import { Session } from '@supabase/supabase-js';
+import 'react-native-reanimated';
 
 SplashScreen.preventAutoHideAsync();
 

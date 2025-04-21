@@ -16,14 +16,16 @@ import {
   KeyboardAvoidingView,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
 import { Check, ChevronDown, ChevronUp, Plus, X, Calendar, Trash2, Repeat, Menu as MenuIcon } from 'lucide-react-native';
 import BottomSheet from '@gorhom/bottom-sheet';
 import * as Haptics from 'expo-haptics';
-import useBottomSheetDynamicSnapPoints from '@gorhom/bottom-sheet';
 import { PanGestureHandler, GestureHandlerRootView, State, Swipeable } from 'react-native-gesture-handler';
 import styles from '../../styles/todo.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import useBottomSheetDynamicSnapPoints from '@gorhom/bottom-sheet'; // ✅
+
 
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
@@ -137,11 +139,21 @@ export default function TodoScreen() {
   const [selectedWeekDays, setSelectedWeekDays] = useState<WeekDay[]>([]);
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
 
   const bottomSheetRef = useRef<BottomSheet>(null);
   const editBottomSheetRef = useRef<BottomSheet>(null);
-  const initialSnapPoints = ['CONTENT_HEIGHT'];
   const [swipingTodoId, setSwipingTodoId] = useState<string | null>(null);
+  const [contentHeight, setContentHeight] = useState(0);
+
+  useEffect(() => {
+    console.log('BottomSheet ref initialized:', bottomSheetRef.current);
+  }, []);
+
+  const handleContentLayout = (event: any) => {
+    const { height } = event.nativeEvent.layout;
+    setContentHeight(height);
+  };
 
   const resetForm = () => {
     setNewTodo('');
@@ -992,26 +1004,32 @@ export default function TodoScreen() {
   
             {/* TASK LIST */}
             <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
-            {todayTodos.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateTitle}>no tasks!</Text>
-                <Text style={styles.emptyStateSubtitle}>Take a breather :)</Text>
-              </View>
-            ) : (
-              <>
-                {categories.map(category => renderCategory(category, todayTodos))}
-                {renderUncategorizedTodos(todayTodos)}
-                {renderCompletedTodos(todayTodos)}
-              </>
-            )}
+              {todayTodos.length === 0 ? (
+                <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateTitle}>no tasks!</Text>
+                  <Text style={styles.emptyStateSubtitle}>Take a breather :)</Text>
+                </View>
+              ) : (
+                <>
+                  {categories.map(category => renderCategory(category, todayTodos))}
+                  {renderUncategorizedTodos(todayTodos)}
+                  {renderCompletedTodos(todayTodos)}
+                </>
+              )}
             </ScrollView>
   
             {/* ADD TASK BUTTON */}
             <TouchableOpacity
               style={styles.addButton}
               onPress={() => {
-                resetForm();
-                bottomSheetRef.current?.expand();
+                console.log('Button pressed!');
+                console.log('BottomSheet ref:', bottomSheetRef.current);
+                if (bottomSheetRef.current) {
+                  console.log('Expanding BottomSheet...');
+                  bottomSheetRef.current.snapToIndex(0);
+                } else {
+                  console.log('BottomSheet ref is null!');
+                }
               }}
             >
               <Plus size={24} color="white" />
@@ -1019,264 +1037,70 @@ export default function TodoScreen() {
           </View>
         </PanGestureHandler>
 
+        {/* Debug View */}
+        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 100, backgroundColor: 'yellow', justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ fontSize: 16, fontWeight: 'bold' }}>Debug View</Text>
+        </View>
+
+        {/* TEST MODAL */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => {
+            setModalVisible(false);
+          }}
+        >
+          <View style={{ 
+            flex: 1, 
+            justifyContent: 'flex-end',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)'
+          }}>
+            <View style={{
+              backgroundColor: 'white',
+              padding: 20,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              height: '50%'
+            }}>
+              <Text style={{ fontSize: 20, fontWeight: 'bold' }}>Test Modal</Text>
+              <TouchableOpacity
+                style={{ marginTop: 20 }}
+                onPress={() => setModalVisible(false)}
+              >
+                <Text style={{ color: '#007AFF' }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
         {/* --- NEW TASK MODAL --- */}
         <BottomSheet
           ref={bottomSheetRef}
           index={-1}
-          snapPoints={['90%']}
+          snapPoints={['50%']}
           enablePanDownToClose
-          detached={true}
-          bottomInset={0}
-          style={styles.bottomSheet}
-          onChange={(index) => {
-            if (index === -1) {
-                resetForm();
-            }
-          }}
+          backgroundStyle={{ backgroundColor: 'white' }}
+          handleIndicatorStyle={{ backgroundColor: '#666' }}
+          containerStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+          onChange={(index) => console.log('BottomSheet index changed:', index)}
         >
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={{ flex: 1 }}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-          >
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 20, paddingBottom: 120 }}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-
-                {/* --- HEADER --- */}
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>New Task</Text>
-                  <TouchableOpacity onPress={() => bottomSheetRef.current?.close()}>
-                    <X size={24} color="#666" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* --- TITLE INPUT --- */}
-                <TextInput
-                  style={styles.input}
-                  value={newTodo}
-                  onChangeText={setNewTodo}
-                  placeholder="What needs to be done?"
-                />
-
-                {/* --- DESCRIPTION INPUT --- */}
-                <TextInput
-                  style={[styles.input, styles.descriptionInput]}
-                  value={newDescription}
-                  onChangeText={setNewDescription}
-                  placeholder="Add description (optional)"
-                  multiline
-                />
-
-                {/* --- CATEGORY SECTION --- */}
-                <View style={styles.categorySection}>
-                  <Text style={styles.sectionTitle}>Category</Text>
-
-                  {/* Existing Category Buttons + Plus */}
-                  <View style={styles.categoryButtons}>
-                    {categories.map((category) => (
-                      <TouchableOpacity
-                        key={category.id}
-                        style={[
-                          styles.categoryButton,
-                          { backgroundColor: category.color },
-                          selectedCategoryId === category.id && styles.selectedCategoryButton,
-                        ]}
-                        onPress={() => {
-                          setSelectedCategoryId(category.id);
-                          setShowNewCategoryInput(false);
-                        }}
-                        onLongPress={() => {
-                          Alert.alert(
-                            "Delete Category",
-                            `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
-                            [
-                              {
-                                text: "Cancel",
-                                style: "cancel"
-                              },
-                              {
-                                text: "Delete",
-                                style: "destructive",
-                                onPress: () => {
-                                  // Remove all todos in this category
-                                  setTodos(prev => prev.filter(todo => todo.categoryId !== category.id));
-                                  // Remove the category
-                                  setCategories(prev => prev.filter(c => c.id !== category.id));
-                                  // Clear selected category if it was the deleted one
-                                  if (selectedCategoryId === category.id) {
-                                    setSelectedCategoryId('');
-                                  }
-                                  // Remove from collapsed state
-                                  const newCollapsed = { ...collapsedCategories };
-                                  delete newCollapsed[category.id];
-                                  setCollapsedCategories(newCollapsed);
-                                }
-                              }
-                            ]
-                          );
-                        }}
-                        delayLongPress={500}
-                      >
-                        <Text style={styles.categoryButtonText}>
-                          {category.label.toUpperCase()}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-
-                    {/* Plus Button */}
-                    <TouchableOpacity
-                      style={styles.newCategoryButton}
-                      onPress={() => setShowNewCategoryInput(true)}
-                    >
-                      <Plus size={20} color="#666" />
-                    </TouchableOpacity>
-                    {showNewCategoryInput && (
-                      <View style={styles.newCategoryForm}>
-                        {/* Category Name Input */}
-                        <TextInput
-                          style={styles.input}
-                          value={newCategoryName}
-                          onChangeText={setNewCategoryName}
-                          placeholder="Category name"
-                        />
-
-                        {/* Theme Selector */}
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          contentContainerStyle={{ marginTop: 12, flexDirection: 'row' }}
-                        >
-                          {Object.keys(THEMES).map((theme) => (
-                            <TouchableOpacity
-                              key={theme}
-                              style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 12,
-                                backgroundColor: selectedTheme === theme ? '#007AFF' : '#E0E0E0',
-                                borderRadius: 20,
-                                marginRight: 10,
-                              }}
-                              onPress={() => setSelectedTheme(theme as keyof typeof THEMES)}
-                            >
-                              <Text style={{ color: selectedTheme === theme ? 'white' : '#333', fontWeight: '600' }}>
-                                {theme}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-
-                        {/* Swatch Grid */}
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
-                          {THEMES[selectedTheme].map((color) => (
-                            <TouchableOpacity
-                              key={color}
-                              style={{
-                                width: 30,
-                                height: 30,
-                                borderRadius: 15,
-                                backgroundColor: color,
-                                margin: 5,
-                                borderWidth: newCategoryColor === color ? 2 : 0,
-                                borderColor: '#000',
-                              }}
-                              onPress={() => setNewCategoryColor(color)}
-                            />
-                          ))}
-                        </View>
-                      </View>
-                    )}
-
-                  </View>
-
-                </View>
-
-
-                {/* --- PICK DATE SECTION --- */}
-                <View style={styles.optionRow}>
-                  <Text style={styles.optionLabel}>Date</Text>
-                  <TouchableOpacity
-                    style={styles.newOptionButton}
-                    onPress={() => setShowTaskDatePicker(true)}
-                  >
-                    <Calendar size={20} color="#666" />
-                    <Text style={styles.newOptionText}>
-                      {taskDate ? taskDate.toLocaleDateString() : "Pick a date"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* --- REMINDER SECTION --- */}
-                <View style={styles.optionRow}>
-                  <Text style={styles.optionLabel}>Reminder</Text>
-                  <TouchableOpacity
-                    style={styles.newOptionButton}
-                    onPress={() => setShowReminderPicker(true)}
-                  >
-                    <Calendar size={20} color="#666" />
-                    <Text style={styles.newOptionText}>
-                      {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'None'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* --- REPEAT SECTION --- */}
-                <View style={styles.optionRow}>
-                  <Text style={styles.optionLabel
-                  }>Repeat</Text>
-                  <TouchableOpacity
-                    style={styles.newOptionButton}
-                    onPress={() => {
-                      repeatBottomSheetRef.current?.expand();
-                    }}
-                  >
-                    <Repeat size={20} color="#666" />
-                    <Text style={styles.newOptionText}>
-                      {REPEAT_OPTIONS.find(option => option.value === selectedRepeat)?.label}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-
-                {/* --- SAVE / CANCEL BUTTONS --- */}
-                <View style={{ flexDirection: 'row', marginTop: 24 }}>
-                  <TouchableOpacity
-                    style={{
-                      flex: 1,
-                      paddingVertical: 14,
-                      backgroundColor: '#E0E0E0',
-                      borderRadius: 12,
-                      alignItems: 'center',
-                      marginRight: 8,
-                    }}
-                    onPress={() => bottomSheetRef.current?.close()}
-                  >
-                    <Text style={{ color: '#333', fontWeight: '600', fontSize: 16 }}>Cancel</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={{
-                      flex: 1,
-                      paddingVertical: 14,
-                      backgroundColor: newTodo.trim() ? '#007AFF' : '#B0BEC5',
-                      borderRadius: 12,
-                      alignItems: 'center',
-                      marginLeft: 8,
-                    }}
-                    onPress={handleSave}
-                    disabled={!newTodo.trim()}
-                  >
-                    <Text style={{ color: 'white', fontWeight: '600', fontSize: 16 }}>Save</Text>
-                  </TouchableOpacity>
-                </View>
-
-              </ScrollView>
-            </KeyboardAvoidingView>
-          </BottomSheet>
-        </View>
-      </GestureHandlerRootView>
-    );
+          <View style={{ flex: 1, padding: 20 }}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>New Task</Text>
+              <TouchableOpacity onPress={() => bottomSheetRef.current?.close()}>
+                <X size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="What needs to be done?"
+              value={newTodo}
+              onChangeText={setNewTodo}
+            />
+          </View>
+        </BottomSheet>
+      </View>
+    </GestureHandlerRootView>
+  );
 }  
