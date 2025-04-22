@@ -903,36 +903,6 @@ export default function TodoScreen() {
         console.log('✅ Successfully inserted test category:', categoryData);
       }
 
-      // Test todos table
-      const testTodo = {
-        id: 'test-todo-' + Date.now(),
-        text: 'Test Todo',
-        description: 'This is a test todo',
-        completed: false,
-        category_id: testCategory.id,
-        date: new Date().toISOString(),
-        user_id: user.id
-      };
-
-      console.log('📝 Attempting to insert todo:', testTodo);
-
-      // Insert test todo
-      const { data: todoData, error: todoError } = await supabase
-        .from('todos')
-        .insert(testTodo)
-        .select();
-
-      if (todoError) {
-        console.error('❌ Error inserting todo:', {
-          message: todoError.message,
-          details: todoError.details,
-          hint: todoError.hint,
-          code: todoError.code
-        });
-      } else {
-        console.log('✅ Successfully inserted test todo:', todoData);
-      }
-
       // Fetch and verify data
       console.log('📋 Fetching categories...');
       const { data: categoriesData, error: categoriesError } = await supabase
@@ -1083,7 +1053,6 @@ export default function TodoScreen() {
           backgroundStyle={{ backgroundColor: 'white' }}
           handleIndicatorStyle={{ backgroundColor: '#666' }}
           containerStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
-          onChange={(index) => console.log('BottomSheet index changed:', index)}
         >
           <View style={{ flex: 1, padding: 20 }}>
             <View style={styles.modalHeader}>

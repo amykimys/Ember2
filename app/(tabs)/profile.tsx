@@ -39,9 +39,13 @@ export default function ProfileScreen() {
 
   const handleSignIn = async () => {
     try {
+      console.log('Starting sign in process...');
       await GoogleSignin.hasPlayServices();
-      await GoogleSignin.signIn(); // sign-in and store session
-      const { idToken } = await GoogleSignin.getTokens(); // ✅ this always works
+      const userInfo = await GoogleSignin.signIn();
+      console.log('Google sign in successful:', userInfo);
+      
+      const { idToken } = await GoogleSignin.getTokens();
+      console.log('Got ID token:', idToken ? 'Yes' : 'No');
   
       if (!idToken) throw new Error('No ID token present');
   
@@ -53,6 +57,7 @@ export default function ProfileScreen() {
       if (error) {
         console.error('Supabase sign-in error:', error.message);
       } else {
+        console.log('Sign in successful:', data.user);
         setUser(data.user ?? null);
       }
     } catch (error: any) {
@@ -68,20 +73,53 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleSignOut = async () => {
+    try {
+      console.log('Starting sign out process...');
+      
+      // First, revoke Google access
+      await GoogleSignin.revokeAccess();
+      await GoogleSignin.signOut();
+      
+      // Then sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Error signing out from Supabase:', error.message);
+      } else {
+        console.log('Sign out successful');
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <View style={{ flex: 1, paddingTop: 40, paddingHorizontal: 24 }}>
         <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
           <View style={{ alignItems: 'center', marginBottom: 24 }}>
-            
             <Text style={{ fontSize: 20, fontWeight: 'bold', marginTop: 12 }}>
               {user?.user_metadata?.full_name || user?.email || 'Your Name'}
+            </Text>
+            <Text style={{ color: 'gray', marginTop: 4 }}>
+              {user ? 'Signed In' : 'Not Signed In'}
             </Text>
           </View>
 
           {user ? (
-      
-                  <Text style={{ color: 'white', fontWeight: '600' }}>🚪 Log Out</Text>
+            <TouchableOpacity
+              style={{
+                backgroundColor: '#FF3B30',
+                padding: 16,
+                borderRadius: 8,
+                alignItems: 'center',
+                marginTop: 20,
+              }}
+              onPress={handleSignOut}
+            >
+              <Text style={{ color: 'white', fontWeight: '600' }}>🚪 Sign Out</Text>
+            </TouchableOpacity>
           ) : (
             <View style={{ marginTop: 40, alignItems: 'center' }}>
               <GoogleSigninButton
