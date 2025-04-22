@@ -483,35 +483,45 @@ export default function TodoScreen() {
   
   const toggleTodo = async (id: string) => {
     try {
-      // Get the current task
-      const taskToDelete = todos.find(todo => todo.id === id);
-      if (!taskToDelete) {
-        console.error('Task not found:', id);
-        return;
-      }
-
+      console.log('Starting task completion toggle...');
+      
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         console.error('No user logged in');
+        Alert.alert('Error', 'You must be logged in to update tasks.');
         return;
       }
 
-      // Delete from Supabase
+      // Find the task to toggle
+      const taskToToggle = todos.find(todo => todo.id === id);
+      if (!taskToToggle) {
+        console.error('Task not found:', id);
+        return;
+      }
+
+      // Update in Supabase
+      console.log('Updating task in Supabase...');
       const { error } = await supabase
         .from('todos')
-        .delete()
+        .update({ completed: !taskToToggle.completed })
         .eq('id', id)
         .eq('user_id', user.id);
 
       if (error) {
-        console.error('Error deleting task:', error);
-        Alert.alert('Error', 'Failed to delete task. Please try again.');
+        console.error('Error updating task in Supabase:', error);
+        Alert.alert('Error', 'Failed to update task. Please try again.');
         return;
       }
 
+      console.log('Task successfully updated in Supabase');
+
       // Update local state
-      setTodos(prev => prev.filter(todo => todo.id !== id));
+      setTodos(prev => prev.map(todo => 
+        todo.id === id 
+          ? { ...todo, completed: !todo.completed }
+          : todo
+      ));
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
@@ -679,14 +689,22 @@ export default function TodoScreen() {
         activeOpacity={0.9}
       >
         <View style={[styles.checkbox, todo.completed && styles.checked]}>
-          {todo.completed && <Ionicons name="checkbox" size={16} color="white" />}
+          {todo.completed && <Ionicons name="checkmark" size={16} color="white" />}
         </View>
         <View style={styles.todoContent}>
-          <Text style={[styles.todoText, todo.completed && styles.completedText]}>
+          <Text style={[
+            styles.todoText,
+            todo.completed && styles.completedText
+          ]}>
             {todo.text}
           </Text>
           {todo.description && (
-            <Text style={styles.todoDescription}>{todo.description}</Text>
+            <Text style={[
+              styles.todoDescription,
+              todo.completed && styles.completedDescription
+            ]}>
+              {todo.description}
+            </Text>
           )}
         </View>
       </TouchableOpacity>

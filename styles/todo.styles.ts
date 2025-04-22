@@ -112,7 +112,8 @@ const styles = StyleSheet.create({
       flex: 1,
     },
     completedTodo: {
-      opacity: 0.6,
+      backgroundColor: '#F5F5F5',
+      opacity: 0.7,
     },
     checkbox: {
       width: 12,
@@ -125,7 +126,8 @@ const styles = StyleSheet.create({
       justifyContent: 'center',
     },
     checked: {
-      backgroundColor: '#34D399',
+      backgroundColor: '#4CAF50',
+      borderColor: '#4CAF50',
     },
     todoText: {
       fontSize: 18,
@@ -138,6 +140,11 @@ const styles = StyleSheet.create({
     },
     completedText: {
       textDecorationLine: 'line-through',
+      color: '#999',
+    },
+    completedDescription: {
+      textDecorationLine: 'line-through',
+      color: '#999',
     },
     repeatIndicator: {
       fontSize: 12,
