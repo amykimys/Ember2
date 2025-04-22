@@ -24,6 +24,8 @@ import { PanGestureHandler, GestureHandlerRootView, State, Swipeable } from 'rea
 import styles from '../../styles/todo.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
+import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
+import { Picker } from '@react-native-picker/picker';
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -128,7 +130,7 @@ export default function TodoScreen() {
   const [taskDate, setTaskDate] = useState<Date | null>(null);
   const [showTaskDatePicker, setShowTaskDatePicker] = useState(false);
   const [repeatEndDate, setRepeatEndDate] = useState<Date | null>(null);
-  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showRepeatEndDatePicker, setShowRepeatEndDatePicker] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<keyof typeof THEMES>('pastel');
   const [customRepeatFrequency, setCustomRepeatFrequency] = useState('1');
   const [customRepeatUnit, setCustomRepeatUnit] = useState<'days' | 'weeks' | 'months'>('days');
@@ -145,6 +147,11 @@ export default function TodoScreen() {
   const repeatBottomSheetRef = useRef<BottomSheet>(null);
   const [isNewTaskModalVisible, setIsNewTaskModalVisible] = useState(false);
   const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
+  const [isModalTransitioning, setIsModalTransitioning] = useState(false);
+  const [isDatePickerTransitioning, setIsDatePickerTransitioning] = useState(false);
+  const [selectedHour, setSelectedHour] = useState('12');
+  const [selectedMinute, setSelectedMinute] = useState('00');
+  const [selectedAmPm, setSelectedAmPm] = useState('AM');
 
   // Add debug logs
   useEffect(() => {
@@ -289,15 +296,14 @@ export default function TodoScreen() {
   
     let finalCategoryId = selectedCategoryId;
   
+    // First, handle new category creation if needed
     if (showNewCategoryInput && newCategoryName.trim()) {
       const newCategory = {
         id: Date.now().toString(),
         label: newCategoryName.trim(),
         color: newCategoryColor,
       };
-      setCategories(prev => [...prev, newCategory]);
-      finalCategoryId = newCategory.id;
-
+      
       // Save new category to Supabase if user is logged in
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -312,10 +318,16 @@ export default function TodoScreen() {
         
         if (error) {
           console.error('Error saving category:', error);
+          return; // Exit if category creation fails
         }
       }
+      
+      // Update local state with new category
+      setCategories(prev => [...prev, newCategory]);
+      finalCategoryId = newCategory.id;
     }
   
+    // Then create the new task
     const newTodoItem: Todo = {
       id: Date.now().toString(),
       text: newTodo.trim(),
@@ -329,8 +341,6 @@ export default function TodoScreen() {
       customRepeatWeekDays: selectedRepeat === 'custom' && customRepeatUnit === 'weeks' ? selectedWeekDays : undefined,
       repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
     };
-    
-    setTodos(prev => [...prev, newTodoItem]);
     
     // Save task to Supabase if user is logged in
     const { data: { user } } = await supabase.auth.getUser();
@@ -354,17 +364,24 @@ export default function TodoScreen() {
       
       if (error) {
         console.error('Error saving task:', error);
+        return; // Exit if task creation fails
       }
     }
     
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
+    // Update local state with new task
+    setTodos(prev => [...prev, newTodoItem]);
+    
+    // Schedule reminder if set
     if (reminderTime) {
       await scheduleReminderNotification(newTodo.trim(), reminderTime);
     }
 
+    // Reset form and close modal
     resetForm();
-    setIsModalVisible(false);
+    setIsNewTaskModalVisible(false);
+    
+    // Provide haptic feedback
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
   
   
@@ -958,6 +975,121 @@ export default function TodoScreen() {
     }
   }, []);
 
+  // Add debounce function
+  const debounce = (func: () => void, wait: number) => {
+    let timeout: NodeJS.Timeout;
+    return () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func(), wait);
+    };
+  };
+
+  // Create debounced handlers
+  const handleCalendarPress = useCallback(
+    debounce(() => {
+      if (isModalTransitioning) return;
+      setIsModalTransitioning(true);
+      setIsNewTaskModalVisible(false);
+      setTimeout(() => {
+        setIsSettingsModalVisible(true);
+        setIsModalTransitioning(false);
+      }, 300);
+    }, 300),
+    [isModalTransitioning]
+  );
+
+  const handleCloseNewTaskModal = useCallback(
+    debounce(() => {
+      if (isModalTransitioning) return;
+      setIsModalTransitioning(true);
+      setIsNewTaskModalVisible(false);
+      setTimeout(() => {
+        setIsModalTransitioning(false);
+      }, 300);
+    }, 300),
+    [isModalTransitioning]
+  );
+
+  const handleCloseSettingsModal = useCallback(
+    debounce(() => {
+      if (isModalTransitioning) return;
+      setIsModalTransitioning(true);
+      setIsSettingsModalVisible(false);
+      setTimeout(() => {
+        setIsNewTaskModalVisible(true);
+        setIsModalTransitioning(false);
+      }, 300);
+    }, 300),
+    [isModalTransitioning]
+  );
+
+  // Add debounced date picker handler
+  const handleDatePickerPress = useCallback(
+    debounce(() => {
+      if (isDatePickerTransitioning) return;
+      setIsDatePickerTransitioning(true);
+      setShowTaskDatePicker(true);
+      setTimeout(() => {
+        setIsDatePickerTransitioning(false);
+      }, 300);
+    }, 300),
+    [isDatePickerTransitioning]
+  );
+
+  // Update date picker confirm handler
+  const handleDatePickerConfirm = useCallback((date: Date) => {
+    setTaskDate(date);
+    setShowTaskDatePicker(false);
+    setIsDatePickerTransitioning(false);
+  }, []);
+
+  // Update date picker cancel handler
+  const handleDatePickerCancel = useCallback(() => {
+    setShowTaskDatePicker(false);
+    setIsDatePickerTransitioning(false);
+  }, []);
+
+  // Add reminder picker handlers
+  const handleReminderPress = useCallback(() => {
+    console.log('Opening reminder picker');
+    setShowReminderPicker(true);
+  }, []);
+
+  const handleReminderConfirm = useCallback(() => {
+    const hours = selectedAmPm === 'PM' ? (parseInt(selectedHour) % 12) + 12 : parseInt(selectedHour) % 12;
+    const time = new Date();
+    time.setHours(hours);
+    time.setMinutes(parseInt(selectedMinute));
+    setReminderTime(time);
+    setShowReminderPicker(false);
+  }, [selectedHour, selectedMinute, selectedAmPm]);
+
+  const handleReminderCancel = useCallback(() => {
+    setShowReminderPicker(false);
+  }, []);
+
+  // Add repeat option handlers
+  const handleRepeatPress = useCallback(() => {
+    console.log('Opening repeat options');
+    setShowRepeatOptions(true);
+  }, []);
+
+  const handleRepeatEndDatePress = useCallback(() => {
+    console.log('Opening repeat end date picker');
+    setShowRepeatEndDatePicker(true);
+  }, []);
+
+  const handleRepeatEndDateConfirm = useCallback((date: Date) => {
+    console.log('Setting repeat end date:', date);
+    setRepeatEndDate(date);
+    setShowRepeatEndDatePicker(false);
+  }, []);
+
+  const handleRepeatEndDateCancel = useCallback(() => {
+    console.log('Cancelling repeat end date picker');
+    setShowRepeatEndDatePicker(false);
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
@@ -1053,10 +1185,7 @@ export default function TodoScreen() {
           animationType="slide"
           transparent={true}
           visible={isNewTaskModalVisible}
-          onRequestClose={() => {
-            console.log('Modal close requested');
-            setIsNewTaskModalVisible(false);
-          }}
+          onRequestClose={handleCloseNewTaskModal}
         >
           <View style={[styles.modalOverlay, { 
             flex: 1,
@@ -1088,20 +1217,14 @@ export default function TodoScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <TouchableOpacity 
                     style={{ marginRight: 16 }}
-                    onPress={() => {
-                      setIsNewTaskModalVisible(false);
-                      setTimeout(() => {
-                        setIsSettingsModalVisible(true);
-                      }, 300);
-                    }}
+                    onPress={handleCalendarPress}
+                    disabled={isModalTransitioning}
                   >
                     <Ionicons name="calendar-outline" size={24} color="#666" />
                   </TouchableOpacity>
                   <TouchableOpacity 
-                    onPress={() => {
-                      console.log('Close button pressed');
-                      setIsNewTaskModalVisible(false);
-                    }}
+                    onPress={handleCloseNewTaskModal}
+                    disabled={isModalTransitioning}
                   >
                     <Ionicons name="close" size={24} color="#666" />
                   </TouchableOpacity>
@@ -1286,7 +1409,7 @@ export default function TodoScreen() {
           animationType="slide"
           transparent={true}
           visible={isSettingsModalVisible}
-          onRequestClose={() => setIsSettingsModalVisible(false)}
+          onRequestClose={handleCloseSettingsModal}
         >
           <View style={[styles.modalOverlay, { 
             flex: 1,
@@ -1298,7 +1421,7 @@ export default function TodoScreen() {
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               padding: 20,
-              height: '50%',
+              height: '80%',
               width: '100%'
             }]}>
               <View style={[styles.modalHeader, {
@@ -1316,7 +1439,8 @@ export default function TodoScreen() {
                   color: '#1a1a1a'
                 }]}>Task Settings</Text>
                 <TouchableOpacity 
-                  onPress={() => setIsSettingsModalVisible(false)}
+                  onPress={handleCloseSettingsModal}
+                  disabled={isModalTransitioning}
                 >
                   <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
@@ -1324,9 +1448,46 @@ export default function TodoScreen() {
 
               <ScrollView
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: 20 }}
+                contentContainerStyle={{ 
+                  paddingBottom: 40,
+                  flexGrow: 1
+                }}
                 showsVerticalScrollIndicator={true}
               >
+                {/* Calendar View */}
+                <View style={{ marginBottom: 20 }}>
+                  <RNCalendar
+                    current={taskDate?.toISOString()}
+                    onDayPress={(day: DateData) => {
+                      setTaskDate(new Date(day.timestamp));
+                    }}
+                    markedDates={{
+                      [taskDate?.toISOString().split('T')[0] || '']: {
+                        selected: true,
+                        selectedColor: '#007AFF'
+                      }
+                    }}
+                    theme={{
+                      backgroundColor: 'transparent',
+                      calendarBackground: 'transparent',
+                      textSectionTitleColor: '#666',
+                      selectedDayBackgroundColor: '#007AFF',
+                      selectedDayTextColor: '#ffffff',
+                      todayTextColor: '#007AFF',
+                      dayTextColor: '#1a1a1a',
+                      textDisabledColor: '#d9e1e8',
+                      dotColor: '#007AFF',
+                      selectedDotColor: '#ffffff',
+                      arrowColor: '#007AFF',
+                      monthTextColor: '#1a1a1a',
+                      indicatorColor: '#007AFF',
+                      textDayFontSize: 16,
+                      textMonthFontSize: 16,
+                      textDayHeaderFontSize: 14
+                    }}
+                  />
+                </View>
+
                 {/* Date Picker */}
                 <TouchableOpacity
                   style={[styles.settingButton, {
@@ -1336,9 +1497,11 @@ export default function TodoScreen() {
                     padding: 16,
                     backgroundColor: '#F5F5F5',
                     borderRadius: 12,
-                    marginBottom: 12
+                    marginBottom: 12,
+                    opacity: isDatePickerTransitioning ? 0.5 : 1
                   }]}
-                  onPress={() => setShowTaskDatePicker(true)}
+                  onPress={handleDatePickerPress}
+                  disabled={isDatePickerTransitioning}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="calendar-outline" size={20} color="#666" />
@@ -1360,7 +1523,7 @@ export default function TodoScreen() {
                     borderRadius: 12,
                     marginBottom: 12
                   }]}
-                  onPress={() => setShowReminderPicker(true)}
+                  onPress={handleReminderPress}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="time-outline" size={20} color="#666" />
@@ -1371,6 +1534,112 @@ export default function TodoScreen() {
                   <Ionicons name="chevron-forward" size={20} color="#666" />
                 </TouchableOpacity>
 
+                {/* Simple Time Picker */}
+                {showReminderPicker && (
+                  <View style={{
+                    backgroundColor: 'white',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 12,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 3.84,
+                    elevation: 5
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                      <Text style={{ fontSize: 18, fontWeight: '600', color: '#1a1a1a' }}>Set Reminder Time</Text>
+                      <TouchableOpacity onPress={handleReminderCancel}>
+                        <Ionicons name="close" size={24} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <TextInput
+                          style={{
+                            width: 50,
+                            height: 40,
+                            borderWidth: 1,
+                            borderColor: '#ddd',
+                            borderRadius: 8,
+                            textAlign: 'center',
+                            fontSize: 18,
+                            marginRight: 8
+                          }}
+                          value={selectedHour}
+                          onChangeText={(text) => {
+                            const num = parseInt(text);
+                            if (!isNaN(num) && num >= 1 && num <= 12) {
+                              setSelectedHour(text);
+                            }
+                          }}
+                          keyboardType="number-pad"
+                          maxLength={2}
+                        />
+                        <Text style={{ fontSize: 24, color: '#1a1a1a', marginHorizontal: 8 }}>:</Text>
+                        <TextInput
+                          style={{
+                            width: 50,
+                            height: 40,
+                            borderWidth: 1,
+                            borderColor: '#ddd',
+                            borderRadius: 8,
+                            textAlign: 'center',
+                            fontSize: 18,
+                            marginRight: 8
+                          }}
+                          value={selectedMinute}
+                          onChangeText={(text) => {
+                            const num = parseInt(text);
+                            if (!isNaN(num) && num >= 0 && num <= 59) {
+                              setSelectedMinute(text.padStart(2, '0'));
+                            }
+                          }}
+                          keyboardType="number-pad"
+                          maxLength={2}
+                        />
+                      </View>
+                      <View style={{ flexDirection: 'row' }}>
+                        <TouchableOpacity
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            backgroundColor: selectedAmPm === 'AM' ? '#007AFF' : '#F5F5F5',
+                            borderRadius: 8,
+                            marginRight: 8
+                          }}
+                          onPress={() => setSelectedAmPm('AM')}
+                        >
+                          <Text style={{ color: selectedAmPm === 'AM' ? 'white' : '#666' }}>AM</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            backgroundColor: selectedAmPm === 'PM' ? '#007AFF' : '#F5F5F5',
+                            borderRadius: 8
+                          }}
+                          onPress={() => setSelectedAmPm('PM')}
+                        >
+                          <Text style={{ color: selectedAmPm === 'PM' ? 'white' : '#666' }}>PM</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: '#007AFF',
+                        padding: 12,
+                        borderRadius: 8,
+                        alignItems: 'center',
+                        marginTop: 16
+                      }}
+                      onPress={handleReminderConfirm}
+                    >
+                      <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Set Time</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
                 {/* Repeat Picker */}
                 <TouchableOpacity
                   style={[styles.settingButton, {
@@ -1379,11 +1648,10 @@ export default function TodoScreen() {
                     justifyContent: 'space-between',
                     padding: 16,
                     backgroundColor: '#F5F5F5',
-                    borderRadius: 12
+                    borderRadius: 12,
+                    marginBottom: 12
                   }]}
-                  onPress={() => {
-                    repeatBottomSheetRef.current?.expand();
-                  }}
+                  onPress={handleRepeatPress}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Ionicons name="repeat" size={20} color="#666" />
@@ -1392,6 +1660,109 @@ export default function TodoScreen() {
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color="#666" />
+                </TouchableOpacity>
+
+                {/* Simple Repeat Options */}
+                {showRepeatOptions && (
+                  <View style={{
+                    backgroundColor: 'white',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 12,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 3.84,
+                    elevation: 5,
+                    height: 400,
+                    position: 'absolute',
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 1000,
+                    borderTopLeftRadius: 20,
+                    borderTopRightRadius: 20
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                      <Text style={{ fontSize: 18, fontWeight: '600', color: '#1a1a1a' }}>Repeat</Text>
+                      <TouchableOpacity onPress={() => setShowRepeatOptions(false)}>
+                        <Ionicons name="close" size={24} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView
+                      style={{ flex: 1 }}
+                      contentContainerStyle={{ paddingBottom: 20 }}
+                      showsVerticalScrollIndicator={true}
+                    >
+                      <View style={{ gap: 12 }}>
+                        {REPEAT_OPTIONS.map((option) => (
+                          <TouchableOpacity
+                            key={option.value}
+                            style={{
+                              padding: 16,
+                              backgroundColor: selectedRepeat === option.value ? '#007AFF' : '#F5F5F5',
+                              borderRadius: 8,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              minHeight: 48
+                            }}
+                            onPress={() => {
+                              setSelectedRepeat(option.value);
+                              setShowRepeatOptions(false);
+                            }}
+                          >
+                            <Text style={{ 
+                              color: selectedRepeat === option.value ? 'white' : '#1a1a1a',
+                              fontSize: 16,
+                              fontWeight: selectedRepeat === option.value ? '600' : 'normal',
+                              textAlign: 'center'
+                            }}>
+                              {option.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Repeat End Date (if repeat is selected) */}
+                {selectedRepeat !== 'none' && (
+                  <TouchableOpacity
+                    style={[styles.settingButton, {
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: 16,
+                      backgroundColor: '#F5F5F5',
+                      borderRadius: 12,
+                      marginBottom: 12
+                    }]}
+                    onPress={handleRepeatEndDatePress}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons name="calendar-outline" size={20} color="#666" />
+                      <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
+                        {repeatEndDate ? `Ends on ${repeatEndDate.toLocaleDateString()}` : 'Set end date'}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#666" />
+                  </TouchableOpacity>
+                )}
+
+                {/* Done Button */}
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: '#007AFF',
+                    padding: 16,
+                    borderRadius: 12,
+                    alignItems: 'center',
+                    marginTop: 20,
+                    marginBottom: 20
+                  }}
+                  onPress={handleCloseSettingsModal}
+                >
+                  <Text style={{ color: 'white', fontSize: 18, fontWeight: '600' }}>Done</Text>
                 </TouchableOpacity>
               </ScrollView>
             </View>
@@ -1402,22 +1773,16 @@ export default function TodoScreen() {
         <DateTimePickerModal
           isVisible={showTaskDatePicker}
           mode="date"
-          onConfirm={(date) => {
-            setTaskDate(date);
-            setShowTaskDatePicker(false);
-          }}
-          onCancel={() => setShowTaskDatePicker(false)}
+          onConfirm={handleDatePickerConfirm}
+          onCancel={handleDatePickerCancel}
         />
 
-        {/* Reminder Picker Modal */}
+        {/* Repeat End Date Picker */}
         <DateTimePickerModal
-          isVisible={showReminderPicker}
-          mode="time"
-          onConfirm={(time) => {
-            setReminderTime(time);
-            setShowReminderPicker(false);
-          }}
-          onCancel={() => setShowReminderPicker(false)}
+          isVisible={showRepeatEndDatePicker}
+          mode="date"
+          onConfirm={handleRepeatEndDateConfirm}
+          onCancel={handleRepeatEndDateCancel}
         />
       </View>
     </GestureHandlerRootView>
