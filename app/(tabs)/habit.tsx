@@ -8,7 +8,8 @@ import {
   Switch,
   Image,
   Platform,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  Alert
 } from 'react-native';
 import { Plus, Check, Menu, X, Camera, CreditCard as Edit2, Repeat, Trash2 } from 'lucide-react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
@@ -23,6 +24,8 @@ import { Calendar } from 'lucide-react-native';
 import BottomSheet from '@gorhom/bottom-sheet';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../../supabase';
+import 'react-native-get-random-values';
+import { v4 as uuidv4 } from 'uuid';
 
 
 interface Habit {
@@ -177,23 +180,47 @@ for (let i = 0; i < 7; i++) {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email);
+      
       if (event === 'SIGNED_IN' && session?.user) {
-        // Fetch user's habits when signed in
-        const { data: habitsData, error: habitsError } = await supabase
-          .from('habits')
-          .select('*')
-          .eq('user_id', session.user.id);
-        
-        if (habitsError) {
-          console.error('Error fetching habits:', habitsError);
-        } else if (habitsData) {
-          setHabits(habitsData.map(habit => ({
-            ...habit,
-            completedDays: habit.completed_days || [],
-            photoProofs: habit.photo_proofs || {},
-            reminderTime: habit.reminder_time,
-            user_id: habit.user_id
-          })));
+        try {
+          // Fetch user's habits when signed in
+          console.log('Fetching habits...');
+          const { data: habitsData, error: habitsError } = await supabase
+            .from('habits')
+            .select('*')
+            .eq('user_id', session.user.id);
+          
+          if (habitsError) {
+            console.error('Error fetching habits:', habitsError);
+            Alert.alert('Error', 'Failed to load habits. Please try again.');
+            return;
+          }
+
+          if (habitsData) {
+            console.log('Habits fetched:', habitsData);
+            // Map habits and ensure all fields are properly set
+            const mappedHabits = habitsData.map(habit => ({
+              ...habit,
+              completedDays: habit.completed_days || [],
+              photoProofs: habit.photo_proofs || {},
+              reminderTime: habit.reminder_time,
+              user_id: habit.user_id,
+              // Ensure all required fields are present
+              streak: habit.streak || 0,
+              completedToday: false,
+              weekDays: habit.week_days || [],
+              repeatType: habit.repeat_type || 'specific',
+              frequency: habit.frequency || 1,
+              requirePhoto: habit.require_photo || false,
+              frequencyMode: habit.frequency_mode || 'weekDays',
+              targetPerWeek: habit.target_per_week || 1
+            }));
+            setHabits(mappedHabits);
+          }
+        } catch (error) {
+          console.error('Error in auth state change handler:', error);
+          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
         }
       } else if (event === 'SIGNED_OUT') {
         // Clear all local state when user signs out
@@ -448,7 +475,7 @@ const formatDate = (date: Date) => {
           : [];
 
       const newHabitItem: Habit = {
-        id: Date.now().toString(),
+        id: uuidv4(),
         text: newHabit.trim(),
         description: newDescription.trim(),
         streak: 0,
@@ -626,7 +653,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     } else {
       // Add new habit
       const newHabitItem: Habit = {
-        id: Date.now().toString(),
+        id: uuidv4(),
         text: newHabit.trim(),
         description: newDescription.trim(),
         streak: 0,

@@ -26,6 +26,9 @@ import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
 import { Picker } from '@react-native-picker/picker';
+import 'react-native-get-random-values';
+import { v4 as uuidv4 } from 'uuid';
+import NetInfo from '@react-native-community/netinfo';
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -294,94 +297,110 @@ export default function TodoScreen() {
   const handleSave = async () => {
     if (!newTodo.trim()) return;
   
+    console.log('Starting save process...');
     let finalCategoryId = selectedCategoryId;
   
-    // First, handle new category creation if needed
-    if (showNewCategoryInput && newCategoryName.trim()) {
-      const newCategory = {
-        id: Date.now().toString(),
-        label: newCategoryName.trim(),
-        color: newCategoryColor,
+    try {
+      // First, handle new category creation if needed
+      if (showNewCategoryInput && newCategoryName.trim()) {
+        console.log('Creating new category...');
+        const newCategory = {
+          id: uuidv4(),
+          label: newCategoryName.trim(),
+          color: newCategoryColor,
+        };
+        
+        // Save new category to Supabase if user is logged in
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          console.log('User found, saving category to Supabase...');
+          const { error } = await supabase
+            .from('categories')
+            .insert({
+              id: newCategory.id,
+              label: newCategory.label,
+              color: newCategory.color,
+              user_id: user.id
+            });
+          
+          if (error) {
+            console.error('Error saving category:', error);
+            Alert.alert('Error', 'Failed to save category. Please try again.');
+            return;
+          }
+          console.log('Category saved successfully');
+        }
+        
+        // Update local state with new category
+        setCategories(prev => [...prev, newCategory]);
+        finalCategoryId = newCategory.id;
+      }
+  
+      // Then create the new task
+      console.log('Creating new task...');
+      const newTodoItem: Todo = {
+        id: uuidv4(),
+        text: newTodo.trim(),
+        description: newDescription.trim(),
+        completed: false,
+        categoryId: finalCategoryId,
+        date: taskDate || currentDate,
+        repeat: selectedRepeat,
+        customRepeatFrequency: selectedRepeat === 'custom' ? Number(customRepeatFrequency) : undefined,
+        customRepeatUnit: selectedRepeat === 'custom' ? customRepeatUnit : undefined,
+        customRepeatWeekDays: selectedRepeat === 'custom' && customRepeatUnit === 'weeks' ? selectedWeekDays : undefined,
+        repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
       };
       
-      // Save new category to Supabase if user is logged in
+      // Save task to Supabase if user is logged in
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        console.log('User found, saving task to Supabase...');
         const { error } = await supabase
-          .from('categories')
+          .from('todos')
           .insert({
-            id: newCategory.id,
-            label: newCategory.label,
-            color: newCategory.color,
+            id: newTodoItem.id,
+            text: newTodoItem.text,
+            description: newTodoItem.description,
+            completed: newTodoItem.completed,
+            category_id: newTodoItem.categoryId,
+            date: newTodoItem.date.toISOString(),
+            repeat: newTodoItem.repeat,
+            custom_repeat_frequency: newTodoItem.customRepeatFrequency,
+            custom_repeat_unit: newTodoItem.customRepeatUnit,
+            custom_repeat_week_days: newTodoItem.customRepeatWeekDays,
+            repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
             user_id: user.id
           });
         
         if (error) {
-          console.error('Error saving category:', error);
-          return; // Exit if category creation fails
+          console.error('Error saving task:', error);
+          Alert.alert('Error', 'Failed to save task. Please try again.');
+          return;
         }
+        console.log('Task saved successfully');
       }
       
-      // Update local state with new category
-      setCategories(prev => [...prev, newCategory]);
-      finalCategoryId = newCategory.id;
-    }
-  
-    // Then create the new task
-    const newTodoItem: Todo = {
-      id: Date.now().toString(),
-      text: newTodo.trim(),
-      description: newDescription.trim(),
-      completed: false,
-      categoryId: finalCategoryId,
-      date: taskDate || currentDate,
-      repeat: selectedRepeat,
-      customRepeatFrequency: selectedRepeat === 'custom' ? Number(customRepeatFrequency) : undefined,
-      customRepeatUnit: selectedRepeat === 'custom' ? customRepeatUnit : undefined,
-      customRepeatWeekDays: selectedRepeat === 'custom' && customRepeatUnit === 'weeks' ? selectedWeekDays : undefined,
-      repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
-    };
-    
-    // Save task to Supabase if user is logged in
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { error } = await supabase
-        .from('todos')
-        .insert({
-          id: newTodoItem.id,
-          text: newTodoItem.text,
-          description: newTodoItem.description,
-          completed: newTodoItem.completed,
-          category_id: newTodoItem.categoryId,
-          date: newTodoItem.date.toISOString(),
-          repeat: newTodoItem.repeat,
-          custom_repeat_frequency: newTodoItem.customRepeatFrequency,
-          custom_repeat_unit: newTodoItem.customRepeatUnit,
-          custom_repeat_week_days: newTodoItem.customRepeatWeekDays,
-          repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
-          user_id: user.id
-        });
+      // Update local state with new task
+      setTodos(prev => [...prev, newTodoItem]);
       
-      if (error) {
-        console.error('Error saving task:', error);
-        return; // Exit if task creation fails
+      // Schedule reminder if set
+      if (reminderTime) {
+        console.log('Scheduling reminder...');
+        await scheduleReminderNotification(newTodo.trim(), reminderTime);
       }
-    }
-    
-    // Update local state with new task
-    setTodos(prev => [...prev, newTodoItem]);
-    
-    // Schedule reminder if set
-    if (reminderTime) {
-      await scheduleReminderNotification(newTodo.trim(), reminderTime);
-    }
 
-    // Reset form and close modal
-    resetForm();
-    setIsNewTaskModalVisible(false);
-    
-    // Provide haptic feedback
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Reset form and close modal
+      resetForm();
+      setIsNewTaskModalVisible(false);
+      
+      // Provide haptic feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      console.log('Save process completed successfully');
+    } catch (error) {
+      console.error('Error in handleSave:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    }
   };
   
   
@@ -463,25 +482,44 @@ export default function TodoScreen() {
   };
   
   const toggleTodo = async (id: string) => {
-    const updatedTodos = todos.map(todo =>
-      todo.id === id
-        ? { ...todo, completed: !todo.completed }
-        : todo
-    );
-    setTodos(updatedTodos);
+    try {
+      // Get the current task
+      const taskToDelete = todos.find(todo => todo.id === id);
+      if (!taskToDelete) {
+        console.error('Task not found:', id);
+        return;
+      }
 
-    // Update task in Supabase if user is logged in
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('No user logged in');
+        return;
+      }
+
+      // Delete from Supabase
       const { error } = await supabase
         .from('todos')
-        .update({ completed: !todos.find(t => t.id === id)?.completed })
+        .delete()
         .eq('id', id)
         .eq('user_id', user.id);
-      
+
       if (error) {
-        console.error('Error updating task completion:', error);
+        console.error('Error deleting task:', error);
+        Alert.alert('Error', 'Failed to delete task. Please try again.');
+        return;
       }
+
+      // Update local state
+      setTodos(prev => prev.filter(todo => todo.id !== id));
+      
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+    } catch (error) {
+      console.error('Error in toggleTodo:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
 
@@ -805,32 +843,56 @@ export default function TodoScreen() {
   // Add this new useEffect to handle auth state changes and fetch/save tasks
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, session?.user?.email);
+      
       if (event === 'SIGNED_IN' && session?.user) {
-        // Fetch user's tasks and categories when signed in
-        const { data: tasksData, error: tasksError } = await supabase
-          .from('todos')
-          .select('*')
-          .eq('user_id', session.user.id);
-        
-        if (tasksError) {
-          console.error('Error fetching tasks:', tasksError);
-        } else if (tasksData) {
-          setTodos(tasksData.map(task => ({
-            ...task,
-            date: new Date(task.date),
-            repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
-          })));
-        }
+        try {
+          // First fetch categories
+          console.log('Fetching categories...');
+          const { data: categoriesData, error: categoriesError } = await supabase
+            .from('categories')
+            .select('*')
+            .eq('user_id', session.user.id);
 
-        const { data: categoriesData, error: categoriesError } = await supabase
-          .from('categories')
-          .select('*')
-          .eq('user_id', session.user.id);
+          if (categoriesError) {
+            console.error('Error fetching categories:', categoriesError);
+            Alert.alert('Error', 'Failed to load categories. Please try again.');
+            return;
+          }
 
-        if (categoriesError) {
-          console.error('Error fetching categories:', categoriesError);
-        } else if (categoriesData) {
-          setCategories(categoriesData);
+          if (categoriesData) {
+            console.log('Categories fetched:', categoriesData);
+            setCategories(categoriesData);
+          }
+
+          // Then fetch tasks
+          console.log('Fetching tasks...');
+          const { data: tasksData, error: tasksError } = await supabase
+            .from('todos')
+            .select('*')
+            .eq('user_id', session.user.id);
+          
+          if (tasksError) {
+            console.error('Error fetching tasks:', tasksError);
+            Alert.alert('Error', 'Failed to load tasks. Please try again.');
+            return;
+          }
+
+          if (tasksData) {
+            console.log('Tasks fetched:', tasksData);
+            // Map tasks and ensure they have the correct category
+            const mappedTasks = tasksData.map(task => ({
+              ...task,
+              date: new Date(task.date),
+              repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+              // Ensure category_id is properly set
+              categoryId: task.category_id || null
+            }));
+            setTodos(mappedTasks);
+          }
+        } catch (error) {
+          console.error('Error in auth state change handler:', error);
+          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
         }
       } else if (event === 'SIGNED_OUT') {
         // Clear all local state when user signs out
@@ -964,7 +1026,7 @@ export default function TodoScreen() {
   // Add this to your useEffect to run the test when the component mounts
   useEffect(() => {
     // Uncomment this line to run the test
-     testDatabaseConnection();
+    testDatabaseConnection();
   }, []);
 
   // callbacks
@@ -1089,6 +1151,55 @@ export default function TodoScreen() {
     console.log('Cancelling repeat end date picker');
     setShowRepeatEndDatePicker(false);
   }, []);
+
+  // Add this function to handle sign out
+  const handleSignOut = async () => {
+    try {
+      console.log('Starting sign out process...');
+      
+      // Clear local state first
+      setTodos([]);
+      setCategories([]);
+      setNewTodo('');
+      setNewDescription('');
+      setSelectedCategoryId('');
+      setShowNewCategoryInput(false);
+      setNewCategoryName('');
+      setNewCategoryColor('#E3F2FD');
+      setEditingTodo(null);
+      setCollapsedCategories({});
+      setCurrentDate(new Date());
+      setTaskDate(null);
+      setReminderTime(null);
+      setSelectedRepeat('none');
+      setRepeatEndDate(null);
+
+      console.log('Local state cleared');
+
+      // Try to sign out with a timeout
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Sign out timeout')), 5000);
+      });
+
+      const signOutPromise = supabase.auth.signOut();
+
+      try {
+        await Promise.race([signOutPromise, timeoutPromise]);
+        console.log('Successfully signed out from Supabase');
+      } catch (error) {
+        console.error('Error during sign out:', error);
+        // Even if sign out fails, we've already cleared local state
+        // So we can consider the user signed out locally
+        console.log('Proceeding with local sign out despite network error');
+      }
+    } catch (error) {
+      console.error('Error in handleSignOut:', error);
+      Alert.alert(
+        'Error',
+        'An unexpected error occurred. Please try again.'
+      );
+    }
+  };
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
