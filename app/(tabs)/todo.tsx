@@ -173,6 +173,16 @@ export default function TodoScreen() {
     setShowNewCategoryInput(false);
     setNewCategoryName('');
     setNewCategoryColor('#E3F2FD');
+    setEditingTodo(null);
+    setCollapsedCategories({});
+    setCurrentDate(new Date());
+    setTaskDate(null);
+    setReminderTime(null);
+    setSelectedRepeat('none');
+    setRepeatEndDate(null);
+    setCustomRepeatFrequency('1');
+    setCustomRepeatUnit('days');
+    setSelectedWeekDays([]);
   };
 
   async function scheduleReminderNotification(taskTitle: string, reminderTime: Date) {
@@ -704,6 +714,24 @@ export default function TodoScreen() {
       );
     };
   
+    const handleEdit = () => {
+      console.log('Editing task:', todo);
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+      setEditingTodo(todo);
+      setNewTodo(todo.text);
+      setNewDescription(todo.description || '');
+      setSelectedCategoryId(todo.categoryId);
+      setTaskDate(todo.date || null);
+      setSelectedRepeat(todo.repeat || 'none');
+      setCustomRepeatFrequency(todo.customRepeatFrequency?.toString() || '1');
+      setCustomRepeatUnit(todo.customRepeatUnit || 'days');
+      setSelectedWeekDays(todo.customRepeatWeekDays || []);
+      setRepeatEndDate(todo.repeatEndDate || null);
+      setIsNewTaskModalVisible(true);
+    };
+
     const taskTouchable = (
       <TouchableOpacity
         style={[
@@ -711,18 +739,8 @@ export default function TodoScreen() {
           todo.completed && styles.completedTodo,
         ]}
         onPress={() => toggleTodo(todo.id)}
-        onLongPress={() => {
-          if (todo.completed) return;
-          if (Platform.OS !== 'web') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          }
-          setEditingTodo(todo);
-          setNewTodo(todo.text);
-          setNewDescription(todo.description || '');
-          setSelectedCategoryId(todo.categoryId);
-          setIsEditModalVisible(true);
-        }}
-        delayLongPress={300}
+        onLongPress={handleEdit}
+        delayLongPress={500}
         activeOpacity={0.9}
       >
         <View style={[styles.checkbox, todo.completed && styles.checked]}>
@@ -1052,118 +1070,6 @@ export default function TodoScreen() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Add this test function
-  const testDatabaseConnection = async () => {
-    try {
-      // Wait for session to be initialized
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // First, verify the session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      console.log('🔐 Session status:', {
-        hasSession: !!session,
-        userEmail: session?.user?.email,
-        userId: session?.user?.id,
-        error: sessionError?.message
-      });
-
-      if (!session?.user) {
-        console.log('❌ No active session found. Please sign in first.');
-        return;
-      }
-
-      // Verify the user is authenticated
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      console.log('👤 User status:', {
-        isAuthenticated: !!user,
-        email: user?.email,
-        id: user?.id,
-        error: userError?.message
-      });
-
-      if (!user) {
-        console.log('❌ User not authenticated');
-        return;
-      }
-
-      console.log('👤 Testing with user:', {
-        email: user.email,
-        id: user.id
-      });
-
-      // Test categories table
-      const testCategory = {
-        id: 'test-category-' + Date.now(),
-        label: 'Test Category',
-        color: '#FF0000',
-        user_id: user.id
-      };
-
-      console.log('📝 Attempting to insert category:', testCategory);
-
-      // Insert test category
-      const { data: categoryData, error: categoryError } = await supabase
-        .from('categories')
-        .insert(testCategory)
-        .select();
-
-      if (categoryError) {
-        console.error('❌ Error inserting category:', {
-          message: categoryError.message,
-          details: categoryError.details,
-          hint: categoryError.hint,
-          code: categoryError.code
-        });
-      } else {
-        console.log('✅ Successfully inserted test category:', categoryData);
-      }
-
-      // Fetch and verify data
-      console.log('📋 Fetching categories...');
-      const { data: categoriesData, error: categoriesError } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (categoriesError) {
-        console.error('❌ Error fetching categories:', {
-          message: categoriesError.message,
-          details: categoriesError.details,
-          hint: categoriesError.hint,
-          code: categoriesError.code
-        });
-      } else {
-        console.log('📋 Categories:', categoriesData);
-      }
-
-      console.log('📝 Fetching todos...');
-      const { data: todosData, error: todosError } = await supabase
-        .from('todos')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (todosError) {
-        console.error('❌ Error fetching todos:', {
-          message: todosError.message,
-          details: todosError.details,
-          hint: todosError.hint,
-          code: todosError.code
-        });
-      } else {
-        console.log('📝 Todos:', todosData);
-      }
-
-    } catch (error) {
-      console.error('❌ Test failed:', error);
-    }
-  };
-
-  // Add this to your useEffect to run the test when the component mounts
-  useEffect(() => {
-    // Uncomment this line to run the test
-    testDatabaseConnection();
-  }, []);
-
   // callbacks
   const handleSheetChanges = useCallback((index: number) => {
     console.log('handleSheetChanges', index);
@@ -1454,7 +1360,7 @@ export default function TodoScreen() {
                   fontSize: 28,
                   fontWeight: 'bold',
                   color: '#1a1a1a'
-                }]}>New Task</Text>
+                }]}>{editingTodo ? 'Edit Existing Task' : 'Create New Task'}</Text>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <TouchableOpacity 
                     style={{ marginRight: 16 }}

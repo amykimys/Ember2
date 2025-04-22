@@ -134,9 +134,6 @@ export default function HabitScreen() {
   const [isModalTransitioning, setIsModalTransitioning] = useState(false);
 
 
-
-
-
   
   const THEMES = {
     pastel: ['#FADADD', '#FFE5B4', '#FFFACD', '#D0F0C0', '#B0E0E6', '#D8BFD8', '#F0D9FF', '#C1E1C1']
@@ -603,6 +600,27 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
   };
   
 
+  const handleEditHabit = (habit: Habit) => {
+    console.log('Editing habit:', habit);
+    setEditingHabit(habit);
+    setNewHabit(habit.text);
+    setNewDescription(habit.description || '');
+    setSelectedColor(HABIT_COLORS.find(c => c.value === habit.color) || HABIT_COLORS[0]);
+    setNewCategoryColor(habit.color);
+    setRepeatType(habit.repeatType);
+    setRequirePhoto(habit.requirePhoto);
+    setReminderTime(habit.reminderTime ? new Date(habit.reminderTime) : null);
+    setReminderEnabled(!!habit.reminderTime);
+    setFrequencyMode(habit.frequencyMode || 'weekDays');
+    setSelectedWeekDays(habit.weekDays || []);
+    setFrequency(habit.frequency || habit.targetPerWeek || 1);
+    setTempFrequencyMode(habit.frequencyMode || 'weekDays');
+    setTempSelectedWeekDays(habit.weekDays || []);
+    setTempFrequency(habit.frequency || habit.targetPerWeek || 1);
+    setIsNewHabitModalVisible(true);
+  };
+  
+
   const handleSave = async () => {
     if (!newHabit.trim()) return;
 
@@ -622,10 +640,14 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
         repeatType,
         weekDays: repeatType === 'specific' ? selectedWeekDays : [],
         frequency: repeatType === 'frequency' ? frequency : undefined,
+        targetPerWeek: frequencyMode === 'timesPerWeek' ? frequency : undefined,
+        frequencyMode,
         requirePhoto,
         reminderTime: reminderEnabled ? reminderTime?.toISOString() : null,
         user_id: user.id
       };
+
+      console.log('Updating habit:', updatedHabit);
 
       // Update in Supabase
       const { error } = await supabase
@@ -637,6 +659,8 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
           repeat_type: updatedHabit.repeatType,
           week_days: updatedHabit.weekDays,
           frequency: updatedHabit.frequency,
+          target_per_week: updatedHabit.targetPerWeek,
+          frequency_mode: updatedHabit.frequencyMode,
           require_photo: updatedHabit.requirePhoto,
           reminder_time: updatedHabit.reminderTime,
         })
@@ -645,11 +669,13 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
 
       if (error) {
         console.error('Error updating habit:', error);
+        Alert.alert('Error', 'Failed to update habit. Please try again.');
         return;
       }
 
       // Update local state
       setHabits(prev => prev.map(h => h.id === editingHabit.id ? updatedHabit : h));
+      console.log('Habit updated successfully');
     } else {
       // Add new habit
       const newHabitItem: Habit = {
@@ -663,6 +689,8 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
         repeatType,
         weekDays: repeatType === 'specific' ? selectedWeekDays : [],
         frequency: repeatType === 'frequency' ? frequency : undefined,
+        targetPerWeek: frequencyMode === 'timesPerWeek' ? frequency : undefined,
+        frequencyMode,
         requirePhoto,
         photoProofs: {},
         user_id: user.id
@@ -681,6 +709,8 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
           repeat_type: newHabitItem.repeatType,
           week_days: newHabitItem.weekDays,
           frequency: newHabitItem.frequency,
+          target_per_week: newHabitItem.targetPerWeek,
+          frequency_mode: newHabitItem.frequencyMode,
           require_photo: newHabitItem.requirePhoto,
           photo_proofs: newHabitItem.photoProofs,
           user_id: user.id
@@ -688,6 +718,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
 
       if (error) {
         console.error('Error saving habit:', error);
+        Alert.alert('Error', 'Failed to save habit. Please try again.');
         return;
       }
 
@@ -701,7 +732,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     resetForm();
-    bottomSheetRef.current?.close();
+    setIsNewHabitModalVisible(false);
   };
   
 
@@ -715,44 +746,6 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
   };
   
 
-  const handleEditHabit = (habit: Habit) => {
-    setEditingHabit(habit);
-    setNewHabit(habit.text);
-    setNewDescription(habit.description || '');
-    setSelectedColor(HABIT_COLORS.find(c => c.value === habit.color) || HABIT_COLORS[0]);
-    setNewCategoryColor(habit.color);
-    setRepeatType(habit.repeatType);
-    setRequirePhoto(habit.requirePhoto);
-    setReminderTime(habit.reminderTime ? new Date(habit.reminderTime) : null);
-    setReminderEnabled(!!habit.reminderTime);
-    setFrequencyMode(habit.frequencyMode || 'weekDays');
-    setSelectedWeekDays(habit.weekDays || []);
-    setFrequency(habit.frequency || habit.targetPerWeek || 1);
-    setIsNewHabitModalVisible(true);
-  };
-  
-
-  const saveEditedHabit = () => {
-    if (editingHabit && newHabit.trim()) {
-      setHabits(habits.map(habit => 
-        habit.id === editingHabit.id
-          ? {
-            ...habit,
-            name: newHabit.trim(),
-            details: newDescription.trim(),
-            color: newCategoryColor,
-            repeatType,
-            weekDays: repeatType === 'specific' ? selectedWeekDays : [],
-            frequency: repeatType === 'frequency' ? frequency : undefined,
-            requirePhoto,
-            reminderTime: reminderEnabled ? reminderTime?.toISOString() || null : null, // 👈 Add this
-        }
-          : habit
-      ));
-      resetForm();
-    }
-  };
-
   const renderHabitCheckmarks = (habit: Habit) => (
     <View style={styles.checkmarksContainer}>
       {currentWeek.map((date, index) => {
@@ -762,52 +755,6 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     (!habit.requirePhoto || (habit.requirePhoto && habit.photoProofs[dateStr]));
 
   const isDueDay = habit.weekDays.includes(dayKey);
-
-  // Repeat Type: specific
-  if (habit.repeatType === 'specific') {
-    return (
-      <View key={index} style={styles.dayIndicatorWrapper}>
-        {isDueDay ? (
-          <TouchableOpacity
-            onPress={() => handleHabitPress(habit.id, dateStr)}
-            onLongPress={() => showPhotoProof(habit.id, dateStr)}
-          >
-            <View style={[
-              styles.circleBase,
-              isCompleted ? styles.checkmarkAlone : styles.openCircle
-            ]}>
-              {isCompleted && <Check size={18} color="black" />}
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.grayDot} />
-        )}
-      </View>
-    );
-  }
-
-  // Repeat Type: frequency (weekDays)
-  if (habit.repeatType === 'frequency' && habit.frequencyMode === 'weekDays') {
-    return (
-      <View key={index} style={styles.dayIndicatorWrapper}>
-        {isDueDay ? (
-          <TouchableOpacity
-            onPress={() => handleHabitPress(habit.id, dateStr)}
-            onLongPress={() => showPhotoProof(habit.id, dateStr)}
-          >
-            <View style={[
-              styles.circleBase,
-              isCompleted ? styles.checkmarkAlone : styles.openCircle
-            ]}>
-              {isCompleted && <Check size={18} color="black" />}
-            </View>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.grayDot} />
-        )}
-      </View>
-    );
-  }
 
   // Repeat Type: frequency (timesPerWeek)
   return (
@@ -972,17 +919,17 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
             <Text style={styles.emptyStateSubtitle}>Start building good habits :)</Text>
           </View>
         ) : (
-          habits.map((habit) => (   // <-- REMOVE the extra { here
+          habits.map((habit) => (
             <Swipeable
               key={habit.id}
-               onSwipeableOpen={() => {
-                   if (Platform.OS !== 'web') {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              }
-                  deleteHabit(habit.id);
-                }}
-              friction={1.5} // <-- slows it down a little
-              overshootFriction={8} // <-- adds a bounce at the end
+              onSwipeableOpen={() => {
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                }
+                deleteHabit(habit.id);
+              }}
+              friction={1.5}
+              overshootFriction={8}
               renderRightActions={(progress, dragX) => {
                 const scale = dragX.interpolate({
                   inputRange: [-100, 0],
@@ -1000,60 +947,61 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
               }}
             >
               <TouchableOpacity
-                onLongPress={() => handleEditHabit(habit)}
-                delayLongPress={300}
+                onLongPress={() => {
+                  console.log('Long press detected on habit:', habit);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  }
+                  handleEditHabit(habit);
+                }}
+                delayLongPress={500}
                 activeOpacity={0.9}
               >
                 <View style={{ position: 'relative' }}>
-                <View
-  style={[
-    styles.habitItem,
-    { backgroundColor: habit.color, position: 'relative' }  // 👈 Add position
-  ]}
->
+                  <View
+                    style={[
+                      styles.habitItem,
+                      { backgroundColor: habit.color, position: 'relative' }
+                    ]}
+                  >
+                    <View style={styles.habitHeader}>
+                      {habit.frequencyMode === 'timesPerWeek' ? (
+                        <TouchableOpacity onPress={() => {
+                          setExpandedStreakId(expandedStreakId === habit.id ? null : habit.id);
+                        }}>
+                          <Text style={styles.streakText}>
+                            {expandedStreakId === habit.id
+                              ? getTotalHabitCompletions(habit)
+                              : getWeeklyProgressStreak(habit)}
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={styles.streakText}>
+                          🔥 {habit.streak}
+                        </Text>
+                      )}
+                      {renderHabitCheckmarks(habit)}
+                    </View>
 
-  <View style={styles.habitHeader}>
-  {habit.frequencyMode === 'timesPerWeek' ? (
-  <TouchableOpacity onPress={() => {
-    setExpandedStreakId(expandedStreakId === habit.id ? null : habit.id);
-  }}>
-    <Text style={styles.streakText}>
-      {expandedStreakId === habit.id
-        ? getTotalHabitCompletions(habit)
-        : getWeeklyProgressStreak(habit)}
-    </Text>
-  </TouchableOpacity>
-) : (
-  <Text style={styles.streakText}>
-    🔥 {habit.streak}
-  </Text>
-)}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={[styles.habitName, { color: getTextColor(habit.color), flexShrink: 1 }]}>
+                        {habit.text}
+                      </Text>
+                      {habit.requirePhoto && (
+                        <Camera size={16} color={getTextColor(habit.color)} style={{ marginLeft: 8 }} />
+                      )}
+                    </View>
 
-
-    {renderHabitCheckmarks(habit)}
-  </View>
-
-  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-  <Text style={[styles.habitName, { color: getTextColor(habit.color), flexShrink: 1 }]}>
-    {habit.text}
-  </Text>
-  {habit.requirePhoto && (
-    <Camera size={16} color={getTextColor(habit.color)} style={{ marginLeft: 8 }} />
-  )}
-</View>
-
-
-  {habit.description && (
-    <Text style={[
-      styles.habitDetails,
-      { color: getTextColor(habit.color) }
-    ]}>
-      {habit.description}
-    </Text>
-  )}
-</View>
-</View>
-
+                    {habit.description && (
+                      <Text style={[
+                        styles.habitDetails,
+                        { color: getTextColor(habit.color) }
+                      ]}>
+                        {habit.description}
+                      </Text>
+                    )}
+                  </View>
+                </View>
               </TouchableOpacity>
             </Swipeable>
           ))
@@ -1351,47 +1299,85 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                 </TouchableOpacity>
               </View>
 
-              {/* Weekday Picker */}
-              {tempFrequencyMode === 'weekDays' && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', marginVertical: 10 }}>
-                  {weekdayLabels.map(({ label, key }) => (
-                    <TouchableOpacity
-                      key={key}
-                      style={[
-                        styles.dayToggle,
-                        tempSelectedWeekDays.includes(key) && styles.dayToggleSelected,
-                      ]}
-                      onPress={() => {
-                        setTempSelectedWeekDays((prev) =>
-                          prev.includes(key)
-                            ? prev.filter((d) => d !== key)
-                            : [...prev, key]
-                        );
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.dayToggleText,
-                          tempSelectedWeekDays.includes(key) && { color: 'white' }
-                        ]}
-                      >
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
 
               {/* Times Per Week */}
               {tempFrequencyMode === 'timesPerWeek' && (
                 <View style={{ marginTop: 10 }}>
-                  <Text style={{ marginBottom: 4 }}>How many times per week?</Text>
+                  <Text style={{ marginBottom: 4, fontSize: 16, fontWeight: '600', color: '#1a1a1a' }}>Target Goal</Text>
+                  <Text style={{ marginBottom: 8, color: '#666' }}>How many times do you want to complete this habit per week?</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.frequencyButton,
+                        tempFrequency === 1 && styles.frequencyButtonActive
+                      ]}
+                      onPress={() => setTempFrequency(1)}
+                    >
+                      <Text style={[
+                        styles.frequencyButtonText,
+                        { color: tempFrequency === 1 ? 'white' : '#1a1a1a' }
+                      ]}>1x</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.frequencyButton,
+                        tempFrequency === 2 && styles.frequencyButtonActive
+                      ]}
+                      onPress={() => setTempFrequency(2)}
+                    >
+                      <Text style={[
+                        styles.frequencyButtonText,
+                        { color: tempFrequency === 2 ? 'white' : '#1a1a1a' }
+                      ]}>2x</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.frequencyButton,
+                        tempFrequency === 3 && styles.frequencyButtonActive
+                      ]}
+                      onPress={() => setTempFrequency(3)}
+                    >
+                      <Text style={[
+                        styles.frequencyButtonText,
+                        { color: tempFrequency === 3 ? 'white' : '#1a1a1a' }
+                      ]}>3x</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.frequencyButton,
+                        tempFrequency === 4 && styles.frequencyButtonActive
+                      ]}
+                      onPress={() => setTempFrequency(4)}
+                    >
+                      <Text style={[
+                        styles.frequencyButtonText,
+                        { color: tempFrequency === 4 ? 'white' : '#1a1a1a' }
+                      ]}>4x</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.frequencyButton,
+                        tempFrequency === 5 && styles.frequencyButtonActive
+                      ]}
+                      onPress={() => setTempFrequency(5)}
+                    >
+                      <Text style={[
+                        styles.frequencyButtonText,
+                        { color: tempFrequency === 5 ? 'white' : '#1a1a1a' }
+                      ]}>5x</Text>
+                    </TouchableOpacity>
+                  </View>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, { marginTop: 12 }]}
                     keyboardType="number-pad"
-                    value={tempFrequency.toString()}
-                    onChangeText={(text) => setTempFrequency(parseInt(text) || 0)}
-                    placeholder="e.g. 3"
+                    value={tempFrequency > 5 ? tempFrequency.toString() : ''}
+                    onChangeText={(text) => {
+                      const num = parseInt(text);
+                      if (!isNaN(num) && num > 0) {
+                        setTempFrequency(num);
+                      }
+                    }}
+                    placeholder="Custom (e.g. 7)"
                   />
                 </View>
               )}

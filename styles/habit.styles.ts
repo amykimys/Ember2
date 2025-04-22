@@ -532,7 +532,21 @@ const styles = StyleSheet.create({
       justifyContent: 'center',
     },
   
-    
+    frequencyButton: {
+      flex: 1,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: '#F5F5F5',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    frequencyButtonActive: {
+      backgroundColor: '#007AFF',
+    },
+    frequencyButtonText: {
+      fontSize: 16,
+      fontWeight: '600',
+    },
   });
 
   export default styles;
