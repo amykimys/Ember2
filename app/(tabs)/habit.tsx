@@ -26,6 +26,7 @@ import * as Notifications from 'expo-notifications';
 import { supabase } from '../../supabase';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
+import { Picker as ReactNativePicker } from '@react-native-picker/picker';
 
 
 interface Habit {
@@ -35,35 +36,17 @@ interface Habit {
   description?: string;
   completedToday: boolean;
   completedDays: string[];
-  weekDays: WeekDay[];
-  repeatType: 'specific' | 'frequency';
   color: string;
-  repeat?: RepeatOption;
   requirePhoto: boolean;
   photoProofs: { [date: string]: string };
-  customRepeatFrequency?: number; 
-  customRepeatUnit?: 'days' | 'weeks' | 'months'; 
-  customRepeatWeekDays?: WeekDay[];
-  frequency?: number;
-  frequencyMode?: 'timesPerWeek' | 'weekDays';
-  targetPerWeek?: number;
+  targetPerWeek: number;
   reminderTime?: string | null;
   user_id?: string;
 }
 
   
-  type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
-  type RepeatUnit = 'days' | 'weeks' | 'months';
-  type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
+  type WeekDay = 'sun' | 'on' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
 
-
-  const REPEAT_OPTIONS = [
-    { value: 'none' as const, label: "Don't repeat" },
-    { value: 'daily' as const, label: 'Daily' },
-    { value: 'weekly' as const, label: 'Weekly' },
-    { value: 'monthly' as const, label: 'Monthly' },
-    { value: 'custom' as const, label: 'Custom' },
-  ];  
 
   const HABIT_COLORS = [
     { name: 'Sky', value: '#E3F2FD', text: '#1a1a1a' },
@@ -80,26 +63,14 @@ interface Habit {
     { name: 'Blue Grey', value: '#607D8B', text: '#ffffff' },
   ];
 
-  const weekdayLabels: { label: string; key: WeekDay }[] = [
-    { label: 'M', key: 'mon' },
-    { label: 'T', key: 'tue' },
-    { label: 'W', key: 'wed' },
-    { label: 'T', key: 'thu' },
-    { label: 'F', key: 'fri' },
-    { label: 'S', key: 'sat' },
-    { label: 'S', key: 'sun' },
-  ];
-  
+ 
 export default function HabitScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [newHabit, setNewHabit] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(HABIT_COLORS[0]);
-  const [showAddModal, setShowAddModal] = useState(false);
   const [currentWeek, setCurrentWeek] = useState<Date[]>([]);
-  const [selectedWeekDays, setSelectedWeekDays] = useState<WeekDay[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
-  const [repeatType, setRepeatType] = useState<'specific' | 'frequency'>('specific');
-  const [frequency, setFrequency] = useState(5);
+  const [frequency, setFrequency] = useState(1);
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
@@ -111,24 +82,15 @@ export default function HabitScreen() {
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
-  const bottomSheetRef = useRef<BottomSheet>(null);
   const [selectedTheme, setSelectedTheme] = useState<keyof typeof THEMES>('pastel');
   const [newCategoryColor, setNewCategoryColor] = useState('#E3F2FD');
   const [habitDate, setHabitDate] = useState<Date | null>(null);
   const [showHabitDatePicker, setShowHabitDatePicker] = useState(false);
   const repeatBottomSheetRef = useRef<BottomSheet>(null);
-  const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
-  const [customRepeatFrequency, setCustomRepeatFrequency] = useState<number>(0);
-  const [customRepeatUnit, setCustomRepeatUnit] = useState<RepeatUnit>('days');
-  const [frequencyMode, setFrequencyMode] = useState<'timesPerWeek' | 'weekDays'>('weekDays');
-  const [tempFrequencyMode, setTempFrequencyMode] = useState(frequencyMode);
-  const [tempSelectedWeekDays, setTempSelectedWeekDays] = useState<WeekDay[]>(selectedWeekDays);
-  const [tempFrequency, setTempFrequency] = useState(frequency);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const photoOptionsSheetRef = useRef<BottomSheet>(null);
   const [expandedStreakId, setExpandedStreakId] = useState<string | null>(null);
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
-  const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
   const [isPhotoOptionsModalVisible, setIsPhotoOptionsModalVisible] = useState(false);
   const [isPhotoPreviewModalVisible, setIsPhotoPreviewModalVisible] = useState(false);
   const [isModalTransitioning, setIsModalTransitioning] = useState(false);
@@ -206,12 +168,8 @@ for (let i = 0; i < 7; i++) {
               // Ensure all required fields are present
               streak: habit.streak || 0,
               completedToday: false,
-              weekDays: habit.week_days || [],
-              repeatType: habit.repeat_type || 'specific',
-              frequency: habit.frequency || 1,
-              requirePhoto: habit.require_photo || false,
-              frequencyMode: habit.frequency_mode || 'weekDays',
-              targetPerWeek: habit.target_per_week || 1
+              targetPerWeek: habit.target_per_week || 1,
+              requirePhoto: habit.require_photo || false
             }));
             setHabits(mappedHabits);
           }
@@ -299,9 +257,7 @@ for (let i = 0; i < 7; i++) {
   setNewDescription('');
   setSelectedColor(HABIT_COLORS[0]);
   setNewCategoryColor(HABIT_COLORS[0].value);
-  setSelectedWeekDays(['mon', 'tue', 'wed', 'thu', 'fri']);
-  setRepeatType('specific');
-  setFrequency(5);
+  setFrequency(1);
   setRequirePhoto(false);
   setReminderEnabled(false);
   setReminderTime(null);
@@ -310,7 +266,7 @@ for (let i = 0; i < 7; i++) {
 };
 
 
-const formatDate = (date: Date) => {
+const formatDate = (date: Date): string => {
   return date.toISOString().split('T')[0];
 };
 
@@ -319,65 +275,23 @@ const formatDate = (date: Date) => {
     return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()] as WeekDay;
   };
   
-
-  const shouldShowHabit = (habit: Habit, date: Date) => {
-    const dayName = date
-      .toLocaleDateString('en-US', { weekday: 'short' })
-      .toLowerCase()
-      .slice(0, 3) as WeekDay;
   
-    if (habit.repeatType === 'specific') {
-      return habit.weekDays.includes(dayName);
-    }
-  
-    if (habit.frequencyMode === 'weekDays') {
-      return habit.weekDays.includes(dayName);
-    }
-  
-    return true; // frequencyMode === 'timesPerWeek'
-  };
-  
-  const calculateStreak = (habit: Habit, completedDays: string[]) => {
-    if (habit.repeatType !== 'frequency' || habit.frequencyMode !== 'timesPerWeek') {
-      const completedSet = new Set(completedDays);
-      const today = new Date();
-      let streak = 0;
-      let currentDate = new Date(today);
-  
-      while (true) {
-        const dateStr = formatDate(currentDate);
-        if (completedSet.has(dateStr)) {
-          streak++;
-        } else {
-          break;
-        }
-        currentDate.setDate(currentDate.getDate() - 1);
-      }
-  
-      return streak;
-    }
-  
-    const groupedWeeks = groupCompletedDaysByWeek(completedDays);
-    const target = habit.targetPerWeek || 1;
+  const calculateStreak = (habit: Habit, completedDays: string[]): number => {
+    const completedSet = new Set(completedDays);
+    const today = new Date();
     let streak = 0;
-  
-    // Iterate from most recent to oldest
-    for (let i = groupedWeeks.length - 1; i >= 0; i--) {
-      const week = groupedWeeks[i];
-      const count = week.length;
-  
-      if (count >= target) {
-        streak += count;
+    let currentDate = new Date(today);
+
+    while (true) {
+      const dateStr = formatDate(currentDate);
+      if (completedSet.has(dateStr)) {
+        streak++;
       } else {
-        // 👇 Only break *after* checking the most recent valid week
-        if (streak === 0) {
-          break;
-        } else {
-          return streak;
-        }
+        break;
       }
+      currentDate.setDate(currentDate.getDate() - 1);
     }
-  
+
     return streak;
   };
   
@@ -450,72 +364,53 @@ const formatDate = (date: Date) => {
   
 
   const addHabit = async () => {
-    if (
-      newHabit.trim() &&
-      (repeatType === 'frequency'
-        ? frequencyMode === 'timesPerWeek'
-          ? frequency > 0
-          : selectedWeekDays.length > 0
-        : selectedWeekDays.length > 0)
-    ) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error('No user logged in');
-        return;
-      }
+    if (!newHabit.trim()) return;
 
-      const computedWeekDays =
-        repeatType === 'specific'
-          ? selectedWeekDays
-          : frequencyMode === 'weekDays'
-          ? selectedWeekDays
-          : [];
-
-      const newHabitItem: Habit = {
-        id: uuidv4(),
-        text: newHabit.trim(),
-        description: newDescription.trim(),
-        streak: 0,
-        completedToday: false,
-        completedDays: [],
-        color: newCategoryColor,
-        repeatType,
-        weekDays: computedWeekDays,
-        frequency: repeatType === 'frequency' ? frequency : undefined,
-        targetPerWeek: frequencyMode === 'timesPerWeek' ? frequency : undefined,
-        frequencyMode,
-        requirePhoto,
-        photoProofs: {},
-        user_id: user.id
-      };
-
-      // Save to Supabase
-      const { error } = await supabase
-        .from('habits')
-        .insert({
-          id: newHabitItem.id,
-          text: newHabitItem.text,
-          description: newHabitItem.description,
-          streak: newHabitItem.streak,
-          completed_days: newHabitItem.completedDays,
-          color: newHabitItem.color,
-          repeat_type: newHabitItem.repeatType,
-          week_days: newHabitItem.weekDays,
-          frequency: newHabitItem.frequency,
-          require_photo: newHabitItem.requirePhoto,
-          photo_proofs: newHabitItem.photoProofs,
-          user_id: user.id
-        });
-
-      if (error) {
-        console.error('Error saving habit:', error);
-        return;
-      }
-
-      // Update local state
-      setHabits(prev => [...prev, newHabitItem]);
-      resetForm();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      console.error('No user logged in');
+      return;
     }
+
+    const newHabitItem: Habit = {
+      id: uuidv4(),
+      text: newHabit.trim(),
+      description: newDescription.trim(),
+      streak: 0,
+      completedToday: false,
+      completedDays: [],
+      color: newCategoryColor,
+      targetPerWeek: frequency,
+      requirePhoto,
+      photoProofs: {},
+      user_id: user.id
+    };
+
+    // Save to Supabase
+    const { error } = await supabase
+      .from('habits')
+      .insert({
+        id: newHabitItem.id,
+        text: newHabitItem.text,
+        description: newHabitItem.description,
+        streak: newHabitItem.streak,
+        completed_days: newHabitItem.completedDays,
+        color: newHabitItem.color,
+        target_per_week: newHabitItem.targetPerWeek,
+        require_photo: newHabitItem.requirePhoto,
+        photo_proofs: newHabitItem.photoProofs,
+        user_id: user.id
+      });
+
+    if (error) {
+      console.error('Error saving habit:', error);
+      Alert.alert('Error', 'Failed to save habit. Please try again.');
+      return;
+    }
+
+    // Update local state
+    setHabits(prev => [...prev, newHabitItem]);
+    resetForm();
   };
   
   const deleteHabit = async (habitId: string) => {
@@ -607,16 +502,10 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     setNewDescription(habit.description || '');
     setSelectedColor(HABIT_COLORS.find(c => c.value === habit.color) || HABIT_COLORS[0]);
     setNewCategoryColor(habit.color);
-    setRepeatType(habit.repeatType);
     setRequirePhoto(habit.requirePhoto);
     setReminderTime(habit.reminderTime ? new Date(habit.reminderTime) : null);
     setReminderEnabled(!!habit.reminderTime);
-    setFrequencyMode(habit.frequencyMode || 'weekDays');
-    setSelectedWeekDays(habit.weekDays || []);
-    setFrequency(habit.frequency || habit.targetPerWeek || 1);
-    setTempFrequencyMode(habit.frequencyMode || 'weekDays');
-    setTempSelectedWeekDays(habit.weekDays || []);
-    setTempFrequency(habit.frequency || habit.targetPerWeek || 1);
+    setFrequency(habit.targetPerWeek);
     setIsNewHabitModalVisible(true);
   };
   
@@ -635,19 +524,13 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
       const updatedHabit = {
         ...editingHabit,
         text: newHabit.trim(),
-        description: newDescription.trim(),
+        description: newDescription.trim() || undefined,
         color: newCategoryColor,
-        repeatType,
-        weekDays: repeatType === 'specific' ? selectedWeekDays : [],
-        frequency: repeatType === 'frequency' ? frequency : undefined,
-        targetPerWeek: frequencyMode === 'timesPerWeek' ? frequency : undefined,
-        frequencyMode,
+        targetPerWeek: frequency,
         requirePhoto,
         reminderTime: reminderEnabled ? reminderTime?.toISOString() : null,
         user_id: user.id
       };
-
-      console.log('Updating habit:', updatedHabit);
 
       // Update in Supabase
       const { error } = await supabase
@@ -656,13 +539,9 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
           text: updatedHabit.text,
           description: updatedHabit.description,
           color: updatedHabit.color,
-          repeat_type: updatedHabit.repeatType,
-          week_days: updatedHabit.weekDays,
-          frequency: updatedHabit.frequency,
           target_per_week: updatedHabit.targetPerWeek,
-          frequency_mode: updatedHabit.frequencyMode,
           require_photo: updatedHabit.requirePhoto,
-          reminder_time: updatedHabit.reminderTime,
+          reminder_time: updatedHabit.reminderTime
         })
         .eq('id', updatedHabit.id)
         .eq('user_id', user.id);
@@ -675,22 +554,17 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
 
       // Update local state
       setHabits(prev => prev.map(h => h.id === editingHabit.id ? updatedHabit : h));
-      console.log('Habit updated successfully');
     } else {
       // Add new habit
       const newHabitItem: Habit = {
         id: uuidv4(),
         text: newHabit.trim(),
-        description: newDescription.trim(),
+        description: newDescription.trim() || undefined,
         streak: 0,
         completedToday: false,
         completedDays: [],
         color: newCategoryColor,
-        repeatType,
-        weekDays: repeatType === 'specific' ? selectedWeekDays : [],
-        frequency: repeatType === 'frequency' ? frequency : undefined,
-        targetPerWeek: frequencyMode === 'timesPerWeek' ? frequency : undefined,
-        frequencyMode,
+        targetPerWeek: frequency,
         requirePhoto,
         photoProofs: {},
         user_id: user.id
@@ -706,11 +580,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
           streak: newHabitItem.streak,
           completed_days: newHabitItem.completedDays,
           color: newHabitItem.color,
-          repeat_type: newHabitItem.repeatType,
-          week_days: newHabitItem.weekDays,
-          frequency: newHabitItem.frequency,
           target_per_week: newHabitItem.targetPerWeek,
-          frequency_mode: newHabitItem.frequencyMode,
           require_photo: newHabitItem.requirePhoto,
           photo_proofs: newHabitItem.photoProofs,
           user_id: user.id
@@ -749,31 +619,26 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
   const renderHabitCheckmarks = (habit: Habit) => (
     <View style={styles.checkmarksContainer}>
       {currentWeek.map((date, index) => {
-  const dateStr = formatDate(date);
-  const dayKey = getWeekDayKey(date); // returns 'mon', 'tue', etc.
-  const isCompleted = habit.completedDays.includes(dateStr) &&
-    (!habit.requirePhoto || (habit.requirePhoto && habit.photoProofs[dateStr]));
+        const dateStr = formatDate(date);
+        const isCompleted = habit.completedDays.includes(dateStr) &&
+          (!habit.requirePhoto || (habit.requirePhoto && habit.photoProofs[dateStr]));
 
-  const isDueDay = habit.weekDays.includes(dayKey);
-
-  // Repeat Type: frequency (timesPerWeek)
-  return (
-    <View key={index} style={styles.dayIndicatorWrapper}>
-      <TouchableOpacity
-        onPress={() => handleHabitPress(habit.id, dateStr)}
-        onLongPress={() => showPhotoProof(habit.id, dateStr)}
-      >
-        <View style={[
-          styles.circleBase,
-          isCompleted ? styles.checkmarkAlone : styles.openCircle
-        ]}>
-          {isCompleted && <Check size={18} color="black" />}
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
-})}
-
+        return (
+          <View key={index} style={styles.dayIndicatorWrapper}>
+            <TouchableOpacity
+              onPress={() => handleHabitPress(habit.id, dateStr)}
+              onLongPress={() => showPhotoProof(habit.id, dateStr)}
+            >
+              <View style={[
+                styles.circleBase,
+                isCompleted ? styles.checkmarkAlone : styles.openCircle
+              ]}>
+                {isCompleted && <Check size={18} color="black" />}
+              </View>
+            </TouchableOpacity>
+          </View>
+        );
+      })}
     </View>
   );
   
@@ -857,18 +722,6 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
       if (isModalTransitioning) return;
       setIsModalTransitioning(true);
       setIsNewHabitModalVisible(false);
-      setTimeout(() => {
-        setIsModalTransitioning(false);
-      }, 300);
-    }, 300),
-    [isModalTransitioning]
-  );
-
-  const handleCloseSettingsModal = useCallback(
-    debounce(() => {
-      if (isModalTransitioning) return;
-      setIsModalTransitioning(true);
-      setIsSettingsModalVisible(false);
       setTimeout(() => {
         setIsModalTransitioning(false);
       }, 300);
@@ -965,21 +818,15 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                     ]}
                   >
                     <View style={styles.habitHeader}>
-                      {habit.frequencyMode === 'timesPerWeek' ? (
-                        <TouchableOpacity onPress={() => {
-                          setExpandedStreakId(expandedStreakId === habit.id ? null : habit.id);
-                        }}>
-                          <Text style={styles.streakText}>
-                            {expandedStreakId === habit.id
-                              ? getTotalHabitCompletions(habit)
-                              : getWeeklyProgressStreak(habit)}
-                          </Text>
-                        </TouchableOpacity>
-                      ) : (
+                      <TouchableOpacity onPress={() => {
+                        setExpandedStreakId(expandedStreakId === habit.id ? null : habit.id);
+                      }}>
                         <Text style={styles.streakText}>
-                          🔥 {habit.streak}
+                          {expandedStreakId === habit.id
+                            ? getTotalHabitCompletions(habit)
+                            : getWeeklyProgressStreak(habit)}
                         </Text>
-                      )}
+                      </TouchableOpacity>
                       {renderHabitCheckmarks(habit)}
                     </View>
 
@@ -1179,19 +1026,38 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
               </View>
 
               {/* Frequency Section */}
-              <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>Frequency</Text>
-                <TouchableOpacity
-                  style={styles.newOptionButton}
-                  onPress={() => setIsSettingsModalVisible(true)}
-                >
-                  <Ionicons name="repeat" size={20} color="#666" />
-                  <Text style={styles.newOptionText}>
-                    {frequencyMode === 'weekDays'
-                      ? `Custom Weekdays`
-                      : `Target Frequency`}
-                  </Text>
-                </TouchableOpacity>
+              <View style={[styles.optionRow, { marginBottom: 20 }]}>
+                <Text style={styles.optionLabel}>Times Per Week</Text>
+                <View style={[styles.frequencyContainer, { 
+                  width: 120,
+                  height: 40,
+                  backgroundColor: '#F5F5F5',
+                  borderRadius: 8,
+                  overflow: 'hidden'
+                }]}>
+                  <ReactNativePicker
+                    selectedValue={frequency}
+                    onValueChange={(value: number) => setFrequency(value)}
+                    style={{ 
+                      height: 40,
+                      width: '100%',
+                      marginTop: -8
+                    }}
+                    itemStyle={{ 
+                      fontSize: 16,
+                      height: 40
+                    }}
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                      <ReactNativePicker.Item 
+                        key={num} 
+                        label={`${num}`} 
+                        value={num}
+                        color="#1a1a1a"
+                      />
+                    ))}
+                  </ReactNativePicker>
+                </View>
               </View>
 
               {/* Save Button */}
@@ -1218,195 +1084,6 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                 }]}>Save</Text>
               </TouchableOpacity>
             </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Settings Modal */}
-      <Modal
-        isVisible={isSettingsModalVisible}
-        onBackdropPress={handleCloseSettingsModal}
-        onBackButtonPress={handleCloseSettingsModal}
-        style={{ margin: 0, justifyContent: 'flex-end' }}
-        animationIn="slideInUp"
-        animationOut="slideOutDown"
-        backdropTransitionOutTiming={0}
-        useNativeDriver
-        hideModalContentWhileAnimating
-      >
-        <View style={[styles.modalOverlay]}>
-          <View style={[styles.modalContent, { 
-            backgroundColor: 'white',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            padding: 20,
-            height: '45%',
-            width: '100%'
-          }]}>
-            <View style={[styles.modalHeader, {
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 20,
-              paddingBottom: 10,
-              borderBottomWidth: 1,
-              borderBottomColor: '#E0E0E0'
-            }]}>
-              <Text style={[styles.modalTitle, {
-                fontSize: 24,
-                fontWeight: 'bold',
-                color: '#1a1a1a'
-              }]}>Set Frequency</Text>
-              <TouchableOpacity 
-                onPress={handleCloseSettingsModal}
-                disabled={isModalTransitioning}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ flex: 1 }}>
-              {/* Frequency Mode Toggle */}
-              <View style={{ flexDirection: 'row', marginVertical: 10 }}>
-                <TouchableOpacity
-                  style={[
-                    styles.toggleButton,
-                    tempFrequencyMode === 'weekDays' && styles.toggleButtonActive,
-                  ]}
-                  onPress={() => setTempFrequencyMode('weekDays')}
-                >
-                  <Text style={[
-                    styles.toggleButtonText,
-                    { color: tempFrequencyMode === 'weekDays' ? 'white' : 'black' }
-                  ]}>
-                    Weekdays
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.toggleButton,
-                    tempFrequencyMode === 'timesPerWeek' && styles.toggleButtonActive,
-                  ]}
-                  onPress={() => setTempFrequencyMode('timesPerWeek')}
-                >
-                  <Text style={[
-                    styles.toggleButtonText,
-                    { color: tempFrequencyMode === 'timesPerWeek' ? 'white' : 'black' }
-                  ]}>
-                    Times Per Week
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-
-              {/* Times Per Week */}
-              {tempFrequencyMode === 'timesPerWeek' && (
-                <View style={{ marginTop: 10 }}>
-                  <Text style={{ marginBottom: 4, fontSize: 16, fontWeight: '600', color: '#1a1a1a' }}>Target Goal</Text>
-                  <Text style={{ marginBottom: 8, color: '#666' }}>How many times do you want to complete this habit per week?</Text>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                    <TouchableOpacity
-                      style={[
-                        styles.frequencyButton,
-                        tempFrequency === 1 && styles.frequencyButtonActive
-                      ]}
-                      onPress={() => setTempFrequency(1)}
-                    >
-                      <Text style={[
-                        styles.frequencyButtonText,
-                        { color: tempFrequency === 1 ? 'white' : '#1a1a1a' }
-                      ]}>1x</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.frequencyButton,
-                        tempFrequency === 2 && styles.frequencyButtonActive
-                      ]}
-                      onPress={() => setTempFrequency(2)}
-                    >
-                      <Text style={[
-                        styles.frequencyButtonText,
-                        { color: tempFrequency === 2 ? 'white' : '#1a1a1a' }
-                      ]}>2x</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.frequencyButton,
-                        tempFrequency === 3 && styles.frequencyButtonActive
-                      ]}
-                      onPress={() => setTempFrequency(3)}
-                    >
-                      <Text style={[
-                        styles.frequencyButtonText,
-                        { color: tempFrequency === 3 ? 'white' : '#1a1a1a' }
-                      ]}>3x</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.frequencyButton,
-                        tempFrequency === 4 && styles.frequencyButtonActive
-                      ]}
-                      onPress={() => setTempFrequency(4)}
-                    >
-                      <Text style={[
-                        styles.frequencyButtonText,
-                        { color: tempFrequency === 4 ? 'white' : '#1a1a1a' }
-                      ]}>4x</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.frequencyButton,
-                        tempFrequency === 5 && styles.frequencyButtonActive
-                      ]}
-                      onPress={() => setTempFrequency(5)}
-                    >
-                      <Text style={[
-                        styles.frequencyButtonText,
-                        { color: tempFrequency === 5 ? 'white' : '#1a1a1a' }
-                      ]}>5x</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <TextInput
-                    style={[styles.input, { marginTop: 12 }]}
-                    keyboardType="number-pad"
-                    value={tempFrequency > 5 ? tempFrequency.toString() : ''}
-                    onChangeText={(text) => {
-                      const num = parseInt(text);
-                      if (!isNaN(num) && num > 0) {
-                        setTempFrequency(num);
-                      }
-                    }}
-                    placeholder="Custom (e.g. 7)"
-                  />
-                </View>
-              )}
-
-              {/* Save Button */}
-              <TouchableOpacity
-                style={{
-                  backgroundColor: '#007AFF',
-                  padding: 16,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  marginTop: 20
-                }}
-                onPress={() => {
-                  setFrequencyMode(tempFrequencyMode);
-                  setSelectedWeekDays(tempSelectedWeekDays);
-                  setFrequency(tempFrequency);
-                  if (editingHabit?.repeatType === 'specific') {
-                    setRepeatType('specific');
-                  } else {
-                    setRepeatType('frequency');
-                  }
-                  setSelectedRepeat('custom');
-                  setIsSettingsModalVisible(false);
-                }}
-              >
-                <Text style={{ color: 'white', fontSize: 18, fontWeight: '600' }}>Save</Text>
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
       </Modal>
