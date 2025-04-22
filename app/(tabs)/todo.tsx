@@ -1143,11 +1143,6 @@ export default function TodoScreen() {
           </View>
         </PanGestureHandler>
 
-        {/* Debug View */}
-        <View style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 100, backgroundColor: 'yellow', justifyContent: 'center', alignItems: 'center' }}>
-          <Text style={{ fontSize: 16, fontWeight: 'bold' }}>Debug View</Text>
-        </View>
-
         {/* TEST MODAL */}
         <Modal
           animationType="slide"
