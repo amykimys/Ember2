@@ -486,6 +486,7 @@ export default function TodoScreen() {
   const toggleTodo = async (id: string) => {
     try {
       console.log('Starting task completion toggle...');
+      console.log('Task ID to toggle:', id);
       
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
@@ -498,12 +499,11 @@ export default function TodoScreen() {
       // Find the task to toggle
       const taskToToggle = todos.find(todo => todo.id === id);
       if (!taskToToggle) {
-        console.error('Task not found:', id);
+        console.error('Task not found');
         return;
       }
 
       // Update in Supabase
-      console.log('Updating task in Supabase...');
       const { error } = await supabase
         .from('todos')
         .update({ completed: !taskToToggle.completed })
@@ -516,13 +516,9 @@ export default function TodoScreen() {
         return;
       }
 
-      console.log('Task successfully updated in Supabase');
-
       // Update local state
       setTodos(prev => prev.map(todo => 
-        todo.id === id 
-          ? { ...todo, completed: !todo.completed }
-          : todo
+        todo.id === id ? { ...todo, completed: !todo.completed } : todo
       ));
       
       // Provide haptic feedback
