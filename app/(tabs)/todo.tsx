@@ -18,7 +18,7 @@ import {
   Alert,
   Modal,
 } from 'react-native';
-import { Check, ChevronDown, ChevronUp, Plus, X, Calendar, Trash2, Repeat, Menu as MenuIcon, ChevronRight, Bell } from 'lucide-react-native';
+import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { PanGestureHandler, GestureHandlerRootView, State, Swipeable } from 'react-native-gesture-handler';
 import styles from '../../styles/todo.styles';
@@ -236,7 +236,7 @@ export default function TodoScreen() {
               <Text style={styles.unitSelectorText}>
                 {REPEAT_UNITS.find((unit) => unit.value === customRepeatUnit)?.label}
               </Text>
-              <ChevronDown size={20} color="#666" />
+              <Ionicons name="chevron-down" size={20} color="#666" />
             </TouchableOpacity>
           }
         >
@@ -596,7 +596,7 @@ export default function TodoScreen() {
       return (
         <View style={[styles.rightAction, { backgroundColor: darkColor }]}>
           <TouchableOpacity onPress={handleDelete} style={styles.trashIconContainer}>
-            <Trash2 color="white" size={20} />
+            <Ionicons name="trash" size={20} color="white" />
           </TouchableOpacity>
         </View>
       );
@@ -624,7 +624,7 @@ export default function TodoScreen() {
         activeOpacity={0.9}
       >
         <View style={[styles.checkbox, todo.completed && styles.checked]}>
-          {todo.completed && <Check size={16} color="white" />}
+          {todo.completed && <Ionicons name="checkbox" size={16} color="white" />}
         </View>
         <View style={styles.todoContent}>
           <Text style={[styles.todoText, todo.completed && styles.completedText]}>
@@ -707,9 +707,9 @@ export default function TodoScreen() {
         >
           <Text style={styles.categoryTitle}>{category.label}</Text>
           {isCollapsed ? (
-            <ChevronUp size={20} color="#666" />
+            <Ionicons name="chevron-up" size={20} color="#666" />
           ) : (
-            <ChevronDown size={20} color="#666" />
+            <Ionicons name="chevron-down" size={20} color="#666" />
           )}
         </TouchableOpacity>
 
@@ -738,9 +738,9 @@ export default function TodoScreen() {
         >
           <Text style={styles.categoryTitle}>Other</Text>
           {isCollapsed ? (
-            <ChevronUp size={20} color="#666" />
+            <Ionicons name="chevron-up" size={20} color="#666" />
           ) : (
-            <ChevronDown size={20} color="#666" />
+            <Ionicons name="chevron-down" size={20} color="#666" />
           )}
         </TouchableOpacity>
 
@@ -770,9 +770,9 @@ export default function TodoScreen() {
         >
           <Text style={styles.categoryTitle}>COMPLETED</Text>
           {isCollapsed ? (
-            <ChevronUp size={20} color="#666" />
+            <Ionicons name="chevron-up" size={20} color="#666" />
           ) : (
-            <ChevronDown size={20} color="#666" />
+            <Ionicons name="chevron-down" size={20} color="#666" />
           )}
         </TouchableOpacity>
 
@@ -966,7 +966,7 @@ export default function TodoScreen() {
             {/* HEADER */}
             <View style={styles.header}>
               <TouchableOpacity style={styles.menuButton}>
-                <MenuIcon size={24} color="#1a1a1a" />
+                <Ionicons name="menu" size={24} color="#1a1a1a" />
               </TouchableOpacity>
               <Text style={styles.title}>tasks</Text>
             </View>
@@ -1006,7 +1006,7 @@ export default function TodoScreen() {
                 setIsNewTaskModalVisible(true);
               }}
             >
-              <Plus size={24} color="white" />
+              <Ionicons name="add" size={24} color="white" />
             </TouchableOpacity>
           </View>
         </PanGestureHandler>
@@ -1088,9 +1088,14 @@ export default function TodoScreen() {
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   <TouchableOpacity 
                     style={{ marginRight: 16 }}
-                    onPress={() => setIsSettingsModalVisible(true)}
+                    onPress={() => {
+                      setIsNewTaskModalVisible(false);
+                      setTimeout(() => {
+                        setIsSettingsModalVisible(true);
+                      }, 300);
+                    }}
                   >
-                    <Calendar size={24} color="#666" />
+                    <Ionicons name="calendar-outline" size={24} color="#666" />
                   </TouchableOpacity>
                   <TouchableOpacity 
                     onPress={() => {
@@ -1098,7 +1103,7 @@ export default function TodoScreen() {
                       setIsNewTaskModalVisible(false);
                     }}
                   >
-                    <X size={24} color="#666" />
+                    <Ionicons name="close" size={24} color="#666" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1182,7 +1187,7 @@ export default function TodoScreen() {
                       style={styles.newCategoryButton}
                       onPress={() => setShowNewCategoryInput(true)}
                     >
-                      <Plus size={20} color="#666" />
+                      <Ionicons name="add" size={20} color="#666" />
                     </TouchableOpacity>
                   </ScrollView>
 
@@ -1313,7 +1318,7 @@ export default function TodoScreen() {
                 <TouchableOpacity 
                   onPress={() => setIsSettingsModalVisible(false)}
                 >
-                  <X size={24} color="#666" />
+                  <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
               </View>
 
@@ -1336,12 +1341,12 @@ export default function TodoScreen() {
                   onPress={() => setShowTaskDatePicker(true)}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Calendar size={20} color="#666" />
+                    <Ionicons name="calendar-outline" size={20} color="#666" />
                     <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
                       {taskDate ? taskDate.toLocaleDateString() : "Pick a date"}
                     </Text>
                   </View>
-                  <ChevronRight size={20} color="#666" />
+                  <Ionicons name="chevron-forward" size={20} color="#666" />
                 </TouchableOpacity>
 
                 {/* Reminder Picker */}
@@ -1358,12 +1363,12 @@ export default function TodoScreen() {
                   onPress={() => setShowReminderPicker(true)}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Bell size={20} color="#666" />
+                    <Ionicons name="time-outline" size={20} color="#666" />
                     <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
                       {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set reminder'}
                     </Text>
                   </View>
-                  <ChevronRight size={20} color="#666" />
+                  <Ionicons name="chevron-forward" size={20} color="#666" />
                 </TouchableOpacity>
 
                 {/* Repeat Picker */}
@@ -1381,12 +1386,12 @@ export default function TodoScreen() {
                   }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Repeat size={20} color="#666" />
+                    <Ionicons name="repeat" size={20} color="#666" />
                     <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
                       {REPEAT_OPTIONS.find(option => option.value === selectedRepeat)?.label}
                     </Text>
                   </View>
-                  <ChevronRight size={20} color="#666" />
+                  <Ionicons name="chevron-forward" size={20} color="#666" />
                 </TouchableOpacity>
               </ScrollView>
             </View>
