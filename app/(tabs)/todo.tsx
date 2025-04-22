@@ -298,10 +298,20 @@ export default function TodoScreen() {
     if (!newTodo.trim()) return;
   
     console.log('Starting save process...');
-    let finalCategoryId = selectedCategoryId;
+    console.log('New todo:', newTodo);
+    console.log('Selected category:', selectedCategoryId);
   
     try {
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('No user logged in');
+        Alert.alert('Error', 'You must be logged in to create tasks.');
+        return;
+      }
+
       // First, handle new category creation if needed
+      let finalCategoryId = selectedCategoryId;
       if (showNewCategoryInput && newCategoryName.trim()) {
         console.log('Creating new category...');
         const newCategory = {
@@ -310,30 +320,26 @@ export default function TodoScreen() {
           color: newCategoryColor,
         };
         
-        // Save new category to Supabase if user is logged in
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          console.log('User found, saving category to Supabase...');
-          const { error } = await supabase
-            .from('categories')
-            .insert({
-              id: newCategory.id,
-              label: newCategory.label,
-              color: newCategory.color,
-              user_id: user.id
-            });
-          
-          if (error) {
-            console.error('Error saving category:', error);
-            Alert.alert('Error', 'Failed to save category. Please try again.');
-            return;
-          }
-          console.log('Category saved successfully');
+        // Save new category to Supabase
+        const { error: categoryError } = await supabase
+          .from('categories')
+          .insert({
+            id: newCategory.id,
+            label: newCategory.label,
+            color: newCategory.color,
+            user_id: user.id
+          });
+        
+        if (categoryError) {
+          console.error('Error saving category:', categoryError);
+          Alert.alert('Error', 'Failed to save category. Please try again.');
+          return;
         }
         
         // Update local state with new category
         setCategories(prev => [...prev, newCategory]);
         finalCategoryId = newCategory.id;
+        console.log('New category created:', newCategory);
       }
   
       // Then create the new task
@@ -352,37 +358,33 @@ export default function TodoScreen() {
         repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
       };
       
-      // Save task to Supabase if user is logged in
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        console.log('User found, saving task to Supabase...');
-        const { error } = await supabase
-          .from('todos')
-          .insert({
-            id: newTodoItem.id,
-            text: newTodoItem.text,
-            description: newTodoItem.description,
-            completed: newTodoItem.completed,
-            category_id: newTodoItem.categoryId,
-            date: newTodoItem.date.toISOString(),
-            repeat: newTodoItem.repeat,
-            custom_repeat_frequency: newTodoItem.customRepeatFrequency,
-            custom_repeat_unit: newTodoItem.customRepeatUnit,
-            custom_repeat_week_days: newTodoItem.customRepeatWeekDays,
-            repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
-            user_id: user.id
-          });
-        
-        if (error) {
-          console.error('Error saving task:', error);
-          Alert.alert('Error', 'Failed to save task. Please try again.');
-          return;
-        }
-        console.log('Task saved successfully');
+      // Save task to Supabase
+      const { error: taskError } = await supabase
+        .from('todos')
+        .insert({
+          id: newTodoItem.id,
+          text: newTodoItem.text,
+          description: newTodoItem.description,
+          completed: newTodoItem.completed,
+          category_id: newTodoItem.categoryId,
+          date: newTodoItem.date.toISOString(),
+          repeat: newTodoItem.repeat,
+          custom_repeat_frequency: newTodoItem.customRepeatFrequency,
+          custom_repeat_unit: newTodoItem.customRepeatUnit,
+          custom_repeat_week_days: newTodoItem.customRepeatWeekDays,
+          repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
+          user_id: user.id
+        });
+      
+      if (taskError) {
+        console.error('Error saving task:', taskError);
+        Alert.alert('Error', 'Failed to save task. Please try again.');
+        return;
       }
       
       // Update local state with new task
       setTodos(prev => [...prev, newTodoItem]);
+      console.log('New task created:', newTodoItem);
       
       // Schedule reminder if set
       if (reminderTime) {
@@ -736,23 +738,103 @@ export default function TodoScreen() {
     );
   };
   
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      console.log('Starting category deletion process...');
+      console.log('Category ID to delete:', categoryId);
+      console.log('Current categories:', categories);
+      
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('No user logged in');
+        Alert.alert('Error', 'You must be logged in to delete categories.');
+        return;
+      }
+
+      // First, delete all tasks in this category
+      console.log('Deleting tasks in category...');
+      const { error: tasksError } = await supabase
+        .from('todos')
+        .delete()
+        .eq('category_id', categoryId)
+        .eq('user_id', user.id);
+
+      if (tasksError) {
+        console.error('Error deleting tasks:', tasksError);
+        Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
+        return;
+      }
+
+      // Then delete the category
+      console.log('Deleting category...');
+      const { error: categoryError } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', categoryId)
+        .eq('user_id', user.id);
+
+      if (categoryError) {
+        console.error('Error deleting category:', categoryError);
+        Alert.alert('Error', 'Failed to delete category. Please try again.');
+        return;
+      }
+
+      // Update local state
+      console.log('Updating local state...');
+      
+      // Update todos first
+      setTodos(prev => {
+        const newTodos = prev.filter(todo => todo.categoryId !== categoryId);
+        console.log('Updated todos:', newTodos);
+        return newTodos;
+      });
+
+      // Then update categories
+      setCategories(prev => {
+        const newCategories = prev.filter(category => category.id !== categoryId);
+        console.log('Updated categories:', newCategories);
+        return newCategories;
+      });
+      
+      // If the deleted category was selected, clear the selection
+      if (selectedCategoryId === categoryId) {
+        console.log('Clearing selected category');
+        setSelectedCategoryId('');
+      }
+
+      // Remove from collapsed state
+      setCollapsedCategories(prev => {
+        const newCollapsed = { ...prev };
+        delete newCollapsed[categoryId];
+        console.log('Updated collapsed state:', newCollapsed);
+        return newCollapsed;
+      });
+
+      console.log('Category deletion completed successfully');
+      
+      // Force a re-render
+      setIsNewTaskModalVisible(false);
+      setTimeout(() => {
+        setIsNewTaskModalVisible(true);
+      }, 100);
+      
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      }
+    } catch (error) {
+      console.error('Error in handleDeleteCategory:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    }
+  };
+
   const renderCategory = (category: Category, todayTodos: Todo[]) => {
     const categoryTodos = todayTodos.filter((todo) => todo.categoryId === category.id && !todo.completed);
   
     if (categoryTodos.length === 0) return null;
 
     const isCollapsed = collapsedCategories[category.id];
-
-    const handleDeleteCategory = () => {
-      // Remove all todos in this category
-      setTodos(prev => prev.filter(todo => todo.categoryId !== category.id));
-      // Remove the category
-      setCategories(prev => prev.filter(c => c.id !== category.id));
-      // Remove from collapsed state
-      const newCollapsed = { ...collapsedCategories };
-      delete newCollapsed[category.id];
-      setCollapsedCategories(newCollapsed);
-    };
 
     return (
       <View key={category.id} style={styles.categoryContainer}>
@@ -771,7 +853,7 @@ export default function TodoScreen() {
                 {
                   text: "Delete",
                   style: "destructive",
-                  onPress: handleDeleteCategory
+                  onPress: () => handleDeleteCategory(category.id)
                 }
               ]
             );
@@ -1422,6 +1504,24 @@ export default function TodoScreen() {
                           setSelectedCategoryId(category.id);
                           setShowNewCategoryInput(false);
                         }}
+                        onLongPress={() => {
+                          Alert.alert(
+                            'Delete Category',
+                            `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
+                            [
+                              {
+                                text: 'Cancel',
+                                style: 'cancel'
+                              },
+                              {
+                                text: 'Delete',
+                                style: 'destructive',
+                                onPress: () => handleDeleteCategory(category.id)
+                              }
+                            ]
+                          );
+                        }}
+                        delayLongPress={500}
                       >
                         <Text style={styles.categoryButtonText}>
                           {category.label.toUpperCase()}
