@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import 'react-native-reanimated'; // 👈 must be FIRST import
 import { Menu } from 'react-native-paper';
 import * as Notifications from 'expo-notifications';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { Session } from '@supabase/supabase-js';
-import { useState, useRef, useEffect} from 'react';
+import { useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -18,15 +18,12 @@ import {
   Alert,
   Modal,
 } from 'react-native';
-import { Check, ChevronDown, ChevronUp, Plus, X, Calendar, Trash2, Repeat, Menu as MenuIcon } from 'lucide-react-native';
-import BottomSheet from '@gorhom/bottom-sheet';
+import { Check, ChevronDown, ChevronUp, Plus, X, Calendar, Trash2, Repeat, Menu as MenuIcon, ChevronRight, Bell } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { PanGestureHandler, GestureHandlerRootView, State, Swipeable } from 'react-native-gesture-handler';
 import styles from '../../styles/todo.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
-import useBottomSheetDynamicSnapPoints from '@gorhom/bottom-sheet'; // ✅
-
-
+import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -127,7 +124,6 @@ export default function TodoScreen() {
   const [hasTriggeredSwipeHaptic, setHasTriggeredSwipeHaptic] = useState(false);
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
   const [showRepeatOptions, setShowRepeatOptions] = useState(false);
-  const repeatBottomSheetRef = useRef<BottomSheet>(null);
   const [unitMenuVisible, setUnitMenuVisible] = useState(false);
   const [taskDate, setTaskDate] = useState<Date | null>(null);
   const [showTaskDatePicker, setShowTaskDatePicker] = useState(false);
@@ -140,15 +136,20 @@ export default function TodoScreen() {
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const editBottomSheetRef = useRef<BottomSheet>(null);
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [swipingTodoId, setSwipingTodoId] = useState<string | null>(null);
   const [contentHeight, setContentHeight] = useState(0);
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const editBottomSheetRef = useRef<BottomSheet>(null);
+  const repeatBottomSheetRef = useRef<BottomSheet>(null);
+  const [isNewTaskModalVisible, setIsNewTaskModalVisible] = useState(false);
+  const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
 
+  // Add debug logs
   useEffect(() => {
-    console.log('BottomSheet ref initialized:', bottomSheetRef.current);
-  }, []);
+    console.log('Modal visibility:', isNewTaskModalVisible);
+  }, [isNewTaskModalVisible]);
 
   const handleContentLayout = (event: any) => {
     const { height } = event.nativeEvent.layout;
@@ -363,7 +364,7 @@ export default function TodoScreen() {
     }
 
     resetForm();
-    bottomSheetRef.current?.close();
+    setIsModalVisible(false);
   };
   
   
@@ -440,7 +441,7 @@ export default function TodoScreen() {
   
       setEditingTodo(null);
       resetForm();
-      editBottomSheetRef.current?.close();
+      setIsEditModalVisible(false);
     }
   };
   
@@ -617,7 +618,7 @@ export default function TodoScreen() {
           setNewTodo(todo.text);
           setNewDescription(todo.description || '');
           setSelectedCategoryId(todo.categoryId);
-          editBottomSheetRef.current?.expand();
+          setIsEditModalVisible(true);
         }}
         delayLongPress={300}
         activeOpacity={0.9}
@@ -949,6 +950,14 @@ export default function TodoScreen() {
      testDatabaseConnection();
   }, []);
 
+  // callbacks
+  const handleSheetChanges = useCallback((index: number) => {
+    console.log('handleSheetChanges', index);
+    if (index === -1) {
+      resetForm();
+    }
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
@@ -992,14 +1001,9 @@ export default function TodoScreen() {
             <TouchableOpacity
               style={styles.addButton}
               onPress={() => {
-                console.log('Button pressed!');
-                console.log('BottomSheet ref:', bottomSheetRef.current);
-                if (bottomSheetRef.current) {
-                  console.log('Expanding BottomSheet...');
-                  bottomSheetRef.current.snapToIndex(0);
-                } else {
-                  console.log('BottomSheet ref is null!');
-                }
+                console.log('Add button pressed');
+                resetForm();
+                setIsNewTaskModalVisible(true);
               }}
             >
               <Plus size={24} color="white" />
@@ -1044,31 +1048,372 @@ export default function TodoScreen() {
           </View>
         </Modal>
 
-        {/* --- NEW TASK MODAL --- */}
-        <BottomSheet
-          ref={bottomSheetRef}
-          index={-1}
-          snapPoints={['50%']}
-          enablePanDownToClose
-          backgroundStyle={{ backgroundColor: 'white' }}
-          handleIndicatorStyle={{ backgroundColor: '#666' }}
-          containerStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+        {/* New Task Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={isNewTaskModalVisible}
+          onRequestClose={() => {
+            console.log('Modal close requested');
+            setIsNewTaskModalVisible(false);
+          }}
         >
-          <View style={{ flex: 1, padding: 20 }}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Task</Text>
-              <TouchableOpacity onPress={() => bottomSheetRef.current?.close()}>
-                <X size={24} color="#666" />
-              </TouchableOpacity>
+          <View style={[styles.modalOverlay, { 
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            justifyContent: 'flex-end'
+          }]}>
+            <View style={[styles.modalContent, { 
+              backgroundColor: 'white',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              height: '80%',
+              width: '100%'
+            }]}>
+              <View style={[styles.modalHeader, {
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 20,
+                paddingBottom: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: '#E0E0E0'
+              }]}>
+                <Text style={[styles.modalTitle, {
+                  fontSize: 28,
+                  fontWeight: 'bold',
+                  color: '#1a1a1a'
+                }]}>New Task</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <TouchableOpacity 
+                    style={{ marginRight: 16 }}
+                    onPress={() => setIsSettingsModalVisible(true)}
+                  >
+                    <Calendar size={24} color="#666" />
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      console.log('Close button pressed');
+                      setIsNewTaskModalVisible(false);
+                    }}
+                  >
+                    <X size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ 
+                  paddingBottom: 40
+                }}
+                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+              >
+                {/* Title Input */}
+                <TextInput
+                  style={[styles.input, {
+                    fontSize: 20,
+                    color: '#1a1a1a',
+                    padding: 16,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12,
+                    marginBottom: 20
+                  }]}
+                  value={newTodo}
+                  onChangeText={setNewTodo}
+                  placeholder="What needs to be done?"
+                  placeholderTextColor="#666"
+                />
+
+                {/* Description Input */}
+                <TextInput
+                  style={[styles.input, styles.descriptionInput, {
+                    minHeight: 150,
+                    textAlignVertical: 'top',
+                    marginBottom: 30,
+                    fontSize: 18,
+                    padding: 16,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12
+                  }]}
+                  value={newDescription}
+                  onChangeText={setNewDescription}
+                  placeholder="Add description (optional)"
+                  placeholderTextColor="#666"
+                  multiline
+                  textAlignVertical="top"
+                />
+
+                {/* Category Section */}
+                <View style={{ marginBottom: 30 }}>
+                  <Text style={{ fontSize: 18, fontWeight: '600', color: '#1a1a1a', marginBottom: 12 }}>
+                    Category
+                  </Text>
+                  
+                  {/* Existing Categories */}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={{ marginBottom: 16 }}
+                  >
+                    {categories.map((category) => (
+                      <TouchableOpacity
+                        key={category.id}
+                        style={[
+                          styles.categoryButton,
+                          { backgroundColor: category.color },
+                          selectedCategoryId === category.id && styles.selectedCategoryButton,
+                        ]}
+                        onPress={() => {
+                          setSelectedCategoryId(category.id);
+                          setShowNewCategoryInput(false);
+                        }}
+                      >
+                        <Text style={styles.categoryButtonText}>
+                          {category.label.toUpperCase()}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+
+                    {/* Add New Category Button */}
+                    <TouchableOpacity
+                      style={styles.newCategoryButton}
+                      onPress={() => setShowNewCategoryInput(true)}
+                    >
+                      <Plus size={20} color="#666" />
+                    </TouchableOpacity>
+                  </ScrollView>
+
+                  {/* New Category Form */}
+                  {showNewCategoryInput && (
+                    <View style={styles.newCategoryForm}>
+                      <TextInput
+                        style={[styles.input, { marginBottom: 12 }]}
+                        value={newCategoryName}
+                        onChangeText={setNewCategoryName}
+                        placeholder="Category name"
+                        placeholderTextColor="#666"
+                      />
+
+                      {/* Theme Selector */}
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        style={{ marginBottom: 12 }}
+                      >
+                        {Object.keys(THEMES).map((theme) => (
+                          <TouchableOpacity
+                            key={theme}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 12,
+                              backgroundColor: selectedTheme === theme ? '#007AFF' : '#E0E0E0',
+                              borderRadius: 20,
+                              marginRight: 10,
+                            }}
+                            onPress={() => setSelectedTheme(theme as keyof typeof THEMES)}
+                          >
+                            <Text style={{ color: selectedTheme === theme ? 'white' : '#333', fontWeight: '600' }}>
+                              {theme}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+
+                      {/* Color Swatches */}
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 12 }}>
+                        {THEMES[selectedTheme].map((color) => (
+                          <TouchableOpacity
+                            key={color}
+                            style={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: 15,
+                              backgroundColor: color,
+                              margin: 5,
+                              borderWidth: newCategoryColor === color ? 2 : 0,
+                              borderColor: '#000',
+                            }}
+                            onPress={() => setNewCategoryColor(color)}
+                          />
+                        ))}
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+                {/* Save Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    {
+                      paddingVertical: 16,
+                      backgroundColor: newTodo.trim() ? '#007AFF' : '#B0BEC5',
+                      borderRadius: 12,
+                      alignItems: 'center',
+                      marginTop: 30,
+                      marginBottom: 20
+                    },
+                    !newTodo.trim() && styles.saveButtonDisabled
+                  ]}
+                  onPress={() => {
+                    console.log('Save button pressed');
+                    handleSave();
+                    setIsNewTaskModalVisible(false);
+                  }}
+                  disabled={!newTodo.trim()}
+                >
+                  <Text style={[styles.saveButtonText, {
+                    color: 'white',
+                    fontWeight: '600',
+                    fontSize: 18
+                  }]}>Save</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
-            <TextInput
-              style={styles.input}
-              placeholder="What needs to be done?"
-              value={newTodo}
-              onChangeText={setNewTodo}
-            />
           </View>
-        </BottomSheet>
+        </Modal>
+
+        {/* Settings Modal */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={isSettingsModalVisible}
+          onRequestClose={() => setIsSettingsModalVisible(false)}
+        >
+          <View style={[styles.modalOverlay, { 
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            justifyContent: 'flex-end'
+          }]}>
+            <View style={[styles.modalContent, { 
+              backgroundColor: 'white',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              padding: 20,
+              height: '50%',
+              width: '100%'
+            }]}>
+              <View style={[styles.modalHeader, {
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 20,
+                paddingBottom: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: '#E0E0E0'
+              }]}>
+                <Text style={[styles.modalTitle, {
+                  fontSize: 24,
+                  fontWeight: 'bold',
+                  color: '#1a1a1a'
+                }]}>Task Settings</Text>
+                <TouchableOpacity 
+                  onPress={() => setIsSettingsModalVisible(false)}
+                >
+                  <X size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                showsVerticalScrollIndicator={true}
+              >
+                {/* Date Picker */}
+                <TouchableOpacity
+                  style={[styles.settingButton, {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 16,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12,
+                    marginBottom: 12
+                  }]}
+                  onPress={() => setShowTaskDatePicker(true)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Calendar size={20} color="#666" />
+                    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
+                      {taskDate ? taskDate.toLocaleDateString() : "Pick a date"}
+                    </Text>
+                  </View>
+                  <ChevronRight size={20} color="#666" />
+                </TouchableOpacity>
+
+                {/* Reminder Picker */}
+                <TouchableOpacity
+                  style={[styles.settingButton, {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 16,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12,
+                    marginBottom: 12
+                  }]}
+                  onPress={() => setShowReminderPicker(true)}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Bell size={20} color="#666" />
+                    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
+                      {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set reminder'}
+                    </Text>
+                  </View>
+                  <ChevronRight size={20} color="#666" />
+                </TouchableOpacity>
+
+                {/* Repeat Picker */}
+                <TouchableOpacity
+                  style={[styles.settingButton, {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 16,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12
+                  }]}
+                  onPress={() => {
+                    repeatBottomSheetRef.current?.expand();
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Repeat size={20} color="#666" />
+                    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
+                      {REPEAT_OPTIONS.find(option => option.value === selectedRepeat)?.label}
+                    </Text>
+                  </View>
+                  <ChevronRight size={20} color="#666" />
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Date Picker Modal */}
+        <DateTimePickerModal
+          isVisible={showTaskDatePicker}
+          mode="date"
+          onConfirm={(date) => {
+            setTaskDate(date);
+            setShowTaskDatePicker(false);
+          }}
+          onCancel={() => setShowTaskDatePicker(false)}
+        />
+
+        {/* Reminder Picker Modal */}
+        <DateTimePickerModal
+          isVisible={showReminderPicker}
+          mode="time"
+          onConfirm={(time) => {
+            setReminderTime(time);
+            setShowReminderPicker(false);
+          }}
+          onCancel={() => setShowReminderPicker(false)}
+        />
       </View>
     </GestureHandlerRootView>
   );

@@ -167,14 +167,14 @@ const styles = StyleSheet.create({
       backgroundColor: 'white',
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
-      width: '100%',
-      marginHorizontal: 0,
-      overflow: 'hidden',
-      position: 'absolute',
-      bottom: 0,
-      left: 0,
-      right: 0,
-      zIndex: 1000,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: -4,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+      elevation: 5,
     },
 
     dimBackground: {
@@ -348,21 +348,26 @@ const styles = StyleSheet.create({
       margin: 0,
       justifyContent: 'flex-end',
     },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'flex-end',
+    },
     modalContent: {
-      backgroundColor: '#fff',
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
+      backgroundColor: 'white',
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
       padding: 20,
-      maxHeight: '80%',
+      maxHeight: '90%',
     },
     modalHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 24,
+      marginBottom: 20,
     },
     modalTitle: {
-      fontSize: 20,
+      fontSize: 24,
       fontWeight: 'bold',
       color: '#1a1a1a',
     },
@@ -522,7 +527,29 @@ const styles = StyleSheet.create({
       padding: 12,
     },
     
-    
+    contentContainer: {
+      flex: 1,
+      backgroundColor: 'white',
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: -4,
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+      elevation: 5,
+    },
+    settingButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: 16,
+      backgroundColor: '#F5F5F5',
+      borderRadius: 12,
+      marginBottom: 12
+    },
   });
 
 export default styles;

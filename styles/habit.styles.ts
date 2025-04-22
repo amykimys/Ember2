@@ -138,10 +138,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingLeft: 30,
   },
+    modal: {
+      margin: 0,
+      justifyContent: 'flex-end',
+    },
     modalContent: {
-      backgroundColor: '#fff',
-      borderTopLeftRadius: 15,
-      borderTopRightRadius: 15,
+      backgroundColor: 'white',
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
       padding: 20,
       maxHeight: '90%',
     },
