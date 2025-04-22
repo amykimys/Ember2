@@ -644,11 +644,50 @@ export default function TodoScreen() {
   };
 
   const renderTodoItem = (todo: Todo) => {
-    const handleDelete = () => {
-      if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const handleDelete = async () => {
+      try {
+        console.log('Starting task deletion...');
+        console.log('Task to delete:', todo);
+        
+        // Get the current user
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          console.error('No user logged in');
+          Alert.alert('Error', 'You must be logged in to delete tasks.');
+          return;
+        }
+
+        // Delete from Supabase
+        console.log('Deleting task from Supabase...');
+        const { data: deletedTask, error } = await supabase
+          .from('todos')
+          .delete()
+          .eq('id', todo.id)
+          .eq('user_id', user.id)
+          .select();
+
+        if (error) {
+          console.error('Error deleting task:', error);
+          Alert.alert('Error', 'Failed to delete task. Please try again.');
+          return;
+        }
+
+        console.log('Successfully deleted task from Supabase:', deletedTask);
+
+        // Update local state
+        setTodos(prev => {
+          const newTodos = prev.filter(t => t.id !== todo.id);
+          console.log('Updated todos after deletion:', newTodos);
+          return newTodos;
+        });
+
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+      } catch (error) {
+        console.error('Error in handleDelete:', error);
+        Alert.alert('Error', 'An unexpected error occurred. Please try again.');
       }
-      setTodos(prev => prev.filter(t => t.id !== todo.id));
     };
   
     const renderRightActions = (_: any, dragX: any, swipeAnimatedValue: any) => {
