@@ -163,9 +163,13 @@ export default function TodoScreen() {
   const newDescriptionInputRef = useRef<TextInput | null>(null);
   const modalAnimation = useRef(new Animated.Value(0)).current;
 
-  // Add debug logs
+  // Move the useEffect for input focus here
   useEffect(() => {
-    console.log('Modal visibility:', isNewTaskModalVisible);
+    if (isNewTaskModalVisible && newTodoInputRef.current) {
+      setTimeout(() => {
+        newTodoInputRef.current?.focus();
+      }, 150);
+    }
   }, [isNewTaskModalVisible]);
 
   const handleContentLayout = (event: any) => {
@@ -1313,10 +1317,6 @@ export default function TodoScreen() {
         duration: 300,
         useNativeDriver: true,
       }).start(() => {
-        // Focus the input after the animation starts
-        if (newTodoInputRef.current) {
-          newTodoInputRef.current.focus();
-        }
       });
     });
   };
