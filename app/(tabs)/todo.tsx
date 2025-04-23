@@ -37,6 +37,8 @@ import CalendarStrip from 'react-native-calendar-strip';
 import moment from 'moment';
 import 'moment/locale/en-gb';
 import { TouchableWithoutFeedback } from 'react-native';
+import { Pressable } from 'react-native';
+
 
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
@@ -149,14 +151,9 @@ export default function TodoScreen() {
   const [selectedWeekDays, setSelectedWeekDays] = useState<WeekDay[]>([]);
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [isModalVisible, setIsModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [swipingTodoId, setSwipingTodoId] = useState<string | null>(null);
   const [contentHeight, setContentHeight] = useState(0);
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const editBottomSheetRef = useRef<BottomSheet>(null);
-  const repeatBottomSheetRef = useRef<BottomSheet>(null);
   const [isNewTaskModalVisible, setIsNewTaskModalVisible] = useState(false);
   const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
   const [isModalTransitioning, setIsModalTransitioning] = useState(false);
@@ -177,18 +174,24 @@ export default function TodoScreen() {
     height: number;
   }>({ x: 0, y: 0, width: 0, height: 0 });
   const [showRepeatPicker, setShowRepeatPicker] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
   const [calendarDates, setCalendarDates] = useState<Date[]>([]);
   const [isMonthView, setIsMonthView] = useState(false);
   const calendarStripRef = useRef<any>(null);
+  const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showCategoryBox, setShowCategoryBox] = useState(false);
+  const categoryInputRef = useRef<TextInput>(null);
 
 
-  const handleSwipe = (event: any) => {
-    if (event.nativeEvent.state === State.END && event.nativeEvent.translationY > 50) {
-      setIsMonthView(true);
-    }
-  };
 
+
+
+
+
+  useEffect(() => {
+    console.log('📁 useEffect triggered — isCategoryModalVisible:', isCategoryModalVisible);
+  }, [isCategoryModalVisible]);
+  
   // Move the useEffect for input focus here
   useEffect(() => {
     if (isNewTaskModalVisible && newTodoInputRef.current) {
@@ -1195,19 +1198,22 @@ export default function TodoScreen() {
     [isDatePickerTransitioning]
   );
 
+
   // Update date picker confirm handler
   const handleDatePickerConfirm = useCallback((date: Date) => {
     setTaskDate(date);
     setShowTaskDatePicker(false);
     setIsDatePickerTransitioning(false);
+    requestAnimationFrame(showModal);
   }, []);
-
-  // Update date picker cancel handler
+  
   const handleDatePickerCancel = useCallback(() => {
     setShowTaskDatePicker(false);
-    setIsNewTaskModalVisible(true); // Reopen the New Task modal
     setIsDatePickerTransitioning(false);
+    requestAnimationFrame(showModal);
   }, []);
+  
+  
 
   // Add reminder picker handlers
   const handleReminderPress = useCallback(() => {
@@ -1354,14 +1360,12 @@ export default function TodoScreen() {
   };
   const showModal = () => {
     setIsNewTaskModalVisible(true);
-    // Start the animation after a very short delay to ensure the modal is mounted
     requestAnimationFrame(() => {
       Animated.timing(modalAnimation, {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
-      }).start(() => {
-      });
+      }).start();
     });
   };
 
@@ -1405,7 +1409,7 @@ export default function TodoScreen() {
                 <Ionicons name="chevron-forward" size={24} color="#1a1a1a" />
               </TouchableOpacity>
             </View>
-           
+            
             {/* Add this after the header and before the task list */}
             <CalendarStrip
   scrollable
@@ -1468,21 +1472,25 @@ export default function TodoScreen() {
           <KeyboardAvoidingView 
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={{ flex: 1 }}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
           >
             <TouchableWithoutFeedback
-              onPress={() => {
-                Keyboard.dismiss();
-                hideModal(); // ✅ closes modal too
+              onPress={(e) => {
+                if (e.target === e.currentTarget) {
+                  Keyboard.dismiss();
+                  hideModal();
+                }
               }}
             >
               <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
                 <Animated.View 
                   style={{
                     backgroundColor: 'white',
+                    position: 'relative',
                     borderTopLeftRadius: 20,
                     borderTopRightRadius: 20,
                     padding: 10,
-                    height: '34%',
+                    height: showCategoryPicker ? '50%' : '35%',
                     width: '100%',
                     transform: [{
                       translateY: modalAnimation.interpolate({
@@ -1492,106 +1500,248 @@ export default function TodoScreen() {
                     }],
                   }}
                 >
-                  <ScrollView
-                    style={{ flex: 1 }}
-                    keyboardShouldPersistTaps="handled"
-                  >
-                    {/* Title Input */}
-                    <TextInput
-                      ref={newTodoInputRef}
-                      style={{
-                        fontSize: 20,
-                        color: '#1a1a1a',
-                        padding: 10,
-                        backgroundColor: 'white',
-                        borderRadius: 12,
-                        marginBottom: -10, // reduced from 20 → tighter spacing
-                      }}
-                      value={newTodo}
-                      onChangeText={setNewTodo}
-                      placeholder="What needs to be done?"
-                      placeholderTextColor="#999"
-                      returnKeyType="next"
-                      onSubmitEditing={() => newDescriptionInputRef.current?.focus()}
-                    />
+                  <View style={{ flexGrow: 1 }}>
+                    <ScrollView
+                      style={{ flex: 1 }}
+                      keyboardShouldPersistTaps="always"
+                      contentContainerStyle={{ paddingBottom: 160 }}
+                    >
+                      {/* Title Input */}
+                      <TextInput
+                        ref={newTodoInputRef}
+                        style={{
+                          fontSize: 20,
+                          color: '#1a1a1a',
+                          padding: 10,
+                          backgroundColor: 'white',
+                          borderRadius: 12,
+                          marginBottom: -10,
+                        }}
+                        value={newTodo}
+                        onChangeText={setNewTodo}
+                        placeholder="What needs to be done?"
+                        placeholderTextColor="#999"
+                        returnKeyType="next"
+                        onSubmitEditing={() => newDescriptionInputRef.current?.focus()}
+                      />
 
-                    <TextInput
-                      ref={newDescriptionInputRef}
-                      style={{
-                        fontSize: 17,
-                        color: '#1a1a1a',
-                        padding: 10,
-                        backgroundColor: 'white',
-                        borderRadius: 12,
-                        minHeight: 75,
-                        marginTop: 6,
-                        textAlignVertical: 'top',
-                        marginBottom: 20,
-                      }}
-                      value={newDescription}
-                      onChangeText={setNewDescription}
-                      placeholder="Add description (optional)"
-                      placeholderTextColor="#999"
-                      multiline
-                      returnKeyType="done"
-                      onSubmitEditing={() => Keyboard.dismiss()}
-                    />
-                    <View style={{
+                      <TextInput
+                        ref={newDescriptionInputRef}
+                        style={{
+                          fontSize: 17,
+                          color: '#1a1a1a',
+                          padding: 10,
+                          backgroundColor: 'white',
+                          borderRadius: 12,
+                          minHeight: 75,
+                          marginTop: 6,
+                          textAlignVertical: 'top',
+                          marginBottom: 20,
+                        }}
+                        value={newDescription}
+                        onChangeText={setNewDescription}
+                        placeholder="Add description (optional)"
+                        placeholderTextColor="#999"
+                        multiline
+                        returnKeyType="done"
+                        onSubmitEditing={() => Keyboard.dismiss()}
+                      />
+                    </ScrollView>
+
+                    {showCategoryBox && (
+                      <View
+                        style={{
+                          marginTop: 16,
+                          marginBottom: 60,
+                          position: 'relative',
+                          zIndex: 2,
+                        }}
+                      >
+                        <ScrollView 
+                          horizontal 
+                          showsHorizontalScrollIndicator={false}
+                          keyboardShouldPersistTaps="always"
+                        >
+                          {categories.map((cat) => (
+                            <Pressable
+                              key={cat.id}
+                              onPress={() => setSelectedCategoryId(cat.id)}
+                              android_disableSound={true}
+                              style={{
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: 20,
+                                backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
+                                marginRight: 8,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: 5,
+                                  backgroundColor: cat.color,
+                                  marginRight: 6,
+                                }}
+                              />
+                              <Text>{cat.label}</Text>
+                            </Pressable>
+                          ))}
+
+                          {/* Plus button + inline input */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Pressable
+                              onPress={() => {
+                                setShowNewCategoryInput(true);
+                                setTimeout(() => {
+                                  categoryInputRef.current?.focus();
+                                }, 100);
+                              }}
+                              style={{
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: 20,
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginRight: 8,
+                              }}
+                            >
+                              <Ionicons name="add" size={18} color="#555" />
+                            </Pressable>
+
+                            {showNewCategoryInput && (
+                              <>
+                                <TextInput
+                                  ref={categoryInputRef}
+                                  value={newCategoryName}
+                                  onChangeText={setNewCategoryName}
+                                  placeholder="New category"
+                                  style={{
+                                    width: 120,
+                                    backgroundColor: '#F9F9F9',
+                                    borderRadius: 16,
+                                    paddingVertical: 6,
+                                    paddingHorizontal: 10,
+                                    borderWidth: 1,
+                                    borderColor: '#DDD',
+                                    marginRight: 6,
+                                  }}
+                                />
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    if (!newCategoryName.trim()) return;
+                                    const newCat = {
+                                      id: uuidv4(),
+                                      label: newCategoryName.trim(),
+                                      color: '#FFD700',
+                                    };
+                                    setCategories((prev) => [...prev, newCat]);
+                                    setSelectedCategoryId(newCat.id);
+                                    setNewCategoryName('');
+                                    setShowNewCategoryInput(false);
+                                  }}
+                                  style={{
+                                    backgroundColor: '#007AFF',
+                                    borderRadius: 16,
+                                    padding: 6,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <Ionicons name="checkmark" size={14} color="#fff" />
+                                </TouchableOpacity>
+                              </>
+                            )}
+                          </View>
+                        </ScrollView>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Quick Action Row - Fixed at bottom */}
+                  <View
+                    style={{
+                      position: 'absolute',
+                      bottom: 10,
+                      left: 0,
+                      right: 0,
+                      paddingHorizontal: 10,
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      marginBottom: 20,
-                      paddingHorizontal: 10
-                    }}>
-                      {/* Category Button */}
-                      <TouchableOpacity
-                        style={{
-                          width: 44,
-                          height: 44,
-                          borderRadius: 22,
-                          backgroundColor: '#F5F5F5',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          marginRight: 8,
-                        }}
-                        onPress={() => setShowNewCategoryInput(true)}
-                      >
-                        <Ionicons name="folder-outline" size={20} color="#666" />
-                      </TouchableOpacity>
+                      backgroundColor: 'white',
+                      zIndex: 1,
+                    }}
+                  >
+                    {/* Folder Button */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        console.log('📁 Folder icon toggled');
+                        setShowCategoryBox(prev => !prev);
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 20,
+                        backgroundColor: selectedCategoryId
+                          ? categories.find(c => c.id === selectedCategoryId)?.color || '#F5F5F5'
+                          : '#F5F5F5',
+                        marginRight: 8,
+                        maxWidth: 160,
+                      }}
+                    >
+                      <Ionicons name="folder-outline" size={20} color="#fff" />
 
-                      {/* Date Picker Button */}
-                      <TouchableOpacity
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          backgroundColor: '#F5F5F5',
-                          paddingVertical: 12,
-                          paddingHorizontal: 10,
-                          borderRadius: 12,
-                          marginRight: 8
-                        }}
-                        onPress={handleCalendarPress}
-                      >
-                        <Ionicons name="calendar-outline" size={20} color="#666" />
-                      </TouchableOpacity>
+                      {selectedCategoryId && (
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: '#fff',
+                            marginLeft: 8,
+                            fontSize: 14,
+                            fontWeight: '500',
+                          }}
+                        >
+                          {categories.find((cat) => cat.id === selectedCategoryId)?.label}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
 
-                      {/* Send Button */}
-                      <TouchableOpacity
-                        onPress={handleSave}
-                        disabled={!newTodo.trim()}
-                        style={{
-                          width: 34,
-                          height: 34,
-                          borderRadius: 17,
-                          backgroundColor: newTodo.trim() ? '#007AFF' : '#B0BEC5',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        <Ionicons name="arrow-up" size={20} color="#fff" />
-                      </TouchableOpacity>
-                    </View>                 
-                  </ScrollView>
+                    {/* Date Picker Button */}
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: '#F5F5F5',
+                        paddingVertical: 12,
+                        paddingHorizontal: 10,
+                        borderRadius: 12,
+                      }}
+                      onPress={handleCalendarPress}
+                    >
+                      <Ionicons name="calendar-outline" size={20} color="#666" />
+                    </TouchableOpacity>
+
+                    {/* Send Button */}
+                    <TouchableOpacity
+                      onPress={handleSave}
+                      disabled={!newTodo.trim()}
+                      style={{
+                        width: 34,
+                        height: 34,
+                        borderRadius: 17,
+                        backgroundColor: newTodo.trim() ? '#007AFF' : '#B0BEC5',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Ionicons name="arrow-up" size={20} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
                 </Animated.View>
               </View>
             </TouchableWithoutFeedback>
@@ -1622,7 +1772,8 @@ export default function TodoScreen() {
             
               <ScrollView
                 style={{ flex: 1 }}
-                showsVerticalScrollIndicator={true}
+                keyboardShouldPersistTaps="handled"
+  contentContainerStyle={{ paddingBottom: 100 }}
               >
                 {/* Calendar View */}
                 <View style={{ marginBottom: 20 }}>
@@ -1857,7 +2008,6 @@ export default function TodoScreen() {
   </TouchableOpacity>
 </Modal>
 
-
 <View
   style={{
     flexDirection: 'row',
@@ -1875,7 +2025,7 @@ export default function TodoScreen() {
       borderRadius: 12,
       alignItems: 'center'
     }}
-    onPress={handleCloseNewTaskModal} // or another cancel handler
+    onPress={handleCloseNewTaskModal}
   >
     <Text style={{ color: '#333', fontSize: 18, fontWeight: '600' }}>Cancel</Text>
   </TouchableOpacity>
@@ -1899,6 +2049,7 @@ export default function TodoScreen() {
           </View>
         </Modal>
 
+       
         {/* Date Picker Modal */}
         <DateTimePickerModal
           isVisible={showTaskDatePicker}
