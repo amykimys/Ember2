@@ -557,6 +557,54 @@ const styles = StyleSheet.create({
       borderRadius: 12,
       marginBottom: 12
     },
+    calendarStripContainer: {
+      height: 80,
+      backgroundColor: 'white',
+      borderBottomWidth: 1,
+      borderBottomColor: '#E5E5E5',
+    },
+    calendarStrip: {
+      paddingHorizontal: 10,
+      alignItems: 'center',
+    },
+    calendarDateItem: {
+      width: 60,
+      height: 70,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginHorizontal: 10,
+      borderRadius: 12,
+      backgroundColor: '#F5F5F5',
+    },
+    calendarDateItemSelected: {
+      backgroundColor: '#007AFF',
+    },
+    calendarDateItemToday: {
+      borderWidth: 1,
+      borderColor: '#007AFF',
+    },
+    calendarDayName: {
+      fontSize: 12,
+      color: '#666',
+      marginBottom: 4,
+    },
+    calendarDayNameSelected: {
+      color: 'white',
+    },
+    calendarDayNameToday: {
+      color: '#007AFF',
+    },
+    calendarDay: {
+      fontSize: 20,
+      fontWeight: '600',
+      color: '#1a1a1a',
+    },
+    calendarDaySelected: {
+      color: 'white',
+    },
+    calendarDayToday: {
+      color: '#007AFF',
+    },
   });
 
 export default styles;
