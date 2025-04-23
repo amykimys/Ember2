@@ -20,6 +20,7 @@ import {
   Modal,
   Keyboard,
   StyleSheet,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -36,7 +37,6 @@ import { Animated } from 'react-native';
 import CalendarStrip from 'react-native-calendar-strip';
 import moment from 'moment';
 import 'moment/locale/en-gb';
-import { TouchableWithoutFeedback } from 'react-native';
 import { Pressable } from 'react-native';
 
 
@@ -932,35 +932,35 @@ export default function TodoScreen() {
 
     return (
       <View key={category.id} style={styles.categoryContainer}>
-        <TouchableOpacity 
-          style={styles.categoryHeader}
-          onPress={() => toggleCategoryCollapse(category.id)}
-          onLongPress={() => {
-            Alert.alert(
-              "Delete Category",
-              `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
-              [
-                {
-                  text: "Cancel",
-                  style: "cancel"
-                },
-                {
-                  text: "Delete",
-                  style: "destructive",
-                  onPress: () => handleDeleteCategory(category.id)
-                }
-              ]
-            );
-          }}
-          delayLongPress={500}
-        >
+      <Pressable
+  style={styles.categoryHeader}
+  onPress={() => toggleCategoryCollapse(category.id)}
+  onLongPress={() => {
+    console.log('🧨 Long pressed category');
+    Alert.alert(
+      "Delete Category",
+      `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => handleDeleteCategory(category.id),
+        },
+      ]
+    );
+  }}
+  delayLongPress={500}
+>
+
+
           <Text style={styles.categoryTitle}>{category.label}</Text>
           {isCollapsed ? (
             <Ionicons name="chevron-up" size={20} color="#666" />
           ) : (
             <Ionicons name="chevron-down" size={20} color="#666" />
           )}
-        </TouchableOpacity>
+        </Pressable>
 
         {!isCollapsed && (
           <View style={[styles.categoryContent, { backgroundColor: category.color }]}>
@@ -1396,17 +1396,7 @@ export default function TodoScreen() {
             {/* HEADER */}
             <View style={styles.header}>
               <TouchableOpacity 
-                style={styles.menuButton}
-                onPress={() => navigateDay('prev')}
-              >
-                <Ionicons name="chevron-back" size={24} color="#1a1a1a" />
-              </TouchableOpacity>
-              <Text style={styles.title}>tasks</Text>
-              <TouchableOpacity 
-                style={styles.menuButton}
-                onPress={() => navigateDay('next')}
-              >
-                <Ionicons name="chevron-forward" size={24} color="#1a1a1a" />
+                style={styles.menuButton}>              
               </TouchableOpacity>
             </View>
             
@@ -1490,7 +1480,7 @@ export default function TodoScreen() {
                     borderTopLeftRadius: 20,
                     borderTopRightRadius: 20,
                     padding: 10,
-                    height: showCategoryPicker ? '50%' : '35%',
+                    height: showCategoryBox ? '45%' : '35%',
                     width: '100%',
                     transform: [{
                       translateY: modalAnimation.interpolate({
@@ -1629,29 +1619,33 @@ export default function TodoScreen() {
                                     marginRight: 6,
                                   }}
                                 />
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    if (!newCategoryName.trim()) return;
-                                    const newCat = {
-                                      id: uuidv4(),
-                                      label: newCategoryName.trim(),
-                                      color: '#FFD700',
-                                    };
-                                    setCategories((prev) => [...prev, newCat]);
-                                    setSelectedCategoryId(newCat.id);
-                                    setNewCategoryName('');
-                                    setShowNewCategoryInput(false);
-                                  }}
-                                  style={{
-                                    backgroundColor: '#007AFF',
-                                    borderRadius: 16,
-                                    padding: 6,
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                  }}
-                                >
-                                  <Ionicons name="checkmark" size={14} color="#fff" />
-                                </TouchableOpacity>
+                                <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+                                  <View>
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        if (!newCategoryName.trim()) return;
+                                        const newCat = {
+                                          id: uuidv4(),
+                                          label: newCategoryName.trim(),
+                                          color: '#FFD700',
+                                        };
+                                        setCategories((prev) => [...prev, newCat]);
+                                        setSelectedCategoryId(newCat.id);
+                                        setNewCategoryName('');
+                                        setShowNewCategoryInput(false);
+                                      }}
+                                      style={{
+                                        backgroundColor: '#007AFF',
+                                        borderRadius: 16,
+                                        padding: 6,
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                      }}
+                                    >
+                                      <Ionicons name="checkmark" size={14} color="#fff" />
+                                    </TouchableOpacity>
+                                  </View>
+                                </TouchableWithoutFeedback>
                               </>
                             )}
                           </View>

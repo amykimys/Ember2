@@ -4,7 +4,7 @@ const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: '#fff',
-      paddingTop: 15,
+      paddingTop: 0,
       paddingHorizontal: 20,
       paddingBottom: 30,
     },
@@ -15,8 +15,8 @@ const styles = StyleSheet.create({
     },
     menuButton: {
       padding: 4,
-      marginBottom: 45,
-      marginTop: 0,
+      marginBottom: 40,
+      marginTop: 30,
     },
     menuIcon: {
       marginTop: 10,
