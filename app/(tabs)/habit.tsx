@@ -9,13 +9,14 @@ import {
   Image,
   Platform,
   KeyboardAvoidingView,
-  Alert
+  Alert,
+  StyleSheet
 } from 'react-native';
 import { Plus, Check, Menu, X, Camera, CreditCard as Edit2, Repeat, Trash2 } from 'lucide-react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import Modal from 'react-native-modal';
 import * as ImagePicker from 'expo-image-picker';
-import { Swipeable, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Swipeable, GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Animated } from 'react-native';      // <-- import Animated
 import * as Haptics from 'expo-haptics';
 import styles from '../../styles/habit.styles';
@@ -27,6 +28,7 @@ import { supabase } from '../../supabase';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import { Picker as ReactNativePicker } from '@react-native-picker/picker';
+import { useNavigation } from '@react-navigation/native';
 
 
 interface Habit {
@@ -65,11 +67,13 @@ interface Habit {
 
  
 export default function HabitScreen() {
+  const navigation = useNavigation();
   const [habits, setHabits] = useState<Habit[]>([]);
   const [newHabit, setNewHabit] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [selectedColor, setSelectedColor] = useState(HABIT_COLORS[0]);
   const [currentWeek, setCurrentWeek] = useState<Date[]>([]);
+  const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [frequency, setFrequency] = useState(1);
   const [requirePhoto, setRequirePhoto] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -94,6 +98,9 @@ export default function HabitScreen() {
   const [isPhotoOptionsModalVisible, setIsPhotoOptionsModalVisible] = useState(false);
   const [isPhotoPreviewModalVisible, setIsPhotoPreviewModalVisible] = useState(false);
   const [isModalTransitioning, setIsModalTransitioning] = useState(false);
+  const [selectedHour, setSelectedHour] = useState('12');
+  const [selectedMinute, setSelectedMinute] = useState('00');
+  const [selectedAmPm, setSelectedAmPm] = useState('AM');
 
 
   
@@ -227,26 +234,20 @@ for (let i = 0; i < 7; i++) {
 
   function getWeeklyProgressStreak(habit: Habit) {
     const today = new Date();
-  
-    // Sunday = 0 → Sunday = 7, so Mon = 1
-    const day = today.getDay() === 0 ? 7 : today.getDay();
-  
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - (day));
-    startOfWeek.setHours(0, 0, 0, 0);
-  
-    const endOfToday = new Date(today);
-    endOfToday.setHours(23, 59, 59, 999);
-  
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - today.getDay()); // Start from Sunday
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(today);
+    weekEnd.setHours(23, 59, 59, 999);
+
     const checkmarksThisWeek = habit.completedDays.filter(dateStr => {
       const date = new Date(dateStr);
-      return date >= startOfWeek && date <= endOfToday;
+      return date >= weekStart && date <= weekEnd;
     });
-  
+
     const count = checkmarksThisWeek.length;
-    const target = habit.targetPerWeek || 1;
-  
-    return `🔥 ${count}/${target}`;
+    return `🔥 ${count}`;
   }
   
 
@@ -277,53 +278,47 @@ const formatDate = (date: Date): string => {
   
   
   const calculateStreak = (habit: Habit, completedDays: string[]): number => {
-    const completedSet = new Set(completedDays);
-    const today = new Date();
-    let streak = 0;
-    let currentDate = new Date(today);
+  const completedSet = new Set(completedDays.map(date => formatDate(new Date(date))));
+  const today = new Date();
+  let totalCompletions = 0;
 
-    while (true) {
-      const dateStr = formatDate(currentDate);
-      if (completedSet.has(dateStr)) {
-        streak++;
-      } else {
-        break;
-      }
-      currentDate.setDate(currentDate.getDate() - 1);
+  // Start from current week's Sunday
+  let currentWeekStart = new Date(today);
+  const day = currentWeekStart.getDay(); // 0 = Sun, 6 = Sat
+  currentWeekStart.setDate(currentWeekStart.getDate() - day);
+  currentWeekStart.setHours(0, 0, 0, 0);
+
+  while (true) {
+    // Clone week start and generate dates for this week
+    const thisWeekStart = new Date(currentWeekStart);
+    const weekDates: string[] = [];
+
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(thisWeekStart);
+      day.setDate(thisWeekStart.getDate() + i);
+      weekDates.push(formatDate(day));
     }
 
-    return streak;
-  };
-  
-  
+    const completionsThisWeek = weekDates.filter(date => completedSet.has(date)).length;
 
-  function groupCompletedDaysByWeek(dates: string[]): string[][] {
-    const normalized = [...dates].map(d => formatDate(new Date(d))).sort();
-    const weeks: Record<string, string[]> = {};
-  
-    for (const dateStr of normalized) {
-      const date = new Date(dateStr);
-  
-      const day = date.getDay(); // 0 = Sunday
-      const offset = (day + 6) % 7; // Make Monday = 0
-      const mondayStart = new Date(date);
-      mondayStart.setDate(date.getDate() - offset);
-      mondayStart.setHours(0, 0, 0, 0);
-  
-      const weekKey = formatDate(mondayStart);
-  
-      if (!weeks[weekKey]) {
-        weeks[weekKey] = [];
-      }
-  
-      weeks[weekKey].push(dateStr);
+    if (completionsThisWeek >= habit.targetPerWeek) {
+      totalCompletions += completionsThisWeek;
+      // Go back 7 days for the next week check (clone before mutation!)
+      const prevWeekStart = new Date(currentWeekStart);
+      prevWeekStart.setDate(prevWeekStart.getDate() - 7);
+      currentWeekStart = prevWeekStart;
+    } else {
+      break;
     }
-  
-    return Object.values(weeks);
   }
+
+  return totalCompletions;
+};
+
+
   
-  
-  
+ 
+ 
   
   const toggleHabitDay = async (habitId: string, date: string) => {
     const normalizedDate = formatDate(new Date(date));
@@ -479,19 +474,50 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     }
   };
 
-  const handleHabitPress = (habitId: string, date: string) => {
-    console.log(`Pressed: ${habitId} on ${date}`);
-  
+  const handleHabitPress = async (habitId: string, date: string) => {
+    const normalizedDate = formatDate(new Date(date));
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      console.error('No user logged in');
+      return;
+    }
+
     const habit = habits.find(h => h.id === habitId);
     if (!habit) return;
-  
-    if (habit.requirePhoto) {
-      setSelectedHabitId(habitId);
-      setSelectedDate(date);
-      setIsPhotoOptionsModalVisible(true);
-    } else {
-      toggleHabitDay(habitId, date);
+
+    const newCompletedDays = habit.completedDays.includes(normalizedDate)
+      ? habit.completedDays.filter(d => d !== normalizedDate)
+      : [...habit.completedDays, normalizedDate];
+
+    const newStreak = calculateStreak(habit, newCompletedDays);
+
+    // Update in Supabase first
+    const { error } = await supabase
+      .from('habits')
+      .update({
+        completed_days: newCompletedDays,
+        streak: newStreak
+      })
+      .eq('id', habitId)
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('Error updating habit:', error);
+      return;
     }
+
+    // Then update local state
+    setHabits(habits.map(h => {
+      if (h.id === habitId) {
+        return {
+          ...h,
+          completedDays: newCompletedDays,
+          streak: newStreak
+        };
+      }
+      return h;
+    }));
   };
   
 
@@ -633,7 +659,9 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                 styles.circleBase,
                 isCompleted ? styles.checkmarkAlone : styles.openCircle
               ]}>
-                {isCompleted && <Check size={18} color="black" />}
+                {isCompleted && (
+                  <Ionicons name="checkmark" size={18} color="black" />
+                )}
               </View>
             </TouchableOpacity>
           </View>
@@ -676,7 +704,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
   };
 
   function getTotalHabitCompletions(habit: Habit) {
-    return `🔥 Total: ${habit.completedDays.length}`;
+    return `🔥 ${calculateStreak(habit, habit.completedDays)}`;
   }
   
   function getWeeklyStreakDisplay(habit: Habit) {
@@ -753,497 +781,696 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     [isModalTransitioning]
   );
 
+  // Function to generate week dates
+  const generateWeekDates = (startDate: Date) => {
+    const week = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i);
+      week.push(date);
+    }
+    return week;
+  };
+
+  // Function to handle week navigation
+  const navigateWeek = (direction: 'prev' | 'next') => {
+    const newIndex = direction === 'prev' ? currentWeekIndex - 1 : currentWeekIndex + 1;
+    const newStartDate = new Date(currentWeek[0]);
+    newStartDate.setDate(newStartDate.getDate() + (direction === 'prev' ? -7 : 7));
+    setCurrentWeek(generateWeekDates(newStartDate));
+    setCurrentWeekIndex(newIndex);
+  };
+
+  // Pan gesture handler
+  const onHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.state === State.END) {
+      const { translationX } = event.nativeEvent;
+      if (Math.abs(translationX) > 50) {
+        if (translationX > 0) {
+          navigateWeek('prev');
+        } else {
+          navigateWeek('next');
+        }
+      }
+    }
+  };
+
+  // Add reminder picker handlers
+  const handleReminderPress = useCallback(() => {
+    console.log('Opening reminder picker');
+    setShowReminderPicker(true);
+  }, []);
+
+  const handleReminderConfirm = useCallback(() => {
+    const hours = selectedAmPm === 'PM' ? (parseInt(selectedHour) % 12) + 12 : parseInt(selectedHour) % 12;
+    const time = new Date();
+    time.setHours(hours);
+    time.setMinutes(parseInt(selectedMinute));
+    setReminderTime(time);
+    setShowReminderPicker(false);
+  }, [selectedHour, selectedMinute, selectedAmPm]);
+
+  const handleReminderCancel = useCallback(() => {
+    setShowReminderPicker(false);
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.menuButton}>
-          <Ionicons name="menu" size={24} color="#1a1a1a" />
-        </TouchableOpacity>
-        <Text style={styles.title}>habits</Text>
-      </View>
-
-      {renderWeekHeader()}
-
-      <ScrollView style={styles.habitList}>
-        {habits.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateTitle}>no habits yet!</Text>
-            <Text style={styles.emptyStateSubtitle}>Start building good habits :)</Text>
-          </View>
-        ) : (
-          habits.map((habit) => (
-            <Swipeable
-              key={habit.id}
-              onSwipeableOpen={() => {
-                if (Platform.OS !== 'web') {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                }
-                deleteHabit(habit.id);
-              }}
-              friction={1.5}
-              overshootFriction={8}
-              renderRightActions={(progress, dragX) => {
-                const scale = dragX.interpolate({
-                  inputRange: [-100, 0],
-                  outputRange: [1, 0],
-                  extrapolate: 'clamp',
-                });
-            
-                return (
-                  <View style={styles.rightAction}>
-                    <Animated.View style={[styles.trashIconContainer, { transform: [{ scale }] }]}>
-                      <Trash2 color="white" size={24} />
-                    </Animated.View>
-                  </View>
-                );
-              }}
-            >
-              <TouchableOpacity
-                onLongPress={() => {
-                  console.log('Long press detected on habit:', habit);
-                  if (Platform.OS !== 'web') {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                  }
-                  handleEditHabit(habit);
-                }}
-                delayLongPress={500}
-                activeOpacity={0.9}
-              >
-                <View style={{ position: 'relative' }}>
-                  <View
-                    style={[
-                      styles.habitItem,
-                      { backgroundColor: habit.color, position: 'relative' }
-                    ]}
-                  >
-                    <View style={styles.habitHeader}>
-                      <TouchableOpacity onPress={() => {
-                        setExpandedStreakId(expandedStreakId === habit.id ? null : habit.id);
-                      }}>
-                        <Text style={styles.streakText}>
-                          {expandedStreakId === habit.id
-                            ? getTotalHabitCompletions(habit)
-                            : getWeeklyProgressStreak(habit)}
-                        </Text>
-                      </TouchableOpacity>
-                      {renderHabitCheckmarks(habit)}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={[styles.habitName, { color: getTextColor(habit.color), flexShrink: 1 }]}>
-                        {habit.text}
-                      </Text>
-                      {habit.requirePhoto && (
-                        <Camera size={16} color={getTextColor(habit.color)} style={{ marginLeft: 8 }} />
-                      )}
-                    </View>
-
-                    {habit.description && (
-                      <Text style={[
-                        styles.habitDetails,
-                        { color: getTextColor(habit.color) }
-                      ]}>
-                        {habit.description}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              </TouchableOpacity>
-            </Swipeable>
-          ))
-        )}
-      </ScrollView>
-
-
-        {/* ADD HABIT BUTTON */}
-        <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => {
-                  resetForm();                 // (Optional) Clear old input
-                  setIsNewHabitModalVisible(true); // ✅ Open the bottomsheet
-                }}
-              >
-                <Ionicons name="add" size={24} color="white" />
-              </TouchableOpacity>
-
-
-      {/* --- NEW HABIT MODAL --- */}
-      <Modal
-        isVisible={isNewHabitModalVisible}
-        onBackdropPress={handleCloseNewHabitModal}
-        onBackButtonPress={handleCloseNewHabitModal}
-        style={{ margin: 0, justifyContent: 'flex-end' }}
-        animationIn="slideInUp"
-        animationOut="slideOutDown"
-        backdropTransitionOutTiming={0}
-        useNativeDriver
-        hideModalContentWhileAnimating
+      <PanGestureHandler
+        onHandlerStateChange={onHandlerStateChange}
+        minDist={10}
       >
-        <View style={[styles.modalOverlay]}>
-          <View style={[styles.modalContent, { 
-            backgroundColor: 'white',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            padding: 20,
-            height: '80%',
-            width: '100%'
-          }]}>
-            <View style={[styles.modalHeader, {
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 20,
-              paddingBottom: 10,
-              borderBottomWidth: 1,
-              borderBottomColor: '#E0E0E0'
-            }]}>
-              <Text style={[styles.modalTitle, {
-                fontSize: 28,
-                fontWeight: 'bold',
-                color: '#1a1a1a'
-              }]}>{editingHabit ? 'Edit Habit' : 'New Habit'}</Text>
-              <TouchableOpacity 
-                onPress={handleCloseNewHabitModal}
-                disabled={isModalTransitioning}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              style={{ flex: 1 }}
-              contentContainerStyle={{ 
-                paddingBottom: 40
-              }}
-              showsVerticalScrollIndicator={true}
-              keyboardShouldPersistTaps="handled"
+        <View style={styles.container}>
+          <View style={styles.header}>
+            <TouchableOpacity 
+              style={styles.menuButton}
+              onPress={() => navigateWeek('prev')}
             >
-              {/* Title Input */}
-              <TextInput
-                style={[styles.input, {
-                  fontSize: 20,
-                  color: '#1a1a1a',
-                  padding: 16,
-                  backgroundColor: '#F5F5F5',
-                  borderRadius: 12,
-                  marginBottom: 20
-                }]}
-                value={newHabit}
-                onChangeText={setNewHabit}
-                placeholder="What needs to be done?"
-                placeholderTextColor="#666"
-              />
+              <Ionicons name="chevron-back" size={24} color="#1a1a1a" />
+            </TouchableOpacity>
+            <Text style={styles.title}>habits</Text>
+            <TouchableOpacity 
+              style={styles.menuButton}
+              onPress={() => navigateWeek('next')}
+            >
+              <Ionicons name="chevron-forward" size={24} color="#1a1a1a" />
+            </TouchableOpacity>
+          </View>
 
-              {/* Description Input */}
-              <TextInput
-                style={[styles.input, styles.descriptionInput, {
-                  minHeight: 150,
-                  textAlignVertical: 'top',
-                  marginBottom: 30,
-                  fontSize: 18,
-                  padding: 16,
-                  backgroundColor: '#F5F5F5',
-                  borderRadius: 12
-                }]}
-                value={newDescription}
-                onChangeText={setNewDescription}
-                placeholder="Add description (optional)"
-                placeholderTextColor="#666"
-                multiline
-                textAlignVertical="top"
-              />
+          {renderWeekHeader()}
 
-              {/* Color Section */}
-              <View style={styles.categorySection}>
-                <Text style={styles.sectionTitle}>Color</Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ marginTop: 12, flexDirection: 'row' }}
+          <ScrollView style={styles.habitList}>
+            {habits.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateTitle}>no habits yet!</Text>
+                <Text style={styles.emptyStateSubtitle}>Start building good habits :)</Text>
+              </View>
+            ) : (
+              habits.map((habit) => (
+                <Swipeable
+                  key={habit.id}
+                  onSwipeableOpen={() => {
+                    if (Platform.OS !== 'web') {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    }
+                    deleteHabit(habit.id);
+                  }}
+                  friction={1.5}
+                  overshootFriction={8}
+                  renderRightActions={(progress, dragX) => {
+                    const scale = dragX.interpolate({
+                      inputRange: [-100, 0],
+                      outputRange: [1, 0],
+                      extrapolate: 'clamp',
+                    });
+                  
+                    return (
+                      <View style={styles.rightAction}>
+                        <Animated.View style={[styles.trashIconContainer, { transform: [{ scale }] }]}>
+                          <Trash2 color="white" size={24} />
+                        </Animated.View>
+                      </View>
+                    );
+                  }}
                 >
-                  {Object.keys(THEMES).map((theme) => (
-                    <TouchableOpacity
-                      key={theme}
-                      style={{
-                        paddingVertical: 6,
-                        paddingHorizontal: 12,
-                        backgroundColor: selectedTheme === theme ? '#007AFF' : '#E0E0E0',
-                        borderRadius: 20,
-                        marginRight: 10,
-                      }}
-                      onPress={() => setSelectedTheme(theme as keyof typeof THEMES)}
+                  <TouchableOpacity
+                    onLongPress={() => {
+                      console.log('Long press detected on habit:', habit);
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      }
+                      handleEditHabit(habit);
+                    }}
+                    delayLongPress={500}
+                    activeOpacity={0.9}
+                  >
+                    <View style={{ position: 'relative' }}>
+                      <View
+                        style={[
+                          styles.habitItem,
+                          { backgroundColor: habit.color, position: 'relative' }
+                        ]}
+                      >
+                        <View style={styles.habitHeader}>
+                          <TouchableOpacity onPress={() => {
+                            setExpandedStreakId(expandedStreakId === habit.id ? null : habit.id);
+                          }}>
+                            <Text style={styles.streakText}>
+                              {expandedStreakId === habit.id
+                                ? getTotalHabitCompletions(habit)
+                                : getWeeklyProgressStreak(habit)}
+                            </Text>
+                          </TouchableOpacity>
+                          {renderHabitCheckmarks(habit)}
+                        </View>
+
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text style={[styles.habitName, { color: getTextColor(habit.color), flexShrink: 1 }]}>
+                            {habit.text}
+                          </Text>
+                          {habit.requirePhoto && (
+                            <Camera size={16} color={getTextColor(habit.color)} style={{ marginLeft: 8 }} />
+                          )}
+                        </View>
+
+                        {habit.description && (
+                          <Text style={[
+                            styles.habitDetails,
+                            { color: getTextColor(habit.color) }
+                          ]}>
+                            {habit.description}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </Swipeable>
+              ))
+            )}
+          </ScrollView>
+
+
+            {/* ADD HABIT BUTTON */}
+            <TouchableOpacity
+                    style={styles.addButton}
+                    onPress={() => {
+                      resetForm();                 // (Optional) Clear old input
+                      setIsNewHabitModalVisible(true); // ✅ Open the bottomsheet
+                    }}
+                  >
+                    <Ionicons name="add" size={24} color="white" />
+                  </TouchableOpacity>
+
+
+          {/* --- NEW HABIT MODAL --- */}
+          <Modal
+            isVisible={isNewHabitModalVisible}
+            onBackdropPress={handleCloseNewHabitModal}
+            onBackButtonPress={handleCloseNewHabitModal}
+            style={{ margin: 0, justifyContent: 'flex-end' }}
+            animationIn="slideInUp"
+            animationOut="slideOutDown"
+            backdropTransitionOutTiming={0}
+            useNativeDriver
+            hideModalContentWhileAnimating
+          >
+            <View style={[styles.modalOverlay]}>
+              <View style={[styles.modalContent, { 
+                backgroundColor: 'white',
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+                height: '80%',
+                width: '100%'
+              }]}>
+                <View style={[styles.modalHeader, {
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 20,
+                  paddingBottom: 10,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#E0E0E0'
+                }]}>
+                  <Text style={[styles.modalTitle, {
+                    fontSize: 28,
+                    fontWeight: 'bold',
+                    color: '#1a1a1a'
+                  }]}>{editingHabit ? 'Edit Habit' : 'New Habit'}</Text>
+                  <TouchableOpacity 
+                    onPress={handleCloseNewHabitModal}
+                    disabled={isModalTransitioning}
+                  >
+                    <Ionicons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ 
+                    paddingBottom: 40
+                  }}
+                  showsVerticalScrollIndicator={true}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {/* Title Input */}
+                  <TextInput
+                    style={[styles.input, {
+                      fontSize: 20,
+                      color: '#1a1a1a',
+                      padding: 16,
+                      backgroundColor: '#F5F5F5',
+                      borderRadius: 12,
+                      marginBottom: 20
+                    }]}
+                    value={newHabit}
+                    onChangeText={setNewHabit}
+                    placeholder="What needs to be done?"
+                    placeholderTextColor="#666"
+                  />
+
+                  {/* Description Input */}
+                  <TextInput
+                    style={[styles.input, styles.descriptionInput, {
+                      minHeight: 150,
+                      textAlignVertical: 'top',
+                      marginBottom: 30,
+                      fontSize: 18,
+                      padding: 16,
+                      backgroundColor: '#F5F5F5',
+                      borderRadius: 12
+                    }]}
+                    value={newDescription}
+                    onChangeText={setNewDescription}
+                    placeholder="Add description (optional)"
+                    placeholderTextColor="#666"
+                    multiline
+                    textAlignVertical="top"
+                  />
+
+                  {/* Color Section */}
+                  <View style={styles.categorySection}>
+                    <Text style={styles.sectionTitle}>Color</Text>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ marginTop: 12, flexDirection: 'row' }}
                     >
-                      <Text style={{ color: selectedTheme === theme ? 'white' : '#333', fontWeight: '600' }}>
-                        {theme}
+                      {Object.keys(THEMES).map((theme) => (
+                        <TouchableOpacity
+                          key={theme}
+                          style={{
+                            paddingVertical: 6,
+                            paddingHorizontal: 12,
+                            backgroundColor: selectedTheme === theme ? '#007AFF' : '#E0E0E0',
+                            borderRadius: 20,
+                            marginRight: 10,
+                          }}
+                          onPress={() => setSelectedTheme(theme as keyof typeof THEMES)}
+                        >
+                          <Text style={{ color: selectedTheme === theme ? 'white' : '#333', fontWeight: '600' }}>
+                            {theme}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
+                      {THEMES[selectedTheme].map((color) => (
+                        <TouchableOpacity
+                          key={color}
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 15,
+                            backgroundColor: color,
+                            margin: 5,
+                            borderWidth: newCategoryColor === color ? 2 : 0,
+                            borderColor: '#007AFF',
+                          }}
+                          onPress={() => setNewCategoryColor(color)}
+                        />
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Photo Section */}
+                  <View style={styles.optionRow}>
+                    <Text style={styles.optionLabel}>Require Photo</Text>
+                    <Switch
+                      value={requirePhoto}
+                      onValueChange={setRequirePhoto}
+                      trackColor={{ false: '#ccc', true: '#007AFF' }}
+                      thumbColor={requirePhoto ? 'white' : '#f4f3f4'}
+                    />
+                  </View>
+
+                  {/* Reminder Section */}
+                  <View style={styles.optionRow}>
+                    <Text style={styles.optionLabel}>Reminder</Text>
+                    <TouchableOpacity
+                      style={styles.newOptionButton}
+                      onPress={handleReminderPress}
+                    >
+                      <Ionicons name="time-outline" size={20} color="#666" />
+                      <Text style={styles.newOptionText}>
+                        {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'None'}
                       </Text>
                     </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                  </View>
 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
-                  {THEMES[selectedTheme].map((color) => (
-                    <TouchableOpacity
-                      key={color}
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: 15,
-                        backgroundColor: color,
-                        margin: 5,
-                        borderWidth: newCategoryColor === color ? 2 : 0,
-                        borderColor: '#007AFF',
-                      }}
-                      onPress={() => setNewCategoryColor(color)}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* Photo Section */}
-              <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>Require Photo</Text>
-                <Switch
-                  value={requirePhoto}
-                  onValueChange={setRequirePhoto}
-                  trackColor={{ false: '#ccc', true: '#007AFF' }}
-                  thumbColor={requirePhoto ? 'white' : '#f4f3f4'}
-                />
-              </View>
-
-              {/* Reminder Section */}
-              <View style={styles.optionRow}>
-                <Text style={styles.optionLabel}>Reminder</Text>
-                <TouchableOpacity
-                  style={styles.newOptionButton}
-                  onPress={() => setShowReminderPicker(true)}
-                >
-                  <Ionicons name="time-outline" size={20} color="#666" />
-                  <Text style={styles.newOptionText}>
-                    {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'None'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Frequency Section */}
-              <View style={[styles.optionRow, { marginBottom: 20 }]}>
-                <Text style={styles.optionLabel}>Times Per Week</Text>
-                <View style={[styles.frequencyContainer, { 
-                  width: 120,
-                  height: 40,
-                  backgroundColor: '#F5F5F5',
-                  borderRadius: 8,
-                  overflow: 'hidden'
-                }]}>
-                  <ReactNativePicker
-                    selectedValue={frequency}
-                    onValueChange={(value: number) => setFrequency(value)}
-                    style={{ 
+                  {/* Frequency Section */}
+                  <View style={[styles.optionRow, { marginBottom: 20 }]}>
+                    <Text style={styles.optionLabel}>Times Per Week</Text>
+                    <View style={[styles.frequencyContainer, { 
+                      width: 120,
                       height: 40,
-                      width: '100%',
-                      marginTop: -8
-                    }}
-                    itemStyle={{ 
-                      fontSize: 16,
-                      height: 40
+                      backgroundColor: '#F5F5F5',
+                      borderRadius: 8,
+                      overflow: 'hidden'
+                    }]}>
+                      <ReactNativePicker
+                        selectedValue={frequency}
+                        onValueChange={(value: number) => setFrequency(value)}
+                        style={{ 
+                          height: 40,
+                          width: '100%',
+                          marginTop: -8
+                        }}
+                        itemStyle={{ 
+                          fontSize: 16,
+                          height: 40
+                        }}
+                      >
+                        {[1, 2, 3, 4, 5, 6, 7].map((num) => (
+                          <ReactNativePicker.Item 
+                            key={num} 
+                            label={`${num}`} 
+                            value={num}
+                            color="#1a1a1a"
+                          />
+                        ))}
+                      </ReactNativePicker>
+                    </View>
+                  </View>
+
+                  {/* Simple Time Picker */}
+                  <Modal
+                    isVisible={showReminderPicker}
+                    onBackdropPress={handleReminderCancel}
+                    onBackButtonPress={handleReminderCancel}
+                    style={{ margin: 0, justifyContent: 'flex-end' }}
+                    animationIn="slideInUp"
+                    animationOut="slideOutDown"
+                    backdropTransitionOutTiming={0}
+                    useNativeDriver
+                    hideModalContentWhileAnimating
+                  >
+                    <View style={[styles.modalOverlay]}>
+                      <View style={[styles.modalContent, { 
+                        backgroundColor: 'white',
+                        borderTopLeftRadius: 20,
+                        borderTopRightRadius: 20,
+                        padding: 20,
+                        height: '35%',
+                        width: '100%'
+                      }]}>
+                        <View style={[styles.modalHeader, {
+                          flexDirection: 'row',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 20,
+                          paddingBottom: 10,
+                          borderBottomWidth: 1,
+                          borderBottomColor: '#E0E0E0'
+                        }]}>
+                          <Text style={[styles.modalTitle, {
+                            fontSize: 24,
+                            fontWeight: 'bold',
+                            color: '#1a1a1a'
+                          }]}>Set Reminder Time</Text>
+                          <TouchableOpacity 
+                            onPress={handleReminderCancel}
+                            disabled={isModalTransitioning}
+                          >
+                            <Ionicons name="close" size={24} color="#666" />
+                          </TouchableOpacity>
+                        </View>
+
+                        <View style={{ flex: 1, justifyContent: 'center' }}>
+                          <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginBottom: 30 }}>
+                            <TextInput
+                              style={{
+                                width: 70,
+                                height: 50,
+                                borderWidth: 1,
+                                borderColor: '#ddd',
+                                borderRadius: 8,
+                                textAlign: 'center',
+                                fontSize: 24,
+                                marginRight: 8,
+                                backgroundColor: '#F5F5F5'
+                              }}
+                              value={selectedHour}
+                              onChangeText={(text) => {
+                                const num = parseInt(text);
+                                if (!isNaN(num) && num >= 1 && num <= 12) {
+                                  setSelectedHour(text);
+                                }
+                              }}
+                              keyboardType="number-pad"
+                              maxLength={2}
+                            />
+                            <Text style={{ fontSize: 32, color: '#1a1a1a', marginHorizontal: 8 }}>:</Text>
+                            <TextInput
+                              style={{
+                                width: 70,
+                                height: 50,
+                                borderWidth: 1,
+                                borderColor: '#ddd',
+                                borderRadius: 8,
+                                textAlign: 'center',
+                                fontSize: 24,
+                                marginRight: 8,
+                                backgroundColor: '#F5F5F5'
+                              }}
+                              value={selectedMinute}
+                              onChangeText={(text) => {
+                                const num = parseInt(text);
+                                if (!isNaN(num) && num >= 0 && num <= 59) {
+                                  setSelectedMinute(text.padStart(2, '0'));
+                                }
+                              }}
+                              keyboardType="number-pad"
+                              maxLength={2}
+                            />
+                          </View>
+
+                          <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 30 }}>
+                            <TouchableOpacity
+                              style={{
+                                paddingHorizontal: 20,
+                                paddingVertical: 12,
+                                backgroundColor: selectedAmPm === 'AM' ? '#007AFF' : '#F5F5F5',
+                                borderRadius: 8,
+                                marginRight: 16
+                              }}
+                              onPress={() => setSelectedAmPm('AM')}
+                            >
+                              <Text style={{ 
+                                color: selectedAmPm === 'AM' ? 'white' : '#666',
+                                fontSize: 18,
+                                fontWeight: '600'
+                              }}>AM</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={{
+                                paddingHorizontal: 20,
+                                paddingVertical: 12,
+                                backgroundColor: selectedAmPm === 'PM' ? '#007AFF' : '#F5F5F5',
+                                borderRadius: 8
+                              }}
+                              onPress={() => setSelectedAmPm('PM')}
+                            >
+                              <Text style={{ 
+                                color: selectedAmPm === 'PM' ? 'white' : '#666',
+                                fontSize: 18,
+                                fontWeight: '600'
+                              }}>PM</Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: '#007AFF',
+                              padding: 16,
+                              borderRadius: 12,
+                              alignItems: 'center'
+                            }}
+                            onPress={handleReminderConfirm}
+                          >
+                            <Text style={{ color: 'white', fontSize: 18, fontWeight: '600' }}>Set Time</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </Modal>
+
+                  {/* Save Button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.saveButton,
+                      {
+                        paddingVertical: 16,
+                        backgroundColor: newHabit.trim() ? '#007AFF' : '#B0BEC5',
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        marginTop: 30,
+                        marginBottom: 20
+                      },
+                      !newHabit.trim() && styles.saveButtonDisabled
+                    ]}
+                    onPress={handleSave}
+                    disabled={!newHabit.trim()}
+                  >
+                    <Text style={[styles.saveButtonText, {
+                      color: 'white',
+                      fontWeight: '600',
+                      fontSize: 18
+                    }]}>Save</Text>
+                  </TouchableOpacity>
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Photo Options Modal */}
+          <Modal
+            isVisible={isPhotoOptionsModalVisible}
+            onBackdropPress={handleClosePhotoOptionsModal}
+            onBackButtonPress={handleClosePhotoOptionsModal}
+            style={{ margin: 0, justifyContent: 'flex-end' }}
+            animationIn="slideInUp"
+            animationOut="slideOutDown"
+            backdropTransitionOutTiming={0}
+            useNativeDriver
+            hideModalContentWhileAnimating
+          >
+            <View style={[styles.modalOverlay]}>
+              <View style={[styles.modalContent, { 
+                backgroundColor: 'white',
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+                height: '35%',
+                width: '100%'
+              }]}>
+                <View style={[styles.modalHeader, {
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 20,
+                  paddingBottom: 10,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#E0E0E0'
+                }]}>
+                  <Text style={[styles.modalTitle, {
+                    fontSize: 24,
+                    fontWeight: 'bold',
+                    color: '#1a1a1a'
+                  }]}>Upload Photo</Text>
+                  <TouchableOpacity 
+                    onPress={handleClosePhotoOptionsModal}
+                    disabled={isModalTransitioning}
+                  >
+                    <Ionicons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  <TouchableOpacity
+                    style={{ paddingVertical: 14 }}
+                    onPress={() => {
+                      setIsPhotoOptionsModalVisible(false);
+                      handlePhotoCapture('camera');
                     }}
                   >
-                    {[1, 2, 3, 4, 5, 6, 7].map((num) => (
-                      <ReactNativePicker.Item 
-                        key={num} 
-                        label={`${num}`} 
-                        value={num}
-                        color="#1a1a1a"
-                      />
-                    ))}
-                  </ReactNativePicker>
+                    <Text style={{ fontSize: 16 }}>📷 Take Photo</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{ paddingVertical: 14 }}
+                    onPress={() => {
+                      setIsPhotoOptionsModalVisible(false);
+                      handlePhotoCapture('library');
+                    }}
+                  >
+                    <Text style={{ fontSize: 16 }}>🖼️ Choose from Library</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={{ paddingVertical: 14 }}
+                    onPress={handleClosePhotoOptionsModal}
+                  >
+                    <Text style={{ fontSize: 16, color: '#999' }}>Cancel</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
+            </View>
+          </Modal>
 
-              {/* Save Button */}
-              <TouchableOpacity
-                style={[
-                  styles.saveButton,
-                  {
-                    paddingVertical: 16,
-                    backgroundColor: newHabit.trim() ? '#007AFF' : '#B0BEC5',
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    marginTop: 30,
-                    marginBottom: 20
-                  },
-                  !newHabit.trim() && styles.saveButtonDisabled
-                ]}
-                onPress={handleSave}
-                disabled={!newHabit.trim()}
-              >
-                <Text style={[styles.saveButtonText, {
-                  color: 'white',
-                  fontWeight: '600',
-                  fontSize: 18
-                }]}>Save</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
+          {/* Photo Preview Modal */}
+          <Modal
+            isVisible={isPhotoPreviewModalVisible}
+            onBackdropPress={handleClosePhotoPreviewModal}
+            onBackButtonPress={handleClosePhotoPreviewModal}
+            style={{ margin: 0, justifyContent: 'flex-end' }}
+            animationIn="slideInUp"
+            animationOut="slideOutDown"
+            backdropTransitionOutTiming={0}
+            useNativeDriver
+            hideModalContentWhileAnimating
+          >
+            <View style={[styles.modalOverlay]}>
+              <View style={[styles.modalContent, { 
+                backgroundColor: 'white',
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                padding: 20,
+                height: '60%',
+                width: '100%'
+              }]}>
+                <View style={[styles.modalHeader, {
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 20,
+                  paddingBottom: 10,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#E0E0E0'
+                }]}>
+                  <Text style={[styles.modalTitle, {
+                    fontSize: 24,
+                    fontWeight: 'bold',
+                    color: '#1a1a1a'
+                  }]}>Photo Proof</Text>
+                  <TouchableOpacity 
+                    onPress={handleClosePhotoPreviewModal}
+                    disabled={isModalTransitioning}
+                  >
+                    <Ionicons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={{ flex: 1 }}>
+                  {previewPhoto ? (
+                    <Image
+                      source={{ uri: previewPhoto }}
+                      style={{
+                        width: '100%',
+                        height: 300,
+                        borderRadius: 12,
+                        backgroundColor: '#f0f0f0',
+                      }}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <Text style={{ color: '#999' }}>No photo available.</Text>
+                  )}
+
+                  <TouchableOpacity
+                    onPress={handleClosePhotoPreviewModal}
+                    style={{ marginTop: 16, padding: 12, alignItems: 'center' }}
+                  >
+                    <Text style={{ fontSize: 16, color: '#007AFF' }}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
         </View>
-      </Modal>
-
-      {/* Photo Options Modal */}
-      <Modal
-        isVisible={isPhotoOptionsModalVisible}
-        onBackdropPress={handleClosePhotoOptionsModal}
-        onBackButtonPress={handleClosePhotoOptionsModal}
-        style={{ margin: 0, justifyContent: 'flex-end' }}
-        animationIn="slideInUp"
-        animationOut="slideOutDown"
-        backdropTransitionOutTiming={0}
-        useNativeDriver
-        hideModalContentWhileAnimating
-      >
-        <View style={[styles.modalOverlay]}>
-          <View style={[styles.modalContent, { 
-            backgroundColor: 'white',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            padding: 20,
-            height: '35%',
-            width: '100%'
-          }]}>
-            <View style={[styles.modalHeader, {
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 20,
-              paddingBottom: 10,
-              borderBottomWidth: 1,
-              borderBottomColor: '#E0E0E0'
-            }]}>
-              <Text style={[styles.modalTitle, {
-                fontSize: 24,
-                fontWeight: 'bold',
-                color: '#1a1a1a'
-              }]}>Upload Photo</Text>
-              <TouchableOpacity 
-                onPress={handleClosePhotoOptionsModal}
-                disabled={isModalTransitioning}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ flex: 1 }}>
-              <TouchableOpacity
-                style={{ paddingVertical: 14 }}
-                onPress={() => {
-                  setIsPhotoOptionsModalVisible(false);
-                  handlePhotoCapture('camera');
-                }}
-              >
-                <Text style={{ fontSize: 16 }}>📷 Take Photo</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={{ paddingVertical: 14 }}
-                onPress={() => {
-                  setIsPhotoOptionsModalVisible(false);
-                  handlePhotoCapture('library');
-                }}
-              >
-                <Text style={{ fontSize: 16 }}>🖼️ Choose from Library</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={{ paddingVertical: 14 }}
-                onPress={handleClosePhotoOptionsModal}
-              >
-                <Text style={{ fontSize: 16, color: '#999' }}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Photo Preview Modal */}
-      <Modal
-        isVisible={isPhotoPreviewModalVisible}
-        onBackdropPress={handleClosePhotoPreviewModal}
-        onBackButtonPress={handleClosePhotoPreviewModal}
-        style={{ margin: 0, justifyContent: 'flex-end' }}
-        animationIn="slideInUp"
-        animationOut="slideOutDown"
-        backdropTransitionOutTiming={0}
-        useNativeDriver
-        hideModalContentWhileAnimating
-      >
-        <View style={[styles.modalOverlay]}>
-          <View style={[styles.modalContent, { 
-            backgroundColor: 'white',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            padding: 20,
-            height: '60%',
-            width: '100%'
-          }]}>
-            <View style={[styles.modalHeader, {
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 20,
-              paddingBottom: 10,
-              borderBottomWidth: 1,
-              borderBottomColor: '#E0E0E0'
-            }]}>
-              <Text style={[styles.modalTitle, {
-                fontSize: 24,
-                fontWeight: 'bold',
-                color: '#1a1a1a'
-              }]}>Photo Proof</Text>
-              <TouchableOpacity 
-                onPress={handleClosePhotoPreviewModal}
-                disabled={isModalTransitioning}
-              >
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ flex: 1 }}>
-              {previewPhoto ? (
-                <Image
-                  source={{ uri: previewPhoto }}
-                  style={{
-                    width: '100%',
-                    height: 300,
-                    borderRadius: 12,
-                    backgroundColor: '#f0f0f0',
-                  }}
-                  resizeMode="contain"
-                />
-              ) : (
-                <Text style={{ color: '#999' }}>No photo available.</Text>
-              )}
-
-              <TouchableOpacity
-                onPress={handleClosePhotoPreviewModal}
-                style={{ marginTop: 16, padding: 12, alignItems: 'center' }}
-              >
-                <Text style={{ fontSize: 16, color: '#007AFF' }}>Close</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <DateTimePickerModal
-        isVisible={showReminderPicker}
-        mode="time"  // 🔥 ONLY time
-        onConfirm={(date) => {
-          setReminderTime(date);
-          setShowReminderPicker(false);
-        }}
-        onCancel={() => setShowReminderPicker(false)}
-      />
-
-    </View> 
+      </PanGestureHandler>
     </GestureHandlerRootView>
   );
 }
