@@ -102,13 +102,13 @@ interface Todo {
   text: string;
   description?: string;
   completed: boolean;
-  categoryId: string;
+  categoryId: string | null;
   date: Date;
   repeat?: RepeatOption;
   customRepeatFrequency?: number; 
   customRepeatUnit?: 'days' | 'weeks' | 'months'; 
   customRepeatWeekDays?: WeekDay[];
-  repeatEndDate?: Date | null;  // 🔥 ADD THIS
+  repeatEndDate?: Date | null;
 }
 
 function darkenColor(hex: string, amount = 0.2): string {
@@ -345,6 +345,27 @@ export default function TodoScreen() {
   
 
 
+  const checkCategories = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: categoriesData, error } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error checking categories:', error);
+        return;
+      }
+
+      console.log('Current categories in database:', categoriesData);
+    } catch (error) {
+      console.error('Error in checkCategories:', error);
+    }
+  };
+
   const handleSave = async () => {
     if (!newTodo.trim()) return;
   
@@ -361,8 +382,13 @@ export default function TodoScreen() {
         return;
       }
 
+      // Check current categories
+      await checkCategories();
+
       // First, handle new category creation if needed
-      let finalCategoryId = selectedCategoryId;
+      let finalCategoryId: string | null = selectedCategoryId;
+      console.log('Initial finalCategoryId:', finalCategoryId);
+
       if (showNewCategoryInput && newCategoryName.trim()) {
         console.log('Creating new category...');
         const newCategory = {
@@ -371,26 +397,80 @@ export default function TodoScreen() {
           color: newCategoryColor,
         };
         
+        console.log('Attempting to save category:', newCategory);
+        
         // Save new category to Supabase
-        const { error: categoryError } = await supabase
+        const { data: savedCategory, error: categoryError } = await supabase
           .from('categories')
           .insert({
             id: newCategory.id,
             label: newCategory.label,
             color: newCategory.color,
             user_id: user.id
-          });
+          })
+          .select()
+          .single();
         
         if (categoryError) {
           console.error('Error saving category:', categoryError);
           Alert.alert('Error', 'Failed to save category. Please try again.');
           return;
         }
+
+        if (!savedCategory) {
+          console.error('No category data returned after save');
+          Alert.alert('Error', 'Failed to save category. Please try again.');
+          return;
+        }
+        
+        console.log('Category saved successfully:', savedCategory);
         
         // Update local state with new category
-        setCategories(prev => [...prev, newCategory]);
-        finalCategoryId = newCategory.id;
-        console.log('New category created:', newCategory);
+        setCategories(prev => {
+          const updatedCategories = [...prev, savedCategory];
+          console.log('Updated categories:', updatedCategories);
+          return updatedCategories;
+        });
+        
+        finalCategoryId = savedCategory.id;
+        console.log('Final categoryId after save:', finalCategoryId);
+      }
+
+      // If no category is selected, set it to null
+      if (!finalCategoryId) {
+        finalCategoryId = null;
+      }
+      console.log('Final categoryId before task creation:', finalCategoryId);
+
+      const existsLocally = categories.some(c => c.id === finalCategoryId);
+      if (!existsLocally) {
+        console.error('Selected category not found in local state:', finalCategoryId);
+        Alert.alert('Error', 'Selected category is no longer available.');
+        return;
+      }
+
+
+      // Verify category exists if one is selected
+      if (finalCategoryId) {
+        console.log('Verifying category exists:', finalCategoryId);
+        const { data: categoryData, error: categoryCheckError } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('id', finalCategoryId);
+
+        if (categoryCheckError) {
+          console.error('Category verification failed:', categoryCheckError);
+          Alert.alert('Error', 'Error verifying category. Please try again.');
+          return;
+        }
+
+        if (!categoryData || categoryData.length === 0) {
+          console.error('Category not found:', finalCategoryId);
+          Alert.alert('Error', 'Selected category does not exist. Please try again.');
+          return;
+        }
+
+        console.log('Category verified successfully:', categoryData);
       }
   
       // Then create the new task
@@ -417,7 +497,7 @@ export default function TodoScreen() {
           text: newTodoItem.text,
           description: newTodoItem.description,
           completed: newTodoItem.completed,
-          category_id: newTodoItem.categoryId,
+          category_id: finalCategoryId,
           date: newTodoItem.date.toISOString(),
           repeat: newTodoItem.repeat,
           custom_repeat_frequency: newTodoItem.customRepeatFrequency,
@@ -763,7 +843,7 @@ export default function TodoScreen() {
       setEditingTodo(todo);
       setNewTodo(todo.text);
       setNewDescription(todo.description || '');
-      setSelectedCategoryId(todo.categoryId);
+      setSelectedCategoryId(todo.categoryId || '');
       setTaskDate(todo.date || null);
       setSelectedRepeat(todo.repeat || 'none');
       setCustomRepeatFrequency(todo.customRepeatFrequency?.toString() || '1');
@@ -1057,6 +1137,15 @@ export default function TodoScreen() {
           if (categoriesData) {
             console.log('Categories fetched:', categoriesData);
             setCategories(categoriesData);
+
+            if (selectedCategoryId && !categoriesData.find(cat => cat.id === selectedCategoryId)) {
+              console.log('🧼 Resetting invalid selectedCategoryId');
+              setSelectedCategoryId('');
+            }
+
+          } else {
+            console.log('No categories found for user');
+            setCategories([]);
           }
 
           // Then fetch tasks
@@ -1646,17 +1735,56 @@ export default function TodoScreen() {
 
                                 {/* Confirm button */}
                                 <TouchableOpacity
-                                  onPress={() => {
+                                  onPress={async () => {
                                     if (!newCategoryName.trim()) return;
-                                    const newCat = {
-                                      id: uuidv4(),
-                                      label: newCategoryName.trim(),
-                                      color: newCategoryColor,
-                                    };
-                                    setCategories((prev) => [...prev, newCat]);
-                                    setSelectedCategoryId(newCat.id);
-                                    setNewCategoryName('');
-                                    setShowNewCategoryInput(false);
+                                    
+                                    try {
+                                      const { data: { user } } = await supabase.auth.getUser();
+                                      if (!user) {
+                                        Alert.alert('Error', 'You must be logged in to create categories.');
+                                        return;
+                                      }
+
+                                      const newCategory = {
+                                        id: uuidv4(),
+                                        label: newCategoryName.trim(),
+                                        color: newCategoryColor,
+                                      };
+
+                                      console.log('Saving new category:', newCategory);
+                                      
+                                      const { data: savedCategory, error: categoryError } = await supabase
+                                        .from('categories')
+                                        .insert({
+                                          id: newCategory.id,
+                                          label: newCategory.label,
+                                          color: newCategory.color,
+                                          user_id: user.id
+                                        })
+                                        .select()
+                                        .single();
+
+                                      if (categoryError || !savedCategory) {
+                                        console.error('Error saving category:', categoryError);
+                                        Alert.alert('Error', 'Failed to save category. Please try again.');
+                                        return;
+                                      }
+
+                                      console.log('Category saved successfully:', savedCategory);
+                                      
+                                      setCategories(prev => {
+                                      const updated = [...prev, savedCategory];
+                                      // Prevent stale ID usage
+                                      setSelectedCategoryId(savedCategory.id);
+                                      return updated;
+                                    });
+
+                                      setNewCategoryName('');
+                                      setShowNewCategoryInput(false);
+                                    } catch (error) {
+                                      console.error('Error creating category:', error);
+                                      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                                    }
                                   }}
                                   style={{
                                     backgroundColor: '#007AFF',
