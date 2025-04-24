@@ -181,6 +181,8 @@ export default function TodoScreen() {
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showCategoryBox, setShowCategoryBox] = useState(false);
   const categoryInputRef = useRef<TextInput>(null);
+  const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false);
+  const [isTestModalVisible, setIsTestModalVisible] = useState(false);
 
 
 
@@ -438,8 +440,55 @@ export default function TodoScreen() {
 
       // If no category is selected, set it to null
       if (!finalCategoryId) {
-        finalCategoryId = null;
+        console.log('🪫 No category selected — checking for default "todo" category...');
+      
+        const { data: existingTodoCategory, error: fetchError } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('label', 'todo')
+          .single();
+      
+        if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows found
+          console.error('Error fetching default todo category:', fetchError);
+          Alert.alert('Error', 'Failed to fetch default category.');
+          return;
+        }
+      
+        if (existingTodoCategory) {
+          console.log('✅ Found existing "todo" category:', existingTodoCategory);
+          finalCategoryId = existingTodoCategory.id;
+        } else {
+          console.log('🆕 Creating new default "todo" category...');
+          const defaultCategory = {
+            id: uuidv4(),
+            label: 'todo',
+            color: '#E0E0E0', // pick any neutral color
+          };
+      
+          const { data: newDefaultCategory, error: createError } = await supabase
+            .from('categories')
+            .insert({
+              id: defaultCategory.id,
+              label: defaultCategory.label,
+              color: defaultCategory.color,
+              user_id: user.id
+            })
+            .select()
+            .single();
+      
+          if (createError || !newDefaultCategory) {
+            console.error('Error creating default "todo" category:', createError);
+            Alert.alert('Error', 'Failed to create default category.');
+            return;
+          }
+      
+          console.log('✅ Created new default "todo" category:', newDefaultCategory);
+          setCategories(prev => [...prev, newDefaultCategory]);
+          finalCategoryId = newDefaultCategory.id;
+        }
       }
+      
       console.log('Final categoryId before task creation:', finalCategoryId);
 
       const existsLocally = categories.some(c => c.id === finalCategoryId);
@@ -1474,6 +1523,12 @@ export default function TodoScreen() {
     showModal();
   };
 
+  useEffect(() => {
+    console.log('🧪 isNewCategoryModalVisible state changed:', isNewCategoryModalVisible);
+  }, [isNewCategoryModalVisible]);
+  
+
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
@@ -1640,16 +1695,83 @@ export default function TodoScreen() {
                           zIndex: 2,
                         }}
                       >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
                         <ScrollView 
                           horizontal 
                           showsHorizontalScrollIndicator={false}
                           keyboardShouldPersistTaps="always"
+                          contentContainerStyle={{ paddingRight: 4 }}
+                          style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
                         >
                           {categories.map((cat) => (
                             <Pressable
                               key={cat.id}
                               onPress={() => setSelectedCategoryId(cat.id)}
-                              android_disableSound={true}
+                              onLongPress={() => {
+                                Alert.alert(
+                                  "Delete Category",
+                                  `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
+                                  [
+                                    { text: "Cancel", style: "cancel" },
+                                    {
+                                      text: "Delete",
+                                      style: "destructive",
+                                      onPress: async () => {
+                                        try {
+                                          const { data: { user } } = await supabase.auth.getUser();
+                                          if (!user) {
+                                            Alert.alert('Error', 'You must be logged in to delete categories.');
+                                            return;
+                                          }
+
+                                          // First, delete all tasks in this category
+                                          const { error: tasksError } = await supabase
+                                            .from('todos')
+                                            .delete()
+                                            .eq('category_id', cat.id)
+                                            .eq('user_id', user.id);
+
+                                          if (tasksError) {
+                                            console.error('Error deleting tasks:', tasksError);
+                                            Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
+                                            return;
+                                          }
+
+                                          // Then delete the category
+                                          const { error: categoryError } = await supabase
+                                            .from('categories')
+                                            .delete()
+                                            .eq('id', cat.id)
+                                            .eq('user_id', user.id);
+
+                                          if (categoryError) {
+                                            console.error('Error deleting category:', categoryError);
+                                            Alert.alert('Error', 'Failed to delete category. Please try again.');
+                                            return;
+                                          }
+
+                                          // Update local state
+                                          setCategories(prev => prev.filter(category => category.id !== cat.id));
+                                          
+                                          // If the deleted category was selected, clear the selection
+                                          if (selectedCategoryId === cat.id) {
+                                            setSelectedCategoryId('');
+                                          }
+
+                                          // Provide haptic feedback
+                                          if (Platform.OS !== 'web') {
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                          }
+                                        } catch (error) {
+                                          console.error('Error in category deletion:', error);
+                                          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                                        }
+                                      },
+                                    },
+                                  ]
+                                );
+                              }}
+                              delayLongPress={500}
                               style={{
                                 paddingVertical: 8,
                                 paddingHorizontal: 12,
@@ -1660,149 +1782,45 @@ export default function TodoScreen() {
                                 alignItems: 'center',
                               }}
                             >
-                              <View
-                                style={{
-                                  width: 10,
-                                  height: 10,
-                                  borderRadius: 5,
-                                  backgroundColor: cat.color,
-                                  marginRight: 6,
-                                }}
-                              />
-                              <Text>{cat.label}</Text>
-                            </Pressable>
-                          ))}
-
-                          {/* Plus button + inline input */}
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Pressable
-                              onPress={() => {
-                                setShowNewCategoryInput(true);
-                                setTimeout(() => {
-                                  categoryInputRef.current?.focus();
-                                }, 100);
-                              }}
+                             <Text
                               style={{
-                                paddingVertical: 8,
-                                paddingHorizontal: 12,
-                                borderRadius: 20,
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                marginRight: 8,
+                                color: cat.id === selectedCategoryId ? '#fff' : '#333',
+                                fontWeight: '600',
                               }}
                             >
-                              <Ionicons name="add" size={18} color="#555" />
+                              {cat.label}
+                            </Text>
                             </Pressable>
-
-                            {showNewCategoryInput && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                {/* Category name input */}
-                                <TextInput
-                                  ref={categoryInputRef}
-                                  value={newCategoryName}
-                                  onChangeText={setNewCategoryName}
-                                  placeholder="New category"
-                                  style={{
-                                    width: 120,
-                                    backgroundColor: '#F9F9F9',
-                                    borderRadius: 16,
-                                    paddingVertical: 6,
-                                    paddingHorizontal: 10,
-                                    borderWidth: 1,
-                                    borderColor: '#DDD',
-                                    marginRight: 6,
-                                  }}
-                                />
-
-                                {/* Color swatch picker */}
-                                <View style={{ flexDirection: 'row', marginRight: 6 }}>
-                                  {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => (
-                                    <TouchableOpacity
-                                      key={color}
-                                      onPress={() => setNewCategoryColor(color)}
-                                      style={{
-                                        width: 28,
-                                        height: 28,
-                                        borderRadius: 14,
-                                        backgroundColor: color,
-                                        marginRight: 6,
-                                        borderWidth: newCategoryColor === color ? 2 : 0,
-                                        borderColor: newCategoryColor === color ? '#007AFF' : 'transparent',
-                                      }}
-                                    />
-                                  ))}
-                                </View>
-
-                                {/* Confirm button */}
-                                <TouchableOpacity
-                                  onPress={async () => {
-                                    if (!newCategoryName.trim()) return;
-                                    
-                                    try {
-                                      const { data: { user } } = await supabase.auth.getUser();
-                                      if (!user) {
-                                        Alert.alert('Error', 'You must be logged in to create categories.');
-                                        return;
-                                      }
-
-                                      const newCategory = {
-                                        id: uuidv4(),
-                                        label: newCategoryName.trim(),
-                                        color: newCategoryColor,
-                                      };
-
-                                      console.log('Saving new category:', newCategory);
-                                      
-                                      const { data: savedCategory, error: categoryError } = await supabase
-                                        .from('categories')
-                                        .insert({
-                                          id: newCategory.id,
-                                          label: newCategory.label,
-                                          color: newCategory.color,
-                                          user_id: user.id
-                                        })
-                                        .select()
-                                        .single();
-
-                                      if (categoryError || !savedCategory) {
-                                        console.error('Error saving category:', categoryError);
-                                        Alert.alert('Error', 'Failed to save category. Please try again.');
-                                        return;
-                                      }
-
-                                      console.log('Category saved successfully:', savedCategory);
-                                      
-                                      setCategories(prev => {
-                                      const updated = [...prev, savedCategory];
-                                      // Prevent stale ID usage
-                                      setSelectedCategoryId(savedCategory.id);
-                                      return updated;
-                                    });
-
-                                      setNewCategoryName('');
-                                      setShowNewCategoryInput(false);
-                                    } catch (error) {
-                                      console.error('Error creating category:', error);
-                                      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                                    }
-                                  }}
-                                  style={{
-                                    backgroundColor: '#007AFF',
-                                    borderRadius: 16,
-                                    padding: 6,
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                  }}
-                                >
-                                  <Ionicons name="checkmark" size={14} color="#fff" />
-                                </TouchableOpacity>
-                              </View>
-                            )}
-                          </View>
+                          ))}
                         </ScrollView>
-                      </View>
-                    )}
-                  </View>
+
+                        {/* ➕ Plus Button */}
+  <TouchableOpacity
+   onPress={() => {
+    console.log('➕ Pressed: open category modal from task modal');
+    setIsNewTaskModalVisible(false); // Close task modal first
+  
+    // Open category modal after short delay (300ms works well with animation)
+    setTimeout(() => {
+      setIsNewCategoryModalVisible(true);
+    }, 300);
+  }}
+    style={{
+      marginLeft: 8,
+      paddingVertical: 6,
+      paddingHorizontal: 6,
+      borderRadius: 20,
+      backgroundColor: '#DADADA',
+      flexDirection: 'row',
+      alignItems: 'center',
+    }}
+  >
+    <Ionicons name="add" size={16} color="#333" />
+  </TouchableOpacity>
+</View>
+  </View>
+)}
+</View>
 
                   {/* Quick Action Row - Fixed at bottom */}
                   <View
@@ -2210,6 +2228,142 @@ export default function TodoScreen() {
           onCancel={handleRepeatEndDateCancel}
         />
       </View>
+
+      {/* New Category Modal */}
+      <Modal
+    animationType="slide"
+    transparent={true}
+    visible={isNewCategoryModalVisible}
+    onRequestClose={() => {
+      console.log('🔒 Modal close requested');
+      setIsNewCategoryModalVisible(false);
+    }}
+  >
+     <KeyboardAvoidingView
+    style={{ flex: 1 }}
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0} // adjust if needed
+  >
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+      <View style={{ backgroundColor: 'white', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
+          <TouchableOpacity onPress={() => {
+            console.log('🔒 Close button pressed');
+            setIsNewCategoryModalVisible(false);
+          }}>
+            <Ionicons name="close" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
+
+        <TextInput
+          ref={categoryInputRef}
+          style={{
+            fontSize: 16,
+            color: '#1a1a1a',
+            padding: 12,
+            backgroundColor: '#F5F5F5',
+            borderRadius: 12,
+            marginBottom: 20,
+          }}
+          value={newCategoryName}
+          onChangeText={setNewCategoryName}
+          placeholder="Category name"
+          placeholderTextColor="#999"
+          autoFocus
+        />
+
+        <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Choose a color</Text>
+        
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: 20 }}
+        >
+          {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => (
+            <TouchableOpacity
+              key={color}
+              onPress={() => setNewCategoryColor(color)}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: color,
+                marginRight: 12,
+                borderWidth: newCategoryColor === color ? 3 : 1,
+                borderColor: newCategoryColor === color ? '#007AFF' : '#ccc',
+              }}
+            />
+          ))}
+        </ScrollView>
+
+        <TouchableOpacity
+          onPress={async () => {
+            if (!newCategoryName.trim()) return;
+          
+            try {
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) {
+                Alert.alert('Error', 'You must be logged in to create categories.');
+                return;
+              }
+          
+              const newCategory = {
+                id: uuidv4(),
+                label: newCategoryName.trim(),
+                color: newCategoryColor,
+              };
+          
+              const { data: savedCategory, error: categoryError } = await supabase
+                .from('categories')
+                .insert({
+                  id: newCategory.id,
+                  label: newCategory.label,
+                  color: newCategory.color,
+                  user_id: user.id
+                })
+                .select()
+                .single();
+          
+              if (categoryError || !savedCategory) {
+                console.error('Error saving category:', categoryError);
+                Alert.alert('Error', 'Failed to save category. Please try again.');
+                return;
+              }
+          
+              setCategories(prev => [...prev, savedCategory]);
+              setSelectedCategoryId(savedCategory.id); // ✅ Select the new category
+              setNewCategoryName('');
+              setIsNewCategoryModalVisible(false); // ✅ Close category modal
+          
+              setTimeout(() => {
+                setIsNewTaskModalVisible(true); // ✅ Reopen new task modal
+              }, 300); // Give time for category modal to close
+          
+            } catch (error) {
+              console.error('Error creating category:', error);
+              Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+            }
+          }}
+          
+          style={{
+            backgroundColor: '#007AFF',
+            padding: 16,
+            borderRadius: 12,
+            alignItems: 'center',
+            marginTop: 'auto',
+          }}
+        >
+          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Create Category</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+    </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
+  </Modal>
+
+
     </GestureHandlerRootView>
   );
-}  
+}
