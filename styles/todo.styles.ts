@@ -289,7 +289,7 @@ const styles = StyleSheet.create({
       alignItems: 'center',
       width: 64,
       flex: 1, // ✅ fill parent height
-      borderRadius: 10,
+      borderRadius: 0,
     },
     
     trashIconContainer: {

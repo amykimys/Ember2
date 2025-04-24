@@ -2089,18 +2089,21 @@ export default function TodoScreen() {
                           flexDirection: 'row',
                           alignItems: 'center',
                           justifyContent: 'space-between',
-                          padding: 16,
+                          padding: 0,
                         }}
                         onPress={handleRepeatEndDatePress}
                       >
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Ionicons name="calendar-outline" size={20} color="#666" />
-                          <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                            {repeatEndDate
-                              ? `Ends on ${repeatEndDate.toLocaleDateString()}`
-                              : 'Set end date'}
-                          </Text>
-                        </View>
+                        <TouchableOpacity onPress={() => setShowRepeatEndDatePicker(true)}>
+  <View style={styles.optionButton}>
+    <Ionicons name="calendar-outline" size={20} color="#666" />
+    <Text style={styles.optionText}>
+      {repeatEndDate
+        ? `Ends on ${repeatEndDate.toLocaleDateString()}`
+        : 'Set end date'}
+    </Text>
+  </View>
+</TouchableOpacity>
+
                         <Ionicons name="chevron-forward" size={20} color="#666" />
                       </TouchableOpacity>
                     )}
@@ -2423,6 +2426,73 @@ export default function TodoScreen() {
     </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   </Modal>
+
+
+  {showRepeatEndDatePicker && (
+  <Modal
+    visible
+    transparent
+    animationType="fade"
+    onRequestClose={() => setShowRepeatEndDatePicker(false)}
+  >
+    <TouchableOpacity
+      activeOpacity={1}
+      style={styles.modalOverlay}
+      onPressOut={() => setShowRepeatEndDatePicker(false)}
+    >
+      <TouchableOpacity
+        activeOpacity={1}
+        style={[styles.modalContent, { borderTopLeftRadius: 16, borderTopRightRadius: 16 }]}
+      >
+        <Text style={styles.modalTitle}>Select End Date</Text>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          style={{ maxHeight: 300 }}
+        >
+          {Array.from({ length: 90 }, (_, i) => {
+            const date = new Date();
+            date.setDate(date.getDate() + i);
+            return (
+              <TouchableOpacity
+                key={i}
+                style={{
+                  paddingVertical: 12,
+                  borderBottomColor: '#eee',
+                  borderBottomWidth: 1,
+                }}
+                onPress={() => {
+                  setRepeatEndDate(date);
+                  setShowRepeatEndDatePicker(false);
+                }}
+              >
+                <Text style={{ fontSize: 16, color: '#1a1a1a' }}>
+                  {date.toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        <TouchableOpacity
+          style={{
+            marginTop: 20,
+            alignItems: 'center',
+            backgroundColor: '#007AFF',
+            paddingVertical: 12,
+            borderRadius: 8,
+          }}
+          onPress={() => setShowRepeatEndDatePicker(false)}
+        >
+          <Text style={{ color: 'white', fontWeight: 'bold' }}>Cancel</Text>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  </Modal>
+)}
 
 
     </GestureHandlerRootView>
