@@ -135,8 +135,9 @@ export default function TodoScreen() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#E3F2FD');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
-  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({
+    completed: true, // ✅ start collapsed
+  });  const [currentDate, setCurrentDate] = useState(new Date());
   const [hasTriggeredSwipeHaptic, setHasTriggeredSwipeHaptic] = useState(false);
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
   const [showRepeatOptions, setShowRepeatOptions] = useState(false);
@@ -1085,9 +1086,9 @@ export default function TodoScreen() {
 
           <Text style={styles.categoryTitle}>{category.label}</Text>
           {isCollapsed ? (
-            <Ionicons name="chevron-up" size={20} color="#666" />
+            <Ionicons name="chevron-up" size={16} color="#666" />
           ) : (
-            <Ionicons name="chevron-down" size={20} color="#666" />
+            <Ionicons name="chevron-down" size={16} color="#666" />
           )}
         </Pressable>
 
@@ -1114,11 +1115,11 @@ export default function TodoScreen() {
           style={styles.categoryHeader}
           onPress={() => toggleCategoryCollapse('uncategorized')}
         >
-          <Text style={styles.categoryTitle}>Other</Text>
+          <Text style={styles.categoryTitle}>Todo</Text>
           {isCollapsed ? (
-            <Ionicons name="chevron-up" size={20} color="#666" />
+            <Ionicons name="chevron-up" size={16} color="#666" />
           ) : (
-            <Ionicons name="chevron-down" size={20} color="#666" />
+            <Ionicons name="chevron-down" size={16} color="#666" />
           )}
         </TouchableOpacity>
 
@@ -1148,9 +1149,9 @@ export default function TodoScreen() {
         >
           <Text style={styles.categoryTitle}>COMPLETED</Text>
           {isCollapsed ? (
-            <Ionicons name="chevron-up" size={20} color="#666" />
+            <Ionicons name="chevron-up" size={16} color="#666" />
           ) : (
-            <Ionicons name="chevron-down" size={20} color="#666" />
+            <Ionicons name="chevron-down" size={16} color="#666" />
           )}
         </TouchableOpacity>
 
@@ -1497,6 +1498,7 @@ export default function TodoScreen() {
     }
   };
   const showModal = () => {
+    setShowCategoryBox(false); // 👈 Reset folder toggle state
     setIsNewTaskModalVisible(true);
     requestAnimationFrame(() => {
       Animated.timing(modalAnimation, {
@@ -1506,6 +1508,7 @@ export default function TodoScreen() {
       }).start();
     });
   };
+  
 
   const hideModal = () => {
     Animated.timing(modalAnimation, {
@@ -1703,7 +1706,7 @@ export default function TodoScreen() {
                           contentContainerStyle={{ paddingRight: 4 }}
                           style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
                         >
-                          {categories.map((cat) => (
+                          {categories.filter(cat => cat.label.toLowerCase() !== 'todo').map((cat) => (
                             <Pressable
                               key={cat.id}
                               onPress={() => setSelectedCategoryId(cat.id)}
@@ -1807,6 +1810,7 @@ export default function TodoScreen() {
   }}
     style={{
       marginLeft: 8,
+      marginTop: 0,
       paddingVertical: 6,
       paddingHorizontal: 6,
       borderRadius: 20,
@@ -1837,73 +1841,92 @@ export default function TodoScreen() {
                       zIndex: 1,
                     }}
                   >
-                    {/* Folder Button */}
-                    <TouchableOpacity
-                      onPress={() => {
-                        console.log('📁 Folder icon toggled');
-                        setShowCategoryBox(prev => !prev);
-                      }}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 20,
-                        backgroundColor: selectedCategoryId
-                          ? categories.find(c => c.id === selectedCategoryId)?.color || '#F5F5F5'
-                          : '#F5F5F5',
-                        marginRight: 8,
-                        maxWidth: 160,
-                      }}
-                    >
-                      <Ionicons name="folder-outline" size={20} color="#fff" />
+                   {/* Left Section: Folder + Calendar */}
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    {/* Folder Button */}
+    <TouchableOpacity
+  onPress={() => {
+    console.log('📁 Folder icon toggled');
+    setShowCategoryBox(prev => !prev);
+  }}
+  style={{
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+    marginLeft: 8, // 👈 shifts the entire folder icon + label to the right
+  }}
+>
+  <View
+    style={{
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: selectedCategoryId
+        ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#F0F0F0'
+        : 'transparent',
+      paddingHorizontal: selectedCategoryId ? 10 : 0,
+      paddingVertical: selectedCategoryId ? 6 : 0,
+      borderRadius: 8,
+    }}
+  >
+    <Ionicons
+      name="folder-outline"
+      size={18}
+      color={selectedCategoryId ? '#fff' : '#666'}
+    />
 
-                      {selectedCategoryId && (
-                        <Text
-                          numberOfLines={1}
-                          style={{
-                            color: '#fff',
-                            marginLeft: 8,
-                            fontSize: 14,
-                            fontWeight: '500',
-                          }}
-                        >
-                          {categories.find((cat) => cat.id === selectedCategoryId)?.label}
-                        </Text>
-                      )}
-                    </TouchableOpacity>
+    {selectedCategoryId && (
+      <>
+        <Text
+          numberOfLines={1}
+          style={{
+            marginLeft: 6,
+            fontSize: 14,
+            fontWeight: '600',
+            color: '#fff',
+            maxWidth: 100,
+          }}
+        >
+          {categories.find((cat) => cat.id === selectedCategoryId)?.label}
+        </Text>
 
-                    {/* Date Picker Button */}
-                    <TouchableOpacity
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        backgroundColor: '#F5F5F5',
-                        paddingVertical: 12,
-                        paddingHorizontal: 10,
-                        borderRadius: 12,
-                      }}
-                      onPress={handleCalendarPress}
-                    >
-                      <Ionicons name="calendar-outline" size={20} color="#666" />
-                    </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => {
+            console.log('🗑️ Category cleared');
+            setSelectedCategoryId('');
+          }}
+          style={{ marginLeft: 6 }}
+        >
+          <Ionicons name="close" size={16} color="#fff" />
+        </TouchableOpacity>
+      </>
+    )}
+  </View>
+</TouchableOpacity>
 
-                    {/* Send Button */}
-                    <TouchableOpacity
-                      onPress={handleSave}
-                      disabled={!newTodo.trim()}
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 17,
-                        backgroundColor: newTodo.trim() ? '#007AFF' : '#B0BEC5',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
-                    >
-                      <Ionicons name="arrow-up" size={20} color="#fff" />
-                    </TouchableOpacity>
-                  </View>
+
+
+    {/* Calendar Button */}
+    <TouchableOpacity onPress={handleCalendarPress}>
+      <Ionicons name="calendar-outline" size={20} color="#666" />
+    </TouchableOpacity>
+  </View>
+
+  {/* Right Section: Send Button */}
+  <TouchableOpacity
+    onPress={handleSave}
+    disabled={!newTodo.trim()}
+    style={{
+      width: 28,
+      height: 28,
+      borderRadius: 15,
+      backgroundColor: newTodo.trim() ? '#007AFF' : '#B0BEC5',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}
+  >
+    <Ionicons name="arrow-up" size={18} color="#fff" />
+  </TouchableOpacity>
+</View>
                 </Animated.View>
               </View>
             </TouchableWithoutFeedback>
