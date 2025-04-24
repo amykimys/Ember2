@@ -1401,30 +1401,34 @@ export default function TodoScreen() {
             </View>
             
             {/* Add this after the header and before the task list */}
-            <CalendarStrip
-  scrollable
-  startingDate={moment().subtract(3, 'days')} // This puts "today" roughly in the middle of 7-day view
-  showMonth
-  leftSelector={<View />} // hide arrows
-  rightSelector={<View />} // hide arrows
-  style={{ height: 100, paddingTop: 10, paddingBottom: 10 }}
-  calendarColor={'#fff'}
-  calendarHeaderStyle={{
-    color: '#000',
-    fontSize: 16,
-    marginBottom: 14,
-  }}
-  dateNumberStyle={{ color: '#000' }}
-  dateNameStyle={{ color: '#000' }}
-  highlightDateNumberStyle={{ color: '#fff' }}
-  highlightDateNameStyle={{ color: '#fff' }}
-  highlightDateContainerStyle={{
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-  }}
-  selectedDate={moment(currentDate)}
-  onDateSelected={(date) => setCurrentDate(date.toDate())}
-/>
+            <View style={{ paddingHorizontal: -5, marginHorizontal: -5, }}>
+              <CalendarStrip
+                scrollable
+                startingDate={moment().subtract(3, 'days')}
+                showMonth
+                leftSelector={<View />}
+                rightSelector={<View />}
+                style={{ height: 100, paddingTop: 10, paddingBottom: 10 }}
+                calendarColor={'#fff'}
+                calendarHeaderStyle={{
+                  color: '#000',
+                  fontSize: 18,
+                  marginBottom: 24,
+                }}
+                dateNumberStyle={{ color: '#999', fontSize: 16 }}
+                dateNameStyle={{ color: '#999'}}
+                highlightDateNumberStyle={{ color: '#000', fontSize: 28 }}
+                highlightDateNameStyle={{ color: '#000' }}
+                highlightDateContainerStyle={{
+                  backgroundColor: '',
+                  borderRadius: 16,
+                }}
+                selectedDate={moment(currentDate)}
+                onDateSelected={(date) => setCurrentDate(date.toDate())}
+              />
+            </View>
+
+            <View style={{ height: 15 }} />
 
             {/* TASK LIST */}
             <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
@@ -1602,7 +1606,8 @@ export default function TodoScreen() {
                             </Pressable>
 
                             {showNewCategoryInput && (
-                              <>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                {/* Category name input */}
                                 <TextInput
                                   ref={categoryInputRef}
                                   value={newCategoryName}
@@ -1619,34 +1624,51 @@ export default function TodoScreen() {
                                     marginRight: 6,
                                   }}
                                 />
-                                <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-                                  <View>
+
+                                {/* Color swatch picker */}
+                                <View style={{ flexDirection: 'row', marginRight: 6 }}>
+                                  {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => (
                                     <TouchableOpacity
-                                      onPress={() => {
-                                        if (!newCategoryName.trim()) return;
-                                        const newCat = {
-                                          id: uuidv4(),
-                                          label: newCategoryName.trim(),
-                                          color: '#FFD700',
-                                        };
-                                        setCategories((prev) => [...prev, newCat]);
-                                        setSelectedCategoryId(newCat.id);
-                                        setNewCategoryName('');
-                                        setShowNewCategoryInput(false);
-                                      }}
+                                      key={color}
+                                      onPress={() => setNewCategoryColor(color)}
                                       style={{
-                                        backgroundColor: '#007AFF',
-                                        borderRadius: 16,
-                                        padding: 6,
-                                        justifyContent: 'center',
-                                        alignItems: 'center',
+                                        width: 28,
+                                        height: 28,
+                                        borderRadius: 14,
+                                        backgroundColor: color,
+                                        marginRight: 6,
+                                        borderWidth: newCategoryColor === color ? 2 : 0,
+                                        borderColor: newCategoryColor === color ? '#007AFF' : 'transparent',
                                       }}
-                                    >
-                                      <Ionicons name="checkmark" size={14} color="#fff" />
-                                    </TouchableOpacity>
-                                  </View>
-                                </TouchableWithoutFeedback>
-                              </>
+                                    />
+                                  ))}
+                                </View>
+
+                                {/* Confirm button */}
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    if (!newCategoryName.trim()) return;
+                                    const newCat = {
+                                      id: uuidv4(),
+                                      label: newCategoryName.trim(),
+                                      color: newCategoryColor,
+                                    };
+                                    setCategories((prev) => [...prev, newCat]);
+                                    setSelectedCategoryId(newCat.id);
+                                    setNewCategoryName('');
+                                    setShowNewCategoryInput(false);
+                                  }}
+                                  style={{
+                                    backgroundColor: '#007AFF',
+                                    borderRadius: 16,
+                                    padding: 6,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  }}
+                                >
+                                  <Ionicons name="checkmark" size={14} color="#fff" />
+                                </TouchableOpacity>
+                              </View>
                             )}
                           </View>
                         </ScrollView>

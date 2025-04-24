@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 
 const styles = StyleSheet.create({
     container: {
@@ -16,22 +16,19 @@ const styles = StyleSheet.create({
     menuButton: {
       padding: 4,
       marginBottom: 40,
-      marginTop: 30,
-    },
-    menuIcon: {
-      marginTop: 10,
-      paddingVertical: 10,
+      marginTop: 20,
     },
     title: {
       fontSize: 28,
       fontWeight: 'bold',
       color: '#1a1a1a',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     dateNavigation: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: 0,
+      marginTop: 10,
       marginBottom: 24,
     },
     dateNavigationButton: {
@@ -45,17 +42,14 @@ const styles = StyleSheet.create({
       color: '#666',
       fontWeight: 'bold',
       letterSpacing: 1.2,
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     relativeDayText: {
       fontSize: 16,
       color: '#007AFF',
       fontWeight: 'normal',
       marginTop: 5,
-    },
-    todayText: {
-      fontSize: 12,
-      color: '#007AFF',
-      marginTop: 4,
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     todoList: {
       flex: 1,
@@ -72,10 +66,12 @@ const styles = StyleSheet.create({
       color: '#1a1a1a',
       marginBottom: 8,
       marginTop: 150,
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     emptyStateSubtitle: {
       fontSize: 18,
       color: '#666',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     categoryContainer: {
       marginBottom: 20,
@@ -87,21 +83,25 @@ const styles = StyleSheet.create({
       paddingVertical: 0,
     },
     categoryTitle: {
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '600',
-      color: '#666',
+      color: 'black',
       textTransform: 'uppercase',
-      letterSpacing: 0.6,
+      letterSpacing: 0.3,
+      marginHorizontal: 10,
+      paddingBottom: 4,
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     categoryContent: {
       borderRadius: 12,
       overflow: 'hidden',
-      marginTop: 3,
+      marginTop: 5,
+      marginHorizontal: 5,
     },
     todoItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      padding: 12,
+      padding: 11,
       backgroundColor: 'rgba(255, 255, 255, 0.8)',
       marginBottom: 0,
       overflow: 'hidden', // or your base bg
@@ -120,8 +120,9 @@ const styles = StyleSheet.create({
       height: 12,
       borderRadius: 9,
       borderWidth: 1.5,
-      borderColor: '#34D399',
+      borderColor: '#007AFF',
       marginRight: 12,
+      marginLeft: 8,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -130,26 +131,25 @@ const styles = StyleSheet.create({
       borderColor: '#4CAF50',
     },
     todoText: {
-      fontSize: 18,
+      fontSize: 15,
       color: '#1a1a1a',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     todoDescription: {
-      fontSize: 14,
+      fontSize: 13,
       color: '#666',
       marginTop: 4,
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     completedText: {
       textDecorationLine: 'line-through',
       color: '#666',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     completedDescription: {
       textDecorationLine: 'line-through',
       color: '#666',
-    },
-    repeatIndicator: {
-      fontSize: 12,
-      color: '#666',
-      marginTop: 4,
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     completedSection: {
       marginTop: 24,
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
       width: 50,
       height: 50,
       borderRadius: 25,
-      backgroundColor: '#007AFF',
+      backgroundColor: '#BBD8A3',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,
@@ -170,72 +170,8 @@ const styles = StyleSheet.create({
       shadowOpacity: 0.25,
       shadowRadius: 4,
     },
-    bottomSheet: {
-      backgroundColor: 'white',
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: -4,
-      },
-      shadowOpacity: 0.25,
-      shadowRadius: 4,
-      elevation: 5,
-    },
-
-    dimBackground: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',  // semi-transparent black
-      zIndex: 1,
-    },    
-    
-    bottomSheetIndicator: {
-      backgroundColor: '#E0E0E0',
-      width: 40,
-      height: 4,
-      borderRadius: 2,
-      marginTop: 8,
-    },
     keyboardAvoidingView: {
       flex: 1,
-    },
-    bottomSheetScrollView: {
-      flex: 1,
-    },
-    bottomSheetScrollContent: {
-      paddingBottom: 24,
-    },
-    bottomSheetContent: {
-      padding: 20,
-    },
-    bottomSheetHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 24,
-    },
-    bottomSheetTitle: {
-      fontSize: 25,
-      fontWeight: 'bold',
-      color: '#1a1a1a',
-    },
-    input: {
-      fontSize: 18,
-      color: '#1a1a1a',
-      padding: 12,
-      backgroundColor: '#F5F5F5',
-      borderRadius: 8,
-      marginBottom: 16,
-    },
-    descriptionInput: {
-      minHeight: 100,
-      textAlignVertical: 'top',
-      marginBottom: 20,
     },
     optionButton: {
       flexDirection: 'row',
@@ -249,111 +185,7 @@ const styles = StyleSheet.create({
     optionText: {
       fontSize: 16,
       color: '#666',
-    },
-    categorySection: {
-      marginBottom: 24,
-    },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#1a1a1a',
-      marginBottom: 12,
-    },
-    categoryButtons: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: 8,
-    },
-    categoryButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 0,
-    borderRadius: 20,
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    minWidth: 40, 
-  },
-  
-    selectedCategoryButton: {
-      borderWidth: 2,
-      borderColor: '#007AFF',
-    },
-    categoryButtonText: {
-      fontSize: 12,
-      color: '#1a1a1a',
-      letterSpacing: 0.6,  
-      fontWeight: '500',
-    },
-    newCategoryButton: {
-      width: 34,
-      height: 34,
-      borderRadius: 20,
-      backgroundColor: '#F5F5F5',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    newCategoryForm: {
-      gap: 0,
-      marginTop: 16,
-    },
-    colorPicker: {
-      flexDirection: 'row',
-      marginBottom: 12,
-    },
-    colorOption: {
-      width: 24,
-      height: 24,
-      borderRadius: 12,
-      marginRight: 8,
-    },
-    selectedColor: {
-      borderWidth: 2,
-      borderColor: '#007AFF',
-    },
-    newCategoryActions: {
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-    },
-    cancelCategoryButton: {
-      paddingHorizontal: 16,
-      paddingVertical: 8,
-    },
-    cancelCategoryText: {
-      fontSize: 16,
-      color: '#666',
-    },
-    buttonContainer: {
-      flexDirection: 'row',
-      gap: 12,
-    },
-    button: {
-      flex: 1,
-      height: 48,
-      borderRadius: 24,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    cancelButton: {
-      backgroundColor: '#F5F5F5',
-    },
-    saveButton: {
-      backgroundColor: '#007AFF',
-    },
-    saveButtonDisabled: {
-      opacity: 0.5,
-    },
-    cancelButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#666',
-    },
-    saveButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#fff',
-    },
-    modal: {
-      margin: 0,
-      justifyContent: 'flex-end',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     modalOverlay: {
       flex: 1,
@@ -377,29 +209,9 @@ const styles = StyleSheet.create({
       fontSize: 24,
       fontWeight: 'bold',
       color: '#1a1a1a',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
-    webDatePicker: {
-      fontSize: 16,
-      padding: 8,
-      borderWidth: 1,
-      borderColor: '#E0E0E0',
-      borderRadius: 8,
-    },
-    repeatOption: {
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      borderRadius: 8,
-    },
-    selectedRepeatOption: {
-      backgroundColor: '#F5F5F5',
-    },
-    repeatOptionText: {
-      fontSize: 16,
-      color: '#1a1a1a',
-    },
-    selectedRepeatOptionText: {
-      fontWeight: '600',
-    },
+   
     customRepeatContainer: {
       marginTop: 16,
       gap: 16,
@@ -412,6 +224,7 @@ const styles = StyleSheet.create({
     everyText: {
       fontSize: 16,
       color: '#1a1a1a',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     customRepeatInput: {
       width: 60,
@@ -435,13 +248,15 @@ const styles = StyleSheet.create({
     unitSelectorText: {
       fontSize: 16,
       color: '#1a1a1a',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     weekDaysContainer: {
       gap: 12,
     },
     weekDaysTitle: {
-      fontSize: 16,
+      fontSize: 14,
       color: '#1a1a1a',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     weekDayButtons: {
       flexDirection: 'row',
@@ -461,66 +276,13 @@ const styles = StyleSheet.create({
     weekDayButtonText: {
       fontSize: 14,
       color: '#1a1a1a',
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     selectedWeekDayButtonText: {
       color: '#fff',
-    },
-    doneButton: {
-      height: 48,
-      borderRadius: 24,
-      backgroundColor: '#007AFF',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: 24,
-    },
-    doneButtonText: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#fff',
-    },
-    swipeActionContainer: {
-    backgroundColor: '#FF3B30',  // 🔥 RED instead of blue
-    justifyContent: 'center',
-    alignItems: 'flex-end',
-    paddingRight: 20,
-    width: 100,
-  },
-    swipeActionText: {
-      color: '#fff',
-      fontSize: 16,
-      fontWeight: '600',
-    },
-    optionRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: 16,  // even spacing between rows
+      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     
-    optionLabel: {
-      fontSize: 16,
-      fontWeight: '600',
-      color: '#1a1a1a',
-      width: 80,   // fixed width so all labels line up
-    },
-    
-    newOptionButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: '#F5F5F5',
-      paddingVertical: 12,
-      paddingHorizontal: 16,
-      borderRadius: 12,
-      flex: 1,
-      justifyContent: 'space-between',
-    },
-    
-    newOptionText: {
-      fontSize: 16,
-      color: '#333',
-      marginLeft: 12,  // nice space between icon and text
-      flex: 1,
-    },
     rightAction: {
       backgroundColor: '#FF3B30',
       justifyContent: 'center',
@@ -531,80 +293,9 @@ const styles = StyleSheet.create({
     },
     
     trashIconContainer: {
-      padding: 12,
+      padding: 9,
     },
     
-    contentContainer: {
-      flex: 1,
-      backgroundColor: 'white',
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      shadowColor: '#000',
-      shadowOffset: {
-        width: 0,
-        height: -4,
-      },
-      shadowOpacity: 0.25,
-      shadowRadius: 4,
-      elevation: 5,
-    },
-    settingButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: 16,
-      backgroundColor: '#F5F5F5',
-      borderRadius: 12,
-      marginBottom: 12
-    },
-    calendarStripContainer: {
-      height: 80,
-      backgroundColor: 'white',
-      borderBottomWidth: 1,
-      borderBottomColor: '#E5E5E5',
-    },
-    calendarStrip: {
-      paddingHorizontal: 10,
-      alignItems: 'center',
-    },
-    calendarDateItem: {
-      width: 60,
-      height: 70,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginHorizontal: 10,
-      borderRadius: 12,
-      backgroundColor: '#F5F5F5',
-    },
-    calendarDateItemSelected: {
-      backgroundColor: '#007AFF',
-    },
-    calendarDateItemToday: {
-      borderWidth: 1,
-      borderColor: '#007AFF',
-    },
-    calendarDayName: {
-      fontSize: 12,
-      color: '#666',
-      marginBottom: 4,
-    },
-    calendarDayNameSelected: {
-      color: 'white',
-    },
-    calendarDayNameToday: {
-      color: '#007AFF',
-    },
-    calendarDay: {
-      fontSize: 20,
-      fontWeight: '600',
-      color: '#1a1a1a',
-    },
-    calendarDaySelected: {
-      color: 'white',
-    },
-    calendarDayToday: {
-      color: '#007AFF',
-    },
   });
 
 export default styles;
