@@ -660,7 +660,7 @@ export default function TodoScreen() {
   
       setEditingTodo(null);
       resetForm();
-      setIsEditModalVisible(false);
+      hideModal();
     }
   };
   
@@ -890,6 +890,7 @@ export default function TodoScreen() {
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
+      resetForm(); 
       setEditingTodo(todo);
       setNewTodo(todo.text);
       setNewDescription(todo.description || '');
@@ -900,7 +901,7 @@ export default function TodoScreen() {
       setCustomRepeatUnit(todo.customRepeatUnit || 'days');
       setSelectedWeekDays(todo.customRepeatWeekDays || []);
       setRepeatEndDate(todo.repeatEndDate || null);
-      setIsNewTaskModalVisible(true);
+      showModal();
     };
 
     const taskTouchable = (
@@ -1059,7 +1060,7 @@ export default function TodoScreen() {
       // Force a re-render
       setIsNewTaskModalVisible(false);
       setTimeout(() => {
-        setIsNewTaskModalVisible(true);
+        showModal();
       }, 100);
       
       // Provide haptic feedback
@@ -1107,7 +1108,7 @@ export default function TodoScreen() {
           <Ionicons
             name={isCollapsed ? 'chevron-up' : 'chevron-down'}
             size={15}
-            color="#666"
+            color="#000"
             style={{ marginRight: 8}}
           />
         </View>
@@ -1170,9 +1171,9 @@ export default function TodoScreen() {
         >
           <Text style={styles.categoryTitle}>COMPLETED</Text>
           {isCollapsed ? (
-            <Ionicons name="chevron-up" size={16} color="#666" />
+            <Ionicons name="chevron-up" size={16} color="#000" />
           ) : (
-            <Ionicons name="chevron-down" size={16} color="#666" />
+            <Ionicons name="chevron-down" size={16} color="#000" />
           )}
         </TouchableOpacity>
 
@@ -1338,7 +1339,7 @@ export default function TodoScreen() {
       setIsModalTransitioning(true);
       setIsSettingsModalVisible(false);
       setTimeout(() => {
-        setIsNewTaskModalVisible(true);
+        showModal();
         setIsModalTransitioning(false);
       }, 300);
     }, 300),
@@ -1569,7 +1570,7 @@ export default function TodoScreen() {
             </View>
             
             {/* Add this after the header and before the task list */}
-            <View style={{ paddingHorizontal: -5, marginHorizontal: -5, }}>
+            <View style={{ paddingHorizontal: -5, marginHorizontal: -5, marginBottom: 5 }}>
               <CalendarStrip
                 scrollable
                 startingDate={moment().subtract(3, 'days')}
@@ -1583,10 +1584,10 @@ export default function TodoScreen() {
                   fontSize: 18,
                   marginBottom: 24,
                 }}
-                dateNumberStyle={{ color: '#999', fontSize: 16 }}
+                dateNumberStyle={{ color: '#999', fontSize: 15 }}
                 dateNameStyle={{ color: '#999'}}
-                highlightDateNumberStyle={{ color: '#000', fontSize: 28 }}
-                highlightDateNameStyle={{ color: '#000' }}
+                highlightDateNumberStyle={{ color: '#000', fontSize: 30 }}
+                highlightDateNameStyle={{ color: '#000',  fontSize: 12.5 }}
                 highlightDateContainerStyle={{
                   backgroundColor: '',
                   borderRadius: 16,
@@ -1681,7 +1682,7 @@ export default function TodoScreen() {
                         }}
                         value={newTodo}
                         onChangeText={setNewTodo}
-                        placeholder="What needs to be done?"
+                        placeholder={editingTodo ? "Edit task..." : "What needs to be done?"}
                         placeholderTextColor="#999"
                         returnKeyType="next"
                         onSubmitEditing={() => newDescriptionInputRef.current?.focus()}
@@ -1714,7 +1715,7 @@ export default function TodoScreen() {
                       <View
                         style={{
                           marginLeft: 8,
-                          marginBottom: 24,
+                          marginBottom: 28,
                           position: 'relative',
                           zIndex: 2,
                         }}
@@ -1810,7 +1811,8 @@ export default function TodoScreen() {
                               style={{
                                 color: cat.id === selectedCategoryId ? '#fff' : '#333',
                                 fontWeight: '500',
-                                fontSize: 15, // 👈 smaller size than default
+                                fontSize: 12.5, // 👈 smaller size than default
+                                textTransform: 'uppercase',
                               }}
                             >
                               {cat.label}
@@ -1876,51 +1878,59 @@ export default function TodoScreen() {
     marginLeft: 8, // 👈 shifts the entire folder icon + label to the right
   }}
 >
-  <View
-    style={{
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: selectedCategoryId
-        ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#F0F0F0'
-        : 'transparent',
-      paddingHorizontal: selectedCategoryId ? 10 : 0,
-      paddingVertical: selectedCategoryId ? 6 : 0,
-      borderRadius: 8,
-    }}
-  >
-    <Ionicons
-      name="folder-outline"
-      size={18}
-      color={selectedCategoryId ? '#fff' : '#666'}
-    />
+<View
+  style={{
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+  }}
+>
+  <Ionicons
+    name="folder-outline"
+    size={21}
+    color={
+      selectedCategoryId
+        ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666'
+        : '#666'
+    }
+  />
 
-    {selectedCategoryId && (
-      <>
-        <Text
-          numberOfLines={1}
-          style={{
-            marginLeft: 6,
-            fontSize: 14,
-            fontWeight: '600',
-            color: '#fff',
-            maxWidth: 100,
-          }}
-        >
-          {categories.find((cat) => cat.id === selectedCategoryId)?.label}
-        </Text>
+{selectedCategoryId && (
+  <>
+    <Text
+      numberOfLines={1}
+      style={{
+        marginLeft: 8,
+        fontSize: 14,
+        fontWeight: '600',
+        color: categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666',
+        maxWidth: 100,
+      }}
+    >
+      {categories.find((cat) => cat.id === selectedCategoryId)?.label.toUpperCase()}
+    </Text>
 
-        <TouchableOpacity
-          onPress={() => {
-            console.log('🗑️ Category cleared');
-            setSelectedCategoryId('');
-          }}
-          style={{ marginLeft: 6 }}
-        >
-          <Ionicons name="close" size={16} color="#fff" />
-        </TouchableOpacity>
-      </>
+    {showCategoryBox && (
+      <TouchableOpacity
+        onPress={() => {
+          console.log('🗑️ Category cleared');
+          setSelectedCategoryId('');
+        }}
+        style={{ marginLeft: 6 }}
+      >
+        <Ionicons
+          name="close"
+          size={16}
+          color={categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666'}
+        />
+      </TouchableOpacity>
     )}
-  </View>
+  </>
+)}
+
+</View>
+
 </TouchableOpacity>
 
 
@@ -1933,7 +1943,7 @@ export default function TodoScreen() {
 
   {/* Right Section: Send Button */}
   <TouchableOpacity
-    onPress={handleSave}
+    onPress={editingTodo ? handleEditSave : handleSave}
     disabled={!newTodo.trim()}
     style={{
       width: 28,
@@ -2043,9 +2053,14 @@ export default function TodoScreen() {
                             : 'Set reminder'}
                         </Text>
                       </View>
+                      {reminderTime ? (
                       <TouchableOpacity onPress={() => setReminderTime(null)}>
                         <Ionicons name="close" size={18} color="#999" />
                       </TouchableOpacity>
+                    ) : (
+                      <Ionicons name="chevron-forward" size={20} color="#666" />
+                    )}
+
                     </TouchableOpacity>
 
                     {/* Repeat Button */}
@@ -2324,7 +2339,9 @@ export default function TodoScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
         >
-          {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => (
+         {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => {
+          const isSelected = newCategoryColor === color;
+          return (
             <TouchableOpacity
               key={color}
               onPress={() => setNewCategoryColor(color)}
@@ -2334,9 +2351,12 @@ export default function TodoScreen() {
                 borderRadius: 18,
                 backgroundColor: color,
                 marginRight: 12,
+                borderWidth: isSelected ? 1.4 : 0,
+                borderColor: isSelected ? '#000' : 'transparent',
               }}
             />
-          ))}
+          );
+        })}
         </ScrollView>
 
         <TouchableOpacity
@@ -2379,7 +2399,7 @@ export default function TodoScreen() {
               setIsNewCategoryModalVisible(false); // ✅ Close category modal
           
               setTimeout(() => {
-                setIsNewTaskModalVisible(true); // ✅ Reopen new task modal
+                showModal(); // ✅ Reopen new task modal
               }, 300); // Give time for category modal to close
           
             } catch (error) {
