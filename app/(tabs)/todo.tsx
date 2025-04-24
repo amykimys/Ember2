@@ -909,14 +909,32 @@ export default function TodoScreen() {
           styles.todoItem,
           todo.completed && styles.completedTodo,
         ]}
-        onPress={() => toggleTodo(todo.id)}
         onLongPress={handleEdit}
+        onPress={() => toggleTodo(todo.id)}
         delayLongPress={500}
         activeOpacity={0.9}
       >
-        <View style={[styles.checkbox, todo.completed && styles.checked]}>
-          {todo.completed && <Ionicons name="checkmark" size={16} color="white" />}
+        <View
+          style={{ marginRight: 12, justifyContent: 'center', alignItems: 'center', marginLeft: 2 }}
+        >
+          {todo.completed ? (
+            <Ionicons name="checkmark" size={16} color="#000"/>
+          ) : (
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                borderWidth: 1.4,
+                marginLeft: 4,
+                borderColor: categories.find(c => c.id === todo.categoryId)
+                  ? darkenColor(categories.find(c => c.id === todo.categoryId)!.color)
+                  : '#999',
+              }}
+            />
+          )}
         </View>
+    
         <View style={styles.todoContent}>
           <Text style={[
             styles.todoText,
@@ -935,6 +953,7 @@ export default function TodoScreen() {
         </View>
       </TouchableOpacity>
     );
+    
 
     return (
       <Swipeable
@@ -1063,35 +1082,37 @@ export default function TodoScreen() {
     return (
       <View key={category.id} style={styles.categoryContainer}>
       <Pressable
-  style={styles.categoryHeader}
-  onPress={() => toggleCategoryCollapse(category.id)}
-  onLongPress={() => {
-    console.log('🧨 Long pressed category');
-    Alert.alert(
-      "Delete Category",
-      `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => handleDeleteCategory(category.id),
-        },
-      ]
-    );
-  }}
-  delayLongPress={500}
->
+        style={styles.categoryHeader}
+        onPress={() => toggleCategoryCollapse(category.id)}
+        onLongPress={() => {
+          console.log('🧨 Long pressed category');
+          Alert.alert(
+            "Delete Category",
+            `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Delete",
+                style: "destructive",
+                onPress: () => handleDeleteCategory(category.id),
+              },
+            ]
+          );
+        }}
+        delayLongPress={500}
+      >
 
-
-          <Text style={styles.categoryTitle}>{category.label}</Text>
-          {isCollapsed ? (
-            <Ionicons name="chevron-up" size={16} color="#666" />
-          ) : (
-            <Ionicons name="chevron-down" size={16} color="#666" />
-          )}
-        </Pressable>
-
+      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          <Text style={[styles.categoryTitle, { flex: 1 }]}>{category.label}</Text>
+          <Ionicons
+            name={isCollapsed ? 'chevron-up' : 'chevron-down'}
+            size={15}
+            color="#666"
+            style={{ marginRight: 8}}
+          />
+        </View>
+      </Pressable>
+        
         {!isCollapsed && (
           <View style={[styles.categoryContent, { backgroundColor: category.color }]}>
             {categoryTodos.map(renderTodoItem)}
@@ -1692,8 +1713,8 @@ export default function TodoScreen() {
                     {showCategoryBox && (
                       <View
                         style={{
-                          marginTop: 16,
-                          marginBottom: 60,
+                          marginLeft: 8,
+                          marginBottom: 24,
                           position: 'relative',
                           zIndex: 2,
                         }}
@@ -1776,7 +1797,7 @@ export default function TodoScreen() {
                               }}
                               delayLongPress={500}
                               style={{
-                                paddingVertical: 8,
+                                paddingVertical: 6,
                                 paddingHorizontal: 12,
                                 borderRadius: 20,
                                 backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
@@ -1788,7 +1809,8 @@ export default function TodoScreen() {
                              <Text
                               style={{
                                 color: cat.id === selectedCategoryId ? '#fff' : '#333',
-                                fontWeight: '600',
+                                fontWeight: '500',
+                                fontSize: 15, // 👈 smaller size than default
                               }}
                             >
                               {cat.label}
@@ -1798,33 +1820,31 @@ export default function TodoScreen() {
                         </ScrollView>
 
                         {/* ➕ Plus Button */}
-  <TouchableOpacity
-   onPress={() => {
-    console.log('➕ Pressed: open category modal from task modal');
-    setIsNewTaskModalVisible(false); // Close task modal first
-  
-    // Open category modal after short delay (300ms works well with animation)
-    setTimeout(() => {
-      setIsNewCategoryModalVisible(true);
-    }, 300);
-  }}
-    style={{
-      marginLeft: 8,
-      marginTop: 0,
-      paddingVertical: 6,
-      paddingHorizontal: 6,
-      borderRadius: 20,
-      backgroundColor: '#DADADA',
-      flexDirection: 'row',
-      alignItems: 'center',
-    }}
-  >
-    <Ionicons name="add" size={16} color="#333" />
-  </TouchableOpacity>
-</View>
-  </View>
-)}
-</View>
+                        <TouchableOpacity
+                          onPress={() => {
+                            console.log('➕ Pressed: open category modal from task modal');
+                            setIsNewTaskModalVisible(false);
+                            setTimeout(() => {
+                              setIsNewCategoryModalVisible(true);
+                            }, 300);
+                          }}
+                          style={{
+                            paddingVertical: 6,
+                            paddingHorizontal: 6,
+                            borderRadius: 20,
+                            backgroundColor: '#F0F0F0',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            marginLeft: -5
+                          }}
+                        >
+                          <Ionicons name="add" size={16} color="#333" />
+                        </TouchableOpacity>
+
+                        </View>
+                          </View>
+                        )}
+                        </View>
 
                   {/* Quick Action Row - Fixed at bottom */}
                   <View
@@ -2309,13 +2329,11 @@ export default function TodoScreen() {
               key={color}
               onPress={() => setNewCategoryColor(color)}
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 20,
+                width: 36,
+                height: 36,
+                borderRadius: 18,
                 backgroundColor: color,
                 marginRight: 12,
-                borderWidth: newCategoryColor === color ? 3 : 1,
-                borderColor: newCategoryColor === color ? '#007AFF' : '#ccc',
               }}
             />
           ))}
