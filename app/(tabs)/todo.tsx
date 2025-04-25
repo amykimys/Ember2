@@ -38,6 +38,7 @@ import CalendarStrip from 'react-native-calendar-strip';
 import moment from 'moment';
 import 'moment/locale/en-gb';
 import { Pressable } from 'react-native';
+import MonthlyCalendar from '../components/MonthlyCalendar';
 
 
 
@@ -1608,50 +1609,59 @@ export default function TodoScreen() {
             
             {/* Add this after the header and before the task list */}
             <View style={{ paddingHorizontal: -5, marginHorizontal: -5, marginBottom: 5 }}>
-
-            <TouchableOpacity onPress={() => {
-              const now = moment();
-              setCurrentDate(now.toDate());
-              calendarStripRef.current?.scrollToDate(now);
-            }} onLongPress={() => {
-              const now = moment();
-              setCurrentDate(now.toDate());
-              calendarStripRef.current?.scrollToDate(now);
-            }} delayLongPress={300}>
-
-              <TouchableOpacity onPress={goToToday}>
-                <Text style={{ color: '#000', fontSize: 18, fontWeight: 'bold', marginBottom: -2, textAlign: 'center' }}>
-                  {moment(currentDate).format('MMMM YYYY')}
-                </Text>
-              </TouchableOpacity>
-
-          </TouchableOpacity>
-                      <CalendarStrip
-                          scrollable
-                          startingDate={moment().subtract(3, 'days')}
-                          showMonth
-                          leftSelector={<View />}
-                          rightSelector={<View />}
-                          style={{ height: 100, paddingTop: 0, paddingBottom: 0 }}
-                          calendarColor={'#fff'}
-                          calendarHeaderStyle={{
-                            display: 'none'
-                          }}
-                          dateNumberStyle={{ color: '#999', fontSize: 15 }}
-                          dateNameStyle={{ color: '#999' }}
-                          highlightDateNumberStyle={{
-                            color: isTodaySelected ? '#BF9264' : '#000', // 👈 override here
-                            fontSize: 30,
-                          }}
-                          highlightDateNameStyle={{
-                            color: isTodaySelected ? '#BF9264' : '#000', // 👈 override here
-                            fontSize: 12.5,
-                          }}
-                          selectedDate={moment(currentDate)}
-                          onDateSelected={(date) => setCurrentDate(date.toDate())}
-                          customDatesStyles={customDatesStyles}
-                        />
-
+              {isMonthView ? (
+                <View style={{ flex: 1, height: '100%', backgroundColor: 'white' }}>
+                  <MonthlyCalendar
+                    selectedDate={currentDate.toISOString().split('T')[0]}
+                    onDayPress={(day: DateData) => {
+                      setCurrentDate(new Date(day.timestamp));
+                    }}
+                  />
+                </View>
+              ) : (
+                <>
+                  <TouchableOpacity onPress={() => {
+                    const now = moment();
+                    setCurrentDate(now.toDate());
+                    calendarStripRef.current?.scrollToDate(now);
+                  }} onLongPress={() => {
+                    const now = moment();
+                    setCurrentDate(now.toDate());
+                    calendarStripRef.current?.scrollToDate(now);
+                  }} delayLongPress={300}>
+                    <TouchableOpacity onPress={goToToday}>
+                      <Text style={{ color: '#000', fontSize: 18, fontWeight: 'bold', marginBottom: -2, textAlign: 'center' }}>
+                        {moment(currentDate).format('MMMM YYYY')}
+                      </Text>
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                  <CalendarStrip
+                    scrollable
+                    startingDate={moment().subtract(3, 'days')}
+                    showMonth
+                    leftSelector={<View />}
+                    rightSelector={<View />}
+                    style={{ height: 100, paddingTop: 0, paddingBottom: 0 }}
+                    calendarColor={'#fff'}
+                    calendarHeaderStyle={{
+                      display: 'none'
+                    }}
+                    dateNumberStyle={{ color: '#999', fontSize: 15 }}
+                    dateNameStyle={{ color: '#999' }}
+                    highlightDateNumberStyle={{
+                      color: isTodaySelected ? '#BF9264' : '#000',
+                      fontSize: 30,
+                    }}
+                    highlightDateNameStyle={{
+                      color: isTodaySelected ? '#BF9264' : '#000',
+                      fontSize: 12.5,
+                    }}
+                    selectedDate={moment(currentDate)}
+                    onDateSelected={(date) => setCurrentDate(date.toDate())}
+                    customDatesStyles={customDatesStyles}
+                  />
+                </>
+              )}
             </View>
 
             <View style={{ height: 0 }} />
@@ -2063,38 +2073,19 @@ export default function TodoScreen() {
               <ScrollView
                 style={{ flex: 1 }}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ paddingBottom: 100, paddingTop: 30 }}
+                contentContainerStyle={{ flexGrow: 1, paddingBottom: 100, paddingTop: 30 }}
               >
                 {/* Calendar View */}
-                <View style={{ marginBottom: 20 }}>
-                  <RNCalendar
-                    current={taskDate?.toISOString()}
+                <View style={{ 
+                  flex: 1,
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: 'white'
+                }}>
+                  <MonthlyCalendar
+                    selectedDate={taskDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0]}
                     onDayPress={(day: DateData) => {
                       setTaskDate(new Date(day.timestamp));
-                    }}
-                    markedDates={{
-                      [taskDate?.toISOString().split('T')[0] || '']: {
-                        selected: true,
-                        selectedColor: '#007AFF'
-                      }
-                    }}
-                    theme={{
-                      backgroundColor: 'transparent',
-                      calendarBackground: 'transparent',
-                      textSectionTitleColor: '#666',
-                      selectedDayBackgroundColor: '#007AFF',
-                      selectedDayTextColor: '#ffffff',
-                      todayTextColor: '#007AFF',
-                      dayTextColor: '#1a1a1a',
-                      textDisabledColor: '#d9e1e8',
-                      dotColor: '#007AFF',
-                      selectedDotColor: '#ffffff',
-                      arrowColor: '#007AFF',
-                      monthTextColor: '#1a1a1a',
-                      indicatorColor: '#007AFF',
-                      textDayFontSize: 16,
-                      textMonthFontSize: 16,
-                      textDayHeaderFontSize: 14
                     }}
                   />
                 </View>

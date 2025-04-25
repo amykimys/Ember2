@@ -271,10 +271,6 @@ const formatDate = (date: Date): string => {
   return date.toISOString().split('T')[0];
 };
 
-
-  const getWeekDayKey = (date: Date): WeekDay => {
-    return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][date.getDay()] as WeekDay;
-  };
   
   
   const calculateStreak = (habit: Habit, completedDays: string[]): number => {
@@ -846,18 +842,11 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
               style={styles.menuButton}
               onPress={() => navigateWeek('prev')}
             >
-              <Ionicons name="chevron-back" size={24} color="#1a1a1a" />
-            </TouchableOpacity>
-            <Text style={styles.title}>habits</Text>
-            <TouchableOpacity 
-              style={styles.menuButton}
-              onPress={() => navigateWeek('next')}
-            >
-              <Ionicons name="chevron-forward" size={24} color="#1a1a1a" />
+          
             </TouchableOpacity>
           </View>
 
-          {renderWeekHeader()}
+       
 
           <ScrollView style={styles.habitList}>
             {habits.length === 0 ? (
