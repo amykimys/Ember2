@@ -386,8 +386,6 @@ export default function TodoScreen() {
     </View>
   );
   
-  
-
 
   const checkCategories = async () => {
     try {
@@ -2526,7 +2524,7 @@ export default function TodoScreen() {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingBottom: 20 }}
             >
-            {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => {
+            {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
               const isSelected = newCategoryColor === color;
               return (
                 <TouchableOpacity

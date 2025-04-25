@@ -45,8 +45,20 @@ const CalendarScreen: React.FC = () => {
   const [newEventText, setNewEventText] = useState('');
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventDescription, setNewEventDescription] = useState('');
-  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showDateSettings, setShowDateSettings] = useState(false);
+  const [showCategoryInput, setShowCategoryInput] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryColor, setNewCategoryColor] = useState('#FADADD'); // Default color
+  const [categories, setCategories] = useState<{ name: string; color: string }[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<{ name: string; color: string } | null>(null);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false); // When you tap folder
+  const [showAddCategoryForm, setShowAddCategoryForm] = useState(false); // When you tap plus
+  const [showReminderPicker, setShowReminderPicker] = useState(false);
+const [showRepeatPicker, setShowRepeatPicker] = useState(false);
+
+
+
+
     
   const getMonthData = (baseDate: Date, offset: number) => {
     const newDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
@@ -82,7 +94,14 @@ const CalendarScreen: React.FC = () => {
           isSelected(date) && styles.selectedCell,
           isToday(date) && styles.todayCell
         ]}
-        onPress={() => date && setSelectedDate(date)}
+        onPress={() => {
+          if (date) {
+            setSelectedDate(date);
+            setNewEventTitle('');
+            setNewEventDescription('');
+            setShowModal(true); // 👈 open modal
+          }
+        }}
         activeOpacity={date ? 0.7 : 1}
         disabled={!date}
       >
@@ -96,14 +115,13 @@ const CalendarScreen: React.FC = () => {
         >
           {date?.getDate()}
         </Text>
-
+  
         {date &&
-  events[date.toISOString().split('T')[0]]?.map((event, idx) => (
-    <Text key={idx} numberOfLines={1} style={styles.eventText}>
-      • {event.title}: {event.description}
-    </Text>
-  ))}
-
+          events[date.toISOString().split('T')[0]]?.map((event, idx) => (
+            <Text key={idx} numberOfLines={1} style={styles.eventText}>
+              • {event.title}: {event.description}
+            </Text>
+          ))}
 
 
         {/* Example dot */}
@@ -156,7 +174,7 @@ const CalendarScreen: React.FC = () => {
           getItemLayout={(_, index) => ({
             length: SCREEN_WIDTH,
             offset: SCREEN_WIDTH * index,
-            index
+            index,
           })}
           showsHorizontalScrollIndicator={false}
           style={{ flex: 1 }}
@@ -171,84 +189,219 @@ const CalendarScreen: React.FC = () => {
       </SafeAreaView>
   
       <Modal
-  animationType="slide"
-  transparent={true}
-  visible={showModal}
-  onRequestClose={() => setShowModal(false)}
->
-  <KeyboardAvoidingView
-    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    style={{ flex: 1 }}
-    keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-  >
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={styles.modalOverlay}>
-        <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Add Event</Text>
-          <Text style={styles.modalSubtitle}>{selectedDate.toDateString()}</Text>
-
-          <TextInput
-            style={styles.inputTitle}
-            placeholder="Title"
-            value={newEventTitle}
-            onChangeText={setNewEventTitle}
-          />
-
-          <TextInput
-            style={styles.inputDescription}
-            placeholder="Description (optional)"
-            value={newEventDescription}
-            onChangeText={setNewEventDescription}
-            multiline
-          />
-
-          {/* Quick Action Row */}
-          <View style={styles.quickActionRow}>
-            {/* Category Icon */}
-            <TouchableOpacity onPress={() => setShowCategoryPicker(true)}>
-              <Ionicons name="folder-outline" size={22} color="#666" />
-            </TouchableOpacity>
-
-            {/* Calendar Icon for Reminder and Repeat */}
-            <TouchableOpacity onPress={() => setShowDateSettings(true)}>
-              <Ionicons name="calendar-outline" size={22} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Actions */}
-          <View style={styles.modalActions}>
-            <TouchableOpacity onPress={() => setShowModal(false)}>
-              <Text style={styles.cancel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => {
-                const key = selectedDate.toISOString().split('T')[0];
-                const newEvents = { ...events };
-                if (!newEvents[key]) newEvents[key] = [];
-                newEvents[key].push({
-                  title: newEventTitle,
-                  description: newEventDescription,
-                });
-                setEvents(newEvents);
-                setNewEventTitle('');
-                setNewEventDescription('');
-                setShowModal(false);
-              }}
-            >
-              <Text style={styles.save}>Save</Text>
-            </TouchableOpacity>
-
-          </View>
-        </View>
-      </View>
-    </TouchableWithoutFeedback>
-  </KeyboardAvoidingView>
-</Modal>
-
-    </>
-  );
+        animationType="slide"
+        transparent={true}
+        visible={showModal}
+        onRequestClose={() => setShowModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Add Event</Text>
+                <Text style={styles.modalSubtitle}>
+                  {selectedDate.toDateString()}
+                </Text>
   
-};
+                <TextInput
+                  style={styles.inputTitle}
+                  placeholder="Title"
+                  value={newEventTitle}
+                  onChangeText={setNewEventTitle}
+                />
+  
+                <TextInput
+                  style={styles.inputDescription}
+                  placeholder="Description (optional)"
+                  value={newEventDescription}
+                  onChangeText={setNewEventDescription}
+                  multiline
+                />
+  
+{/* 🛠 SET CATEGORY SECTION */}
+<View style={{ marginBottom: 20 }}>
+  <TouchableOpacity
+    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+    onPress={() => setShowCategoryPicker(prev => !prev)} // 👈 toggle!
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Ionicons name="folder-outline" size={20} color="#007AFF" />
+      <Text style={{ marginLeft: 8, fontSize: 14, color: '#007AFF', fontWeight: '600' }}>
+        Set Category
+      </Text>
+    </View>
+  </TouchableOpacity>
+
+  {/* ▼ Only show when toggled open */}
+  {showCategoryPicker && (
+    <View style={{ marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' }}>
+      {categories.map((cat, idx) => (
+        <TouchableOpacity
+          key={idx}
+          style={{
+            backgroundColor: cat.color,
+            paddingVertical: 6,
+            paddingHorizontal: 12,
+            borderRadius: 20,
+            marginRight: 8,
+            marginBottom: 8,
+            flexDirection: 'row',
+            alignItems: 'center',
+            borderWidth:
+              selectedCategory?.name === cat.name && selectedCategory?.color === cat.color
+                ? 2
+                : 0,
+            borderColor:
+              selectedCategory?.name === cat.name && selectedCategory?.color === cat.color
+                ? '#000'
+                : 'transparent',
+          }}
+          onPress={() => setSelectedCategory(cat)}
+        >
+          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '600' }}>{cat.name}</Text>
+        </TouchableOpacity>
+      ))}
+
+      {/* ➕ Plus Button */}
+      <TouchableOpacity
+        style={{
+          backgroundColor: '#ccc',
+          paddingVertical: 6,
+          paddingHorizontal: 12,
+          borderRadius: 20,
+          marginBottom: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
+        }}
+        onPress={() => setShowAddCategoryForm(true)}
+      >
+        <Ionicons name="add" size={18} color="#333" />
+      </TouchableOpacity>
+    </View>
+  )}
+
+  {/* ➕ If Plus is pressed, show New Category Form inline */}
+  {showAddCategoryForm && (
+    <View style={{ marginTop: 10 }}>
+      <TextInput
+        style={styles.inputTitle}
+        placeholder="New Category Name"
+        value={newCategoryName}
+        onChangeText={setNewCategoryName}
+      />
+      <View style={{ flexDirection: 'row', marginTop: 10 }}>
+        {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => (
+          <TouchableOpacity
+            key={color}
+            style={{
+              backgroundColor: color,
+              width: 30,
+              height: 30,
+              borderRadius: 15,
+              marginHorizontal: 5,
+              borderWidth: newCategoryColor === color ? 2 : 0,
+              borderColor: '#333',
+            }}
+            onPress={() => setNewCategoryColor(color)}
+          />
+        ))}
+      </View>
+
+      <TouchableOpacity
+        style={{
+          marginTop: 10,
+          backgroundColor: '#007AFF',
+          padding: 10,
+          borderRadius: 8,
+          alignItems: 'center',
+        }}
+        onPress={() => {
+          if (newCategoryName.trim()) {
+            const newCategory = {
+              id: Date.now().toString(),
+              name: newCategoryName.trim(),
+              color: newCategoryColor,
+            };
+            setCategories((prev) => [...prev, newCategory]);
+            setSelectedCategory(newCategory);
+            setNewCategoryName('');
+          }
+          setShowAddCategoryForm(false); // Close after saving
+        }}
+      >
+        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Save Category</Text>
+      </TouchableOpacity>
+    </View>
+  )}
+</View>
+
+{/* 🕓 REMINDER SECTION (same styling) */}
+<View style={{ marginBottom: 20 }}>
+  <TouchableOpacity
+    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+    onPress={() => setShowReminderPicker(true)}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Ionicons name="alarm-outline" size={20} color="#007AFF" />
+      <Text style={{ marginLeft: 8, fontSize: 14, color: '#007AFF', fontWeight: '600' }}>
+        Set Reminder
+      </Text>
+    </View>
+  </TouchableOpacity>
+</View>
+
+{/* 🔁 REPEAT SECTION */}
+<View style={{ marginBottom: 20 }}>
+  <TouchableOpacity
+    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+    onPress={() => setShowRepeatPicker(true)}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Ionicons name="repeat-outline" size={20} color="#007AFF" />
+      <Text style={{ marginLeft: 8, fontSize: 14, color: '#007AFF', fontWeight: '600' }}>
+        Set Repeat
+      </Text>
+    </View>
+  </TouchableOpacity>
+</View>
+
+
+                {/* Modal Bottom Actions */}
+                <View style={styles.modalActions}>
+                  <TouchableOpacity onPress={() => setShowModal(false)}>
+                    <Text style={styles.cancel}>Cancel</Text>
+                  </TouchableOpacity>
+  
+                  <TouchableOpacity
+                    onPress={() => {
+                      const key = selectedDate.toISOString().split('T')[0];
+                      const newEvents = { ...events };
+                      if (!newEvents[key]) newEvents[key] = [];
+                      newEvents[key].push({
+                        title: newEventTitle,
+                        description: newEventDescription,
+                      });
+                      setEvents(newEvents);
+                      setNewEventTitle('');
+                      setNewEventDescription('');
+                      setShowModal(false);
+                    }}
+                  >
+                    <Text style={styles.save}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+    </>
+)}
+  
 
 const styles = StyleSheet.create({
   monthLabel: {
