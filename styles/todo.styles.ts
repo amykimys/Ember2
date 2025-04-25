@@ -53,6 +53,8 @@ const styles = StyleSheet.create({
     },
     todoList: {
       flex: 1,
+      paddingTop: 0, 
+      marginTop: -13,
     },
     emptyState: {
       flex: 1,
@@ -161,7 +163,7 @@ const styles = StyleSheet.create({
       width: 50,
       height: 50,
       borderRadius: 25,
-      backgroundColor: '#BBD8A3',
+      backgroundColor: '#BF9264',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,

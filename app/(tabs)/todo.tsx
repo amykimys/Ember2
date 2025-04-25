@@ -198,19 +198,23 @@ export default function TodoScreen() {
 
   const today = moment();
   const todayStr = today.format('YYYY-MM-DD');
+  const isTodaySelected = moment(currentDate).format('YYYY-MM-DD') === todayStr;
+
 
   const customDatesStyles = [
     {
-      date: today,
-      style: {
-        backgroundColor: '#BF9264',
-        borderRadius: 16,
+      date: todayStr,
+      dateNameStyle: {
+        color: isTodaySelected ? '#BF9264' : '#BF9264',
+        fontWeight: 'bold',
       },
-      textStyle: {
-        color: '#fff',
+      dateNumberStyle: {
+        color: isTodaySelected ? '#BF9264' : '#BF9264',
+        fontWeight: 'bold',
       },
     },
   ];
+    
 
 
 
@@ -834,7 +838,11 @@ export default function TodoScreen() {
 
 
   const goToToday = () => {
-    setCurrentDate(new Date());
+    const today = new Date();
+    setCurrentDate(today);
+    setTimeout(() => {
+      calendarStripRef.current?.scrollToIndex({ index: 30, animated: true });
+    }, 50);
   };
 
   const goToNextDay = () => {
@@ -1171,6 +1179,7 @@ export default function TodoScreen() {
           )}
         </TouchableOpacity>
 
+
         {!isCollapsed && (
           <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
             {uncategorizedTodos.map(renderTodoItem)}
@@ -1191,17 +1200,21 @@ export default function TodoScreen() {
 
     return (
       <View style={styles.completedSection}>
-        <TouchableOpacity 
+       <TouchableOpacity
           style={styles.categoryHeader}
           onPress={() => toggleCategoryCollapse('completed')}
         >
-          <Text style={styles.categoryTitle}>COMPLETED</Text>
-          {isCollapsed ? (
-            <Ionicons name="chevron-up" size={16} color="#000" />
-          ) : (
-            <Ionicons name="chevron-down" size={16} color="#000" />
-          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Text style={[styles.categoryTitle, { flex: 1 }]}>COMPLETED</Text>
+            <Ionicons
+              name={isCollapsed ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color="#000"
+              style={{ marginRight: 8 }}
+            />
+          </View>
         </TouchableOpacity>
+
 
         {!isCollapsed && (
           <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
@@ -1595,35 +1608,53 @@ export default function TodoScreen() {
             
             {/* Add this after the header and before the task list */}
             <View style={{ paddingHorizontal: -5, marginHorizontal: -5, marginBottom: 5 }}>
-            <CalendarStrip
-  scrollable
-  startingDate={moment().subtract(3, 'days')}
-  showMonth
-  leftSelector={<View />}
-  rightSelector={<View />}
-  style={{ height: 100, paddingTop: 10, paddingBottom: 10 }}
-  calendarColor={'#fff'}
-  calendarHeaderStyle={{
-    color: '#000',
-    fontSize: 18,
-    marginBottom: 24,
-  }}
-  dateNumberStyle={{ color: '#999', fontSize: 15 }}
-  dateNameStyle={{ color: '#999' }}
-  highlightDateNumberStyle={{ color: '#000', fontSize: 30 }}
-  highlightDateNameStyle={{ color: '#000', fontSize: 12.5 }}
-  highlightDateContainerStyle={{
-    backgroundColor: '',
-    borderRadius: 16,
-  }}
-  selectedDate={moment(currentDate)}
-  onDateSelected={(date) => setCurrentDate(date.toDate())}
-  customDatesStyles={customDatesStyles}
-/>
+
+            <TouchableOpacity onPress={() => {
+              const now = moment();
+              setCurrentDate(now.toDate());
+              calendarStripRef.current?.scrollToDate(now);
+            }} onLongPress={() => {
+              const now = moment();
+              setCurrentDate(now.toDate());
+              calendarStripRef.current?.scrollToDate(now);
+            }} delayLongPress={300}>
+
+              <TouchableOpacity onPress={goToToday}>
+                <Text style={{ color: '#000', fontSize: 18, fontWeight: 'bold', marginBottom: -2, textAlign: 'center' }}>
+                  {moment(currentDate).format('MMMM YYYY')}
+                </Text>
+              </TouchableOpacity>
+
+          </TouchableOpacity>
+                      <CalendarStrip
+                          scrollable
+                          startingDate={moment().subtract(3, 'days')}
+                          showMonth
+                          leftSelector={<View />}
+                          rightSelector={<View />}
+                          style={{ height: 100, paddingTop: 0, paddingBottom: 0 }}
+                          calendarColor={'#fff'}
+                          calendarHeaderStyle={{
+                            display: 'none'
+                          }}
+                          dateNumberStyle={{ color: '#999', fontSize: 15 }}
+                          dateNameStyle={{ color: '#999' }}
+                          highlightDateNumberStyle={{
+                            color: isTodaySelected ? '#BF9264' : '#000', // 👈 override here
+                            fontSize: 30,
+                          }}
+                          highlightDateNameStyle={{
+                            color: isTodaySelected ? '#BF9264' : '#000', // 👈 override here
+                            fontSize: 12.5,
+                          }}
+                          selectedDate={moment(currentDate)}
+                          onDateSelected={(date) => setCurrentDate(date.toDate())}
+                          customDatesStyles={customDatesStyles}
+                        />
 
             </View>
 
-            <View style={{ height: 15 }} />
+            <View style={{ height: 0 }} />
 
             {/* TASK LIST */}
             <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
