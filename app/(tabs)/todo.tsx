@@ -105,10 +105,9 @@ interface Todo {
   categoryId: string | null;
   date: Date;
   repeat?: RepeatOption;
-  customRepeatFrequency?: number; 
-  customRepeatUnit?: 'days' | 'weeks' | 'months'; 
-  customRepeatWeekDays?: WeekDay[];
+  customRepeatDates?: Date[];
   repeatEndDate?: Date | null;
+  reminderTime?: Date | null;
 }
 
 function darkenColor(hex: string, amount = 0.2): string {
@@ -187,11 +186,15 @@ export default function TodoScreen() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
   const [selectedDay, setSelectedDay] = useState(new Date().getDate().toString().padStart(2, '0'));
+  const [showCustomDatesPicker, setShowCustomDatesPicker] = useState(false);
+  const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
+  const [selectedDateStrings, setSelectedDateStrings] = useState<string[]>([]);
+
+
 
   const years = Array.from({ length: 100 }, (_, i) => (new Date().getFullYear() + i).toString());
   const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
   const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0'));
-  const [shouldReopenTaskModalAfterDatePicker, setShouldReopenTaskModalAfterDatePicker] = useState(false);
 
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
@@ -230,7 +233,9 @@ export default function TodoScreen() {
     setNewCategoryName('');
     setNewCategoryColor('#E3F2FD');
     setEditingTodo(null);
-    setCollapsedCategories({});
+    setCollapsedCategories({
+      completed: true
+    });
     setCurrentDate(new Date());
     setTaskDate(null);
     setReminderTime(null);
@@ -546,10 +551,11 @@ export default function TodoScreen() {
         categoryId: finalCategoryId,
         date: taskDate || currentDate,
         repeat: selectedRepeat,
-        customRepeatFrequency: selectedRepeat === 'custom' ? Number(customRepeatFrequency) : undefined,
-        customRepeatUnit: selectedRepeat === 'custom' ? customRepeatUnit : undefined,
-        customRepeatWeekDays: selectedRepeat === 'custom' && customRepeatUnit === 'weeks' ? selectedWeekDays : undefined,
         repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
+        customRepeatDates: selectedRepeat === 'custom' 
+        ? customSelectedDates.map((str) => new Date(str))
+        : undefined,
+        reminderTime: reminderTime || null,
       };
       
       // Save task to Supabase
@@ -563,11 +569,10 @@ export default function TodoScreen() {
           category_id: finalCategoryId,
           date: newTodoItem.date.toISOString(),
           repeat: newTodoItem.repeat,
-          custom_repeat_frequency: newTodoItem.customRepeatFrequency,
-          custom_repeat_unit: newTodoItem.customRepeatUnit,
-          custom_repeat_week_days: newTodoItem.customRepeatWeekDays,
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
-          user_id: user.id
+          user_id: user.id,
+          reminder_time: newTodoItem.reminderTime?.toISOString(),
+
         });
       
       if (taskError) {
@@ -658,10 +663,8 @@ export default function TodoScreen() {
             category_id: updatedTodo.categoryId,
             date: updatedTodo.date.toISOString(),
             repeat: updatedTodo.repeat,
-            custom_repeat_frequency: updatedTodo.customRepeatFrequency,
-            custom_repeat_unit: updatedTodo.customRepeatUnit,
-            custom_repeat_week_days: updatedTodo.customRepeatWeekDays,
             repeat_end_date: updatedTodo.repeatEndDate?.toISOString(),
+            reminder_time: updatedTodo.reminderTime?.toISOString(),
           })
           .eq('id', updatedTodo.id)
           .eq('user_id', user.id);
@@ -794,25 +797,7 @@ export default function TodoScreen() {
     }
   
     if (todo.repeat === 'custom') {
-      if (!todo.customRepeatFrequency || !todo.customRepeatUnit) return false;
   
-      const diffInDays = Math.floor((date.getTime() - taskDate.getTime()) / (1000 * 60 * 60 * 24));
-  
-      if (todo.customRepeatUnit === 'days') {
-        return diffInDays % todo.customRepeatFrequency === 0 && diffInDays >= 0;
-      }
-  
-      if (todo.customRepeatUnit === 'weeks') {
-        const weeksDiff = Math.floor(diffInDays / 7);
-        const dayOfWeek = date.getDay();
-        return weeksDiff % todo.customRepeatFrequency === 0 &&
-               todo.customRepeatWeekDays?.includes(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][dayOfWeek] as WeekDay);
-      }
-  
-      if (todo.customRepeatUnit === 'months') {
-        const monthsDiff = (date.getFullYear() - taskDate.getFullYear()) * 12 + (date.getMonth() - taskDate.getMonth());
-        return monthsDiff % todo.customRepeatFrequency === 0 && taskDate.getDate() === date.getDate();
-      }
     }
   
     return false;
@@ -910,10 +895,8 @@ export default function TodoScreen() {
       setSelectedCategoryId(todo.categoryId || '');
       setTaskDate(todo.date || null);
       setSelectedRepeat(todo.repeat || 'none');
-      setCustomRepeatFrequency(todo.customRepeatFrequency?.toString() || '1');
-      setCustomRepeatUnit(todo.customRepeatUnit || 'days');
-      setSelectedWeekDays(todo.customRepeatWeekDays || []);
       setRepeatEndDate(todo.repeatEndDate || null);
+      setReminderTime(todo.reminderTime || null); // Add this line to set the reminder time
       showModal();
     };
 
@@ -1253,6 +1236,7 @@ export default function TodoScreen() {
               ...task,
               date: new Date(task.date),
               repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null, // ✅ You should ADD THIS LINE if not present
               // Ensure category_id is properly set
               categoryId: task.category_id || null
             }));
@@ -2078,6 +2062,7 @@ export default function TodoScreen() {
                             : 'Set reminder'}
                         </Text>
                       </View>
+
                       {reminderTime ? (
                       <TouchableOpacity onPress={() => setReminderTime(null)}>
                         <Ionicons name="close" size={18} color="#999" />
@@ -2272,6 +2257,12 @@ export default function TodoScreen() {
                           onPress={() => {
                             setSelectedRepeat(opt.value as RepeatOption);
                             setShowRepeatPicker(false);
+
+                            if (opt.value === 'custom') {
+                              setTimeout(() => {
+                                setShowCustomDatesPicker(true);
+                              }, 300);
+                            }
                           }}
                           style={{
                             paddingVertical: 16,
@@ -2286,54 +2277,109 @@ export default function TodoScreen() {
                 </Modal>
 
                 <Modal
-  visible={showRepeatEndDatePicker}
+  visible={showCustomDatesPicker}
   transparent
   animationType="fade"
-  onRequestClose={() => setShowRepeatEndDatePicker(false)}
+  onRequestClose={() => setShowCustomDatesPicker(false)}
 >
   <TouchableOpacity
     activeOpacity={1}
-    onPress={() => {
-      handleEndDateConfirm(); // ✅ Save the selected date
-      setShowRepeatEndDatePicker(false); // ✅ Close the modal
-    }}
+    onPressOut={() => setShowCustomDatesPicker(false)}
     style={{
       flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+      backgroundColor: 'rgba(0,0,0,0.3)',
       justifyContent: 'flex-end',
     }}
   >
-    <TouchableOpacity
-      activeOpacity={1}
-      style={{
-        backgroundColor: '#fff',
-        paddingTop: 16,
-        paddingBottom: 24,
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 10,
-        elevation: 10,
-      }}
-      onPress={() => {}} // Prevent closing when tapping inside
-    >
-      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-        <Picker selectedValue={selectedYear} onValueChange={setSelectedYear} style={{ flex: 1 }}>
-          {years.map((y) => <Picker.Item key={y} label={y} value={y} />)}
-        </Picker>
-        <Picker selectedValue={selectedMonth} onValueChange={setSelectedMonth} style={{ flex: 1 }}>
-          {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
-        </Picker>
-        <Picker selectedValue={selectedDay} onValueChange={setSelectedDay} style={{ flex: 1 }}>
-          {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
-        </Picker>
-      </View>
+    <View style={{
+      backgroundColor: '#fff',
+      padding: 20,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+    }}>
+      <RNCalendar
+        onDayPress={(day: DateData) => {
+          const dateStr = day.dateString;
+          setCustomSelectedDates((prev) =>
+            prev.includes(dateStr)
+              ? prev.filter((d) => d !== dateStr)
+              : [...prev, dateStr]
+          );
+        }}
+        markedDates={Object.fromEntries(
+          customSelectedDates.map((date) => [
+            date,
+            { selected: true, selectedColor: '#007AFF' },
+          ])
+        )}
+      />
 
-    </TouchableOpacity>
+      <TouchableOpacity
+        onPress={() => setShowCustomDatesPicker(false)}
+        style={{
+          backgroundColor: '#007AFF',
+          padding: 16,
+          borderRadius: 12,
+          alignItems: 'center',
+          marginTop: 20,
+        }}
+      >
+        <Text style={{ color: 'white', fontWeight: '600' }}>Done</Text>
+      </TouchableOpacity>
+    </View>
   </TouchableOpacity>
 </Modal>
+
+
+                <Modal
+                  visible={showRepeatEndDatePicker}
+                  transparent
+                  animationType="fade"
+                  onRequestClose={() => setShowRepeatEndDatePicker(false)}
+                >
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => {
+                      handleEndDateConfirm(); // ✅ Save the selected date
+                      setShowRepeatEndDatePicker(false); // ✅ Close the modal
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      justifyContent: 'flex-end',
+                    }}
+                  >
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      style={{
+                        backgroundColor: '#fff',
+                        paddingTop: 16,
+                        paddingBottom: 24,
+                        borderTopLeftRadius: 16,
+                        borderTopRightRadius: 16,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: -2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 10,
+                        elevation: 10,
+                      }}
+                      onPress={() => {}} // Prevent closing when tapping inside
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                        <Picker selectedValue={selectedYear} onValueChange={setSelectedYear} style={{ flex: 1 }}>
+                          {years.map((y) => <Picker.Item key={y} label={y} value={y} />)}
+                        </Picker>
+                        <Picker selectedValue={selectedMonth} onValueChange={setSelectedMonth} style={{ flex: 1 }}>
+                          {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
+                        </Picker>
+                        <Picker selectedValue={selectedDay} onValueChange={setSelectedDay} style={{ flex: 1 }}>
+                          {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
+                        </Picker>
+                      </View>
+
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                </Modal>
 
                 <View
                   style={{
