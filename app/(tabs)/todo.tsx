@@ -184,10 +184,14 @@ export default function TodoScreen() {
   const categoryInputRef = useRef<TextInput>(null);
   const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false);
   const [isTestModalVisible, setIsTestModalVisible] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
+  const [selectedDay, setSelectedDay] = useState(new Date().getDate().toString().padStart(2, '0'));
 
-
-
-
+  const years = Array.from({ length: 100 }, (_, i) => (new Date().getFullYear() + i).toString());
+  const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+  const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0'));
+  const [shouldReopenTaskModalAfterDatePicker, setShouldReopenTaskModalAfterDatePicker] = useState(false);
 
 
 
@@ -1368,14 +1372,15 @@ export default function TodoScreen() {
     requestAnimationFrame(showModal);
   }, []);
   
-  const handleDatePickerCancel = useCallback(() => {
-    setShowTaskDatePicker(false);
-    setIsDatePickerTransitioning(false);
-    requestAnimationFrame(showModal);
-  }, []);
+  const handleCancelFromSettings = () => {
+    setIsSettingsModalVisible(false);
+    // Remove resetForm() to preserve the form data
+    setTimeout(() => {
+      setIsNewTaskModalVisible(true);
+    }, 300);
+  };
   
   
-
   // Add reminder picker handlers
   const handleReminderPress = useCallback(() => {
     console.log('Opening reminder picker');
@@ -2093,7 +2098,7 @@ export default function TodoScreen() {
                         }}
                         onPress={handleRepeatEndDatePress}
                       >
-                        <TouchableOpacity onPress={() => setShowRepeatEndDatePicker(true)}>
+                       <TouchableOpacity onPress={() => setShowRepeatEndDatePicker(true)}>
   <View style={styles.optionButton}>
     <Ionicons name="calendar-outline" size={20} color="#666" />
     <Text style={styles.optionText}>
@@ -2104,6 +2109,7 @@ export default function TodoScreen() {
   </View>
 </TouchableOpacity>
 
+
                         <Ionicons name="chevron-forward" size={20} color="#666" />
                       </TouchableOpacity>
                     )}
@@ -2113,173 +2119,164 @@ export default function TodoScreen() {
 
                 {/* Simple Time Picker */}
                 <Modal
-  visible={showReminderPicker}
-  transparent
-  animationType="fade"
-  onRequestClose={handleReminderCancel}
->
-  <TouchableOpacity
-    activeOpacity={1}
-    onPress={() => {
-      handleReminderConfirm(); // Save time
-      setShowReminderPicker(false); // Dismiss
-    }}
-    style={{
-      flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-      justifyContent: 'flex-end',
-    }}
-  >
-    <TouchableOpacity
-      activeOpacity={1}
-      style={{
-        backgroundColor: '#fff',
-        paddingTop: 16,
-        paddingBottom: 24,
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 10,
-        elevation: 10,
-      }}
-      onPress={() => {}} // Prevent closing when tapping inside
-    >
+                visible={showReminderPicker}
+                transparent
+                animationType="fade"
+                onRequestClose={handleReminderCancel}
+              >
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={() => {
+                    handleReminderConfirm(); // Save time
+                    setShowReminderPicker(false); // Dismiss
+                  }}
+                  style={{
+                    flex: 1,
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                    justifyContent: 'flex-end',
+                  }}
+                >
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    style={{
+                      backgroundColor: '#fff',
+                      paddingTop: 16,
+                      paddingBottom: 24,
+                      borderTopLeftRadius: 20,
+                      borderTopRightRadius: 20,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: -2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 10,
+                      elevation: 10,
+                    }}
+                    onPress={() => {}} // Prevent closing when tapping inside
+                  >
 
-      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-        {/* Hour Picker */}
-        <Picker
-          selectedValue={selectedHour}
-          style={{ flex: 1 }}
-          onValueChange={(val) => setSelectedHour(val)}
-        >
-          {Array.from({ length: 12 }, (_, i) => {
-            const val = (i + 1).toString().padStart(2, '0');
-            return <Picker.Item key={val} label={val} value={val} />;
-          })}
-        </Picker>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                      {/* Hour Picker */}
+                      <Picker
+                        selectedValue={selectedHour}
+                        style={{ flex: 1 }}
+                        onValueChange={(val) => setSelectedHour(val)}
+                      >
+                        {Array.from({ length: 12 }, (_, i) => {
+                          const val = (i + 1).toString().padStart(2, '0');
+                          return <Picker.Item key={val} label={val} value={val} />;
+                        })}
+                      </Picker>
 
-        {/* Minute Picker */}
-        <Picker
-          selectedValue={selectedMinute}
-          style={{ flex: 1 }}
-          onValueChange={(val) => setSelectedMinute(val)}
-        >
-          {Array.from({ length: 60 }, (_, i) => {
-            const val = i.toString().padStart(2, '0');
-            return <Picker.Item key={val} label={val} value={val} />;
-          })}
-        </Picker>
+                      {/* Minute Picker */}
+                      <Picker
+                        selectedValue={selectedMinute}
+                        style={{ flex: 1 }}
+                        onValueChange={(val) => setSelectedMinute(val)}
+                      >
+                        {Array.from({ length: 60 }, (_, i) => {
+                          const val = i.toString().padStart(2, '0');
+                          return <Picker.Item key={val} label={val} value={val} />;
+                        })}
+                      </Picker>
 
-        {/* AM/PM Picker */}
-        <Picker
-          selectedValue={selectedAmPm}
-          style={{ flex: 1 }}
-          onValueChange={(val) => setSelectedAmPm(val)}
-        >
-          <Picker.Item label="AM" value="AM" />
-          <Picker.Item label="PM" value="PM" />
-        </Picker>
-      </View>
-    </TouchableOpacity>
-  </TouchableOpacity>
-</Modal>
+                      {/* AM/PM Picker */}
+                      <Picker
+                        selectedValue={selectedAmPm}
+                        style={{ flex: 1 }}
+                        onValueChange={(val) => setSelectedAmPm(val)}
+                      >
+                        <Picker.Item label="AM" value="AM" />
+                        <Picker.Item label="PM" value="PM" />
+                      </Picker>
+                    </View>
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              </Modal>
 
 
                 {/* Simple Repeat Options */}
                 <Modal
-  visible={showRepeatPicker}
-  animationType="slide"
-  transparent
-  onRequestClose={() => setShowRepeatPicker(false)}
->
-  <TouchableOpacity
-    activeOpacity={1}
-    onPress={() => setShowRepeatPicker(false)}
-    style={{
-      flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-      justifyContent: 'flex-end',
-    }}
-  >
-    <View
-      style={{
-        backgroundColor: '#fff',
-        paddingTop: 16,
-        paddingBottom: 24,
-        borderTopLeftRadius: 16,
-        borderTopRightRadius: 16,
-      }}
-    >
-      {REPEAT_OPTIONS.map((opt) => (
-        <TouchableOpacity
-          key={opt.value}
-          onPress={() => {
-            setSelectedRepeat(opt.value as RepeatOption);
-            setShowRepeatPicker(false);
-          }}
-          style={{
-            paddingVertical: 16,
-            paddingHorizontal: 24,
-          }}
-        >
-          <Text style={{ fontSize: 16 }}>{opt.label}</Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  </TouchableOpacity>
-</Modal>
+                  visible={showRepeatPicker}
+                  animationType="slide"
+                  transparent
+                  onRequestClose={() => setShowRepeatPicker(false)}
+                >
+                  <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={() => setShowRepeatPicker(false)}
+                    style={{
+                      flex: 1,
+                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                      justifyContent: 'flex-end',
+                    }}
+                  >
+                    <View
+                      style={{
+                        backgroundColor: '#fff',
+                        paddingTop: 16,
+                        paddingBottom: 24,
+                        borderTopLeftRadius: 16,
+                        borderTopRightRadius: 16,
+                      }}
+                    >
+                      {REPEAT_OPTIONS.map((opt) => (
+                        <TouchableOpacity
+                          key={opt.value}
+                          onPress={() => {
+                            setSelectedRepeat(opt.value as RepeatOption);
+                            setShowRepeatPicker(false);
+                          }}
+                          style={{
+                            paddingVertical: 16,
+                            paddingHorizontal: 24,
+                          }}
+                        >
+                          <Text style={{ fontSize: 16 }}>{opt.label}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </TouchableOpacity>
+                </Modal>
 
-<View
-  style={{
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 20,
-    marginBottom: 20,
-    gap: 12
-  }}
->
-  <TouchableOpacity
-    style={{
-      flex: 1,
-      backgroundColor: '#E0E0E0',
-      padding: 16,
-      borderRadius: 12,
-      alignItems: 'center'
-    }}
-    onPress={handleCloseNewTaskModal}
-  >
-    <Text style={{ color: '#333', fontSize: 18, fontWeight: '600' }}>Cancel</Text>
-  </TouchableOpacity>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    marginTop: 20,
+                    marginBottom: 20,
+                    gap: 12
+                  }}
+                >
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#E0E0E0',
+                      padding: 16,
+                      borderRadius: 12,
+                      alignItems: 'center'
+                    }}
+                    onPress={handleCancelFromSettings}
+                  >
+                    <Text style={{ color: '#333', fontSize: 18, fontWeight: '600' }}>Cancel</Text>
+                  </TouchableOpacity>
 
-  <TouchableOpacity
-    style={{
-      flex: 1,
-      backgroundColor: '#007AFF',
-      padding: 16,
-      borderRadius: 12,
-      alignItems: 'center'
-    }}
-    onPress={handleCloseSettingsModal}
-  >
-    <Text style={{ color: 'white', fontSize: 18, fontWeight: '600' }}>Done</Text>
-  </TouchableOpacity>
-</View>
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#007AFF',
+                      padding: 16,
+                      borderRadius: 12,
+                      alignItems: 'center'
+                    }}
+                    onPress={handleCloseSettingsModal}
+                  >
+                    <Text style={{ color: 'white', fontSize: 18, fontWeight: '600' }}>Done</Text>
+                  </TouchableOpacity>
+                </View>
 
               </ScrollView>
             </View>
           </View>
         </Modal>
-
-       
-        {/* Date Picker Modal */}
-        <DateTimePickerModal
-          isVisible={showTaskDatePicker}
-          mode="date"
-          onConfirm={handleDatePickerConfirm}
-          onCancel={handleDatePickerCancel}
-        />
 
         {/* Repeat End Date Picker */}
         <DateTimePickerModal
@@ -2292,74 +2289,74 @@ export default function TodoScreen() {
 
       {/* New Category Modal */}
       <Modal
-    animationType="slide"
-    transparent={true}
-    visible={isNewCategoryModalVisible}
-    onRequestClose={() => {
-      console.log('🔒 Modal close requested');
-      setIsNewCategoryModalVisible(false);
-    }}
-  >
-     <KeyboardAvoidingView
-    style={{ flex: 1 }}
-    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0} // adjust if needed
-  >
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-      <View style={{ backgroundColor: 'white', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
-          <TouchableOpacity onPress={() => {
-            console.log('🔒 Close button pressed');
-            setIsNewCategoryModalVisible(false);
-          }}>
-            <Ionicons name="close" size={24} color="#666" />
-          </TouchableOpacity>
-        </View>
+        animationType="slide"
+        transparent={true}
+        visible={isNewCategoryModalVisible}
+        onRequestClose={() => {
+          console.log('🔒 Modal close requested');
+          setIsNewCategoryModalVisible(false);
+        }}
+      >
+        <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0} // adjust if needed
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: 'white', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
+              <TouchableOpacity onPress={() => {
+                console.log('🔒 Close button pressed');
+                setIsNewCategoryModalVisible(false);
+              }}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
 
-        <TextInput
-          ref={categoryInputRef}
-          style={{
-            fontSize: 16,
-            color: '#1a1a1a',
-            padding: 12,
-            backgroundColor: '#F5F5F5',
-            borderRadius: 12,
-            marginBottom: 20,
-          }}
-          value={newCategoryName}
-          onChangeText={setNewCategoryName}
-          placeholder="Category name"
-          placeholderTextColor="#999"
-          autoFocus
-        />
-
-        <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Choose a color</Text>
-        
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 20 }}
-        >
-         {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => {
-          const isSelected = newCategoryColor === color;
-          return (
-            <TouchableOpacity
-              key={color}
-              onPress={() => setNewCategoryColor(color)}
+            <TextInput
+              ref={categoryInputRef}
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 18,
-                backgroundColor: color,
-                marginRight: 12,
-                borderWidth: isSelected ? 1.4 : 0,
-                borderColor: isSelected ? '#000' : 'transparent',
+                fontSize: 16,
+                color: '#1a1a1a',
+                padding: 12,
+                backgroundColor: '#F5F5F5',
+                borderRadius: 12,
+                marginBottom: 20,
               }}
+              value={newCategoryName}
+              onChangeText={setNewCategoryName}
+              placeholder="Category name"
+              placeholderTextColor="#999"
+              autoFocus
             />
-          );
-        })}
+
+            <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Choose a color</Text>
+            
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 20 }}
+            >
+            {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5'].map((color) => {
+              const isSelected = newCategoryColor === color;
+              return (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => setNewCategoryColor(color)}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 18,
+                    backgroundColor: color,
+                    marginRight: 12,
+                    borderWidth: isSelected ? 1.4 : 0,
+                    borderColor: isSelected ? '#000' : 'transparent',
+                  }}
+                />
+              );
+            })}
         </ScrollView>
 
         <TouchableOpacity
@@ -2428,71 +2425,55 @@ export default function TodoScreen() {
   </Modal>
 
 
-  {showRepeatEndDatePicker && (
   <Modal
-    visible
-    transparent
-    animationType="fade"
-    onRequestClose={() => setShowRepeatEndDatePicker(false)}
+  visible={showRepeatEndDatePicker}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowRepeatEndDatePicker(false)}
+>
+  <TouchableOpacity
+    activeOpacity={1}
+    onPress={() => {
+      const selectedDate = new Date(
+        Number(selectedYear),
+        Number(selectedMonth) - 1,
+        Number(selectedDay)
+      );
+      setRepeatEndDate(selectedDate);
+      setShowRepeatEndDatePicker(false);
+    }}
+    style={{
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+      justifyContent: 'flex-end',
+    }}
   >
     <TouchableOpacity
       activeOpacity={1}
-      style={styles.modalOverlay}
-      onPressOut={() => setShowRepeatEndDatePicker(false)}
+      style={{
+        backgroundColor: '#fff',
+        paddingTop: 16,
+        paddingBottom: 24,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+      }}
     >
-      <TouchableOpacity
-        activeOpacity={1}
-        style={[styles.modalContent, { borderTopLeftRadius: 16, borderTopRightRadius: 16 }]}
-      >
-        <Text style={styles.modalTitle}>Select End Date</Text>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          style={{ maxHeight: 300 }}
-        >
-          {Array.from({ length: 90 }, (_, i) => {
-            const date = new Date();
-            date.setDate(date.getDate() + i);
-            return (
-              <TouchableOpacity
-                key={i}
-                style={{
-                  paddingVertical: 12,
-                  borderBottomColor: '#eee',
-                  borderBottomWidth: 1,
-                }}
-                onPress={() => {
-                  setRepeatEndDate(date);
-                  setShowRepeatEndDatePicker(false);
-                }}
-              >
-                <Text style={{ fontSize: 16, color: '#1a1a1a' }}>
-                  {date.toLocaleDateString(undefined, {
-                    weekday: 'long',
-                    month: 'short',
-                    day: 'numeric',
-                    year: 'numeric',
-                  })}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-        <TouchableOpacity
-          style={{
-            marginTop: 20,
-            alignItems: 'center',
-            backgroundColor: '#007AFF',
-            paddingVertical: 12,
-            borderRadius: 8,
-          }}
-          onPress={() => setShowRepeatEndDatePicker(false)}
-        >
-          <Text style={{ color: 'white', fontWeight: 'bold' }}>Cancel</Text>
-        </TouchableOpacity>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+        <Picker selectedValue={selectedYear} onValueChange={setSelectedYear} style={{ flex: 1 }}>
+          {years.map((y) => <Picker.Item key={y} label={y} value={y} />)}
+        </Picker>
+        <Picker selectedValue={selectedMonth} onValueChange={setSelectedMonth} style={{ flex: 1 }}>
+          {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
+        </Picker>
+        <Picker selectedValue={selectedDay} onValueChange={setSelectedDay} style={{ flex: 1 }}>
+          {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
+        </Picker>
+      </View>
     </TouchableOpacity>
-  </Modal>
-)}
+  </TouchableOpacity>
+</Modal>
+
+
 
 
     </GestureHandlerRootView>

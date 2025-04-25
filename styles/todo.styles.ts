@@ -191,14 +191,16 @@ const styles = StyleSheet.create({
       flex: 1,
       backgroundColor: 'rgba(0, 0, 0, 0.5)',
       justifyContent: 'flex-end',
+      paddingBottom: 0,
     },
+    
     modalContent: {
       backgroundColor: 'white',
+      padding: 20,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
-      padding: 20,
-      maxHeight: '90%',
     },
+    
     modalHeader: {
       flexDirection: 'row',
       alignItems: 'center',
