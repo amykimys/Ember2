@@ -193,7 +193,16 @@ export default function TodoScreen() {
   const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0'));
   const [shouldReopenTaskModalAfterDatePicker, setShouldReopenTaskModalAfterDatePicker] = useState(false);
 
-
+  // Add this function to handle the end date selection
+  const handleEndDateConfirm = () => {
+    const selectedDate = new Date(
+      parseInt(selectedYear),
+      parseInt(selectedMonth) - 1,
+      parseInt(selectedDay)
+    );
+    setRepeatEndDate(selectedDate);
+    setShowRepeatEndDatePicker(false);
+  };
 
   useEffect(() => {
     console.log('📁 useEffect triggered — isCategoryModalVisible:', isCategoryModalVisible);
@@ -1389,12 +1398,16 @@ export default function TodoScreen() {
 
   const handleReminderConfirm = useCallback(() => {
     const hours = selectedAmPm === 'PM' ? (parseInt(selectedHour) % 12) + 12 : parseInt(selectedHour) % 12;
-    const time = new Date();
-    time.setHours(hours);
-    time.setMinutes(parseInt(selectedMinute));
+    const time = new Date(
+      parseInt(selectedYear),
+      parseInt(selectedMonth) - 1,
+      parseInt(selectedDay),
+      hours,
+      parseInt(selectedMinute)
+    );
     setReminderTime(time);
     setShowReminderPicker(false);
-  }, [selectedHour, selectedMinute, selectedAmPm]);
+  }, [selectedHour, selectedMinute, selectedAmPm, selectedYear, selectedMonth, selectedDay]);
 
   const handleReminderCancel = useCallback(() => {
     setShowReminderPicker(false);
@@ -1404,22 +1417,6 @@ export default function TodoScreen() {
   const handleRepeatPress = useCallback(() => {
     console.log('Opening repeat options');
     setShowRepeatOptions(true);
-  }, []);
-
-  const handleRepeatEndDatePress = useCallback(() => {
-    console.log('Opening repeat end date picker');
-    setShowRepeatEndDatePicker(true);
-  }, []);
-
-  const handleRepeatEndDateConfirm = useCallback((date: Date) => {
-    console.log('Setting repeat end date:', date);
-    setRepeatEndDate(date);
-    setShowRepeatEndDatePicker(false);
-  }, []);
-
-  const handleRepeatEndDateCancel = useCallback(() => {
-    console.log('Cancelling repeat end date picker');
-    setShowRepeatEndDatePicker(false);
   }, []);
 
   // Add this function to handle sign out
@@ -1556,6 +1553,11 @@ export default function TodoScreen() {
   useEffect(() => {
     console.log('🧪 isNewCategoryModalVisible state changed:', isNewCategoryModalVisible);
   }, [isNewCategoryModalVisible]);
+
+  useEffect(() => {
+    console.log('showRepeatEndDatePicker:', showRepeatEndDatePicker);
+  }, [showRepeatEndDatePicker]);
+  
   
 
 
@@ -1989,11 +1991,29 @@ export default function TodoScreen() {
               height: '68%',
               width: '100%'
             }]}>
-            
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+              <TouchableOpacity
+                onPress={handleCancelFromSettings}
+                style={{
+                  position: 'absolute',
+                  top: -10,
+                  right: -10,
+                  zIndex: 10, // ensures it stays above other elements
+                  backgroundColor: '#transparent',
+                  borderRadius: 16,
+                  padding: 6,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+      
               <ScrollView
                 style={{ flex: 1 }}
                 keyboardShouldPersistTaps="handled"
-  contentContainerStyle={{ paddingBottom: 100 }}
+                contentContainerStyle={{ paddingBottom: 100, paddingTop: 30 }}
               >
                 {/* Calendar View */}
                 <View style={{ marginBottom: 20 }}>
@@ -2076,46 +2096,73 @@ export default function TodoScreen() {
                         justifyContent: 'space-between',
                         padding: 16,
                       }}
-                      onPress={() => setShowRepeatPicker(true)}
+                      onPress={() => {
+                        if (selectedRepeat) {
+                          console.log('🌀 Opening repeat picker');
+                          setShowRepeatPicker(true);
+                        }
+                      }}
                     >
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Ionicons name="repeat" size={20} color="#666" />
                         <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                          {REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label || 'Repeat'}
+                          {selectedRepeat && selectedRepeat !== 'none'
+                            ? REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label
+                            : 'Set repeat'}
                         </Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={20} color="#666" />
+
+                      {selectedRepeat && selectedRepeat !== 'none' ? (
+                        <TouchableOpacity onPress={() => setSelectedRepeat('none')}>
+                          <Ionicons name="close" size={18} color="#999" />
+                        </TouchableOpacity>
+                      ) : (
+                        <Ionicons name="chevron-forward" size={20} color="#666" />
+                      )}
                     </TouchableOpacity>
 
                     {/* Set End Date – Only show if repeat is not 'none' */}
                     {selectedRepeat !== 'none' && (
-                      <TouchableOpacity
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: 0,
-                        }}
-                        onPress={handleRepeatEndDatePress}
-                      >
-                       <TouchableOpacity onPress={() => setShowRepeatEndDatePicker(true)}>
-  <View style={styles.optionButton}>
+                        <>
+                          {(() => {
+                            console.log('Selected repeat:', selectedRepeat);
+                            return null;
+                          })()}
+                         <TouchableOpacity
+  style={{
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+  }}
+  onPress={() => {
+    console.log('📅 Showing end date picker');
+    setShowRepeatEndDatePicker(true);
+  }}
+>
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
     <Ionicons name="calendar-outline" size={20} color="#666" />
-    <Text style={styles.optionText}>
+    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
       {repeatEndDate
         ? `Ends on ${repeatEndDate.toLocaleDateString()}`
         : 'Set end date'}
     </Text>
   </View>
+
+  {repeatEndDate ? (
+    <TouchableOpacity onPress={() => setRepeatEndDate(null)}>
+      <Ionicons name="close" size={18} color="#999" />
+    </TouchableOpacity>
+  ) : (
+    <Ionicons name="chevron-forward" size={20} color="#666" />
+  )}
 </TouchableOpacity>
 
+                        </>
+                      )}
 
-                        <Ionicons name="chevron-forward" size={20} color="#666" />
-                      </TouchableOpacity>
-                    )}
                   </View>
                 </View>
-
 
                 {/* Simple Time Picker */}
                 <Modal
@@ -2152,6 +2199,7 @@ export default function TodoScreen() {
                     }}
                     onPress={() => {}} // Prevent closing when tapping inside
                   >
+             
 
                     <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                       {/* Hour Picker */}
@@ -2237,6 +2285,56 @@ export default function TodoScreen() {
                   </TouchableOpacity>
                 </Modal>
 
+                <Modal
+  visible={showRepeatEndDatePicker}
+  transparent
+  animationType="fade"
+  onRequestClose={() => setShowRepeatEndDatePicker(false)}
+>
+  <TouchableOpacity
+    activeOpacity={1}
+    onPress={() => {
+      handleEndDateConfirm(); // ✅ Save the selected date
+      setShowRepeatEndDatePicker(false); // ✅ Close the modal
+    }}
+    style={{
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.3)',
+      justifyContent: 'flex-end',
+    }}
+  >
+    <TouchableOpacity
+      activeOpacity={1}
+      style={{
+        backgroundColor: '#fff',
+        paddingTop: 16,
+        paddingBottom: 24,
+        borderTopLeftRadius: 16,
+        borderTopRightRadius: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 10,
+        elevation: 10,
+      }}
+      onPress={() => {}} // Prevent closing when tapping inside
+    >
+      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+        <Picker selectedValue={selectedYear} onValueChange={setSelectedYear} style={{ flex: 1 }}>
+          {years.map((y) => <Picker.Item key={y} label={y} value={y} />)}
+        </Picker>
+        <Picker selectedValue={selectedMonth} onValueChange={setSelectedMonth} style={{ flex: 1 }}>
+          {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
+        </Picker>
+        <Picker selectedValue={selectedDay} onValueChange={setSelectedDay} style={{ flex: 1 }}>
+          {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
+        </Picker>
+      </View>
+
+    </TouchableOpacity>
+  </TouchableOpacity>
+</Modal>
+
                 <View
                   style={{
                     flexDirection: 'row',
@@ -2246,19 +2344,6 @@ export default function TodoScreen() {
                     gap: 12
                   }}
                 >
-                  <TouchableOpacity
-                    style={{
-                      flex: 1,
-                      backgroundColor: '#E0E0E0',
-                      padding: 16,
-                      borderRadius: 12,
-                      alignItems: 'center'
-                    }}
-                    onPress={handleCancelFromSettings}
-                  >
-                    <Text style={{ color: '#333', fontSize: 18, fontWeight: '600' }}>Cancel</Text>
-                  </TouchableOpacity>
-
                   <TouchableOpacity
                     style={{
                       flex: 1,
@@ -2278,13 +2363,7 @@ export default function TodoScreen() {
           </View>
         </Modal>
 
-        {/* Repeat End Date Picker */}
-        <DateTimePickerModal
-          isVisible={showRepeatEndDatePicker}
-          mode="date"
-          onConfirm={handleRepeatEndDateConfirm}
-          onCancel={handleRepeatEndDateCancel}
-        />
+       
       </View>
 
       {/* New Category Modal */}
@@ -2308,11 +2387,15 @@ export default function TodoScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
               <TouchableOpacity onPress={() => {
-                console.log('🔒 Close button pressed');
-                setIsNewCategoryModalVisible(false);
-              }}>
-                <Ionicons name="close" size={24} color="#666" />
-              </TouchableOpacity>
+                  console.log('🔒 Close button pressed');
+                  setIsNewCategoryModalVisible(false);
+                  setTimeout(() => {
+                    setIsNewTaskModalVisible(true); // ✅ Reopen task modal with preserved state
+                  }, 300);
+                }}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+
             </View>
 
             <TextInput
@@ -2416,64 +2499,13 @@ export default function TodoScreen() {
             marginTop: 'auto',
           }}
         >
-          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Create Category</Text>
+          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Done</Text>
         </TouchableOpacity>
       </View>
     </View>
     </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   </Modal>
-
-
-  <Modal
-  visible={showRepeatEndDatePicker}
-  transparent
-  animationType="fade"
-  onRequestClose={() => setShowRepeatEndDatePicker(false)}
->
-  <TouchableOpacity
-    activeOpacity={1}
-    onPress={() => {
-      const selectedDate = new Date(
-        Number(selectedYear),
-        Number(selectedMonth) - 1,
-        Number(selectedDay)
-      );
-      setRepeatEndDate(selectedDate);
-      setShowRepeatEndDatePicker(false);
-    }}
-    style={{
-      flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-      justifyContent: 'flex-end',
-    }}
-  >
-    <TouchableOpacity
-      activeOpacity={1}
-      style={{
-        backgroundColor: '#fff',
-        paddingTop: 16,
-        paddingBottom: 24,
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-      }}
-    >
-      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-        <Picker selectedValue={selectedYear} onValueChange={setSelectedYear} style={{ flex: 1 }}>
-          {years.map((y) => <Picker.Item key={y} label={y} value={y} />)}
-        </Picker>
-        <Picker selectedValue={selectedMonth} onValueChange={setSelectedMonth} style={{ flex: 1 }}>
-          {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
-        </Picker>
-        <Picker selectedValue={selectedDay} onValueChange={setSelectedDay} style={{ flex: 1 }}>
-          {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
-        </Picker>
-      </View>
-    </TouchableOpacity>
-  </TouchableOpacity>
-</Modal>
-
-
 
 
     </GestureHandlerRootView>
