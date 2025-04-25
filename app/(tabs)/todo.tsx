@@ -196,6 +196,24 @@ export default function TodoScreen() {
   const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
   const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0'));
 
+  const today = moment();
+  const todayStr = today.format('YYYY-MM-DD');
+
+  const customDatesStyles = [
+    {
+      date: today,
+      style: {
+        backgroundColor: '#BF9264',
+        borderRadius: 16,
+      },
+      textStyle: {
+        color: '#fff',
+      },
+    },
+  ];
+
+
+
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
     const selectedDate = new Date(
@@ -553,8 +571,8 @@ export default function TodoScreen() {
         repeat: selectedRepeat,
         repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
         customRepeatDates: selectedRepeat === 'custom' 
-        ? customSelectedDates.map((str) => new Date(str))
-        : undefined,
+          ? customSelectedDates.map((str) => new Date(str))
+          : undefined,
         reminderTime: reminderTime || null,
       };
       
@@ -572,7 +590,9 @@ export default function TodoScreen() {
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
           user_id: user.id,
           reminder_time: newTodoItem.reminderTime?.toISOString(),
-
+          custom_repeat_dates: selectedRepeat === 'custom'
+            ? customSelectedDates
+            : null,
         });
       
       if (taskError) {
@@ -616,9 +636,10 @@ export default function TodoScreen() {
         date: taskDate || new Date(),
         repeat: selectedRepeat,
         repeatEndDate,
-        customRepeatFrequency: Number(customRepeatFrequency),
-        customRepeatUnit,
-        customRepeatWeekDays: selectedWeekDays,
+        customRepeatDates: selectedRepeat === 'custom' 
+          ? customSelectedDates.map((str) => new Date(str))
+          : undefined,
+        reminderTime: reminderTime || null,
       };
   
       setTodos(prev =>
@@ -665,6 +686,9 @@ export default function TodoScreen() {
             repeat: updatedTodo.repeat,
             repeat_end_date: updatedTodo.repeatEndDate?.toISOString(),
             reminder_time: updatedTodo.reminderTime?.toISOString(),
+            custom_repeat_dates: selectedRepeat === 'custom'
+              ? customSelectedDates
+              : null,
           })
           .eq('id', updatedTodo.id)
           .eq('user_id', user.id);
@@ -781,11 +805,14 @@ export default function TodoScreen() {
 
   const doesTodoBelongToday = (todo: Todo, date: Date) => {
     const taskDate = new Date(todo.date);
+    const endDate = todo.repeatEndDate ? new Date(todo.repeatEndDate) : null;
   
-    if (isSameDay(taskDate, date)) return true; // normal case (non-repeat)
+    if (endDate && date > endDate) return false;
+  
+    if (isSameDay(taskDate, date)) return true; // normal case
   
     if (todo.repeat === 'daily') {
-      return date >= taskDate; // repeat daily after taskDate
+      return date >= taskDate;
     }
   
     if (todo.repeat === 'weekly') {
@@ -797,12 +824,12 @@ export default function TodoScreen() {
     }
   
     if (todo.repeat === 'custom') {
-  
+      return todo.customRepeatDates?.some((d) => isSameDay(new Date(d), date)) ?? false;
     }
   
     return false;
   };
-
+  
   const todayTodos = todos.filter(todo => doesTodoBelongToday(todo, currentDate));
 
 
@@ -896,7 +923,10 @@ export default function TodoScreen() {
       setTaskDate(todo.date || null);
       setSelectedRepeat(todo.repeat || 'none');
       setRepeatEndDate(todo.repeatEndDate || null);
-      setReminderTime(todo.reminderTime || null); // Add this line to set the reminder time
+      setReminderTime(todo.reminderTime || null);
+      if (todo.repeat === 'custom' && todo.customRepeatDates) {
+        setCustomSelectedDates(todo.customRepeatDates.map(date => date.toISOString().split('T')[0]));
+      }
       showModal();
     };
 
@@ -1238,7 +1268,10 @@ export default function TodoScreen() {
               repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
               reminderTime: task.reminder_time ? new Date(task.reminder_time) : null, // ✅ You should ADD THIS LINE if not present
               // Ensure category_id is properly set
-              categoryId: task.category_id || null
+              categoryId: task.category_id || null,
+              customRepeatDates: task.custom_repeat_dates
+                ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
+                : undefined,
             }));
             setTodos(mappedTasks);
           }
@@ -1562,30 +1595,32 @@ export default function TodoScreen() {
             
             {/* Add this after the header and before the task list */}
             <View style={{ paddingHorizontal: -5, marginHorizontal: -5, marginBottom: 5 }}>
-              <CalendarStrip
-                scrollable
-                startingDate={moment().subtract(3, 'days')}
-                showMonth
-                leftSelector={<View />}
-                rightSelector={<View />}
-                style={{ height: 100, paddingTop: 10, paddingBottom: 10 }}
-                calendarColor={'#fff'}
-                calendarHeaderStyle={{
-                  color: '#000',
-                  fontSize: 18,
-                  marginBottom: 24,
-                }}
-                dateNumberStyle={{ color: '#999', fontSize: 15 }}
-                dateNameStyle={{ color: '#999'}}
-                highlightDateNumberStyle={{ color: '#000', fontSize: 30 }}
-                highlightDateNameStyle={{ color: '#000',  fontSize: 12.5 }}
-                highlightDateContainerStyle={{
-                  backgroundColor: '',
-                  borderRadius: 16,
-                }}
-                selectedDate={moment(currentDate)}
-                onDateSelected={(date) => setCurrentDate(date.toDate())}
-              />
+            <CalendarStrip
+  scrollable
+  startingDate={moment().subtract(3, 'days')}
+  showMonth
+  leftSelector={<View />}
+  rightSelector={<View />}
+  style={{ height: 100, paddingTop: 10, paddingBottom: 10 }}
+  calendarColor={'#fff'}
+  calendarHeaderStyle={{
+    color: '#000',
+    fontSize: 18,
+    marginBottom: 24,
+  }}
+  dateNumberStyle={{ color: '#999', fontSize: 15 }}
+  dateNameStyle={{ color: '#999' }}
+  highlightDateNumberStyle={{ color: '#000', fontSize: 30 }}
+  highlightDateNameStyle={{ color: '#000', fontSize: 12.5 }}
+  highlightDateContainerStyle={{
+    backgroundColor: '',
+    borderRadius: 16,
+  }}
+  selectedDate={moment(currentDate)}
+  onDateSelected={(date) => setCurrentDate(date.toDate())}
+  customDatesStyles={customDatesStyles}
+/>
+
             </View>
 
             <View style={{ height: 15 }} />
@@ -2107,7 +2142,8 @@ export default function TodoScreen() {
                     </TouchableOpacity>
 
                     {/* Set End Date – Only show if repeat is not 'none' */}
-                    {selectedRepeat !== 'none' && (
+                    {selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
+
                         <>
                           {(() => {
                             console.log('Selected repeat:', selectedRepeat);
