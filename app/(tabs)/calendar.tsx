@@ -19,6 +19,7 @@ import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Animated } from 'react-native';
 import { supabase } from '../../supabase'; 
+import { Swipeable } from 'react-native-gesture-handler';
 
 
 interface CalendarEvent {
@@ -436,6 +437,35 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
       useNativeDriver: false,
     }).start();
   };
+
+  const handleDeleteEvent = async (dateKey: string, eventIndex: number) => {
+    const eventToDelete = events[dateKey][eventIndex];
+  
+    if (!eventToDelete?.id) {
+      console.error('No event id found!');
+      return;
+    }
+  
+    const { error } = await supabase
+      .from('events')
+      .delete()
+      .eq('id', eventToDelete.id);
+  
+    if (error) {
+      console.error('Failed to delete event from Supabase:', error);
+      return;
+    }
+  
+    const updatedEvents = { ...events };
+    updatedEvents[dateKey].splice(eventIndex, 1);
+  
+    if (updatedEvents[dateKey].length === 0) {
+      delete updatedEvents[dateKey];
+    }
+  
+    setEvents(updatedEvents);
+  };
+  
   
 
   const renderCell = (date: Date | null, index: number) => {
@@ -470,53 +500,68 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
         </Text>
   
         {date &&
-  events[date.toISOString().split('T')[0]]?.map((event, idx) => (
-    <TouchableOpacity
-      key={idx}
-      style={{
-        width: '100%',
-        backgroundColor: event.categoryColor || '#eee',
-        borderRadius: 6,
-        paddingVertical: 2,
-        paddingHorizontal: 4,
-        marginTop: 4,
-        overflow: 'hidden',
-      }}
-      // 🛠️ Add it right here:
-      onLongPress={() => {
-        const dateKey = date.toISOString().split('T')[0];
-        const eventToEdit = events[dateKey][idx];
-      
-        setSelectedEvent({ event: eventToEdit, dateKey, index: idx });
-        setEditedEventTitle(eventToEdit.title);
-        setEditedEventDescription(eventToEdit.description ?? '');
-      
-        setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
-        setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
-      
-        setEditedSelectedCategory(
-          eventToEdit.categoryName && eventToEdit.categoryColor
-            ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
-            : null
-        );
-      
-        setShowEditEventModal(true);
-      }}
-      
-      
-    >
-      <Text
-        numberOfLines={1}
-        style={{
-          fontSize: 10,
-          color: '#fff',
-          fontWeight: '600',
-        }}
+  events[date.toISOString().split('T')[0]]?.map((event, idx) => {
+    const dateKey = date.toISOString().split('T')[0];
+
+    return (
+      <Swipeable
+        key={idx}
+        overshootRight={false}
+        onSwipeableOpen={() => handleDeleteEvent(dateKey, idx)}
+        renderRightActions={() => (
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: 'red',
+              justifyContent: 'center',
+              alignItems: 'center',
+              borderRadius: 6,
+              overflow: 'hidden',
+              marginTop: idx === 0 ? 10 : 4,
+            }}
+          >
+            <Ionicons name="trash-outline" size={10} color="white" />
+          </View>
+        )}
       >
-        {event.title}
-      </Text>
-    </TouchableOpacity>
-  ))}
+        <TouchableOpacity
+          style={{
+            backgroundColor: event.categoryColor || '#eee',
+            borderRadius: 6,
+            paddingVertical: 2,
+            paddingHorizontal: 6,
+            marginTop: idx === 0 ? 10 : 4,
+            overflow: 'hidden',
+          }}
+          onLongPress={() => {
+            const eventToEdit = events[dateKey][idx];
+            setSelectedEvent({ event: eventToEdit, dateKey, index: idx });
+            setEditedEventTitle(eventToEdit.title);
+            setEditedEventDescription(eventToEdit.description ?? '');
+            setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
+            setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
+            setEditedSelectedCategory(
+              eventToEdit.categoryName && eventToEdit.categoryColor
+                ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
+                : null
+            );
+            setShowEditEventModal(true);
+          }}
+        >
+          <Text
+            numberOfLines={1}
+            style={{
+              fontSize: 10,
+              color: '#fff',
+              fontWeight: '600',
+            }}
+          >
+            {event.title}
+          </Text>
+        </TouchableOpacity>
+      </Swipeable>
+    );
+  })}
 
 
         {/* Example dot */}
