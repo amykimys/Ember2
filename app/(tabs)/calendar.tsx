@@ -545,8 +545,12 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                 ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
                 : null
             );
+            setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null); // 🔥 ADD THIS
+            setEditedRepeatOption(eventToEdit.repeatOption || 'None'); // 🔥 ADD THIS
+            setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null); // 🔥 ADD THIS
             setShowEditEventModal(true);
           }}
+          
         >
           <Text
             numberOfLines={1}
@@ -596,25 +600,25 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   
     const key = selectedDate.toISOString().split('T')[0];
   
-    const { data, error } = await supabase
-      .from('events')
-      .insert([
-        {
-          title: newEventTitle,
-          description: newEventDescription,
-          date: key,
-          start_datetime: startDateTime,
-          end_datetime: endDateTime,
-          category_name: selectedCategory?.name || null,
-          category_color: selectedCategory?.color || null,
-          reminder_time: reminderTime || null,
-          repeat_option: repeatOption || 'None',
-          repeat_end_date: repeatEndDate || null,
-          user_id: user?.id || null,
-        }
-      ])
-      .select()
-      .returns<{ id: string }[]>();
+    const { data, error } =await supabase
+    .from('events')
+    .insert([
+      {
+        title: newEventTitle,
+        description: newEventDescription,
+        date: key,
+        start_datetime: startDateTime.toISOString(),
+        end_datetime: endDateTime.toISOString(),
+        category_name: selectedCategory?.name || null,
+        category_color: selectedCategory?.color || null,
+        reminder_time: reminderTime ? reminderTime.toISOString() : null,
+        repeat_option: repeatOption || 'None',
+        repeat_end_date: repeatEndDate ? repeatEndDate.toISOString() : null,
+        user_id: user?.id || null,
+      }
+    ])
+    .select(); // <= this is important to force waiting for the response
+  
   
     if (error) {
       console.error('Error saving event:', error);
