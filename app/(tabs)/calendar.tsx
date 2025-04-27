@@ -359,7 +359,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
         
             eventsMap[dateKey].push({
               id: event.id,
-              title: isFirstDay ? event.title : 'Continued...',
+              title: event.title,              
               description: event.description,
               date: dateKey,
               startDateTime: event.start_datetime,
@@ -369,7 +369,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
               reminderTime: event.reminder_time,
               repeatOption: event.repeat_option,
               repeatEndDate: event.repeat_end_date,
-              isContinued: !isFirstDay, // 👈 Add a flag
+              isContinued: !isFirstDay, 
             });
         
             isFirstDay = false; // after first day, all are continued
@@ -384,6 +384,34 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   
     fetchEvents();
   }, []);
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('user_id', user?.id);
+  
+      if (error) {
+        console.error('Failed to fetch categories:', error);
+        return;
+      }
+  
+      if (data) {
+        const fetchedCategories = data.map((cat) => ({
+          id: cat.id,
+          name: cat.label,
+          color: cat.color,
+        }));
+        setCategories(fetchedCategories);
+      }
+    };
+  
+    if (user?.id) {
+      fetchCategories();
+    }
+  }, [user]);
+  
 
   const findMonthIndex = (targetDate: Date) => {
     return months.findIndex((m) => {
@@ -537,6 +565,11 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
             const dateKey = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
             const eventStart = new Date(event.startDateTime!);
             const eventEnd = new Date(event.endDateTime!);
+
+            const numberOfSpanningDays = Math.floor(
+  (eventEnd.getTime() - eventStart.getTime()) / (1000 * 60 * 60 * 24)
+) + 1;
+
   
             // Check if event spans multiple days
             const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
@@ -546,7 +579,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
               date!.getTime() <= new Date(eventEnd.getFullYear(), eventEnd.getMonth(), eventEnd.getDate()).getTime();
           
   
-            if (!isStartDate && !isInsideSpan) return null; // Not part of this event on this day
+              if (!isStartDate && isMultiDay) return null;
   
             return (
               <Swipeable
@@ -574,11 +607,11 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                     backgroundColor: event.categoryColor || '#eee',
                     borderRadius: 6,
                     paddingVertical: 2,
-                    paddingHorizontal: isMultiDay ? 2 : 6, // narrow padding if stretched
+                    paddingHorizontal: 6, // 👈 keep normal padding for single day
                     marginTop: idx === 0 ? 10 : 4,
                     overflow: 'hidden',
-                    width: isMultiDay ? '98%' : undefined, // stretch if spanning
-                    alignSelf: isMultiDay ? 'center' : undefined,
+                    width: numberOfSpanningDays > 1 ? CELL_WIDTH * numberOfSpanningDays - 8 : undefined,
+                    alignSelf: numberOfSpanningDays > 1 ? 'flex-start' : undefined, // optional to make it align nicely
                   }}
                   onLongPress={() => {
                     const eventToEdit = events[dateKey][idx];
@@ -609,7 +642,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                       textAlign: 'center',
                     }}
                   >
-                    {isMultiDay && !isStartDate ? 'Continued...' : event.title}
+                    {event.isContinued ? 'Continued...' : event.title}
                   </Text>
                 </TouchableOpacity>
               </Swipeable>
@@ -959,8 +992,14 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                           if (newCategoryName.trim()) {
                             const { data, error } = await supabase
                               .from('categories')
-                              .insert([{ label: newCategoryName.trim(), color: newCategoryColor, user_id: user?.id }])
-                              .select();
+                              .insert([
+                                {
+                                  label: newCategoryName.trim(),
+                                  color: newCategoryColor,
+                                  user_id: user?.id,
+                                },
+                              ])
+                              .select(); // 👈 get back the inserted row
                         
                             if (error) {
                               console.error('Failed to save new category:', error);
@@ -980,6 +1019,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                             }
                           }
                         }}
+                        
                         
                       >
                         <Text style={{ color: '#fff', fontWeight: 'bold' }}>Save Category</Text>
