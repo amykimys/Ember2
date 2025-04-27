@@ -22,6 +22,8 @@ import { supabase } from '../../supabase';
 import { Swipeable } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import CustomToast from '../../components/CustomToast';
+import { Alert } from 'react-native';
+
 
 interface CalendarEvent {
   id: string;
@@ -260,8 +262,8 @@ const CalendarScreen: React.FC = () => {
   const [showCategoryInput, setShowCategoryInput] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryColor, setNewCategoryColor] = useState('#FADADD'); // Default color
-  const [categories, setCategories] = useState<{ name: string; color: string }[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<{ name: string; color: string } | null>(null);
+  const [categories, setCategories] = useState<{ id: string; name: string; color: string }[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<{ id: string; name: string; color: string } | null>(null);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false); // When you tap folder
   const [showAddCategoryForm, setShowAddCategoryForm] = useState(false); // When you tap plus
   const [showReminderPicker, setShowReminderPicker] = useState(false);
@@ -523,7 +525,35 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   
     setEvents(updatedEvents);
   };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    try {
+      const { error } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', categoryId);
   
+      if (error) {
+        console.error('Failed to delete category:', error);
+        return;
+      }
+  
+      setCategories(prev => prev.filter(cat => cat.id !== categoryId));
+  
+      // Also deselect it if user had selected this category
+      if (selectedCategory?.id === categoryId) {
+        setSelectedCategory(null);
+      }
+  
+      if (editedSelectedCategory?.id === categoryId) {
+        setEditedSelectedCategory(null);
+      }
+  
+      console.log('Category deleted successfully');
+    } catch (e) {
+      console.error('Error deleting category:', e);
+    }
+  };
   
 
   const renderCell = (date: Date | null, index: number) => {
@@ -918,22 +948,34 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                       <Animated.View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
                         {categories.map((cat, idx) => (
                           <TouchableOpacity
-                            key={idx}
-                            onPress={() => setSelectedCategory(cat)}
-                            style={{
-                              backgroundColor: cat.color,
-                              paddingVertical: 6,
-                              paddingHorizontal: 12,
-                              borderRadius: 20,
-                              marginRight: 8,
-                              marginBottom: 8,
-                              marginTop: 1,
-                              borderWidth: selectedCategory?.name === cat.name && selectedCategory?.color === cat.color ? 1.4 : 0,
-                              borderColor: selectedCategory?.name === cat.name && selectedCategory?.color === cat.color ? '#333' : 'transparent',
-                            }}
-                          >
-                            <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{cat.name}</Text>
-                          </TouchableOpacity>
+                          key={idx}
+                          onPress={() => setSelectedCategory(cat)}
+                          onLongPress={() => {
+                            Alert.alert(
+                              'Delete Category',
+                              `Are you sure you want to delete "${cat.name}"?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Delete', style: 'destructive', onPress: () => handleDeleteCategory(cat.id) }
+                              ]
+                            );
+                          }}
+                          delayLongPress={400} // 400ms hold
+                          style={{
+                            backgroundColor: cat.color,
+                            paddingVertical: 6,
+                            paddingHorizontal: 12,
+                            borderRadius: 20,
+                            marginRight: 8,
+                            marginBottom: 8,
+                            marginTop: 1,
+                            borderWidth: selectedCategory?.name === cat.name && selectedCategory?.color === cat.color ? 1.4 : 0,
+                            borderColor: selectedCategory?.name === cat.name && selectedCategory?.color === cat.color ? '#333' : 'transparent',
+                          }}
+                        >
+                          <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{cat.name}</Text>
+                        </TouchableOpacity>
+                        
                         ))}
                         <TouchableOpacity
                           onPress={() => setShowAddCategoryForm(true)}
