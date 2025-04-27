@@ -35,6 +35,7 @@ interface CalendarEvent {
   reminderTime?: Date | null;
   repeatOption?: 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
   repeatEndDate?: Date | null;
+  isContinued?: boolean; // 👈 add this
 }
 
 
@@ -289,6 +290,9 @@ const [userChangedEndTime, setUserChangedEndTime] = useState(false);
 const [userChangedEditedEndTime, setUserChangedEditedEndTime] = useState(false);
 
 
+const getLocalDateString = (date: Date) => {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
 
 // Title & Description
@@ -342,22 +346,37 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
         const eventsMap: { [date: string]: CalendarEvent[] } = {};
   
         data.forEach((event) => {
-          const dateKey = event.date.split('T')[0];
-          if (!eventsMap[dateKey]) eventsMap[dateKey] = [];
-          eventsMap[dateKey].push({
-            id: event.id,
-            title: event.title,
-            description: event.description,
-            date: event.date,
-            startDateTime: event.start_datetime,
-            endDateTime: event.end_datetime,
-            categoryName: event.category_name,
-            categoryColor: event.category_color,
-            reminderTime: event.reminder_time,
-            repeatOption: event.repeat_option,
-            repeatEndDate: event.repeat_end_date,
-          });
+          const start = new Date(event.start_datetime);
+          const end = new Date(event.end_datetime);
+        
+          let currentDate = new Date(start);
+          let isFirstDay = true; // 👈 new flag
+        
+          while (currentDate <= end) {
+            const dateKey = getLocalDateString(currentDate);
+        
+            if (!eventsMap[dateKey]) eventsMap[dateKey] = [];
+        
+            eventsMap[dateKey].push({
+              id: event.id,
+              title: isFirstDay ? event.title : 'Continued...',
+              description: event.description,
+              date: dateKey,
+              startDateTime: event.start_datetime,
+              endDateTime: event.end_datetime,
+              categoryName: event.category_name,
+              categoryColor: event.category_color,
+              reminderTime: event.reminder_time,
+              repeatOption: event.repeat_option,
+              repeatEndDate: event.repeat_end_date,
+              isContinued: !isFirstDay, // 👈 Add a flag
+            });
+        
+            isFirstDay = false; // after first day, all are continued
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
         });
+        
   
         setEvents(eventsMap);
       }
@@ -491,10 +510,10 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
         onPress={() => {
           if (date) {
             setSelectedDate(date);
-            setStartDateTime(new Date(date)); // ✅ Add this to reset Start Date when opening modal
+            setStartDateTime(new Date(date));
             setNewEventTitle('');
             setNewEventDescription('');
-            setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000)); // +1 hour
+            setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000));
             setUserChangedEndTime(false);
             setShowModal(true);
           }
@@ -514,78 +533,92 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
         </Text>
   
         {date &&
-  events[date.toISOString().split('T')[0]]?.map((event, idx) => {
-    const dateKey = date.toISOString().split('T')[0];
-
-    return (
-      <Swipeable
-        key={idx}
-        overshootRight={false}
-        onSwipeableOpen={() => handleDeleteEvent(dateKey, idx)}
-        renderRightActions={() => (
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: 'red',
-              justifyContent: 'center',
-              alignItems: 'center',
-              borderRadius: 6,
-              overflow: 'hidden',
-              marginTop: idx === 0 ? 10 : 4,
-            }}
-          >
-            <Ionicons name="trash-outline" size={10} color="white" />
-          </View>
-        )}
-      >
-        <TouchableOpacity
-          style={{
-            backgroundColor: event.categoryColor || '#eee',
-            borderRadius: 6,
-            paddingVertical: 2,
-            paddingHorizontal: 6,
-            marginTop: idx === 0 ? 10 : 4,
-            overflow: 'hidden',
-          }}
-          onLongPress={() => {
-            const eventToEdit = events[dateKey][idx];
-            setSelectedEvent({ event: eventToEdit, dateKey, index: idx });
-            setEditedEventTitle(eventToEdit.title);
-            setEditedEventDescription(eventToEdit.description ?? '');
-            setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
-            setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
-            setEditedSelectedCategory(
-              eventToEdit.categoryName && eventToEdit.categoryColor
-                ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
-                : null
-            );
-            setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null); // 🔥 ADD THIS
-            setEditedRepeatOption(eventToEdit.repeatOption || 'None'); // 🔥 ADD THIS
-            setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null); // 🔥 ADD THIS
-            setShowEditEventModal(true);
-            setUserChangedEditedEndTime(false);
-
-          }}
+          events[getLocalDateString(date)]?.map((event, idx) => {
+            const dateKey = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+            const eventStart = new Date(event.startDateTime!);
+            const eventEnd = new Date(event.endDateTime!);
+  
+            // Check if event spans multiple days
+            const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
+            const isStartDate = dateKey === eventStart.toISOString().split('T')[0];
+            const isInsideSpan = 
+              date!.getTime() >= new Date(eventStart.getFullYear(), eventStart.getMonth(), eventStart.getDate()).getTime() &&
+              date!.getTime() <= new Date(eventEnd.getFullYear(), eventEnd.getMonth(), eventEnd.getDate()).getTime();
           
-        >
-          <Text
-            numberOfLines={1}
-            style={{
-              fontSize: 10,
-              color: '#fff',
-              fontWeight: '600',
-            }}
-          >
-            {event.title}
-          </Text>
-        </TouchableOpacity>
-      </Swipeable>
-    );
-  })}
+  
+            if (!isStartDate && !isInsideSpan) return null; // Not part of this event on this day
+  
+            return (
+              <Swipeable
+                key={idx}
+                overshootRight={false}
+                onSwipeableOpen={() => handleDeleteEvent(dateKey, idx)}
+                renderRightActions={() => (
+                  <View
+                    style={{
+                      flex: 1,
+                      backgroundColor: 'red',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderRadius: 6,
+                      overflow: 'hidden',
+                      marginTop: idx === 0 ? 10 : 4,
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={10} color="white" />
+                  </View>
+                )}
+              >
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: event.categoryColor || '#eee',
+                    borderRadius: 6,
+                    paddingVertical: 2,
+                    paddingHorizontal: isMultiDay ? 2 : 6, // narrow padding if stretched
+                    marginTop: idx === 0 ? 10 : 4,
+                    overflow: 'hidden',
+                    width: isMultiDay ? '98%' : undefined, // stretch if spanning
+                    alignSelf: isMultiDay ? 'center' : undefined,
+                  }}
+                  onLongPress={() => {
+                    const eventToEdit = events[dateKey][idx];
+                    setSelectedEvent({ event: eventToEdit, dateKey, index: idx });
+                    setEditedEventTitle(eventToEdit.title);
+                    setEditedEventDescription(eventToEdit.description ?? '');
+                    setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
+                    setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
+                    setEditedSelectedCategory(
+                      eventToEdit.categoryName && eventToEdit.categoryColor
+                        ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
+                        : null
+                    );
+                    setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
+                    setEditedRepeatOption(eventToEdit.repeatOption || 'None');
+                    setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
+                    setShowEditEventModal(true);
+                    setUserChangedEditedEndTime(false);
+                  }}
+                >
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontSize: 10,
+                      color: isMultiDay && !isStartDate ? '#ddd' : '#fff',
+                      fontWeight: isMultiDay && !isStartDate ? '400' : '600',
+                      fontStyle: isMultiDay && !isStartDate ? 'italic' : 'normal',
+                      textAlign: 'center',
+                    }}
+                  >
+                    {isMultiDay && !isStartDate ? 'Continued...' : event.title}
+                  </Text>
+                </TouchableOpacity>
+              </Swipeable>
+            );
+          })}
       </TouchableOpacity>
     );
   };
-
+  
   const resetEventForm = () => {
     setNewEventTitle('');
     setNewEventDescription('');
@@ -606,66 +639,69 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   
     setIsSaving(true);
   
-    const key = new Date(
-      startDateTime.getFullYear(),
-      startDateTime.getMonth(),
-      startDateTime.getDate()
-    ).toISOString().split('T')[0];
-    
-  
-    const { data, error } =await supabase
-    .from('events')
-    .insert([
-      {
-        title: newEventTitle,
-        description: newEventDescription,
-        date: key,
-        start_datetime: startDateTime.toISOString(),
-        end_datetime: endDateTime.toISOString(),
-        category_name: selectedCategory?.name || null,
-        category_color: selectedCategory?.color || null,
-        reminder_time: reminderTime ? reminderTime.toISOString() : null,
-        repeat_option: repeatOption || 'None',
-        repeat_end_date: repeatEndDate ? repeatEndDate.toISOString() : null,
-        user_id: user?.id || null,
-      }
-    ])
-    .select(); // <= this is important to force waiting for the response
-  
+    const { data, error } = await supabase
+      .from('events')
+      .insert([
+        {
+          title: newEventTitle,
+          description: newEventDescription,
+          date: getLocalDateString(startDateTime),
+          start_datetime: startDateTime.toISOString(),
+          end_datetime: endDateTime.toISOString(),
+          category_name: selectedCategory?.name || null,
+          category_color: selectedCategory?.color || null,
+          reminder_time: reminderTime ? reminderTime.toISOString() : null,
+          repeat_option: repeatOption || 'None',
+          repeat_end_date: repeatEndDate ? repeatEndDate.toISOString() : null,
+          user_id: user?.id || null,
+        },
+      ])
+      .select();
   
     if (error) {
       console.error('Error saving event:', error);
       alert('Failed to save event.');
-    } else {
-      console.log('Event saved!', data);
+      setIsSaving(false);
+      return;
+    }
   
-      // Update local UI
-      const updatedEvents = { ...events };
-      if (!updatedEvents[key]) updatedEvents[key] = [];
-      updatedEvents[key].push({
-        id: data?.[0]?.id || Date.now().toString(),
+    console.log('Event saved!', data);
+  
+    // ✅ Build event blocks across multiple days
+    const updatedEvents = { ...events };
+  
+    const eventId = data?.[0]?.id || Date.now().toString();
+    const start = new Date(startDateTime);
+    const end = new Date(endDateTime);
+  
+    let currentDate = new Date(start);
+    while (currentDate <= end) {
+      const dateKey = getLocalDateString(currentDate);
+  
+      if (!updatedEvents[dateKey]) updatedEvents[dateKey] = [];
+  
+      updatedEvents[dateKey].push({
+        id: eventId,
         title: newEventTitle,
         description: newEventDescription,
-        date: key,
-        startDateTime,
-        endDateTime,
+        date: dateKey,
+        startDateTime: startDateTime,
+        endDateTime: endDateTime,
         categoryName: selectedCategory?.name,
         categoryColor: selectedCategory?.color,
         reminderTime,
         repeatOption,
         repeatEndDate,
+        isContinued: currentDate.toDateString() !== start.toDateString(), // 🔥
       });
-      setEvents(updatedEvents);
   
-      resetEventForm();
-      setShowModal(false);
-
-
-      const monthIndex = findMonthIndex(startDateTime);
-      if (monthIndex !== -1 && flatListRef.current) {
-        flatListRef.current.scrollToIndex({ index: monthIndex, animated: true });
-      }
+      currentDate.setDate(currentDate.getDate() + 1); // move to next day
     }
+  
+    setEvents(updatedEvents);
+  
+    resetEventForm();
+    setShowModal(false);
     setIsSaving(false);
   };
   
@@ -1349,12 +1385,12 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                         const { dateKey, index } = selectedEvent;
                         
                         // Remove the event from the old date if date changed
-                        if (dateKey !== editedStartDateTime.toISOString().split('T')[0]) {
+                        if (dateKey !== getLocalDateString(editedStartDateTime)) {
                           updatedEvents[dateKey].splice(index, 1);
                           if (updatedEvents[dateKey].length === 0) {
                             delete updatedEvents[dateKey];
                           }
-                          const newDateKey = editedStartDateTime.toISOString().split('T')[0];
+                          const newDateKey = getLocalDateString(editedStartDateTime);
                           if (!updatedEvents[newDateKey]) updatedEvents[newDateKey] = [];
                           updatedEvents[newDateKey].push({
                             id: selectedEvent.event.id,
@@ -1382,9 +1418,9 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                             reminderTime: editedReminderTime || undefined,
                             repeatOption: editedRepeatOption,
                             repeatEndDate: editedRepeatEndDate || undefined,
+                            date: getLocalDateString(editedStartDateTime),
                           };
                         }
-                        
                         setEvents(updatedEvents);
                       }
                       
