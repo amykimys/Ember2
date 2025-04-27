@@ -285,6 +285,10 @@ const [selectedEvent, setSelectedEvent] = useState<{
 } | null>(null);
 
 const [showEditEventModal, setShowEditEventModal] = useState(false);
+const [userChangedEndTime, setUserChangedEndTime] = useState(false);
+const [userChangedEditedEndTime, setUserChangedEditedEndTime] = useState(false);
+
+
 
 
 // Title & Description
@@ -310,6 +314,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -489,6 +494,8 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
             setStartDateTime(new Date(date)); // ✅ Add this to reset Start Date when opening modal
             setNewEventTitle('');
             setNewEventDescription('');
+            setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000)); // +1 hour
+            setUserChangedEndTime(false);
             setShowModal(true);
           }
         }}
@@ -556,6 +563,8 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
             setEditedRepeatOption(eventToEdit.repeatOption || 'None'); // 🔥 ADD THIS
             setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null); // 🔥 ADD THIS
             setShowEditEventModal(true);
+            setUserChangedEditedEndTime(false);
+
           }}
           
         >
@@ -573,14 +582,6 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
       </Swipeable>
     );
   })}
-
-
-        {/* Example dot */}
-        {date?.getDate() === 10 && (
-          <View style={styles.dotContainer}>
-            <View style={styles.dot} />
-          </View>
-        )}
       </TouchableOpacity>
     );
   };
@@ -590,12 +591,12 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
     setNewEventDescription('');
     setSelectedCategory(null);
     setStartDateTime(new Date());
-    setEndDateTime(new Date(new Date().getTime() + 60 * 60 * 1000)); // +1 hour
+    setEndDateTime(new Date(new Date().getTime() + 60 * 60 * 1000)); // +1 hour later
     setReminderTime(null);
     setRepeatOption('None');
     setRepeatEndDate(null);
+    setUserChangedEndTime(false); // 🔥 reset end time manually changed status
   };
-  
 
   const handleSaveEvent = async () => {
     if (!newEventTitle.trim()) {
@@ -605,7 +606,12 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   
     setIsSaving(true);
   
-    const key = startDateTime.toISOString().split('T')[0];
+    const key = new Date(
+      startDateTime.getFullYear(),
+      startDateTime.getMonth(),
+      startDateTime.getDate()
+    ).toISOString().split('T')[0];
+    
   
     const { data, error } =await supabase
     .from('events')
@@ -651,13 +657,9 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
       });
       setEvents(updatedEvents);
   
-      setNewEventTitle('');
-      setNewEventDescription('');
-      setSelectedCategory(null);
-      setReminderTime(null);
-      setRepeatOption('None');
-      setRepeatEndDate(null);
+      resetEventForm();
       setShowModal(false);
+
 
       const monthIndex = findMonthIndex(startDateTime);
       if (monthIndex !== -1 && flatListRef.current) {
@@ -782,12 +784,13 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                           onChange={(event, selectedDate) => {
                             if (selectedDate) {
                               setStartDateTime(selectedDate);
-                              if (selectedDate > endDateTime) {
+                              if (!userChangedEndTime) {
                                 setEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
                               }
                             }
                             setShowStartPicker(false);
                           }}
+                        
                         />
                       </Animated.View>
                     )}
@@ -814,9 +817,11 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                           onChange={(event, selectedDate) => {
                             if (selectedDate) {
                               setEndDateTime(selectedDate);
+                              setUserChangedEndTime(true); // they touched it manually now
                             }
                             setShowEndPicker(false);
                           }}
+                          
                         />
                       </Animated.View>
                     )}
@@ -1042,9 +1047,14 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
 
                 {/* Modal Bottom Buttons */}
                 <View style={styles.modalActions}>
-                  <TouchableOpacity onPress={() => setShowModal(false)}>
-                    <Text style={styles.cancel}>Cancel</Text>
-                  </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    resetEventForm();   // 🔥 clear everything
+                    setShowModal(false); // 🔥 then close modal
+                  }}
+                >
+                  <Text style={styles.cancel}>Cancel</Text>
+                </TouchableOpacity>
                   <TouchableOpacity onPress={handleSaveEvent}>
                     <Text style={styles.save}>Save</Text>
                   </TouchableOpacity>
@@ -1115,12 +1125,13 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                           onChange={(event, selectedDate) => {
                             if (selectedDate) {
                               setEditedStartDateTime(selectedDate);
-                              if (selectedDate > endDateTime) {
-                                setEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
+                              if (!userChangedEditedEndTime) {
+                                setEditedEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
                               }
                             }
                             setShowStartPicker(false);
                           }}
+                          
                         />
                       </Animated.View>
                     )}
@@ -1147,6 +1158,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                           onChange={(event, selectedDate) => {
                             if (selectedDate) {
                               setEditedEndDateTime(selectedDate);
+                              setUserChangedEditedEndTime(true);
                             }
                             setShowEndPicker(false);
                           }}
@@ -1335,44 +1347,50 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                       if (selectedEvent) {
                         const updatedEvents = { ...events };
                         const { dateKey, index } = selectedEvent;
-                    
-                        const newDateKey = editedStartDateTime.toISOString().split('T')[0];
-                    
-                        const updatedEvent: CalendarEvent = {
-                          ...updatedEvents[dateKey][index],
-                          title: editedEventTitle,
-                          description: editedEventDescription,
-                          startDateTime: editedStartDateTime,
-                          endDateTime: editedEndDateTime,
-                          categoryName: editedSelectedCategory?.name ?? '',
-                          categoryColor: editedSelectedCategory?.color ?? '',
-                          reminderTime: editedReminderTime || undefined,
-                          repeatOption: editedRepeatOption,
-                          repeatEndDate: editedRepeatEndDate || undefined,
-                          date: newDateKey, // ✅ update the event's date field too
-                        };
-                    
-                        // If date changed
-                        if (newDateKey !== dateKey) {
-                          // Remove from old date
+                        
+                        // Remove the event from the old date if date changed
+                        if (dateKey !== editedStartDateTime.toISOString().split('T')[0]) {
                           updatedEvents[dateKey].splice(index, 1);
                           if (updatedEvents[dateKey].length === 0) {
-                            delete updatedEvents[dateKey]; // delete if empty
+                            delete updatedEvents[dateKey];
                           }
-                    
-                          // Add to new date
-                          if (!updatedEvents[newDateKey]) {
-                            updatedEvents[newDateKey] = [];
-                          }
-                          updatedEvents[newDateKey].push(updatedEvent);
+                          const newDateKey = editedStartDateTime.toISOString().split('T')[0];
+                          if (!updatedEvents[newDateKey]) updatedEvents[newDateKey] = [];
+                          updatedEvents[newDateKey].push({
+                            id: selectedEvent.event.id,
+                            title: editedEventTitle,
+                            description: editedEventDescription,
+                            date: newDateKey,
+                            startDateTime: editedStartDateTime,
+                            endDateTime: editedEndDateTime,
+                            categoryName: editedSelectedCategory?.name ?? '',
+                            categoryColor: editedSelectedCategory?.color ?? '',
+                            reminderTime: editedReminderTime || undefined,
+                            repeatOption: editedRepeatOption,
+                            repeatEndDate: editedRepeatEndDate || undefined,
+                          });
                         } else {
-                          // Same day, just update event
-                          updatedEvents[dateKey][index] = updatedEvent;
+                          // If date didn't change, just update in place
+                          updatedEvents[dateKey][index] = {
+                            ...updatedEvents[dateKey][index],
+                            title: editedEventTitle,
+                            description: editedEventDescription,
+                            startDateTime: editedStartDateTime,
+                            endDateTime: editedEndDateTime,
+                            categoryName: editedSelectedCategory?.name ?? '',
+                            categoryColor: editedSelectedCategory?.color ?? '',
+                            reminderTime: editedReminderTime || undefined,
+                            repeatOption: editedRepeatOption,
+                            repeatEndDate: editedRepeatEndDate || undefined,
+                          };
                         }
-                    
+                        
                         setEvents(updatedEvents);
                       }
+                      
+                      setUserChangedEndTime(false); // 🔥 reset manual end-time setting
                       setShowEditEventModal(false);
+                      
                     }}
                     
                     >
