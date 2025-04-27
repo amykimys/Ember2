@@ -1,8 +1,14 @@
-import React from 'react';
-import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button } from 'react-native';
+import EventModal from '../components/EventModal';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
+// 🛠 ADD THIS LINE:
+const TIME_COLUMN_WIDTH = 50;
+
+// 🛠 ADD THIS LINE TOO:
+const DAY_COLUMN_WIDTH = (SCREEN_WIDTH - TIME_COLUMN_WIDTH) / 7;
 const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
 
 // Add your CalendarEvent here ✅
@@ -29,6 +35,9 @@ interface WeeklyCalendarViewProps {
 
 const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selectedDate, setSelectedDate }) => {
   const baseDate = new Date(selectedDate);
+  const [eventModalVisible, setEventModalVisible] = useState(false);
+    const [eventModalData, setEventModalData] = useState<Partial<CalendarEvent>>({});
+
 
   const getWeekStartDate = (offsetWeeks = 0) => {
     const date = new Date(baseDate);
@@ -44,7 +53,23 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
       date.setDate(weekStart.getDate() + i);
       return date;
     });
-
+  
+    const handleAddEvent = (dayDate: Date, hour: number) => {
+      const start = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour, 0, 0);
+      const end = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour + 1, 0, 0);
+  
+      setEventModalData({
+        startDateTime: start,
+        endDateTime: end,
+        date: start.toISOString().split('T')[0],
+        title: '',
+        categoryName: 'Default',
+        categoryColor: '#BF9264',
+      });
+  
+      setEventModalVisible(true);
+    };
+  
     return (
       <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
         {/* Week Strip */}
@@ -68,37 +93,73 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
             );
           })}
         </View>
-
+  
         {/* Timetable */}
-
-        <ScrollView style={{ flex: 1 }}>
-        {hours.map((hour, idx) => (
-            <View key={idx} style={styles.hourRow}>
-            <Text style={styles.hourText}>{hour}</Text>
-            <View style={styles.hourDivider} />
+        <View style={{ flexDirection: 'row', flex: 1 }}>
+          {/* LEFT: Time indicators */}
+          <View style={styles.timeColumn}>
+            {hours.map((hour, idx) => (
+              <View key={idx} style={styles.timeRow}>
+                <Text style={styles.timeText}>{hour}</Text>
+              </View>
+            ))}
+          </View>
+  
+          {/* RIGHT: Day columns */}
+          <ScrollView horizontal style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row' }}>
+              {weekDates.map((dayDate, dayIdx) => (
+                <View key={dayIdx} style={[styles.dayColumn, dayIdx === 6 && { borderRightWidth: 0 }]}>
+                  {hours.map((_, hourIdx) => (
+                    <TouchableOpacity
+                      key={hourIdx}
+                      style={styles.cell}
+                      onPress={() => handleAddEvent(dayDate, hourIdx)}
+                      activeOpacity={0.6}
+                    >
+                      {/* empty cell */}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
             </View>
-        ))}
-        </ScrollView>
-
+          </ScrollView>
+        </View>
       </View>
     );
   };
+  
 
   return (
-    <FlatList
-      data={weeks}
-      horizontal
-      pagingEnabled
-      renderItem={renderWeek}
-      keyExtractor={(_, index) => index.toString()}
-      initialScrollIndex={50}
-      getItemLayout={(_, index) => ({
-        length: SCREEN_WIDTH,
-        offset: SCREEN_WIDTH * index,
-        index,
-      })}
-      showsHorizontalScrollIndicator={false}
-    />
+    <View style={{ flex: 1 }}>
+
+      <FlatList
+        data={weeks}
+        horizontal
+        pagingEnabled
+        renderItem={renderWeek}
+        keyExtractor={(_, index) => index.toString()}
+        initialScrollIndex={50}
+        getItemLayout={(_, index) => ({
+          length: SCREEN_WIDTH,
+          offset: SCREEN_WIDTH * index,
+          index,
+        })}
+        showsHorizontalScrollIndicator={false}
+      />
+
+<EventModal
+  visible={eventModalVisible}
+  onClose={() => setEventModalVisible(false)}
+  initialData={eventModalData}
+  onSave={(newEvent) => {
+    console.log('Saved Event:', newEvent);
+    // 🚨 Here you should actually add it to your parent events state later
+    setEventModalVisible(false);
+  }}
+/>
+
+    </View>
   );
 };
 
@@ -161,6 +222,96 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#eee',
   },
+  eventBubble: {
+    margin: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+  eventText: {
+    fontSize: 10,
+    color: 'white',
+    fontWeight: '600',
+  },
+  modalBackground: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContainer: {
+    width: '80%',
+    backgroundColor: 'white',
+    borderRadius: 10,
+    padding: 20,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  input: {
+    width: '100%',
+    height: 40,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 10,
+    marginBottom: 10,
+  },
+  modalLabel: {
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  saveButton: {
+    backgroundColor: '#BF9264',
+    borderRadius: 5,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginTop: 10,
+  },
+  saveButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  cancelButton: {
+    marginTop: 10,
+  },
+  cancelButtonText: {
+    color: '#666',
+  },
+  timeColumn: {
+    width: TIME_COLUMN_WIDTH, 
+    backgroundColor: '#fafafa',
+    borderRightWidth: 1,
+    borderColor: '#eee',
+  },
+  timeRow: {
+    height: 55,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+  },
+  timeText: {
+    fontSize: 10,
+    color: '#666',
+  },
+  
+  dayColumn: {
+    width: DAY_COLUMN_WIDTH, // <-- dynamic width per day
+    borderRightWidth: 1,
+    borderColor: '#eee',
+  },
+  cell: {
+    height: 55,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+  },
+  
+  
 });
 
 export default WeeklyCalendarView;
