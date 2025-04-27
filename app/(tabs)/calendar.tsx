@@ -20,7 +20,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Animated } from 'react-native';
 import { supabase } from '../../supabase'; 
 import { Swipeable } from 'react-native-gesture-handler';
-
+import Toast from 'react-native-toast-message';
+import CustomToast from '../../components/CustomToast';
 
 interface CalendarEvent {
   id: string;
@@ -359,9 +360,14 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   
     fetchEvents();
   }, []);
+
+  const findMonthIndex = (targetDate: Date) => {
+    return months.findIndex((m) => {
+      return m.year === targetDate.getFullYear() && m.month === targetDate.getMonth();
+    });
+  };
   
-
-
+  
   const saveEventToSupabase = async (newEvent: CalendarEvent) => {
     if (!newEvent.startDateTime || !newEvent.endDateTime) {
       console.error('Start or End date missing');
@@ -480,9 +486,10 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
         onPress={() => {
           if (date) {
             setSelectedDate(date);
+            setStartDateTime(new Date(date)); // ✅ Add this to reset Start Date when opening modal
             setNewEventTitle('');
             setNewEventDescription('');
-            setShowModal(true); // 👈 open modal
+            setShowModal(true);
           }
         }}
         activeOpacity={date ? 0.7 : 1}
@@ -598,7 +605,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   
     setIsSaving(true);
   
-    const key = selectedDate.toISOString().split('T')[0];
+    const key = startDateTime.toISOString().split('T')[0];
   
     const { data, error } =await supabase
     .from('events')
@@ -651,8 +658,12 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
       setRepeatOption('None');
       setRepeatEndDate(null);
       setShowModal(false);
+
+      const monthIndex = findMonthIndex(startDateTime);
+      if (monthIndex !== -1 && flatListRef.current) {
+        flatListRef.current.scrollToIndex({ index: monthIndex, animated: true });
+      }
     }
-  
     setIsSaving(false);
   };
   
@@ -732,7 +743,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                 >
                   <Text style={styles.modalTitle}>Add Event</Text>
                   <Text style={styles.modalSubtitle}>
-                    {selectedDate.toDateString()}
+                    {startDateTime.toDateString()}
                   </Text>
   
                   <TextInput
@@ -903,19 +914,32 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                           borderRadius: 8,
                           alignItems: 'center',
                         }}
-                        onPress={() => {
+                        onPress={async () => {
                           if (newCategoryName.trim()) {
-                            const newCategory = {
-                              id: Date.now().toString(),
-                              name: newCategoryName.trim(),
-                              color: newCategoryColor,
-                            };
-                            setCategories((prev) => [...prev, newCategory]);
-                            setSelectedCategory(newCategory);
-                            setNewCategoryName('');
+                            const { data, error } = await supabase
+                              .from('categories')
+                              .insert([{ label: newCategoryName.trim(), color: newCategoryColor, user_id: user?.id }])
+                              .select();
+                        
+                            if (error) {
+                              console.error('Failed to save new category:', error);
+                              return;
+                            }
+                        
+                            if (data && data.length > 0) {
+                              const insertedCategory = {
+                                id: data[0].id,
+                                name: data[0].label,
+                                color: data[0].color,
+                              };
+                              setCategories((prev) => [...prev, insertedCategory]);
+                              setSelectedCategory(insertedCategory);
+                              setNewCategoryName('');
+                              setShowAddCategoryForm(false);
+                            }
                           }
-                          setShowAddCategoryForm(false);
                         }}
+                        
                       >
                         <Text style={{ color: '#fff', fontWeight: 'bold' }}>Save Category</Text>
                       </TouchableOpacity>
@@ -1050,7 +1074,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
 
                   <Text style={styles.modalTitle}>Edit Event</Text>
                   <Text style={styles.modalSubtitle}>
-                    {selectedDate.toDateString()}
+                    {editedStartDateTime.toDateString()}
                   </Text>
 
                   {/* Title */}
@@ -1307,26 +1331,50 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                       <Text style={styles.cancel}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      onPress={() => {
-                        if (selectedEvent) {
-                          const updatedEvents = { ...events };
-                          const { dateKey, index } = selectedEvent;
-                          updatedEvents[dateKey][index] = {
-                            ...updatedEvents[dateKey][index],
-                            title: editedEventTitle,
-                            description: editedEventDescription,
-                            startDateTime: editedStartDateTime,
-                            endDateTime: editedEndDateTime,
-                            categoryName: editedSelectedCategory?.name ?? '',
-                            categoryColor: editedSelectedCategory?.color ?? '',
-                            reminderTime: editedReminderTime || undefined,
-                            repeatOption: editedRepeatOption,
-                            repeatEndDate: editedRepeatEndDate || undefined,
-                          };
-                          setEvents(updatedEvents);
+                     onPress={() => {
+                      if (selectedEvent) {
+                        const updatedEvents = { ...events };
+                        const { dateKey, index } = selectedEvent;
+                    
+                        const newDateKey = editedStartDateTime.toISOString().split('T')[0];
+                    
+                        const updatedEvent: CalendarEvent = {
+                          ...updatedEvents[dateKey][index],
+                          title: editedEventTitle,
+                          description: editedEventDescription,
+                          startDateTime: editedStartDateTime,
+                          endDateTime: editedEndDateTime,
+                          categoryName: editedSelectedCategory?.name ?? '',
+                          categoryColor: editedSelectedCategory?.color ?? '',
+                          reminderTime: editedReminderTime || undefined,
+                          repeatOption: editedRepeatOption,
+                          repeatEndDate: editedRepeatEndDate || undefined,
+                          date: newDateKey, // ✅ update the event's date field too
+                        };
+                    
+                        // If date changed
+                        if (newDateKey !== dateKey) {
+                          // Remove from old date
+                          updatedEvents[dateKey].splice(index, 1);
+                          if (updatedEvents[dateKey].length === 0) {
+                            delete updatedEvents[dateKey]; // delete if empty
+                          }
+                    
+                          // Add to new date
+                          if (!updatedEvents[newDateKey]) {
+                            updatedEvents[newDateKey] = [];
+                          }
+                          updatedEvents[newDateKey].push(updatedEvent);
+                        } else {
+                          // Same day, just update event
+                          updatedEvents[dateKey][index] = updatedEvent;
                         }
-                        setShowEditEventModal(false);
-                      }}
+                    
+                        setEvents(updatedEvents);
+                      }
+                      setShowEditEventModal(false);
+                    }}
+                    
                     >
                       <Text style={styles.save}>Save</Text>
                     </TouchableOpacity>
@@ -1338,6 +1386,11 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
           </KeyboardAvoidingView>
         </Modal>
       )}
+        <Toast
+          config={{
+            success: (props) => <CustomToast {...props} />,
+          }}
+        />
     </>
   );
 };
