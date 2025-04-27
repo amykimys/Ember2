@@ -23,6 +23,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import CustomToast from '../../components/CustomToast';
 import { Alert } from 'react-native';
+import WeeklyCalendarView from '../../components/WeeklyCalendar'; 
 
 
 interface CalendarEvent {
@@ -40,6 +41,11 @@ interface CalendarEvent {
   isContinued?: boolean; // 👈 add this
 }
 
+interface WeeklyCalendarViewProps {
+  events: { [date: string]: CalendarEvent[] };
+  selectedDate: Date;
+  setSelectedDate?: (date: Date) => void; // 👈 make optional
+}
 
 type RepeatOption = 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
 
@@ -60,8 +66,8 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     textAlign: 'center',
-    marginTop: 0,
-    marginBottom: 30,
+    marginTop: 4,
+    marginBottom: 28,
     color: '#333',
   },
   weekRow: {
@@ -73,9 +79,9 @@ const styles = StyleSheet.create({
   weekday: {
     width: CELL_WIDTH,
     textAlign: 'center',
-    fontWeight: '600',
-    color: '#777',
-    paddingBottom: 6,
+    color: '#333',      // black/dark gray
+    paddingBottom: 7,   // move it UP (less padding)
+    fontSize: 12,       // optional: slightly bigger text if you want
   },
   grid: {
     flexDirection: 'row',
@@ -94,21 +100,22 @@ const styles = StyleSheet.create({
   dateNumber: {
     fontSize: 16,
     color: '#333',
-  },
-  selectedCell: {
-    backgroundColor: '#007AFF20',
+    marginLeft: 0.5,
   },
   todayCell: {
-    borderColor: '#007AFF',
+    backgroundColor: '#BF926420',
+  },
+  selectedCell: {
+    borderColor: '#BF9264',
     borderWidth: 1,
   },
   selectedText: {
     fontWeight: 'bold',
-    color: '#007AFF',
+    color: '#BF9264',
   },
   todayText: {
     fontWeight: 'bold',
-    color: '#007AFF',
+    color: '#BF9264',
   },
   invisibleText: {
     color: 'transparent',
@@ -253,7 +260,6 @@ const CalendarScreen: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [events, setEvents] = useState<{ [date: string]: CalendarEvent[] }>({});
   const [isSaving, setIsSaving] = useState(false);
-
   const [showModal, setShowModal] = useState(false);
   const [newEventText, setNewEventText] = useState('');
   const [newEventTitle, setNewEventTitle] = useState('');
@@ -280,46 +286,37 @@ const CalendarScreen: React.FC = () => {
   const [startDateTime, setStartDateTime] = useState<Date>(new Date());
   const [endDateTime, setEndDateTime] = useState<Date>(new Date(new Date().getTime() + 60 * 60 * 1000)); // 1 hour later
   const [showStartPicker, setShowStartPicker] = useState(false);
-const [showEndPicker, setShowEndPicker] = useState(false);
-const [selectedEvent, setSelectedEvent] = useState<{
-  event: CalendarEvent;
-  dateKey: string;
-  index: number;
-} | null>(null);
-
-const [showEditEventModal, setShowEditEventModal] = useState(false);
-const [userChangedEndTime, setUserChangedEndTime] = useState(false);
-const [userChangedEditedEndTime, setUserChangedEditedEndTime] = useState(false);
-
-
-const getLocalDateString = (date: Date) => {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-};
-
-
-// Title & Description
-const [editedEventTitle, setEditedEventTitle] = useState('');
-const [editedEventDescription, setEditedEventDescription] = useState('');
-
-// Start & End
-const [editedStartDateTime, setEditedStartDateTime] = useState(new Date());
-const [editedEndDateTime, setEditedEndDateTime] = useState(new Date());
-
-// Category
-const [editedSelectedCategory, setEditedSelectedCategory] = useState<{ name: string; color: string; id?: string } | null>(null);
-
-// Reminder
-const [editedReminderTime, setEditedReminderTime] = useState<Date | null>(null);
-
-// Repeat
-const [editedRepeatOption, setEditedRepeatOption] = useState<'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'>('None');
-const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+  const [selectedEvent, setSelectedEvent] = useState<{
+    event: CalendarEvent;
+    dateKey: string;
+    index: number;
+  } | null>(null);
+  const [showEditEventModal, setShowEditEventModal] = useState(false);
+  const [userChangedEndTime, setUserChangedEndTime] = useState(false);
+  const [userChangedEditedEndTime, setUserChangedEditedEndTime] = useState(false);
+  const getLocalDateString = (date: Date) => {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  };
+  // Title & Description
+  const [editedEventTitle, setEditedEventTitle] = useState('');
+  const [editedEventDescription, setEditedEventDescription] = useState('');
+  // Start & End
+  const [editedStartDateTime, setEditedStartDateTime] = useState(new Date());
+  const [editedEndDateTime, setEditedEndDateTime] = useState(new Date());
+  // Category
+  const [editedSelectedCategory, setEditedSelectedCategory] = useState<{ name: string; color: string; id?: string } | null>(null);
+  // Reminder
+  const [editedReminderTime, setEditedReminderTime] = useState<Date | null>(null);
+  // Repeat
+  const [editedRepeatOption, setEditedRepeatOption] = useState<'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'>('None');
+  const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null);
 
 
+  const [calendarMode, setCalendarMode] = useState<'month' | 'week'>('month');
+  const [isWeeklyView, setIsWeeklyView] = useState(false);
 
-  const [showStartDatePicker, setShowStartDatePicker] = useState(false);
-  const [showStartTimePicker, setShowStartTimePicker] = useState(false);
-  const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+
 
 
   useEffect(() => {
@@ -498,6 +495,19 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
     }).start();
   };
 
+  const collapseAllPickers = () => {
+    setShowStartPicker(false);
+    setShowEndPicker(false);
+    setShowReminderPicker(false);
+    setShowRepeatPicker(false);
+    setShowEndDatePicker(false);
+    setShowCategoryPicker(false);
+    setShowAddCategoryForm(false);
+  };
+
+  
+
+
   const handleDeleteEvent = async (dateKey: string, eventIndex: number) => {
     const eventToDelete = events[dateKey][eventIndex];
   
@@ -658,8 +668,11 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                     setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
                     setEditedRepeatOption(eventToEdit.repeatOption || 'None');
                     setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
+
+                    // 👇 ADD THIS
+                    collapseAllPickers();
+
                     setShowEditEventModal(true);
-                    setUserChangedEditedEndTime(false);
                   }}
                 >
                   <Text
@@ -777,8 +790,17 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
     });
   
     return (
-      <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, paddingTop: 1, backgroundColor: 'white' }}>
-        <Text style={styles.monthLabel}>{label}</Text>
+      <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, paddingTop: 12, backgroundColor: 'white' }}>
+        <TouchableOpacity
+          onPress={() => {
+            const todayIndex = findMonthIndex(today);
+            if (todayIndex !== -1) {
+              flatListRef.current?.scrollToIndex({ index: todayIndex, animated: true });
+            }
+          }}
+        >
+          <Text style={styles.monthLabel}>{label}</Text>
+        </TouchableOpacity>
         <View style={styles.weekRow}>
           {weekdays.map((day, idx) => (
             <Text key={idx} style={styles.weekday}>
@@ -797,6 +819,18 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 0 }}>
+        <TouchableOpacity
+          onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
+          style={{ backgroundColor: '#BF9264', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 }}>
+          <Text style={{ color: 'white', fontWeight: '600', fontSize: 5 }}>
+            {calendarMode === 'month' ? 'Switch to Week View' : 'Switch to Month View'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+
+      {calendarMode === 'month' ? (
         <FlatList
           ref={flatListRef}
           data={months}
@@ -814,7 +848,14 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
           showsHorizontalScrollIndicator={false}
           style={{ flex: 1, backgroundColor: 'white' }}
         />
-  
+      ) : (
+        <WeeklyCalendarView
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate} // 👈 add this
+          events={events}
+        />
+      )}
+
         <TouchableOpacity
           onPress={() => setShowModal(true)}
           style={styles.addButton}
@@ -949,7 +990,10 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                         {categories.map((cat, idx) => (
                           <TouchableOpacity
                           key={idx}
-                          onPress={() => setSelectedCategory(cat)}
+                          onPress={() => {
+                            setSelectedCategory(cat);
+                            setShowCategoryPicker(false); 
+                          }}
                           onLongPress={() => {
                             Alert.alert(
                               'Delete Category',
@@ -1168,6 +1212,7 @@ const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null
                 <TouchableOpacity
                   onPress={() => {
                     resetEventForm();   // 🔥 clear everything
+                    collapseAllPickers();
                     setShowModal(false); // 🔥 then close modal
                   }}
                 >
