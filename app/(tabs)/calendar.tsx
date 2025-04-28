@@ -853,14 +853,27 @@ const CalendarScreen: React.FC = () => {
         />
       ) : (
         <WeeklyCalendarView
-          selectedDate={selectedDate}
-          setSelectedDate={setSelectedDate}
-          events={events}
-          setEvents={setEvents}
-          setShowModal={setShowModal}
-          setStartDateTime={setStartDateTime}
-          setEndDateTime={setEndDateTime}
-        />
+        selectedDate={selectedDate}
+        setSelectedDate={setSelectedDate}
+        events={events}
+        setEvents={setEvents}
+        setShowModal={setShowModal}
+        setStartDateTime={setStartDateTime}
+        setEndDateTime={setEndDateTime}
+      
+        // 🛠 ADD THESE:
+        setSelectedEvent={setSelectedEvent}
+        setEditedEventTitle={setEditedEventTitle}
+        setEditedEventDescription={setEditedEventDescription}
+        setEditedStartDateTime={setEditedStartDateTime}
+        setEditedEndDateTime={setEditedEndDateTime}
+        setEditedSelectedCategory={setEditedSelectedCategory}
+        setEditedReminderTime={setEditedReminderTime}
+        setEditedRepeatOption={setEditedRepeatOption}
+        setEditedRepeatEndDate={setEditedRepeatEndDate}
+        setShowEditEventModal={setShowEditEventModal}
+      />
+      
       )}
 
         <TouchableOpacity

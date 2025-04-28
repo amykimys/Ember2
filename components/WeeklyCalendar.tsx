@@ -37,10 +37,24 @@ interface WeeklyCalendarViewProps {
     setEvents: React.Dispatch<React.SetStateAction<{ [date: string]: CalendarEvent[] }>>;
     selectedDate: Date;
     setSelectedDate: (date: Date) => void;
-    setShowModal: (show: boolean) => void; // 🛠
-    setStartDateTime: (date: Date) => void; // 🛠
-    setEndDateTime: (date: Date) => void; // 🛠
+    setShowModal: (show: boolean) => void;
+    setStartDateTime: (date: Date) => void;
+    setEndDateTime: (date: Date) => void;
+  
+    // 🛠 ADD THESE 9 LINES:
+    setSelectedEvent: React.Dispatch<React.SetStateAction<{ event: CalendarEvent; dateKey: string; index: number } | null>>;
+    setEditedEventTitle: React.Dispatch<React.SetStateAction<string>>;
+    setEditedEventDescription: React.Dispatch<React.SetStateAction<string>>;
+    setEditedStartDateTime: React.Dispatch<React.SetStateAction<Date>>;
+    setEditedEndDateTime: React.Dispatch<React.SetStateAction<Date>>;
+    setEditedSelectedCategory: React.Dispatch<React.SetStateAction<{ name: string; color: string; id?: string } | null>>;
+    setEditedReminderTime: React.Dispatch<React.SetStateAction<Date | null>>;
+    setEditedRepeatOption: React.Dispatch<React.SetStateAction<'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'>>;
+    setEditedRepeatEndDate: React.Dispatch<React.SetStateAction<Date | null>>;
+    setShowEditEventModal: (show: boolean) => void;
   }
+  
+  
   
   
 
@@ -52,7 +66,20 @@ interface WeeklyCalendarViewProps {
     setShowModal,
     setStartDateTime,
     setEndDateTime,
+  
+    // 🛠 ADD THESE (edit-related):
+    setSelectedEvent,
+    setEditedEventTitle,
+    setEditedEventDescription,
+    setEditedStartDateTime,
+    setEditedEndDateTime,
+    setEditedSelectedCategory,
+    setEditedReminderTime,
+    setEditedRepeatOption,
+    setEditedRepeatEndDate,
+    setShowEditEventModal,
   }) => {
+  
     const baseDate = new Date(selectedDate);
     const [eventModalVisible, setEventModalVisible] = useState(false);
     const [eventModalData, setEventModalData] = useState<Partial<CalendarEvent>>({});
@@ -198,49 +225,71 @@ const [newEventTitle, setNewEventTitle] = useState('');
                         }}
                       >
                         <Swipeable
-                          friction={2}
-                          leftThreshold={80}
-                          rightThreshold={40}
-                          overshootRight={false}
-                          renderRightActions={() => (
-                            <TouchableOpacity
-                              style={{
-                                backgroundColor: 'red',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                width: 70,
-                                height: '100%',
-                                borderRadius: 6,
-                              }}
-                              onPress={() => {
-                                setEvents(prev => {
-                                  const updated = { ...prev };
-                                  const dateKey = getLocalDateString(dayDate);
-                                  updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
-                                  return updated;
-                                });
-                              }}
-                            >
-                              <Feather name="trash-2" size={24} color="white" />
-                            </TouchableOpacity>
-                          )}
-                        >
-                          <View
-                            style={{
-                              height: '100%',
-                              backgroundColor: event.categoryColor || '#808080',
-                              borderRadius: 8,
-                              padding: 4,
-                              justifyContent: 'center',
-                              elevation: 5,
-                             
-                            }}
-                          >
-                            <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
-                              {event.title}
-                            </Text>
-                          </View>
-                        </Swipeable>
+  friction={2}
+  leftThreshold={80}
+  rightThreshold={40}
+  overshootRight={false}
+  renderRightActions={() => (
+    <TouchableOpacity
+      style={{
+        backgroundColor: 'red',
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: 70,
+        height: '100%',
+        borderRadius: 6,
+      }}
+      onPress={() => {
+        setEvents(prev => {
+          const updated = { ...prev };
+          const dateKey = getLocalDateString(dayDate);
+          updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
+          return updated;
+        });
+      }}
+    >
+      <Feather name="trash-2" size={24} color="white" />
+    </TouchableOpacity>
+  )}
+>
+  {/* ✅ Wrap bubble content with TouchableOpacity */}
+  <TouchableOpacity
+  activeOpacity={0.8}
+  onLongPress={() => {
+    const start = new Date(event.startDateTime!);
+    const end = new Date(event.endDateTime!);
+    const dateKey = getLocalDateString(dayDate);
+
+    setSelectedEvent({ event, dateKey, index: events[dateKey].findIndex(e => e.id === event.id) });
+    setEditedEventTitle(event.title);
+    setEditedEventDescription(event.description ?? '');
+    setEditedStartDateTime(start);
+    setEditedEndDateTime(end);
+    setEditedSelectedCategory(
+      event.categoryName && event.categoryColor
+        ? { name: event.categoryName, color: event.categoryColor }
+        : null
+    );
+    setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+    setEditedRepeatOption(event.repeatOption || 'None');
+    setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+    setShowEditEventModal(true);
+  }}
+  style={{
+    height: '100%',
+    backgroundColor: event.categoryColor || '#808080',
+    borderRadius: 8,
+    padding: 4,
+    justifyContent: 'center',
+  }}
+>
+  <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
+    {event.title}
+  </Text>
+</TouchableOpacity>
+
+</Swipeable>
+
                       </View>
                     );
                   })}
@@ -302,7 +351,9 @@ const [newEventTitle, setNewEventTitle] = useState('');
 >
   <View style={styles.modalBackground}>
     <View style={styles.modalContainer}>
-      <Text style={styles.modalTitle}>Add Event</Text>
+      <Text style={styles.modalTitle}>
+        {eventModalData?.id ? 'Edit Event' : 'Add Event'}
+      </Text>
 
       <TextInput
         style={styles.input}
@@ -311,62 +362,119 @@ const [newEventTitle, setNewEventTitle] = useState('');
         onChangeText={setNewEventTitle}
       />
 
+      {/* 🔥 Start Time Picker */}
+      <TouchableOpacity
+        style={styles.input}
+        onPress={() => {
+          const now = newEventStart || new Date();
+          const picked = prompt('Enter Start Hour (0-23)', now.getHours().toString());
+          if (picked !== null) {
+            const newStart = new Date(now);
+            newStart.setHours(parseInt(picked), 0, 0, 0);
+            setNewEventStart(newStart);
+          }
+        }}
+      >
+        <Text>
+          {newEventStart
+            ? `Start Time: ${newEventStart.getHours()}:00`
+            : 'Pick Start Time'}
+        </Text>
+      </TouchableOpacity>
+
+      {/* 🔥 End Time Picker */}
+      <TouchableOpacity
+        style={styles.input}
+        onPress={() => {
+          const now = newEventEnd || new Date();
+          const picked = prompt('Enter End Hour (0-23)', now.getHours().toString());
+          if (picked !== null) {
+            const newEnd = new Date(now);
+            newEnd.setHours(parseInt(picked), 0, 0, 0);
+            setNewEventEnd(newEnd);
+          }
+        }}
+      >
+        <Text>
+          {newEventEnd
+            ? `End Time: ${newEventEnd.getHours()}:00`
+            : 'Pick End Time'}
+        </Text>
+      </TouchableOpacity>
+
       <View style={styles.modalActions}>
         <TouchableOpacity onPress={() => setEventModalVisible(false)}>
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => {
-          if (!newEventTitle.trim() || !newEventStart || !newEventEnd) {
-            alert('Please enter title');
-            return;
-          }
+        <TouchableOpacity
+          onPress={() => {
+            if (!newEventTitle.trim() || !newEventStart || !newEventEnd) {
+              alert('Please enter title and time');
+              return;
+            }
 
-          const newEvent: CalendarEvent = {
-            id: Date.now().toString(),
-            title: newEventTitle.trim(),
-            description: '',
-            date: getLocalDateString(newEventStart),
-            startDateTime: newEventStart,
-            endDateTime: newEventEnd,
-            categoryName: '',
-            categoryColor: '#BF9264',
-            reminderTime: null,
-            repeatOption: 'None',
-            repeatEndDate: null,
-            isContinued: false,
-          };
+            if (eventModalData?.id) {
+              // 🔥 EDIT existing event
+              setEvents(prev => {
+                const updated = { ...prev };
+                const dateKey = getLocalDateString(newEventStart);
 
-          setEvents(prev => {
-            const updated = { ...prev };
-            const dateKey = newEvent.date;
+                updated[dateKey] = updated[dateKey].map(event =>
+                  event.id === eventModalData.id
+                    ? {
+                        ...event,
+                        title: newEventTitle.trim(),
+                        startDateTime: newEventStart,
+                        endDateTime: newEventEnd,
+                      }
+                    : event
+                );
 
-            if (!updated[dateKey]) updated[dateKey] = [];
-            updated[dateKey].push(newEvent);
+                return updated;
+              });
+            } else {
+              // 🔥 ADD new event
+              const newEvent: CalendarEvent = {
+                id: Date.now().toString(),
+                title: newEventTitle.trim(),
+                description: '',
+                date: getLocalDateString(newEventStart),
+                startDateTime: newEventStart,
+                endDateTime: newEventEnd,
+                categoryName: '',
+                categoryColor: '#BF9264',
+                reminderTime: null,
+                repeatOption: 'None',
+                repeatEndDate: null,
+                isContinued: false,
+              };
 
-            return updated;
-          });
+              setEvents(prev => {
+                const updated = { ...prev };
+                const dateKey = newEvent.date;
 
-          setEventModalVisible(false); // ✅ close modal after saving
-        }}>
+                if (!updated[dateKey]) updated[dateKey] = [];
+                updated[dateKey].push(newEvent);
+
+                return updated;
+              });
+            }
+
+            // Close modal after save
+            setEventModalVisible(false);
+            setNewEventTitle('');
+            setNewEventStart(null);
+            setNewEventEnd(null);
+            setEventModalData({});
+          }}
+        >
           <Text style={styles.saveButtonText}>Save</Text>
         </TouchableOpacity>
       </View>
     </View>
   </View>
 </Modal>
-
-
-<EventModal
-  visible={eventModalVisible}
-  onClose={() => setEventModalVisible(false)}
-  initialData={eventModalData}
-  onSave={(newEvent) => {
-    console.log('Saved Event:', newEvent);
-    // 🚨 Here you should actually add it to your parent events state later
-    setEventModalVisible(false);
-  }}
-/>
 
     </View>
   );
