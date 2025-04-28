@@ -58,8 +58,11 @@ interface WeeklyCalendarViewProps {
     const [eventModalData, setEventModalData] = useState<Partial<CalendarEvent>>({});
     // Helper function to get date string in YYYY-MM-DD format
 const getLocalDateString = (date: Date): string => {
-    return date.toISOString().split('T')[0];
-  };
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 const [newEventStart, setNewEventStart] = useState<Date | null>(null);
 const [newEventEnd, setNewEventEnd] = useState<Date | null>(null);
 const [newEventTitle, setNewEventTitle] = useState('');
@@ -110,154 +113,136 @@ const [newEventTitle, setNewEventTitle] = useState('');
   
 
   const renderWeek = ({ item: weekStart }: { item: Date }) => {
-    const weekDates = Array.from({ length: 7 }, (_, i) => {
-      const date = new Date(weekStart);
-      date.setDate(weekStart.getDate() + i);
-      return date;
-    });
-  
-    const handleAddEvent = (dayDate: Date, hour: number) => {
-      const start = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour, 0, 0);
-      const end = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour + 1, 0, 0);
-  
-      setEventModalData({
-        startDateTime: start,
-        endDateTime: end,
-        date: start.toISOString().split('T')[0],
-        title: '',
-        categoryName: 'Default',
-        categoryColor: '#BF9264',
-      });
-  
-      setEventModalVisible(true);
-    };
-  
-    return (
-        <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
-        {/* Week Strip */}
-        <View style={styles.weekStrip}>
-          {weekDates.map((date, idx) => (
-            <TouchableOpacity
-              key={idx}
-              onPress={() => setSelectedDate(date)}
-              style={styles.dateContainer}
-            >
-              <Text style={styles.dayText}>
-                {date.toLocaleDateString('en-US', { weekday: 'short' })}
-              </Text>
-              <Text style={styles.dateText}>{date.getDate()}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      
-        {/* Timetable */}
-        <ScrollView style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'row' }}>
-            {/* LEFT: Time indicators */}
-            <View style={styles.timeColumn}>
-            {hours.map((hour, idx) => (
-                <View key={idx} style={styles.timeRow}>
-                <Text style={styles.timeText}>{hour}</Text>
-                </View>
-            ))}
-            </View>
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const date = new Date(weekStart);
+    date.setDate(weekStart.getDate() + i);
+    return date;
+  });
 
-      
+  const handleAddEvent = (dayDate: Date, hour: number) => {
+    const start = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour, 0, 0);
+    const end = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour + 1, 0, 0);
+
+    setEventModalData({
+      startDateTime: start,
+      endDateTime: end,
+      date: start.toISOString().split('T')[0],
+      title: '',
+      categoryName: 'Default',
+      categoryColor: '#BF9264',
+    });
+
+    setEventModalVisible(true);
+  };
+
+  return (
+    <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
+      {/* Week Strip */}
+      <View style={styles.weekStrip}>
+        {weekDates.map((date, idx) => (
+          <TouchableOpacity
+            key={idx}
+            onPress={() => setSelectedDate(date)}
+            style={styles.dateContainer}
+          >
+            <Text style={styles.dayText}>
+              {date.toLocaleDateString('en-US', { weekday: 'short' })}
+            </Text>
+            <Text style={styles.dateText}>{date.getDate()}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Timetable */}
+      <ScrollView style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row' }}>
+          {/* LEFT: Time indicators */}
+          <View style={styles.timeColumn}>
+            {hours.map((hour, idx) => (
+              <View key={idx} style={styles.timeRow}>
+                <Text style={styles.timeText}>{hour}</Text>
+              </View>
+            ))}
+          </View>
+
           {/* RIGHT: Day columns */}
           <ScrollView horizontal style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row' }}>
               {weekDates.map((dayDate, dayIdx) => (
-                <View key={dayIdx} style={[styles.dayColumn, dayIdx === 6 && { borderRightWidth: 0 }]}>
-                  {hours.map((_, hourIdx) => (
-                    <TouchableOpacity
-                    key={hourIdx}
-                    style={styles.cell}
-                    onPress={() => {
-                      const start = new Date(dayDate);
-                      start.setHours(hourIdx, 0, 0, 0);
+                <View key={dayIdx} style={[styles.dayColumn, { position: 'relative' }]}>
                   
-                      const end = new Date(dayDate);
-                      end.setHours(hourIdx + 1, 0, 0, 0);
-                  
-                      setStartDateTime(start);
-                      setEndDateTime(end);
-                      setSelectedDate(dayDate);
-                      setShowModal(true);
-                    }}
-                    activeOpacity={0.6}
-                  >
-                  
-                    {/* 🔥 Here is where you paste it */}
-                    {events[getLocalDateString(dayDate)]?.map((event, idx) => {
-  const eventStart = new Date(event.startDateTime!);
-  const eventEnd = new Date(event.endDateTime!);
+                  {/* 🔥 1. Render event bubbles first */}
+                  {events[getLocalDateString(dayDate)]?.map((event) => {
+                    const eventStart = new Date(event.startDateTime!);
+                    const eventEnd = new Date(event.endDateTime!);
 
-  const eventStartHour = eventStart.getHours();
-  const eventStartMinutes = eventStart.getMinutes();
-  const eventEndHour = eventEnd.getHours();
-  const eventEndMinutes = eventEnd.getMinutes();
+                    const eventStartMinutes = eventStart.getHours() * 60 + eventStart.getMinutes();
+                    const eventEndMinutes = eventEnd.getHours() * 60 + eventEnd.getMinutes();
 
-  const eventStartTimeInMinutes = eventStartHour * 60 + eventStartMinutes;
-  const eventEndTimeInMinutes = eventEndHour * 60 + eventEndMinutes;
+                    const minutesSince6AM = eventStartMinutes - 6 * 60;
+                    const top = Math.max(0, (minutesSince6AM / 60) * 55);
+                    const height = Math.max(0, ((eventEndMinutes - eventStartMinutes) / 60) * 55);
 
-  const calendarHour = (hourIdx + 6) % 24; // remember 6am shift
-  const calendarTimeInMinutes = calendarHour * 60;
+                    if (height <= 0) return null;
 
-  const nextCalendarTimeInMinutes = (calendarHour + 1) * 60;
+                    return (
+                      <View
+                        key={event.id}
+                        style={{
+                          position: 'absolute',
+                          top,
+                          left: 2,
+                          right: 2,
+                          height,
+                          backgroundColor: event.categoryColor || '#808080',
+                          borderRadius: 8,
+                          padding: 4,
+                          justifyContent: 'center',
+                          zIndex: 1000,
+                          elevation: 5,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.25,
+                          shadowRadius: 3.84,
+                        }}
+                      >
+                        <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
+                          {event.title}
+                        </Text>
+                      </View>
+                    );
+                  })}
 
-  // Check if event overlaps this hour block
-  if (
-    eventStartTimeInMinutes < nextCalendarTimeInMinutes &&
-    eventEndTimeInMinutes > calendarTimeInMinutes
-  ) {
-    // Calculate how much of the block it should fill
-    const topMinutesOffset = Math.max(0, eventStartTimeInMinutes - calendarTimeInMinutes);
-    const bottomMinutesOffset = Math.max(0, nextCalendarTimeInMinutes - eventEndTimeInMinutes);
+                  {/* 🔥 2. Then render the hour grid cells */}
+                  <View style={{ position: 'relative', zIndex: 0 }}>
+                    {hours.map((_, hourIdx) => (
+                      <TouchableOpacity
+                        key={hourIdx}
+                        style={styles.cell}
+                        onPress={() => {
+                          const start = new Date(dayDate);
+                          start.setHours((hourIdx + 6) % 24, 0, 0, 0);
+                          const end = new Date(dayDate);
+                          end.setHours((hourIdx + 6 + 1) % 24, 0, 0, 0);
+                          setStartDateTime(start);
+                          setEndDateTime(end);
+                          setSelectedDate(dayDate);
+                          setShowModal(true);
+                        }}
+                        activeOpacity={0.6}
+                      />
+                    ))}
+                  </View>
 
-    const totalMinutesInBlock = 60; // each cell represents 1 hour = 60 minutes
-
-    const topPercent = (topMinutesOffset / totalMinutesInBlock) * 100;
-    const bottomPercent = (bottomMinutesOffset / totalMinutesInBlock) * 100;
-
-    return (
-      <View
-        key={event.id}
-        style={{
-          position: 'absolute',
-          top: `${topPercent}%`,
-          left: 2,
-          right: 2,
-          height: `${100 - topPercent - bottomPercent}%`,
-          backgroundColor: event.categoryColor || '#BF9264',
-          borderRadius: 6,
-          padding: 4,
-          justifyContent: 'center',
-        }}
-      >
-        <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={1}>
-          {event.title}
-        </Text>
-      </View>
-    );
-  }
-
-  return null;
-})}
-
-                  </TouchableOpacity>
-                  
-                  ))}
                 </View>
               ))}
             </View>
           </ScrollView>
         </View>
-        </ScrollView>
-      </View>
-      
-    );
-  };
-  
+      </ScrollView>
+    </View>
+  );
+};
 
   return (
     <View style={{ flex: 1 }}>
@@ -363,7 +348,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 14, // 🔥 slight right/left padding
         borderBottomWidth: 1,
         borderColor: '#eee',
-        backgroundColor: 'white',
+        backgroundColor: 'transparent',
         gap: 12, // 🔥 small gaps between dates (optional, needs React Native 0.71+)
       },
       dateContainer: {
