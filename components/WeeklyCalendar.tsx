@@ -191,64 +191,59 @@ const [newEventTitle, setNewEventTitle] = useState('');
                     {events[getLocalDateString(dayDate)]?.map((event, idx) => {
   const eventStart = new Date(event.startDateTime!);
   const eventEnd = new Date(event.endDateTime!);
-  const eventStartHour = eventStart.getHours();
-  const eventEndHour = eventEnd.getHours();
-  const durationInHours = eventEndHour - eventStartHour || 1; // prevent 0 height
-  const calendarHour = (hourIdx + 6) % 24; 
 
-  if (calendarHour === eventStartHour) { 
+  const eventStartHour = eventStart.getHours();
+  const eventStartMinutes = eventStart.getMinutes();
+  const eventEndHour = eventEnd.getHours();
+  const eventEndMinutes = eventEnd.getMinutes();
+
+  const eventStartTimeInMinutes = eventStartHour * 60 + eventStartMinutes;
+  const eventEndTimeInMinutes = eventEndHour * 60 + eventEndMinutes;
+
+  const calendarHour = (hourIdx + 6) % 24; // remember 6am shift
+  const calendarTimeInMinutes = calendarHour * 60;
+
+  const nextCalendarTimeInMinutes = (calendarHour + 1) * 60;
+
+  // Check if event overlaps this hour block
+  if (
+    eventStartTimeInMinutes < nextCalendarTimeInMinutes &&
+    eventEndTimeInMinutes > calendarTimeInMinutes
+  ) {
+    // Calculate how much of the block it should fill
+    const topMinutesOffset = Math.max(0, eventStartTimeInMinutes - calendarTimeInMinutes);
+    const bottomMinutesOffset = Math.max(0, nextCalendarTimeInMinutes - eventEndTimeInMinutes);
+
+    const totalMinutesInBlock = 60; // each cell represents 1 hour = 60 minutes
+
+    const topPercent = (topMinutesOffset / totalMinutesInBlock) * 100;
+    const bottomPercent = (bottomMinutesOffset / totalMinutesInBlock) * 100;
+
     return (
-      <View key={event.id} style={{ position: 'absolute', top: 0, left: 2, right: 2 }}>
-        <Swipeable
-  friction={2}
-  leftThreshold={80}
-  rightThreshold={40}
-  overshootRight={false}
-  enableTrackpadTwoFingerGesture
-  renderRightActions={() => (
-    <TouchableOpacity
-      style={{
-        backgroundColor: 'red',
-        justifyContent: 'center',
-        alignItems: 'center',
-        width: 70,
-        height: 55 * durationInHours - 4,
-        borderRadius: 6,
-        marginVertical: 2,
-      }}
-      onPress={() => {
-        setEvents(prev => {
-          const updated = { ...prev };
-          const dateKey = getLocalDateString(dayDate);
-          updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
-          return updated;
-        });
-      }}
-    >
-      <Feather name="trash-2" size={24} color="white" />
-    </TouchableOpacity>
-  )}
->
-          <View
-            style={{
-              height: 55 * durationInHours - 4,
-              backgroundColor: event.categoryColor || '#BF9264',
-              borderRadius: 6,
-              padding: 4,
-              justifyContent: 'center',
-            }}
-          >
-            <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={1}>
-              {event.title}
-            </Text>
-          </View>
-        </Swipeable>
+      <View
+        key={event.id}
+        style={{
+          position: 'absolute',
+          top: `${topPercent}%`,
+          left: 2,
+          right: 2,
+          height: `${100 - topPercent - bottomPercent}%`,
+          backgroundColor: event.categoryColor || '#BF9264',
+          borderRadius: 6,
+          padding: 4,
+          justifyContent: 'center',
+        }}
+      >
+        <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={1}>
+          {event.title}
+        </Text>
       </View>
     );
   }
 
   return null;
 })}
+
                   </TouchableOpacity>
                   
                   ))}
@@ -382,7 +377,7 @@ const styles = StyleSheet.create({
         fontWeight: '600', // still bold
         color: '#333',
         marginBottom: 2, // tighter spacing
-        marginRight: -10
+        marginRight: -10,
       },
       dateText: {
         fontSize: 13, // 🔥 smaller number size
