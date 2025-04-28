@@ -14,7 +14,7 @@ const TIME_COLUMN_WIDTH = 50;
 
 // 🛠 ADD THIS LINE TOO:
 const DAY_COLUMN_WIDTH = (SCREEN_WIDTH - TIME_COLUMN_WIDTH) / 7;
-const hours = Array.from({ length: 24 }, (_, i) => `${(i + 6) % 24}:00`);
+const hours = Array.from({ length: 24 }, (_, i) => `${(i + 7) % 24}:00`);
 
 // Add your CalendarEvent here ✅
 interface CalendarEvent {
@@ -178,11 +178,11 @@ const [newEventTitle, setNewEventTitle] = useState('');
 
                     const eventStartMinutes = eventStart.getHours() * 60 + eventStart.getMinutes();
                     const eventEndMinutes = eventEnd.getHours() * 60 + eventEnd.getMinutes();
-
-                    const minutesSince6AM = eventStartMinutes - 6 * 60;
-                    const top = Math.max(0, (minutesSince6AM / 60) * 55);
+                    
+                    const minutesSince7AM = eventStartMinutes - 7 * 60;
+                    const top = Math.max(0, (minutesSince7AM / 60) * 55);
                     const height = Math.max(0, ((eventEndMinutes - eventStartMinutes) / 60) * 55);
-
+                    
                     if (height <= 0) return null;
 
                     return (
@@ -191,8 +191,8 @@ const [newEventTitle, setNewEventTitle] = useState('');
                         style={{
                           position: 'absolute',
                           top,
-                          left: 2,
-                          right: 2,
+                          left: 0,
+                          right: 0,
                           height,
                           zIndex: 1000,
                         }}
@@ -233,10 +233,7 @@ const [newEventTitle, setNewEventTitle] = useState('');
                               padding: 4,
                               justifyContent: 'center',
                               elevation: 5,
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 2 },
-                              shadowOpacity: 0.25,
-                              shadowRadius: 3.84,
+                             
                             }}
                           >
                             <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
@@ -256,9 +253,9 @@ const [newEventTitle, setNewEventTitle] = useState('');
                         style={styles.cell}
                         onPress={() => {
                           const start = new Date(dayDate);
-                          start.setHours((hourIdx + 6) % 24, 0, 0, 0);
+                          start.setHours((hourIdx + 7) % 24, 0, 0, 0);
                           const end = new Date(dayDate);
-                          end.setHours((hourIdx + 6 + 1) % 24, 0, 0, 0);
+                          end.setHours((hourIdx + 7 + 1) % 24, 0, 0, 0);
                           setStartDateTime(start);
                           setEndDateTime(end);
                           setSelectedDate(dayDate);
