@@ -194,21 +194,56 @@ const [newEventTitle, setNewEventTitle] = useState('');
                           left: 2,
                           right: 2,
                           height,
-                          backgroundColor: event.categoryColor || '#808080',
-                          borderRadius: 8,
-                          padding: 4,
-                          justifyContent: 'center',
                           zIndex: 1000,
-                          elevation: 5,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 2 },
-                          shadowOpacity: 0.25,
-                          shadowRadius: 3.84,
                         }}
                       >
-                        <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
-                          {event.title}
-                        </Text>
+                        <Swipeable
+                          friction={2}
+                          leftThreshold={80}
+                          rightThreshold={40}
+                          overshootRight={false}
+                          renderRightActions={() => (
+                            <TouchableOpacity
+                              style={{
+                                backgroundColor: 'red',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                width: 70,
+                                height: '100%',
+                                borderRadius: 6,
+                              }}
+                              onPress={() => {
+                                setEvents(prev => {
+                                  const updated = { ...prev };
+                                  const dateKey = getLocalDateString(dayDate);
+                                  updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
+                                  return updated;
+                                });
+                              }}
+                            >
+                              <Feather name="trash-2" size={24} color="white" />
+                            </TouchableOpacity>
+                          )}
+                        >
+                          <View
+                            style={{
+                              height: '100%',
+                              backgroundColor: event.categoryColor || '#808080',
+                              borderRadius: 8,
+                              padding: 4,
+                              justifyContent: 'center',
+                              elevation: 5,
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowOpacity: 0.25,
+                              shadowRadius: 3.84,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
+                              {event.title}
+                            </Text>
+                          </View>
+                        </Swipeable>
                       </View>
                     );
                   })}
