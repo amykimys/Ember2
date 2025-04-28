@@ -28,15 +28,38 @@ interface CalendarEvent {
 }
 
 interface WeeklyCalendarViewProps {
-  events: { [date: string]: CalendarEvent[] };
-  selectedDate: Date;
-  setSelectedDate: (date: Date) => void;
-}
+    events: { [date: string]: CalendarEvent[] };
+    setEvents: React.Dispatch<React.SetStateAction<{ [date: string]: CalendarEvent[] }>>;
+    selectedDate: Date;
+    setSelectedDate: (date: Date) => void;
+    setShowModal: (show: boolean) => void; // 🛠
+    setStartDateTime: (date: Date) => void; // 🛠
+    setEndDateTime: (date: Date) => void; // 🛠
+  }
+  
+  
 
-const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selectedDate, setSelectedDate }) => {
-  const baseDate = new Date(selectedDate);
-  const [eventModalVisible, setEventModalVisible] = useState(false);
+  const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
+    events,
+    setEvents,
+    selectedDate,
+    setSelectedDate,
+    setShowModal,
+    setStartDateTime,
+    setEndDateTime,
+  }) => {
+    const baseDate = new Date(selectedDate);
+    const [eventModalVisible, setEventModalVisible] = useState(false);
     const [eventModalData, setEventModalData] = useState<Partial<CalendarEvent>>({});
+    // Helper function to get date string in YYYY-MM-DD format
+const getLocalDateString = (date: Date): string => {
+    return date.toISOString().split('T')[0];
+  };
+const [newEventStart, setNewEventStart] = useState<Date | null>(null);
+const [newEventEnd, setNewEventEnd] = useState<Date | null>(null);
+const [newEventTitle, setNewEventTitle] = useState('');
+
+  
 
 
   const getWeekStartDate = (offsetWeeks = 0) => {
@@ -46,6 +69,40 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
   };
 
   const weeks = Array.from({ length: 100 }, (_, i) => getWeekStartDate(i - 50)); // 50 weeks past, 50 weeks future
+
+  const handleSaveNewEvent = (dayDate: Date, hour: number) => {
+    const start = new Date(dayDate);
+    start.setHours(hour, 0, 0, 0);
+  
+    const end = new Date(dayDate);
+    end.setHours(hour + 1, 0, 0, 0);
+  
+    const newEvent: CalendarEvent = {
+      id: Date.now().toString(),
+      title: 'New Event',
+      description: '',
+      date: start.toISOString().split('T')[0],
+      startDateTime: start,
+      endDateTime: end,
+      categoryName: '',
+      categoryColor: '#BF9264',
+      reminderTime: null,
+      repeatOption: 'None',
+      repeatEndDate: null,
+      isContinued: false,
+    };
+  
+    setEvents(prev => {
+      const updated = { ...prev };
+      const dateKey = newEvent.date;
+  
+      if (!updated[dateKey]) updated[dateKey] = [];
+      updated[dateKey].push(newEvent);
+  
+      return updated;
+    });
+  };
+  
 
   const renderWeek = ({ item: weekStart }: { item: Date }) => {
     const weekDates = Array.from({ length: 7 }, (_, i) => {
@@ -71,29 +128,23 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
     };
   
     return (
-      <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
+        <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
         {/* Week Strip */}
         <View style={styles.weekStrip}>
-          {weekDates.map((date, idx) => {
-            const isToday = date.toDateString() === new Date().toDateString();
-            const isSelected = date.toDateString() === selectedDate.toDateString();
-            return (
-              <TouchableOpacity
-                key={idx}
-                onPress={() => setSelectedDate(date)}
-                style={[
-                  styles.dateContainer,
-                  isToday && styles.todayHighlight,
-                  isSelected && styles.selectedHighlight,
-                ]}
-              >
-                <Text style={styles.dayText}>{date.toLocaleDateString('en-US', { weekday: 'short' })}</Text>
-                <Text style={styles.dateText}>{date.getDate()}</Text>
-              </TouchableOpacity>
-            );
-          })}
+          {weekDates.map((date, idx) => (
+            <TouchableOpacity
+              key={idx}
+              onPress={() => setSelectedDate(date)}
+              style={styles.dateContainer}
+            >
+              <Text style={styles.dayText}>
+                {date.toLocaleDateString('en-US', { weekday: 'short' })}
+              </Text>
+              <Text style={styles.dateText}>{date.getDate()}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
-  
+      
         {/* Timetable */}
         <View style={{ flexDirection: 'row', flex: 1 }}>
           {/* LEFT: Time indicators */}
@@ -104,7 +155,7 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
               </View>
             ))}
           </View>
-  
+      
           {/* RIGHT: Day columns */}
           <ScrollView horizontal style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row' }}>
@@ -112,13 +163,60 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
                 <View key={dayIdx} style={[styles.dayColumn, dayIdx === 6 && { borderRightWidth: 0 }]}>
                   {hours.map((_, hourIdx) => (
                     <TouchableOpacity
-                      key={hourIdx}
-                      style={styles.cell}
-                      onPress={() => handleAddEvent(dayDate, hourIdx)}
-                      activeOpacity={0.6}
-                    >
-                      {/* empty cell */}
-                    </TouchableOpacity>
+                    key={hourIdx}
+                    style={styles.cell}
+                    onPress={() => {
+                      const start = new Date(dayDate);
+                      start.setHours(hourIdx, 0, 0, 0);
+                  
+                      const end = new Date(dayDate);
+                      end.setHours(hourIdx + 1, 0, 0, 0);
+                  
+                      setStartDateTime(start);
+                      setEndDateTime(end);
+                      setSelectedDate(dayDate);
+                      setShowModal(true);
+                    }}
+                    activeOpacity={0.6}
+                  >
+                  
+                    {/* 🔥 Here is where you paste it */}
+                    {events[getLocalDateString(dayDate)]?.map((event, idx) => {
+                    const eventStart = new Date(event.startDateTime!);
+                    const eventEnd = new Date(event.endDateTime!);
+                    const eventStartHour = eventStart.getHours();
+                    const eventEndHour = eventEnd.getHours();
+                    const durationInHours = eventEndHour - eventStartHour || 1; // prevent 0 height
+
+                    if (hourIdx === eventStartHour) {
+                        return (
+                        <View
+                            key={idx}
+                            style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 2,
+                            right: 2,
+                            height: 55 * durationInHours - 4, // 🔥 auto height: 55px per hour minus margins
+                            backgroundColor: event.categoryColor || '#BF9264',
+                            borderRadius: 6,
+                            padding: 4,
+                            justifyContent: 'center',
+                            }}
+                        >
+                            <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={1}>
+                            {event.title}
+                            </Text>
+                        </View>
+                        );
+                    }
+
+                    return null;
+                    })}
+
+                  
+                  </TouchableOpacity>
+                  
                   ))}
                 </View>
               ))}
@@ -126,6 +224,7 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
           </ScrollView>
         </View>
       </View>
+      
     );
   };
   
@@ -147,6 +246,69 @@ const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({ events, selecte
         })}
         showsHorizontalScrollIndicator={false}
       />
+
+<Modal
+  visible={eventModalVisible}
+  transparent
+  animationType="slide"
+  onRequestClose={() => setEventModalVisible(false)}
+>
+  <View style={styles.modalBackground}>
+    <View style={styles.modalContainer}>
+      <Text style={styles.modalTitle}>Add Event</Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Enter Title"
+        value={newEventTitle}
+        onChangeText={setNewEventTitle}
+      />
+
+      <View style={styles.modalActions}>
+        <TouchableOpacity onPress={() => setEventModalVisible(false)}>
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => {
+          if (!newEventTitle.trim() || !newEventStart || !newEventEnd) {
+            alert('Please enter title');
+            return;
+          }
+
+          const newEvent: CalendarEvent = {
+            id: Date.now().toString(),
+            title: newEventTitle.trim(),
+            description: '',
+            date: getLocalDateString(newEventStart),
+            startDateTime: newEventStart,
+            endDateTime: newEventEnd,
+            categoryName: '',
+            categoryColor: '#BF9264',
+            reminderTime: null,
+            repeatOption: 'None',
+            repeatEndDate: null,
+            isContinued: false,
+          };
+
+          setEvents(prev => {
+            const updated = { ...prev };
+            const dateKey = newEvent.date;
+
+            if (!updated[dateKey]) updated[dateKey] = [];
+            updated[dateKey].push(newEvent);
+
+            return updated;
+          });
+
+          setEventModalVisible(false); // ✅ close modal after saving
+        }}>
+          <Text style={styles.saveButtonText}>Save</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  </View>
+</Modal>
+
 
 <EventModal
   visible={eventModalVisible}
@@ -309,7 +471,14 @@ const styles = StyleSheet.create({
     height: 55,
     borderBottomWidth: 1,
     borderColor: '#eee',
+    position: 'relative', // 🔥 must be relative so events can be absolutely positioned inside
   },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  
   
   
 });

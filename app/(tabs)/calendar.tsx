@@ -43,9 +43,12 @@ interface CalendarEvent {
 
 interface WeeklyCalendarViewProps {
   events: { [date: string]: CalendarEvent[] };
+  setEvents: React.Dispatch<React.SetStateAction<{ [date: string]: CalendarEvent[] }>>;
   selectedDate: Date;
-  setSelectedDate?: (date: Date) => void; // 👈 make optional
+  setSelectedDate: (date: Date) => void;
 }
+
+
 
 type RepeatOption = 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
 
@@ -851,8 +854,12 @@ const CalendarScreen: React.FC = () => {
       ) : (
         <WeeklyCalendarView
           selectedDate={selectedDate}
-          setSelectedDate={setSelectedDate} // 👈 add this
+          setSelectedDate={setSelectedDate}
           events={events}
+          setEvents={setEvents}
+          setShowModal={setShowModal}
+          setStartDateTime={setStartDateTime}
+          setEndDateTime={setEndDateTime}
         />
       )}
 
