@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button } from 'react-native';
 import EventModal from '../components/EventModal';
 import { Swipeable } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Feather } from '@expo/vector-icons'; 
+import { supabase } from '../supabase'; 
+
 
 
 
@@ -53,10 +55,6 @@ interface WeeklyCalendarViewProps {
     setEditedRepeatEndDate: React.Dispatch<React.SetStateAction<Date | null>>;
     setShowEditEventModal: (show: boolean) => void;
   }
-  
-  
-  
-  
 
   const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
     events,
@@ -81,6 +79,7 @@ interface WeeklyCalendarViewProps {
   }) => {
   
     const baseDate = new Date(selectedDate);
+    const flatListRef = useRef<FlatList>(null);
     const [eventModalVisible, setEventModalVisible] = useState(false);
     const [eventModalData, setEventModalData] = useState<Partial<CalendarEvent>>({});
     // Helper function to get date string in YYYY-MM-DD format
@@ -93,8 +92,6 @@ const getLocalDateString = (date: Date): string => {
 const [newEventStart, setNewEventStart] = useState<Date | null>(null);
 const [newEventEnd, setNewEventEnd] = useState<Date | null>(null);
 const [newEventTitle, setNewEventTitle] = useState('');
-
-  
 
 
   const getWeekStartDate = (offsetWeeks = 0) => {
@@ -164,6 +161,21 @@ const [newEventTitle, setNewEventTitle] = useState('');
 
   return (
     <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
+       {/* ✨ Add Centered Month Title */}
+       <TouchableOpacity
+  onPress={() => {
+    const today = new Date();
+    setSelectedDate(today);
+    flatListRef.current?.scrollToIndex({ index: 50, animated: true });
+  }}
+  activeOpacity={0.7}
+  style={{ alignItems: 'center', marginTop: 0, marginBottom: 0 }}
+>
+  <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#333' }}>
+    {weekStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+  </Text>
+</TouchableOpacity>
+
       {/* Week Strip */}
       <View style={styles.weekStrip}>
         {weekDates.map((date, idx) => (
@@ -225,70 +237,82 @@ const [newEventTitle, setNewEventTitle] = useState('');
                         }}
                       >
                         <Swipeable
-  friction={2}
-  leftThreshold={80}
-  rightThreshold={40}
-  overshootRight={false}
-  renderRightActions={() => (
-    <TouchableOpacity
-      style={{
-        backgroundColor: 'red',
-        justifyContent: 'center',
-        alignItems: 'center',
-        width: 70,
-        height: '100%',
-        borderRadius: 6,
-      }}
-      onPress={() => {
-        setEvents(prev => {
-          const updated = { ...prev };
-          const dateKey = getLocalDateString(dayDate);
-          updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
-          return updated;
-        });
-      }}
-    >
-      <Feather name="trash-2" size={24} color="white" />
-    </TouchableOpacity>
-  )}
->
-  {/* ✅ Wrap bubble content with TouchableOpacity */}
-  <TouchableOpacity
-  activeOpacity={0.8}
-  onLongPress={() => {
-    const start = new Date(event.startDateTime!);
-    const end = new Date(event.endDateTime!);
-    const dateKey = getLocalDateString(dayDate);
+                        friction={2}
+                        leftThreshold={80}
+                        rightThreshold={40}
+                        overshootRight={false}
+                        renderRightActions={() => (
+                            <TouchableOpacity
+                            style={{
+                                backgroundColor: 'red',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                width: 70,
+                                height: '100%',
+                                borderRadius: 6,
+                            }}
+                            onPress={async () => {
+                                const { error } = await supabase
+                                  .from('events')
+                                  .delete()
+                                  .eq('id', event.id);
+                              
+                                if (error) {
+                                  console.error('Failed to delete event from Supabase:', error);
+                                  alert('Failed to delete event.');
+                                  return;
+                                }
+                              
+                                setEvents(prev => {
+                                  const updated = { ...prev };
+                                  const dateKey = getLocalDateString(dayDate);
+                                  updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
+                                  return updated;
+                                });
+                              }}
+                              
+                            >
+                            <Feather name="trash-2" size={24} color="white" />
+                            </TouchableOpacity>
+                        )}
+                        >
+                        {/* ✅ Wrap bubble content with TouchableOpacity */}
+                        <TouchableOpacity
+                        activeOpacity={0.8}
+                        onLongPress={() => {
+                            const start = new Date(event.startDateTime!);
+                            const end = new Date(event.endDateTime!);
+                            const dateKey = getLocalDateString(dayDate);
 
-    setSelectedEvent({ event, dateKey, index: events[dateKey].findIndex(e => e.id === event.id) });
-    setEditedEventTitle(event.title);
-    setEditedEventDescription(event.description ?? '');
-    setEditedStartDateTime(start);
-    setEditedEndDateTime(end);
-    setEditedSelectedCategory(
-      event.categoryName && event.categoryColor
-        ? { name: event.categoryName, color: event.categoryColor }
-        : null
-    );
-    setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-    setEditedRepeatOption(event.repeatOption || 'None');
-    setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-    setShowEditEventModal(true);
-  }}
-  style={{
-    height: '100%',
-    backgroundColor: event.categoryColor || '#808080',
-    borderRadius: 8,
-    padding: 4,
-    justifyContent: 'center',
-  }}
->
-  <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
-    {event.title}
-  </Text>
-</TouchableOpacity>
+                            setSelectedEvent({ event, dateKey, index: events[dateKey].findIndex(e => e.id === event.id) });
+                            setEditedEventTitle(event.title);
+                            setEditedEventDescription(event.description ?? '');
+                            setEditedStartDateTime(start);
+                            setEditedEndDateTime(end);
+                            setEditedSelectedCategory(
+                            event.categoryName && event.categoryColor
+                                ? { name: event.categoryName, color: event.categoryColor }
+                                : null
+                            );
+                            setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                            setEditedRepeatOption(event.repeatOption || 'None');
+                            setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                            setShowEditEventModal(true);
+                        }}
+                        style={{
+                            height: '100%',
+                            backgroundColor: event.categoryColor || '#808080',
+                            borderRadius: 8,
+                            padding: 4,
+                            justifyContent: 'center',
+                        }}
+                        >
+                        <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
+                            {event.title}
+                        </Text>
+                        </TouchableOpacity>
 
-</Swipeable>
+                        </Swipeable>
 
                       </View>
                     );
@@ -307,7 +331,6 @@ const [newEventTitle, setNewEventTitle] = useState('');
                           end.setHours((hourIdx + 7 + 1) % 24, 0, 0, 0);
                           setStartDateTime(start);
                           setEndDateTime(end);
-                          setSelectedDate(dayDate);
                           setShowModal(true);
                         }}
                         activeOpacity={0.6}
@@ -329,6 +352,7 @@ const [newEventTitle, setNewEventTitle] = useState('');
     <View style={{ flex: 1 }}>
 
       <FlatList
+      ref={flatListRef} 
         data={weeks}
         horizontal
         pagingEnabled

@@ -822,15 +822,17 @@ const CalendarScreen: React.FC = () => {
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 0 }}>
-        <TouchableOpacity
-          onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
-          style={{ backgroundColor: '#BF9264', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 }}>
-          <Text style={{ color: 'white', fontWeight: '600', fontSize: 5 }}>
-            {calendarMode === 'month' ? 'Switch to Week View' : 'Switch to Month View'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8, paddingHorizontal: 14 }}>
+      <TouchableOpacity
+        onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
+        style={{ backgroundColor: '#BF9264', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}
+      >
+        <Text style={{ color: 'white', fontWeight: '600', fontSize: 8 }}>
+          {calendarMode === 'month' ? 'Switch to Week View' : 'Switch to Month View'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+
 
 
       {calendarMode === 'month' ? (
