@@ -382,11 +382,13 @@ const styles = StyleSheet.create({
         fontWeight: '600', // still bold
         color: '#333',
         marginBottom: 2, // tighter spacing
+        marginRight: -10
       },
       dateText: {
         fontSize: 13, // 🔥 smaller number size
         fontWeight: '700', // make date numbers pop
         color: '#333',
+        marginRight: -12
       },
       todayHighlight: {
         backgroundColor: '#F0E1D2',
