@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button } from 'react-native';
 import EventModal from '../components/EventModal';
+import { Swipeable } from 'react-native-gesture-handler';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Feather } from '@expo/vector-icons'; 
+
+
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -182,37 +187,63 @@ const [newEventTitle, setNewEventTitle] = useState('');
                   
                     {/* 🔥 Here is where you paste it */}
                     {events[getLocalDateString(dayDate)]?.map((event, idx) => {
-                    const eventStart = new Date(event.startDateTime!);
-                    const eventEnd = new Date(event.endDateTime!);
-                    const eventStartHour = eventStart.getHours();
-                    const eventEndHour = eventEnd.getHours();
-                    const durationInHours = eventEndHour - eventStartHour || 1; // prevent 0 height
+  const eventStart = new Date(event.startDateTime!);
+  const eventEnd = new Date(event.endDateTime!);
+  const eventStartHour = eventStart.getHours();
+  const eventEndHour = eventEnd.getHours();
+  const durationInHours = eventEndHour - eventStartHour || 1; // prevent 0 height
 
-                    if (hourIdx === eventStartHour) {
-                        return (
-                        <View
-                            key={idx}
-                            style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 2,
-                            right: 2,
-                            height: 55 * durationInHours - 4, // 🔥 auto height: 55px per hour minus margins
-                            backgroundColor: event.categoryColor || '#BF9264',
-                            borderRadius: 6,
-                            padding: 4,
-                            justifyContent: 'center',
-                            }}
-                        >
-                            <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={1}>
-                            {event.title}
-                            </Text>
-                        </View>
-                        );
-                    }
+  if (hourIdx === eventStartHour) {
+    return (
+      <View key={event.id} style={{ position: 'absolute', top: 0, left: 2, right: 2 }}>
+        <Swipeable
+          overshootRight={false}
+          renderRightActions={() => (
+            <TouchableOpacity
+              style={{
+                backgroundColor: 'red',
+                justifyContent: 'center',
+                alignItems: 'center',
+                width: 70,
+                height: 55 * durationInHours - 4,
+                borderRadius: 6,
+                marginVertical: 2,
+              }}
+              onPress={() => {
+                setEvents(prev => {
+                  const updated = { ...prev };
+                  const dateKey = getLocalDateString(dayDate);
+                  updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
+                  return updated;
+                });
+              }}
+            >
+              <Feather name="trash-2" size={15} color="white" />
+            </TouchableOpacity>
+          )}
+          
+        >
+          <View
+            style={{
+              height: 55 * durationInHours - 4,
+              backgroundColor: event.categoryColor || '#BF9264',
+              borderRadius: 6,
+              padding: 4,
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={1}>
+              {event.title}
+            </Text>
+          </View>
+        </Swipeable>
+      </View>
+    );
+  }
 
-                    return null;
-                    })}
+  return null;
+})}
+
 
                   
                   </TouchableOpacity>
