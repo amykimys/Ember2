@@ -14,7 +14,7 @@ const TIME_COLUMN_WIDTH = 50;
 
 // 🛠 ADD THIS LINE TOO:
 const DAY_COLUMN_WIDTH = (SCREEN_WIDTH - TIME_COLUMN_WIDTH) / 7;
-const hours = Array.from({ length: 24 }, (_, i) => `${i}:00`);
+const hours = Array.from({ length: 24 }, (_, i) => `${(i + 6) % 24}:00`);
 
 // Add your CalendarEvent here ✅
 interface CalendarEvent {
@@ -151,15 +151,17 @@ const [newEventTitle, setNewEventTitle] = useState('');
         </View>
       
         {/* Timetable */}
-        <View style={{ flexDirection: 'row', flex: 1 }}>
-          {/* LEFT: Time indicators */}
-          <View style={styles.timeColumn}>
+        <ScrollView style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row' }}>
+            {/* LEFT: Time indicators */}
+            <View style={styles.timeColumn}>
             {hours.map((hour, idx) => (
-              <View key={idx} style={styles.timeRow}>
+                <View key={idx} style={styles.timeRow}>
                 <Text style={styles.timeText}>{hour}</Text>
-              </View>
+                </View>
             ))}
-          </View>
+            </View>
+
       
           {/* RIGHT: Day columns */}
           <ScrollView horizontal style={{ flex: 1 }}>
@@ -192,37 +194,41 @@ const [newEventTitle, setNewEventTitle] = useState('');
   const eventStartHour = eventStart.getHours();
   const eventEndHour = eventEnd.getHours();
   const durationInHours = eventEndHour - eventStartHour || 1; // prevent 0 height
+  const calendarHour = (hourIdx + 6) % 24; 
 
-  if (hourIdx === eventStartHour) {
+  if (calendarHour === eventStartHour) { 
     return (
       <View key={event.id} style={{ position: 'absolute', top: 0, left: 2, right: 2 }}>
         <Swipeable
-          overshootRight={false}
-          renderRightActions={() => (
-            <TouchableOpacity
-              style={{
-                backgroundColor: 'red',
-                justifyContent: 'center',
-                alignItems: 'center',
-                width: 70,
-                height: 55 * durationInHours - 4,
-                borderRadius: 6,
-                marginVertical: 2,
-              }}
-              onPress={() => {
-                setEvents(prev => {
-                  const updated = { ...prev };
-                  const dateKey = getLocalDateString(dayDate);
-                  updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
-                  return updated;
-                });
-              }}
-            >
-              <Feather name="trash-2" size={15} color="white" />
-            </TouchableOpacity>
-          )}
-          
-        >
+  friction={2}
+  leftThreshold={80}
+  rightThreshold={40}
+  overshootRight={false}
+  enableTrackpadTwoFingerGesture
+  renderRightActions={() => (
+    <TouchableOpacity
+      style={{
+        backgroundColor: 'red',
+        justifyContent: 'center',
+        alignItems: 'center',
+        width: 70,
+        height: 55 * durationInHours - 4,
+        borderRadius: 6,
+        marginVertical: 2,
+      }}
+      onPress={() => {
+        setEvents(prev => {
+          const updated = { ...prev };
+          const dateKey = getLocalDateString(dayDate);
+          updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
+          return updated;
+        });
+      }}
+    >
+      <Feather name="trash-2" size={24} color="white" />
+    </TouchableOpacity>
+  )}
+>
           <View
             style={{
               height: 55 * durationInHours - 4,
@@ -243,9 +249,6 @@ const [newEventTitle, setNewEventTitle] = useState('');
 
   return null;
 })}
-
-
-                  
                   </TouchableOpacity>
                   
                   ))}
@@ -254,6 +257,7 @@ const [newEventTitle, setNewEventTitle] = useState('');
             </View>
           </ScrollView>
         </View>
+        </ScrollView>
       </View>
       
     );
