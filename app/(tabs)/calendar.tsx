@@ -93,13 +93,19 @@ const styles = StyleSheet.create({
   },
   cell: {
     width: CELL_WIDTH,
-    height: CELL_HEIGHT + 12,
     paddingTop: 6,
     paddingLeft: 4,
     paddingRight: 4,
     borderColor: '#eee',
     backgroundColor: 'white',
   },
+  cellExpanded: {
+    height: CELL_HEIGHT + 12, // Normal full height
+  },
+  cellCompact: {
+    height: CELL_HEIGHT * 0.7, // 🛠 30% smaller when compact
+  },
+  
   dateNumber: {
     fontSize: 16,
     color: '#333',
@@ -252,6 +258,11 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     color: '#666',
   },
+  gridCompact: {
+    height: CELL_HEIGHT * 3 + 48, // 🛠 3 rows (instead of 6 rows full height)
+    overflow: 'hidden',
+  },
+  
 });
 
 const CalendarScreen: React.FC = () => {
@@ -317,7 +328,7 @@ const CalendarScreen: React.FC = () => {
 
 
   const [calendarMode, setCalendarMode] = useState<'month' | 'week'>('month');
-  const [isWeeklyView, setIsWeeklyView] = useState(false);
+  const [isMonthCompact, setIsMonthCompact] = useState(false);
 
 
 
@@ -571,132 +582,145 @@ const CalendarScreen: React.FC = () => {
 
   const renderCell = (date: Date | null, index: number) => {
     return (
-      <TouchableOpacity
-        key={index}
-        style={[
-          styles.cell,
-          isSelected(date) && styles.selectedCell,
-          isToday(date) && styles.todayCell
-        ]}
-        onPress={() => {
-          if (date) {
-            setSelectedDate(date);
-            setStartDateTime(new Date(date));
-            setNewEventTitle('');
-            setNewEventDescription('');
-            setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000));
-            setUserChangedEndTime(false);
-            setShowModal(true);
-          }
-        }}
-        activeOpacity={date ? 0.7 : 1}
-        disabled={!date}
-      >
-        <Text
-          style={[
-            styles.dateNumber,
-            !date && styles.invisibleText,
-            isSelected(date) && styles.selectedText,
-            isToday(date) && styles.todayText
-          ]}
+      <View
+  key={index}
+  style={[
+    styles.cell,
+    isMonthCompact ? styles.cellCompact : styles.cellExpanded, // ✨ add this line
+    isSelected(date) && styles.selectedCell,
+    isToday(date) && styles.todayCell,
+  ]}
+>
+
+        {/* 🔵 TOP: Date number press (collapse month) */}
+        {date && (
+          <TouchableOpacity
+            onPress={() => {
+              if (date) {
+                setSelectedDate(date);
+                setIsMonthCompact(prev => !prev); // ✅ toggle between compact and expanded
+              }
+            }}
+            style={{ position: 'absolute', top: 4, left: 4, zIndex: 2 }}
+          >
+            <Text
+              style={[
+                styles.dateNumber,
+                !date && styles.invisibleText,
+                isSelected(date) && styles.selectedText,
+                isToday(date) && styles.todayText,
+              ]}
+            >
+              {date?.getDate()}
+            </Text>
+          </TouchableOpacity>
+        )}
+  
+        {/* 🔵 BOTTOM: Background cell press (open add event modal) */}
+        <TouchableOpacity
+          onPress={() => {
+            if (date) {
+              setSelectedDate(date);
+              setStartDateTime(new Date(date));
+              setNewEventTitle('');
+              setNewEventDescription('');
+              setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000));
+              setUserChangedEndTime(false);
+              setShowModal(true);
+            }
+          }}
+          activeOpacity={date ? 0.7 : 1}
+          disabled={!date}
+          style={{ flex: 1, paddingTop: 12 }}
         >
-          {date?.getDate()}
-        </Text>
+          {/* 🔥 Inside this background touchable, render events */}
+          {date &&
+            events[getLocalDateString(date)]?.map((event, idx) => {
+              const dateKey = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+              const eventStart = new Date(event.startDateTime!);
+              const eventEnd = new Date(event.endDateTime!);
   
-        {date &&
-          events[getLocalDateString(date)]?.map((event, idx) => {
-            const dateKey = date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
-            const eventStart = new Date(event.startDateTime!);
-            const eventEnd = new Date(event.endDateTime!);
-
-            const numberOfSpanningDays = Math.floor(
-  (eventEnd.getTime() - eventStart.getTime()) / (1000 * 60 * 60 * 24)
-) + 1;
-
+              const numberOfSpanningDays =
+                Math.floor((eventEnd.getTime() - eventStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
   
-            // Check if event spans multiple days
-            const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
-            const isStartDate = dateKey === eventStart.toISOString().split('T')[0];
-            const isInsideSpan = 
-              date!.getTime() >= new Date(eventStart.getFullYear(), eventStart.getMonth(), eventStart.getDate()).getTime() &&
-              date!.getTime() <= new Date(eventEnd.getFullYear(), eventEnd.getMonth(), eventEnd.getDate()).getTime();
-          
+              const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
+              const isStartDate = dateKey === eventStart.toISOString().split('T')[0];
   
               if (!isStartDate && isMultiDay) return null;
   
-            return (
-              <Swipeable
-                key={idx}
-                overshootRight={false}
-                onSwipeableOpen={() => handleDeleteEvent(dateKey, idx)}
-                renderRightActions={() => (
-                  <View
-                    style={{
-                      flex: 1,
-                      backgroundColor: 'red',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      borderRadius: 6,
-                      overflow: 'hidden',
-                      marginTop: idx === 0 ? 10 : 4,
-                    }}
-                  >
-                    <Ionicons name="trash-outline" size={10} color="white" />
-                  </View>
-                )}
-              >
-                <TouchableOpacity
-                  style={{
-                    backgroundColor: event.categoryColor || '#eee',
-                    borderRadius: 6,
-                    paddingVertical: 2,
-                    paddingHorizontal: 6, // 👈 keep normal padding for single day
-                    marginTop: idx === 0 ? 10 : 4,
-                    overflow: 'hidden',
-                    width: numberOfSpanningDays > 1 ? CELL_WIDTH * numberOfSpanningDays - 8 : undefined,
-                    alignSelf: numberOfSpanningDays > 1 ? 'flex-start' : undefined, // optional to make it align nicely
-                  }}
-                  onLongPress={() => {
-                    const eventToEdit = events[dateKey][idx];
-                    setSelectedEvent({ event: eventToEdit, dateKey, index: idx });
-                    setEditedEventTitle(eventToEdit.title);
-                    setEditedEventDescription(eventToEdit.description ?? '');
-                    setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
-                    setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
-                    setEditedSelectedCategory(
-                      eventToEdit.categoryName && eventToEdit.categoryColor
-                        ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
-                        : null
-                    );
-                    setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
-                    setEditedRepeatOption(eventToEdit.repeatOption || 'None');
-                    setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
-
-                    // 👇 ADD THIS
-                    collapseAllPickers();
-
-                    setShowEditEventModal(true);
-                  }}
+              return (
+                <Swipeable
+                  key={idx}
+                  overshootRight={false}
+                  onSwipeableOpen={() => handleDeleteEvent(dateKey, idx)}
+                  renderRightActions={() => (
+                    <View
+                      style={{
+                        flex: 1,
+                        backgroundColor: 'red',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        marginTop: idx === 0 ? 10 : 4,
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={10} color="white" />
+                    </View>
+                  )}
                 >
-                  <Text
-                    numberOfLines={1}
+                  <TouchableOpacity
                     style={{
-                      fontSize: 10,
-                      color: isMultiDay && !isStartDate ? '#ddd' : '#fff',
-                      fontWeight: isMultiDay && !isStartDate ? '400' : '600',
-                      fontStyle: isMultiDay && !isStartDate ? 'italic' : 'normal',
-                      textAlign: 'center',
+                      backgroundColor: event.categoryColor || '#eee',
+                      borderRadius: 6,
+                      paddingVertical: 2,
+                      paddingHorizontal: 6,
+                      marginTop: idx === 0 ? 10 : 4,
+                      overflow: 'hidden',
+                      width: numberOfSpanningDays > 1 ? CELL_WIDTH * numberOfSpanningDays - 8 : undefined,
+                      alignSelf: numberOfSpanningDays > 1 ? 'flex-start' : undefined,
+                    }}
+                    onLongPress={() => {
+                      const eventToEdit = events[dateKey][idx];
+                      setSelectedEvent({ event: eventToEdit, dateKey, index: idx });
+                      setEditedEventTitle(eventToEdit.title);
+                      setEditedEventDescription(eventToEdit.description ?? '');
+                      setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
+                      setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
+                      setEditedSelectedCategory(
+                        eventToEdit.categoryName && eventToEdit.categoryColor
+                          ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
+                          : null
+                      );
+                      setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
+                      setEditedRepeatOption(eventToEdit.repeatOption || 'None');
+                      setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
+  
+                      collapseAllPickers();
+                      setShowEditEventModal(true);
                     }}
                   >
-                    {event.isContinued ? 'Continued...' : event.title}
-                  </Text>
-                </TouchableOpacity>
-              </Swipeable>
-            );
-          })}
-      </TouchableOpacity>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        fontSize: 10,
+                        color: isMultiDay && !isStartDate ? '#ddd' : '#fff',
+                        fontWeight: isMultiDay && !isStartDate ? '400' : '600',
+                        fontStyle: isMultiDay && !isStartDate ? 'italic' : 'normal',
+                        textAlign: 'center',
+                      }}
+                    >
+                      {event.isContinued ? 'Continued...' : event.title}
+                    </Text>
+                  </TouchableOpacity>
+                </Swipeable>
+              );
+            })}
+        </TouchableOpacity>
+      </View>
     );
   };
+  
   
   const resetEventForm = () => {
     setNewEventTitle('');
@@ -811,9 +835,9 @@ const CalendarScreen: React.FC = () => {
             </Text>
           ))}
         </View>
-        <View style={styles.grid}>
-          {days.map((date, i) => renderCell(date, i))}
-        </View>
+        <View style={[styles.grid, isMonthCompact && styles.gridCompact]}>
+        {days.map((date, i) => renderCell(date, i))}
+      </View>
       </View>
     );
     
