@@ -29,6 +29,9 @@ import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import { Picker as ReactNativePicker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
+import CalendarStrip from 'react-native-calendar-strip';
+import moment from 'moment';
+import 'moment/locale/en-gb';
 
 
 interface Habit {
@@ -101,9 +104,27 @@ export default function HabitScreen() {
   const [selectedHour, setSelectedHour] = useState('12');
   const [selectedMinute, setSelectedMinute] = useState('00');
   const [selectedAmPm, setSelectedAmPm] = useState('AM');
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const calendarStripRef = useRef<any>(null);
 
+  const today = moment();
+  const todayStr = today.format('YYYY-MM-DD');
+  const isTodaySelected = moment(currentDate).format('YYYY-MM-DD') === todayStr;
 
-  
+  const customDatesStyles = [
+    {
+      date: todayStr,
+      dateNameStyle: {
+        color: isTodaySelected ? '#BF9264' : '#BF9264',
+        fontWeight: 'bold',
+      },
+      dateNumberStyle: {
+        color: isTodaySelected ? '#BF9264' : '#BF9264',
+        fontWeight: 'bold',
+      },
+    },
+  ];
+
   const THEMES = {
     pastel: ['#FADADD', '#FFE5B4', '#FFFACD', '#D0F0C0', '#B0E0E6', '#D8BFD8', '#F0D9FF', '#C1E1C1']
   ,
@@ -846,7 +867,54 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
             </TouchableOpacity>
           </View>
 
-       
+          {/* Add Calendar Strip Header */}
+          <View style={{ paddingHorizontal: 0, marginHorizontal: 0, marginBottom: 5 }}>
+            <TouchableOpacity onPress={() => {
+              const now = moment();
+              setCurrentDate(now.toDate());
+              calendarStripRef.current?.setSelectedDate(now);
+            }} onLongPress={() => {
+              const now = moment();
+              setCurrentDate(now.toDate());
+                calendarStripRef.current?.setSelectedDate(now);            
+                }} delayLongPress={300}>
+              <TouchableOpacity onPress={() => {
+                const now = moment();
+                setCurrentDate(now.toDate());
+                  calendarStripRef.current?.setSelectedDate(now);             
+                   }}>
+                <Text style={{ color: '#000', fontSize: 18, fontWeight: 'bold', marginBottom: -2, textAlign: 'center' }}>
+                  {moment(currentDate).format('MMMM YYYY')}
+                </Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+            <CalendarStrip
+              ref={calendarStripRef}
+              scrollable
+              startingDate={moment().subtract(3, 'days')}
+              showMonth
+              leftSelector={<View />}
+              rightSelector={<View />}
+              style={{ height: 100, paddingTop: 0, paddingBottom: 0, paddingHorizontal: 0 }}
+              calendarColor={'#fff'}
+              calendarHeaderStyle={{
+                display: 'none'
+              }}
+              dateNumberStyle={{ color: '#999', fontSize: 15 }}
+              dateNameStyle={{ color: '#999' }}
+              highlightDateNumberStyle={{
+                color: isTodaySelected ? '#BF9264' : '#000',
+                fontSize: 30,
+              }}
+              highlightDateNameStyle={{
+                color: isTodaySelected ? '#BF9264' : '#000',
+                fontSize: 12.5,
+              }}
+              selectedDate={moment(currentDate)}
+              onDateSelected={(date) => setCurrentDate(date.toDate())}
+              customDatesStyles={customDatesStyles}
+            />
+          </View>
 
           <ScrollView style={styles.habitList}>
             {habits.length === 0 ? (

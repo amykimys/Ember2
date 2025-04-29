@@ -93,6 +93,16 @@ const [newEventStart, setNewEventStart] = useState<Date | null>(null);
 const [newEventEnd, setNewEventEnd] = useState<Date | null>(null);
 const [newEventTitle, setNewEventTitle] = useState('');
 
+const isToday = (date: Date) => {
+    const today = new Date();
+    return (
+      date.getFullYear() === today.getFullYear() &&
+      date.getMonth() === today.getMonth() &&
+      date.getDate() === today.getDate()
+    );
+  };
+  
+
 
   const getWeekStartDate = (offsetWeeks = 0) => {
     const date = new Date(baseDate);
@@ -184,10 +194,15 @@ const [newEventTitle, setNewEventTitle] = useState('');
             onPress={() => setSelectedDate(date)}
             style={styles.dateContainer}
           >
-            <Text style={styles.dayText}>
-              {date.toLocaleDateString('en-US', { weekday: 'short' })}
+            <Text style={[styles.dayText, isToday(date) && { color: '#BF9264', fontWeight: '700' }]}>
+            {date.toLocaleDateString('en-US', { weekday: 'short' })}
             </Text>
-            <Text style={styles.dateText}>{date.getDate()}</Text>
+
+            <Text style={[styles.dateText, isToday(date) && { color: '#BF9264', fontWeight: '700' }]}>
+                {date.getDate()}
+            </Text>
+            
+
           </TouchableOpacity>
         ))}
       </View>
@@ -305,6 +320,7 @@ const [newEventTitle, setNewEventTitle] = useState('');
                             borderRadius: 8,
                             padding: 4,
                             justifyContent: 'center',
+                            alignItems: 'center'
                         }}
                         >
                         <Text style={{ fontSize: 10, color: 'white', fontWeight: 'bold' }} numberOfLines={2}>
@@ -508,7 +524,8 @@ const styles = StyleSheet.create({
     weekStrip: {
         flexDirection: 'row',
         justifyContent: 'flex-end', // 🔥 push all dates to the right
-        paddingVertical: 6,
+        paddingTop: 18,
+        paddingBottom: 5,
         paddingHorizontal: 14, // 🔥 slight right/left padding
         borderBottomWidth: 1,
         borderColor: '#eee',
@@ -604,6 +621,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     marginBottom: 10,
   },
+  
   modalLabel: {
     fontSize: 14,
     marginBottom: 10,

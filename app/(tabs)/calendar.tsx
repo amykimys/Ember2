@@ -53,23 +53,25 @@ interface WeeklyCalendarViewProps {
 type RepeatOption = 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const TOTAL_HORIZONTAL_PADDING = 16; // 8 left + 8 right
+const SIDE_PADDING = TOTAL_HORIZONTAL_PADDING / 2; // 8px left or right individually
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-const CELL_WIDTH = SCREEN_WIDTH / 7;
+const CELL_WIDTH = (SCREEN_WIDTH - TOTAL_HORIZONTAL_PADDING) / 7;
 const CELL_HEIGHT = (SCREEN_HEIGHT - 140) / 6;
 
 const NUM_COLUMNS = 7;
 const NUM_ROWS = 6;
 
-const weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const generateMonthKey = (year: number, month: number) => `${year}-${month}`;
 
 const styles = StyleSheet.create({
   monthLabel: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
     textAlign: 'center',
-    marginTop: 4,
+    marginTop: 0,
     marginBottom: 28,
     color: '#333',
   },
@@ -78,6 +80,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#eee',
     backgroundColor: 'white',
+    marginTop: -8,        // ✨ Add this (negative value moves it UP)
+    paddingVertical: 2,
   },
   weekday: {
     width: CELL_WIDTH,
@@ -90,12 +94,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     backgroundColor: 'white',
+    paddingHorizontal: 0,
   },
   cell: {
     width: CELL_WIDTH,
     paddingTop: 6,
-    paddingLeft: 4,
-    paddingRight: 4,
+    paddingLeft: 2,
+    paddingRight: 2,
     borderColor: '#eee',
     backgroundColor: 'white',
   },
@@ -107,7 +112,7 @@ const styles = StyleSheet.create({
   },
   
   dateNumber: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#333',
     marginLeft: 0.5,
   },
@@ -116,7 +121,7 @@ const styles = StyleSheet.create({
   },
   selectedCell: {
     borderColor: '#BF9264',
-    borderWidth: 1,
+    borderWidth: 0,
   },
   selectedText: {
     fontWeight: 'bold',
@@ -128,16 +133,6 @@ const styles = StyleSheet.create({
   },
   invisibleText: {
     color: 'transparent',
-  },
-  dotContainer: {
-    marginTop: 4,
-    paddingLeft: 2,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#007AFF',
   },
   addButton: {
     position: 'absolute',
@@ -595,7 +590,7 @@ const CalendarScreen: React.FC = () => {
                 setIsMonthCompact(prev => !prev); // ✅ toggle between compact and expanded
               }
             }}
-            style={{ position: 'absolute', top: 4, left: 4, zIndex: 2 }}
+            style={{ alignItems: 'center', justifyContent: 'center' }}
           >
             <Text
               style={[
@@ -625,7 +620,7 @@ const CalendarScreen: React.FC = () => {
           }}
           activeOpacity={date ? 0.7 : 1}
           disabled={!date}
-          style={{ flex: 1, paddingTop: 12 }}
+          style={{ flex: 1, paddingTop: 0 }}
         >
           {/* 🔥 Inside this background touchable, render events */}
           {date &&
@@ -668,8 +663,7 @@ const CalendarScreen: React.FC = () => {
                       backgroundColor: event.categoryColor || '#eee',
                       borderRadius: 6,
                       paddingVertical: 2,
-                      paddingHorizontal: 6,
-                      marginTop: idx === 0 ? 10 : 4,
+                      marginTop: idx === 0 ? 8 : 4,
                       overflow: 'hidden',
                       width: numberOfSpanningDays > 1 ? CELL_WIDTH * numberOfSpanningDays - 8 : undefined,
                       alignSelf: numberOfSpanningDays > 1 ? 'flex-start' : undefined,
@@ -811,7 +805,7 @@ const CalendarScreen: React.FC = () => {
     });
   
     return (
-      <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 12, backgroundColor: 'limegreen' }}>
+      <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
         <TouchableOpacity
           onPress={() => {
             const todayIndex = findMonthIndex(today);
@@ -822,16 +816,19 @@ const CalendarScreen: React.FC = () => {
         >
           <Text style={styles.monthLabel}>{label}</Text>
         </TouchableOpacity>
-        <View style={styles.weekRow}>
-          {weekdays.map((day, idx) => (
-            <Text key={idx} style={styles.weekday}>
-              {day}
-            </Text>
-          ))}
+        <View style={{ paddingHorizontal: SIDE_PADDING }}>
+          <View style={styles.weekRow}>
+            {weekdays.map((day, idx) => (
+              <Text key={idx} style={styles.weekday}>
+                {day}
+              </Text>
+            ))}
+          </View>
+
+          <View style={[styles.grid, isMonthCompact && styles.gridCompact]}>
+            {days.map((date, i) => renderCell(date, i))}
+          </View>
         </View>
-        <View style={[styles.grid, isMonthCompact && styles.gridCompact]}>
-        {days.map((date, i) => renderCell(date, i))}
-      </View>
       </View>
     );
     
@@ -840,13 +837,13 @@ const CalendarScreen: React.FC = () => {
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8, paddingHorizontal: 14 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -3, paddingHorizontal: 14 }}>
           <TouchableOpacity
             onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
             style={{ backgroundColor: '#BF9264', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}
           >
             <Text style={{ color: 'white', fontWeight: '600', fontSize: 8 }}>
-              {calendarMode === 'month' ? 'Switch to Week View' : 'Switch to Month View'}
+              {calendarMode === 'month' ? 'Month View' : 'Week View'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -874,9 +871,9 @@ const CalendarScreen: React.FC = () => {
             </View>
 
             {isMonthCompact && (
-              <View style={{ flex: 0.5, backgroundColor: 'white', marginTop: -1 }}>
+              <View style={{ flex: 0.5, backgroundColor: 'white', marginTop: -38 }}>
                 <ScrollView
-                  style={{ paddingHorizontal: 16, paddingTop: 4 }}
+                  style={{ paddingHorizontal: 16, paddingTop: 0 }}
                   contentContainerStyle={{ paddingBottom: 20 }}
                   showsVerticalScrollIndicator={false}
                 >
@@ -912,11 +909,11 @@ const CalendarScreen: React.FC = () => {
                           {event.title}
                         </Text>
                         {event.description && (
-                          <Text style={{ fontSize: 14, color: '#666', marginBottom: 4 }}>
+                          <Text style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>
                             {event.description}
                           </Text>
                         )}
-                        <Text style={{ fontSize: 12, color: '#999' }}>
+                        <Text style={{ fontSize: 10, color: '#999' }}>
                           {new Date(event.startDateTime!).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           {' '}–{' '}
                           {new Date(event.endDateTime!).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
