@@ -859,25 +859,82 @@ const CalendarScreen: React.FC = () => {
 
 
 
-      {calendarMode === 'month' ? (
-        <FlatList
-          ref={flatListRef}
-          data={months}
-          keyExtractor={(item) => item.key}
-          horizontal
-          pagingEnabled
-          initialScrollIndex={currentMonthIndex}
-          contentContainerStyle={{ flexGrow: 1 }}
-          renderItem={renderMonth}
-          getItemLayout={(_, index) => ({
-            length: SCREEN_WIDTH,
-            offset: SCREEN_WIDTH * index,
-            index,
-          })}
-          showsHorizontalScrollIndicator={false}
-          style={{ flex: 1, backgroundColor: 'white' }}
-        />
-      ) : (
+    {calendarMode === 'month' ? (
+  <View style={{ flex: 1 }}>
+    <FlatList
+      ref={flatListRef}
+      data={months}
+      keyExtractor={(item) => item.key}
+      horizontal
+      pagingEnabled
+      initialScrollIndex={currentMonthIndex}
+      contentContainerStyle={{ flexGrow: 1 }}
+      renderItem={renderMonth}
+      getItemLayout={(_, index) => ({
+        length: SCREEN_WIDTH,
+        offset: SCREEN_WIDTH * index,
+        index,
+      })}
+      showsHorizontalScrollIndicator={false}
+      style={{ flex: 0.6, backgroundColor: 'white' }} // 🔥 Make calendar only take 60% height
+    />
+
+    {isMonthCompact && (
+      <ScrollView
+        style={{ flex: 0., paddingHorizontal: 16, paddingTop: 10 }}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {events[getLocalDateString(selectedDate)]?.length ? (
+          events[getLocalDateString(selectedDate)]?.map((event, index) => (
+            <TouchableOpacity
+              key={index}
+              style={{
+                backgroundColor: event.categoryColor || '#eee',
+                padding: 14,
+                borderRadius: 12,
+                marginBottom: 10,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.1,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+              onPress={() => {
+                setSelectedEvent({ event, dateKey: event.date, index });
+                setEditedEventTitle(event.title);
+                setEditedEventDescription(event.description ?? '');
+                setEditedStartDateTime(new Date(event.startDateTime!));
+                setEditedEndDateTime(new Date(event.endDateTime!));
+                setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+                setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                setEditedRepeatOption(event.repeatOption || 'None');
+                setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                setShowEditEventModal(true);
+              }}
+            >
+              <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 6, color: '#333' }}>
+                {event.title}
+              </Text>
+              {event.description && (
+                <Text style={{ fontSize: 14, color: '#666', marginBottom: 4 }}>
+                  {event.description}
+                </Text>
+              )}
+              <Text style={{ fontSize: 12, color: '#999' }}>
+                {new Date(event.startDateTime!).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                {' '}–{' '}
+                {new Date(event.endDateTime!).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </TouchableOpacity>
+          ))
+        ) : (
+          <Text style={{ textAlign: 'center', color: '#aaa', marginTop: 20 }}>No events for this day</Text>
+        )}
+      </ScrollView>
+    )}
+  </View>
+) : (
         <WeeklyCalendarView
         selectedDate={selectedDate}
         setSelectedDate={setSelectedDate}
