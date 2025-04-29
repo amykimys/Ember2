@@ -103,7 +103,7 @@ const styles = StyleSheet.create({
     height: CELL_HEIGHT + 12, // Normal full height
   },
   cellCompact: {
-    height: CELL_HEIGHT * 0.7, // 🛠 30% smaller when compact
+    height: CELL_HEIGHT * 0.65, // 🛠 30% smaller when compact
   },
   
   dateNumber: {
@@ -259,10 +259,9 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   gridCompact: {
-    height: CELL_HEIGHT * 3 + 48, // 🛠 3 rows (instead of 6 rows full height)
+    height: CELL_HEIGHT * 2 + 180, // Reduce to 2 rows instead of 3
     overflow: 'hidden',
   },
-  
 });
 
 const CalendarScreen: React.FC = () => {
@@ -331,8 +330,6 @@ const CalendarScreen: React.FC = () => {
   const [isMonthCompact, setIsMonthCompact] = useState(false);
 
 
-
-
   useEffect(() => {
     const fetchUser = async () => {
       const { data, error } = await supabase.auth.getUser();
@@ -389,12 +386,9 @@ const CalendarScreen: React.FC = () => {
             currentDate.setDate(currentDate.getDate() + 1);
           }
         });
-        
-  
         setEvents(eventsMap);
       }
     };
-  
     fetchEvents();
   }, []);
 
@@ -817,7 +811,7 @@ const CalendarScreen: React.FC = () => {
     });
   
     return (
-      <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, paddingTop: 12, backgroundColor: 'white' }}>
+      <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 12, backgroundColor: 'limegreen' }}>
         <TouchableOpacity
           onPress={() => {
             const todayIndex = findMonthIndex(today);
@@ -846,118 +840,117 @@ const CalendarScreen: React.FC = () => {
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8, paddingHorizontal: 14 }}>
-      <TouchableOpacity
-        onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
-        style={{ backgroundColor: '#BF9264', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}
-      >
-        <Text style={{ color: 'white', fontWeight: '600', fontSize: 8 }}>
-          {calendarMode === 'month' ? 'Switch to Week View' : 'Switch to Month View'}
-        </Text>
-      </TouchableOpacity>
-    </View>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8, paddingHorizontal: 14 }}>
+          <TouchableOpacity
+            onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
+            style={{ backgroundColor: '#BF9264', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}
+          >
+            <Text style={{ color: 'white', fontWeight: '600', fontSize: 8 }}>
+              {calendarMode === 'month' ? 'Switch to Week View' : 'Switch to Month View'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
+        {calendarMode === 'month' ? (
+          <View style={{ flex: 1, flexDirection: 'column' }}>
+            <View style={{ flex: isMonthCompact ? 0.9 : 1 }}>
+              <FlatList
+                ref={flatListRef}
+                data={months}
+                keyExtractor={(item) => item.key}
+                horizontal
+                pagingEnabled
+                initialScrollIndex={currentMonthIndex}
+                contentContainerStyle={{ flexGrow: 1 }}
+                renderItem={renderMonth}
+                getItemLayout={(_, index) => ({
+                  length: SCREEN_WIDTH,
+                  offset: SCREEN_WIDTH * index,
+                  index,
+                })}
+                showsHorizontalScrollIndicator={false}
+                style={{ flex: 1}}
+              />
+            </View>
 
-
-    {calendarMode === 'month' ? (
-  <View style={{ flex: 1 }}>
-    <FlatList
-      ref={flatListRef}
-      data={months}
-      keyExtractor={(item) => item.key}
-      horizontal
-      pagingEnabled
-      initialScrollIndex={currentMonthIndex}
-      contentContainerStyle={{ flexGrow: 1 }}
-      renderItem={renderMonth}
-      getItemLayout={(_, index) => ({
-        length: SCREEN_WIDTH,
-        offset: SCREEN_WIDTH * index,
-        index,
-      })}
-      showsHorizontalScrollIndicator={false}
-      style={{ flex: 0.6, backgroundColor: 'white' }} // 🔥 Make calendar only take 60% height
-    />
-
-    {isMonthCompact && (
-      <ScrollView
-        style={{ flex: 0., paddingHorizontal: 16, paddingTop: 10 }}
-        contentContainerStyle={{ paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
-      >
-        {events[getLocalDateString(selectedDate)]?.length ? (
-          events[getLocalDateString(selectedDate)]?.map((event, index) => (
-            <TouchableOpacity
-              key={index}
-              style={{
-                backgroundColor: event.categoryColor || '#eee',
-                padding: 14,
-                borderRadius: 12,
-                marginBottom: 10,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 4,
-                elevation: 3,
-              }}
-              onPress={() => {
-                setSelectedEvent({ event, dateKey: event.date, index });
-                setEditedEventTitle(event.title);
-                setEditedEventDescription(event.description ?? '');
-                setEditedStartDateTime(new Date(event.startDateTime!));
-                setEditedEndDateTime(new Date(event.endDateTime!));
-                setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                setEditedRepeatOption(event.repeatOption || 'None');
-                setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                setShowEditEventModal(true);
-              }}
-            >
-              <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 6, color: '#333' }}>
-                {event.title}
-              </Text>
-              {event.description && (
-                <Text style={{ fontSize: 14, color: '#666', marginBottom: 4 }}>
-                  {event.description}
-                </Text>
-              )}
-              <Text style={{ fontSize: 12, color: '#999' }}>
-                {new Date(event.startDateTime!).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                {' '}–{' '}
-                {new Date(event.endDateTime!).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
-              </Text>
-            </TouchableOpacity>
-          ))
+            {isMonthCompact && (
+              <View style={{ flex: 0.5, backgroundColor: 'white', marginTop: -1 }}>
+                <ScrollView
+                  style={{ paddingHorizontal: 16, paddingTop: 4 }}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {events[getLocalDateString(selectedDate)]?.length ? (
+                    events[getLocalDateString(selectedDate)]?.map((event, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={{
+                          backgroundColor: event.categoryColor || '#eee',
+                          padding: 14,
+                          borderRadius: 12,
+                          marginBottom: 10,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.1,
+                          shadowRadius: 4,
+                          elevation: 3,
+                        }}
+                        onPress={() => {
+                          setSelectedEvent({ event, dateKey: event.date, index });
+                          setEditedEventTitle(event.title);
+                          setEditedEventDescription(event.description ?? '');
+                          setEditedStartDateTime(new Date(event.startDateTime!));
+                          setEditedEndDateTime(new Date(event.endDateTime!));
+                          setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+                          setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                          setEditedRepeatOption(event.repeatOption || 'None');
+                          setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                          setShowEditEventModal(true);
+                        }}
+                      >
+                        <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 6, color: '#333' }}>
+                          {event.title}
+                        </Text>
+                        {event.description && (
+                          <Text style={{ fontSize: 14, color: '#666', marginBottom: 4 }}>
+                            {event.description}
+                          </Text>
+                        )}
+                        <Text style={{ fontSize: 12, color: '#999' }}>
+                          {new Date(event.startDateTime!).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {' '}–{' '}
+                          {new Date(event.endDateTime!).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <Text style={{ textAlign: 'center', color: '#aaa', marginTop: 20 }}>No events for this day</Text>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
         ) : (
-          <Text style={{ textAlign: 'center', color: '#aaa', marginTop: 20 }}>No events for this day</Text>
+          <WeeklyCalendarView
+            selectedDate={selectedDate}
+            setSelectedDate={setSelectedDate}
+            events={events}
+            setEvents={setEvents}
+            setShowModal={setShowModal}
+            setStartDateTime={setStartDateTime}
+            setEndDateTime={setEndDateTime}
+            setSelectedEvent={setSelectedEvent}
+            setEditedEventTitle={setEditedEventTitle}
+            setEditedEventDescription={setEditedEventDescription}
+            setEditedStartDateTime={setEditedStartDateTime}
+            setEditedEndDateTime={setEditedEndDateTime}
+            setEditedSelectedCategory={setEditedSelectedCategory}
+            setEditedReminderTime={setEditedReminderTime}
+            setEditedRepeatOption={setEditedRepeatOption}
+            setEditedRepeatEndDate={setEditedRepeatEndDate}
+            setShowEditEventModal={setShowEditEventModal}
+          />
         )}
-      </ScrollView>
-    )}
-  </View>
-) : (
-        <WeeklyCalendarView
-        selectedDate={selectedDate}
-        setSelectedDate={setSelectedDate}
-        events={events}
-        setEvents={setEvents}
-        setShowModal={setShowModal}
-        setStartDateTime={setStartDateTime}
-        setEndDateTime={setEndDateTime}
-      
-        // 🛠 ADD THESE:
-        setSelectedEvent={setSelectedEvent}
-        setEditedEventTitle={setEditedEventTitle}
-        setEditedEventDescription={setEditedEventDescription}
-        setEditedStartDateTime={setEditedStartDateTime}
-        setEditedEndDateTime={setEditedEndDateTime}
-        setEditedSelectedCategory={setEditedSelectedCategory}
-        setEditedReminderTime={setEditedReminderTime}
-        setEditedRepeatOption={setEditedRepeatOption}
-        setEditedRepeatEndDate={setEditedRepeatEndDate}
-        setShowEditEventModal={setShowEditEventModal}
-      />
-      
-      )}
 
         <TouchableOpacity
           onPress={() => setShowModal(true)}
@@ -966,7 +959,7 @@ const CalendarScreen: React.FC = () => {
           <Text style={styles.addIcon}>＋</Text>
         </TouchableOpacity>
       </SafeAreaView>
-  
+
       <Modal
         animationType="slide"
         transparent={true}
