@@ -308,6 +308,7 @@ const CalendarScreen: React.FC = () => {
   const [showCustomDatesPicker, setShowCustomDatesPicker] = useState(false);
   const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
   const [isEditingEvent, setIsEditingEvent] = useState(false);
+  const [customDateTimes, setCustomDateTimes] = useState<{ [date: string]: { start: Date, end: Date } }>({});
   const getLocalDateString = (date: Date) => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   };
@@ -328,6 +329,12 @@ const CalendarScreen: React.FC = () => {
 
   const [calendarMode, setCalendarMode] = useState<'month' | 'week'>('month');
   const [isMonthCompact, setIsMonthCompact] = useState(false);
+
+  const [selectedDateForCustomTime, setSelectedDateForCustomTime] = useState<string | null>(null);
+  const [customStartTime, setCustomStartTime] = useState<Date>(new Date());
+  const [customEndTime, setCustomEndTime] = useState<Date>(new Date(new Date().getTime() + 60 * 60 * 1000));
+  const [showCustomStartPicker, setShowCustomStartPicker] = useState(false);
+  const [showCustomEndPicker, setShowCustomEndPicker] = useState(false);
 
 
   useEffect(() => {
@@ -359,32 +366,56 @@ const CalendarScreen: React.FC = () => {
           const start = new Date(event.start_datetime);
           const end = new Date(event.end_datetime);
         
-          let currentDate = new Date(start);
-          let isFirstDay = true; // 👈 new flag
-        
-          while (currentDate <= end) {
-            const dateKey = getLocalDateString(currentDate);
-        
-            if (!eventsMap[dateKey]) eventsMap[dateKey] = [];
-        
-            eventsMap[dateKey].push({
-              id: event.id,
-              title: event.title,              
-              description: event.description,
-              date: dateKey,
-              startDateTime: event.start_datetime,
-              endDateTime: event.end_datetime,
-              categoryName: event.category_name,
-              categoryColor: event.category_color,
-              reminderTime: event.reminder_time,
-              repeatOption: event.repeat_option,
-              repeatEndDate: event.repeat_end_date,
-              customDates: event.custom_dates,
-              isContinued: !isFirstDay, 
+          // If it's a custom repeat event, only create events on the custom dates
+          if (event.repeat_option === 'Custom' && event.custom_dates && event.custom_dates.length > 0) {
+            event.custom_dates.forEach((dateStr: string) => {
+              if (!eventsMap[dateStr]) eventsMap[dateStr] = [];
+              
+              eventsMap[dateStr].push({
+                id: event.id,
+                title: event.title,              
+                description: event.description,
+                date: dateStr,
+                startDateTime: event.start_datetime,
+                endDateTime: event.end_datetime,
+                categoryName: event.category_name,
+                categoryColor: event.category_color,
+                reminderTime: event.reminder_time,
+                repeatOption: event.repeat_option,
+                repeatEndDate: event.repeat_end_date,
+                customDates: event.custom_dates,
+                isContinued: false,
+              });
             });
+          } else {
+            // For non-custom events, create events across the date range
+            let currentDate = new Date(start);
+            let isFirstDay = true;
         
-            isFirstDay = false; // after first day, all are continued
-            currentDate.setDate(currentDate.getDate() + 1);
+            while (currentDate <= end) {
+              const dateKey = getLocalDateString(currentDate);
+        
+              if (!eventsMap[dateKey]) eventsMap[dateKey] = [];
+        
+              eventsMap[dateKey].push({
+                id: event.id,
+                title: event.title,              
+                description: event.description,
+                date: dateKey,
+                startDateTime: event.start_datetime,
+                endDateTime: event.end_datetime,
+                categoryName: event.category_name,
+                categoryColor: event.category_color,
+                reminderTime: event.reminder_time,
+                repeatOption: event.repeat_option,
+                repeatEndDate: event.repeat_end_date,
+                customDates: event.custom_dates,
+                isContinued: !isFirstDay,
+              });
+        
+              isFirstDay = false;
+              currentDate.setDate(currentDate.getDate() + 1);
+            }
           }
         });
         setEvents(eventsMap);
@@ -617,6 +648,7 @@ const CalendarScreen: React.FC = () => {
           onPress={() => {
             if (date) {
               setSelectedDate(date);
+              resetEventForm();
               setStartDateTime(new Date(date));
               setNewEventTitle('');
               setNewEventDescription('');
@@ -987,7 +1019,10 @@ const CalendarScreen: React.FC = () => {
         )}
 
         <TouchableOpacity
-          onPress={() => setShowModal(true)}
+          onPress={() => {
+            resetEventForm();
+            setShowModal(true);
+          }}
           style={styles.addButton}
         >
           <Text style={styles.addIcon}>＋</Text>
@@ -1014,88 +1049,206 @@ const CalendarScreen: React.FC = () => {
                   keyboardShouldPersistTaps="handled"
                 >
                   <Text style={styles.modalTitle}>Add Event</Text>
-                  <Text style={styles.modalSubtitle}>
-                    {startDateTime.toDateString()}
-                  </Text>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      if (repeatOption === 'Custom') {
+                        setRepeatOption('None');
+                      } else {
+                        setRepeatOption('Custom');
+                      }
+                    }}
+                  >
+                    <Text style={[styles.modalSubtitle, { color: '#6F4E37' }]}>
+                      {repeatOption === 'Custom' ? 'Custom Dates' : startDateTime.toDateString()}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {repeatOption !== 'Custom' ? (
+                    <>
+                      <TextInput
+                        style={styles.inputTitle}
+                        placeholder="Title"
+                        value={newEventTitle}
+                        onChangeText={setNewEventTitle}
+                      />
   
-                  <TextInput
-                    style={styles.inputTitle}
-                    placeholder="Title"
-                    value={newEventTitle}
-                    onChangeText={setNewEventTitle}
-                  />
-  
-                  <TextInput
-                    style={styles.inputDescription}
-                    placeholder="Description (optional)"
-                    value={newEventDescription}
-                    onChangeText={setNewEventDescription}
-                    multiline
-                  />
+                      <TextInput
+                        style={styles.inputDescription}
+                        placeholder="Description (optional)"
+                        value={newEventDescription}
+                        onChangeText={setNewEventDescription}
+                        multiline
+                      />
 
-                  {/* 🕓 Starts */}
-                  <View style={{ marginBottom: 10, marginTop: 5, marginLeft: 5 }}>
-                    <TouchableOpacity
-                      onPress={() => setShowStartPicker(prev => !prev)}
-                      style={styles.inlineSettingRow}
-                    >
-                      <Ionicons name="play-outline" size={22} color="#666" />
-                      <Text style={styles.inlineSettingText}>
-                        {startDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </TouchableOpacity>
+                      {/* 🕓 Starts */}
+                      <View style={{ marginBottom: 10, marginTop: 5, marginLeft: 5 }}>
+                        <TouchableOpacity
+                          onPress={() => setShowStartPicker(prev => !prev)}
+                          style={styles.inlineSettingRow}
+                        >
+                          <Ionicons name="play-outline" size={22} color="#666" />
+                          <Text style={styles.inlineSettingText}>
+                            {startDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </TouchableOpacity>
 
-                    {showStartPicker && (
-                      <Animated.View>
-                        <DateTimePicker
-                          value={startDateTime}
-                          mode="datetime"
-                          display="spinner"
-                          onChange={(event, selectedDate) => {
-                            if (selectedDate) {
-                              setStartDateTime(selectedDate);
-                              if (!userChangedEndTime) {
-                                setEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
-                              }
-                            }
-                            setShowStartPicker(false);
-                          }}
-                        
-                        />
-                      </Animated.View>
-                    )}
-                  </View>
+                        {showStartPicker && (
+                          <Animated.View>
+                            <DateTimePicker
+                              value={startDateTime}
+                              mode="datetime"
+                              display="spinner"
+                              onChange={(event, selectedDate) => {
+                                if (selectedDate) {
+                                  setStartDateTime(selectedDate);
+                                  if (!userChangedEndTime) {
+                                    setEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
+                                  }
+                                }
+                                setShowStartPicker(false);
+                              }}
+                            />
+                          </Animated.View>
+                        )}
+                      </View>
 
-                  {/* 🛑 Ends */}
-                  <View style={{ marginBottom: 10, marginLeft: 5 }}>
-                    <TouchableOpacity
-                      onPress={() => setShowEndPicker(prev => !prev)}
-                      style={styles.inlineSettingRow}
-                    >
-                      <Ionicons name="caret-back-outline" size={22} color="#666" />
-                      <Text style={styles.inlineSettingText}>
-                        {endDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </TouchableOpacity>
+                      {/* 🛑 Ends */}
+                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                        <TouchableOpacity
+                          onPress={() => setShowEndPicker(prev => !prev)}
+                          style={styles.inlineSettingRow}
+                        >
+                          <Ionicons name="caret-back-outline" size={22} color="#666" />
+                          <Text style={styles.inlineSettingText}>
+                            {endDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </TouchableOpacity>
 
-                    {showEndPicker && (
-                      <Animated.View>
-                        <DateTimePicker
-                          value={endDateTime}
-                          mode="datetime"
-                          display="spinner"
-                          onChange={(event, selectedDate) => {
-                            if (selectedDate) {
-                              setEndDateTime(selectedDate);
-                              setUserChangedEndTime(true); // they touched it manually now
-                            }
-                            setShowEndPicker(false);
-                          }}
-                          
-                        />
-                      </Animated.View>
-                    )}
-                  </View>
+                        {showEndPicker && (
+                          <Animated.View>
+                            <DateTimePicker
+                              value={endDateTime}
+                              mode="datetime"
+                              display="spinner"
+                              onChange={(event, selectedDate) => {
+                                if (selectedDate) {
+                                  setEndDateTime(selectedDate);
+                                  setUserChangedEndTime(true);
+                                }
+                                setShowEndPicker(false);
+                              }}
+                            />
+                          </Animated.View>
+                        )}
+                      </View>
+
+                      {/* 🕑 Set Reminder */}
+                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                        <TouchableOpacity
+                          onPress={() => setShowReminderPicker(prev => !prev)}
+                          style={styles.inlineSettingRow}
+                        >
+                          <Ionicons name="alarm-outline" size={22} color="#666" />
+                          <Text style={styles.inlineSettingText}>
+                            {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set Reminder'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {showReminderPicker && (
+                          <Animated.View>
+                            <DateTimePicker
+                              value={reminderTime || new Date()}
+                              mode="time"
+                              display="spinner"
+                              onChange={(event, selectedTime) => {
+                                if (selectedTime) {
+                                  setReminderTime(selectedTime);
+                                }
+                                setShowReminderPicker(false);
+                              }}
+                            />
+                          </Animated.View>
+                        )}
+                      </View>
+
+                      {/* 🔁 Set Repeat */}
+                      <View style={{ marginBottom: 5, marginLeft: 5 }}>
+                        <TouchableOpacity
+                          onPress={() => setShowRepeatPicker(prev => !prev)}
+                          style={styles.inlineSettingRow}
+                        >
+                          <Ionicons name="repeat" size={22} color="#666" />
+                          <Text style={styles.inlineSettingText}>
+                            {repeatOption !== 'None' ? repeatOption : 'Set Repeat'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {showRepeatPicker && (
+                          <Animated.View style={{ marginTop: 10 }}>
+                            {['Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
+                              <TouchableOpacity
+                                key={option}
+                                onPress={() => {
+                                  setRepeatOption(option as RepeatOption);
+                                  setShowRepeatPicker(false);
+                                  if (option === 'Custom') {
+                                    setIsEditingEvent(false);
+                                    setShowModal(false);
+                                    setTimeout(() => {
+                                      setShowCustomDatesPicker(true);
+                                    }, 300);
+                                  }
+                                }}
+                                style={{ paddingVertical: 8 }}
+                              >
+                                <Text style={{ fontSize: 16, color: '#333', paddingLeft: 32 }}>
+                                  {option}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </Animated.View>
+                        )}
+                      </View>
+
+                      {/* 📅 Set End Date */}
+                      {repeatOption !== 'None' && (
+                        <View style={{ marginBottom: 5, marginTop: 4, marginLeft: 5 }}>
+                          <TouchableOpacity
+                            onPress={() => setShowEndDatePicker(prev => !prev)}
+                            style={styles.inlineSettingRow}
+                          >
+                            <Ionicons name="calendar-outline" size={22} color="#666" />
+                            <Text style={styles.inlineSettingText}>
+                              {repeatEndDate ? `Until ${repeatEndDate.toLocaleDateString()}` : 'Set End Date'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {showEndDatePicker && (
+                            <Animated.View>
+                              <DateTimePicker
+                                value={repeatEndDate || new Date()}
+                                mode="date"
+                                display="spinner"
+                                onChange={(event, selectedDate) => {
+                                  if (selectedDate) {
+                                    setRepeatEndDate(selectedDate);
+                                  }
+                                  setShowEndDatePicker(false);
+                                }}
+                              />
+                            </Animated.View>
+                          )}
+                        </View>
+                      )}
+                    </>
+                  ) : (
+                    <TextInput
+                      style={styles.inputTitle}
+                      placeholder="Title"
+                      value={newEventTitle}
+                      onChangeText={setNewEventTitle}
+                    />
+                  )}
 
                   {/* 🗂 Set Category */}
                   <View style={{ marginBottom: 10, marginLeft: 5 }}>
@@ -1134,7 +1287,7 @@ const CalendarScreen: React.FC = () => {
                               ]
                             );
                           }}
-                          delayLongPress={400} // 400ms hold
+                          delayLongPress={400}
                           style={{
                             backgroundColor: cat.color,
                             paddingVertical: 6,
@@ -1149,7 +1302,6 @@ const CalendarScreen: React.FC = () => {
                         >
                           <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{cat.name}</Text>
                         </TouchableOpacity>
-                        
                         ))}
                         <TouchableOpacity
                           onPress={() => setShowAddCategoryForm(true)}
@@ -1168,6 +1320,26 @@ const CalendarScreen: React.FC = () => {
                       </Animated.View>
                     )}
                   </View>
+
+                  {/* 📅 Pick Dates (only shown in custom dates mode) */}
+                  {repeatOption === 'Custom' && (
+                    <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setShowModal(false);
+                          setTimeout(() => {
+                            setShowCustomDatesPicker(true);
+                          }, 300);
+                        }}
+                        style={styles.inlineSettingRow}
+                      >
+                        <Ionicons name="calendar-outline" size={22} color="#666" />
+                        <Text style={styles.inlineSettingText}>
+                          Pick Dates {customSelectedDates.length > 0 ? `(${customSelectedDates.length} selected)` : ''}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
 
                   {/* ➕ If Plus is pressed, show New Category Form inline */}
                   {showAddCategoryForm && (
@@ -1204,144 +1376,24 @@ const CalendarScreen: React.FC = () => {
                           borderRadius: 8,
                           alignItems: 'center',
                         }}
-                        onPress={async () => {
+                        onPress={() => {
                           if (newCategoryName.trim()) {
-                            const { data, error } = await supabase
-                              .from('categories')
-                              .insert([
-                                {
-                                  label: newCategoryName.trim(),
-                                  color: newCategoryColor,
-                                  user_id: user?.id,
-                                },
-                              ])
-                              .select(); // 👈 get back the inserted row
-                        
-                            if (error) {
-                              console.error('Failed to save new category:', error);
-                              return;
-                            }
-                        
-                            if (data && data.length > 0) {
-                              const insertedCategory = {
-                                id: data[0].id,
-                                name: data[0].label,
-                                color: data[0].color,
-                              };
-                              setCategories((prev) => [...prev, insertedCategory]);
-                              setSelectedCategory(insertedCategory);
-                              setNewCategoryName('');
-                              setShowAddCategoryForm(false);
-                            }
+                            const newCategory = {
+                              id: Date.now().toString(),
+                              name: newCategoryName.trim(),
+                              color: newCategoryColor,
+                            };
+                            setCategories((prev) => [...prev, newCategory]);
+                            setSelectedCategory(newCategory);
+                            setNewCategoryName('');
                           }
+                          setShowAddCategoryForm(false);
                         }}
-                        
-                        
                       >
                         <Text style={{ color: '#fff', fontWeight: 'bold' }}>Save Category</Text>
                       </TouchableOpacity>
                     </View>
                   )}
-
-                  {/* 🕑 Set Reminder */}
-                  <View style={{ marginBottom: 10, marginLeft: 5 }}>
-                    <TouchableOpacity
-                      onPress={() => setShowReminderPicker(prev => !prev)}
-                      style={styles.inlineSettingRow}
-                    >
-                      <Ionicons name="alarm-outline" size={22} color="#666" />
-                      <Text style={styles.inlineSettingText}>
-                        {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set Reminder'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {showReminderPicker && (
-                      <Animated.View>
-                        <DateTimePicker
-                          value={reminderTime || new Date()}
-                          mode="time"
-                          display="spinner"
-                          onChange={(event, selectedTime) => {
-                            if (selectedTime) {
-                              setReminderTime(selectedTime);
-                            }
-                            setShowReminderPicker(false);
-                          }}
-                        />
-                      </Animated.View>
-                    )}
-                  </View>
-
-                  {/* 🔁 Set Repeat */}
-                  <View style={{ marginBottom: 5, marginLeft: 5 }}>
-                    <TouchableOpacity
-                      onPress={() => setShowRepeatPicker(prev => !prev)}
-                      style={styles.inlineSettingRow}
-                    >
-                      <Ionicons name="repeat" size={22} color="#666" />
-                      <Text style={styles.inlineSettingText}>
-                        {repeatOption !== 'None' ? repeatOption : 'Set Repeat'}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {showRepeatPicker && (
-                      <Animated.View style={{ marginTop: 10 }}>
-                        {['Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
-                          <TouchableOpacity
-                            key={option}
-                            onPress={() => {
-                              setRepeatOption(option as RepeatOption);
-                              setShowRepeatPicker(false);
-                              if (option === 'Custom') {
-                                setIsEditingEvent(false);
-                                setShowModal(false);
-                                setTimeout(() => {
-                                  setShowCustomDatesPicker(true);
-                                }, 300);
-                              }
-                            }}
-                            style={{ paddingVertical: 8 }}
-                          >
-                            <Text style={{ fontSize: 16, color: '#333', paddingLeft: 32 }}>
-                              {option}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </Animated.View>
-                    )}
-                  </View>
-
-                  {/* 📅 Set End Date */}
-                  {repeatOption !== 'None' && (
-                    <View style={{ marginBottom: 5, marginTop: 4, marginLeft: 5 }}>
-                      <TouchableOpacity
-                        onPress={() => setShowEndDatePicker(prev => !prev)}
-                        style={styles.inlineSettingRow}
-                      >
-                        <Ionicons name="calendar-outline" size={22} color="#666" />
-                        <Text style={styles.inlineSettingText}>
-                          {repeatEndDate ? `Until ${repeatEndDate.toLocaleDateString()}` : 'Set End Date'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      {showEndDatePicker && (
-                        <Animated.View>
-                          <DateTimePicker
-                            value={repeatEndDate || new Date()}
-                            mode="date"
-                            display="spinner"
-                            onChange={(event, selectedDate) => {
-                              if (selectedDate) {
-                                setRepeatEndDate(selectedDate);
-                              }
-                              setShowEndDatePicker(false);
-                            }}
-                          />
-                        </Animated.View>
-                      )}
-                    </View>
-                  )}
-
                 </ScrollView>
 
                 {/* Modal Bottom Buttons */}
@@ -1384,7 +1436,7 @@ const CalendarScreen: React.FC = () => {
 
                   <Text style={styles.modalTitle}>Edit Event</Text>
                   <Text style={styles.modalSubtitle}>
-                    {editedStartDateTime.toDateString()}
+                    {editedRepeatOption === 'Custom' ? 'Custom Dates' : editedStartDateTime.toDateString()}
                   </Text>
 
                   {/* Title */}
@@ -1782,6 +1834,14 @@ const CalendarScreen: React.FC = () => {
                       : [...prev, dateStr]
                   );
                 }}
+                onDayLongPress={(day: DateData) => {
+                  const dateStr = day.dateString;
+                  if (customSelectedDates.includes(dateStr)) {
+                    setSelectedDateForCustomTime(dateStr);
+                    setCustomStartTime(startDateTime);
+                    setCustomEndTime(endDateTime);
+                  }
+                }}
                 markedDates={Object.fromEntries(
                   customSelectedDates.map((date) => [
                     date,
@@ -1815,6 +1875,215 @@ const CalendarScreen: React.FC = () => {
                   todayBackgroundColor: 'transparent',
                 }}
               />
+
+              {/* Time Picker */}
+              <View style={{ marginTop: 20, marginBottom: 20 }}>
+                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10, color: '#333' }}>Default Event Time</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Text style={{ fontSize: 14, color: '#666', marginBottom: 5 }}>Start</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowStartPicker(true)}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#ddd',
+                        borderRadius: 8,
+                        padding: 10,
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Text style={{ fontSize: 16, color: '#333' }}>
+                        {startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 14, color: '#666', marginBottom: 5 }}>End</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowEndPicker(true)}
+                      style={{
+                        borderWidth: 1,
+                        borderColor: '#ddd',
+                        borderRadius: 8,
+                        padding: 10,
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Text style={{ fontSize: 16, color: '#333' }}>
+                        {endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {showStartPicker && (
+                  <DateTimePicker
+                    value={startDateTime}
+                    mode="time"
+                    display="spinner"
+                    onChange={(event, selectedTime) => {
+                      if (selectedTime) {
+                        setStartDateTime(selectedTime);
+                        if (!userChangedEndTime) {
+                          setEndDateTime(new Date(selectedTime.getTime() + 60 * 60 * 1000));
+                        }
+                      }
+                      setShowStartPicker(false);
+                    }}
+                  />
+                )}
+
+                {showEndPicker && (
+                  <DateTimePicker
+                    value={endDateTime}
+                    mode="time"
+                    display="spinner"
+                    onChange={(event, selectedTime) => {
+                      if (selectedTime) {
+                        setEndDateTime(selectedTime);
+                        setUserChangedEndTime(true);
+                      }
+                      setShowEndPicker(false);
+                    }}
+                  />
+                )}
+              </View>
+
+              {/* Custom Time for Selected Date */}
+              {selectedDateForCustomTime && (
+                <View style={{ marginBottom: 20 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>
+                      Time for {new Date(selectedDateForCustomTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    </Text>
+                    <TouchableOpacity 
+                      onPress={() => {
+                        setCustomDateTimes(prev => ({
+                          ...prev,
+                          [selectedDateForCustomTime]: { start: customStartTime, end: customEndTime }
+                        }));
+                        setSelectedDateForCustomTime(null);
+                      }}
+                      style={{
+                        backgroundColor: '#6F4E37',
+                        paddingVertical: 6,
+                        paddingHorizontal: 12,
+                        borderRadius: 6
+                      }}
+                    >
+                      <Text style={{ color: 'white', fontSize: 12 }}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1, marginRight: 10 }}>
+                      <Text style={{ fontSize: 14, color: '#666', marginBottom: 5 }}>Start</Text>
+                      <TouchableOpacity
+                        onPress={() => setShowCustomStartPicker(true)}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: '#ddd',
+                          borderRadius: 8,
+                          padding: 10,
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Text style={{ fontSize: 16, color: '#333' }}>
+                          {customStartTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, color: '#666', marginBottom: 5 }}>End</Text>
+                      <TouchableOpacity
+                        onPress={() => setShowCustomEndPicker(true)}
+                        style={{
+                          borderWidth: 1,
+                          borderColor: '#ddd',
+                          borderRadius: 8,
+                          padding: 10,
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Text style={{ fontSize: 16, color: '#333' }}>
+                          {customEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {showCustomStartPicker && (
+                    <DateTimePicker
+                      value={customStartTime}
+                      mode="time"
+                      display="spinner"
+                      onChange={(event, selectedTime) => {
+                        if (selectedTime) {
+                          setCustomStartTime(selectedTime);
+                          setCustomEndTime(new Date(selectedTime.getTime() + 60 * 60 * 1000));
+                        }
+                        setShowCustomStartPicker(false);
+                      }}
+                    />
+                  )}
+
+                  {showCustomEndPicker && (
+                    <DateTimePicker
+                      value={customEndTime}
+                      mode="time"
+                      display="spinner"
+                      onChange={(event, selectedTime) => {
+                        if (selectedTime) {
+                          setCustomEndTime(selectedTime);
+                        }
+                        setShowCustomEndPicker(false);
+                      }}
+                    />
+                  )}
+                </View>
+              )}
+
+              {/* Custom Times List */}
+              {Object.keys(customDateTimes).length > 0 && (
+                <View style={{ marginBottom: 20 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10, color: '#333' }}>Custom Times</Text>
+                  {Object.entries(customDateTimes).map(([date, times]) => (
+                    <View key={date} style={{ 
+                      flexDirection: 'row', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center',
+                      backgroundColor: '#f5f5f5',
+                      padding: 10,
+                      borderRadius: 8,
+                      marginBottom: 8
+                    }}>
+                      <Text style={{ fontSize: 14, color: '#666' }}>
+                        {new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 14, color: '#333', marginRight: 10 }}>
+                          {times.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                        <Text style={{ fontSize: 14, color: '#666' }}>to</Text>
+                        <Text style={{ fontSize: 14, color: '#333', marginLeft: 10 }}>
+                          {times.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                        <TouchableOpacity 
+                          onPress={() => {
+                            setCustomDateTimes(prev => {
+                              const newTimes = { ...prev };
+                              delete newTimes[date];
+                              return newTimes;
+                            });
+                          }}
+                          style={{ marginLeft: 10 }}
+                        >
+                          <Text style={{ color: '#ff4444' }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
 
               <TouchableOpacity
                 onPress={() => {
