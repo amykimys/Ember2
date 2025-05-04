@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "Ember",
-    "slug": "Ember",
+    "name": "Jaani",
+    "slug": "Jaani",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "Ember",
+    "scheme": "Jaani",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.Ember",
+      "bundleIdentifier": "com.yunseokim.jani",
       "infoPlist": {
         "CFBundleURLTypes": [
           {
@@ -46,6 +46,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "c77ca206-6258-4213-b712-5d687c9861d3"
+      }
+    },
+    "owner": "amykimys"
   }
 }

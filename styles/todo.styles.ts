@@ -5,37 +5,25 @@ const styles = StyleSheet.create({
       flex: 1,
       backgroundColor: '#fff',
       paddingTop: 5,
-      paddingHorizontal: 20,
+      paddingHorizontal: 14,
       paddingBottom: 30,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 12,
+      gap: 15,
+      marginBottom: 0,
     },
     menuButton: {
-      padding: 4,
+      padding: 0,
       marginBottom: 40,
       marginTop: 20,
     },
     title: {
-      fontSize: 28,
+      fontSize: 25,
       fontWeight: 'bold',
       color: '#1a1a1a',
       fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
-    },
-    dateNavigation: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: 10,
-      marginBottom: 24,
-    },
-    dateNavigationButton: {
-      padding: 8,
-    },
-    dateHeader: {
-      alignItems: 'center',
     },
     dateText: {
       fontSize: 26,
@@ -112,25 +100,11 @@ const styles = StyleSheet.create({
     },
     todoContent: {
       flex: 1,
+      paddingHorizontal: 2,
     },
     completedTodo: {
-      opacity: 0.7,
+      opacity: 0.6,
       backgroundColor: '#F5F5F5',
-    },
-    checkbox: {
-      width: 12,
-      height: 12,
-      borderRadius: 9,
-      borderWidth: 1.5,
-      borderColor: '#999',
-      marginRight: 12,
-      marginLeft: 8,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    checked: {
-      backgroundColor: '#4CAF50',
-      borderColor: '#4CAF50',
     },
     todoText: {
       fontSize: 15,
@@ -138,7 +112,7 @@ const styles = StyleSheet.create({
       fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
     },
     todoDescription: {
-      fontSize: 13,
+      fontSize: 12,
       color: '#666',
       marginTop: 4,
       fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
@@ -163,7 +137,7 @@ const styles = StyleSheet.create({
       width: 50,
       height: 50,
       borderRadius: 25,
-      backgroundColor: '#BF9264',
+      backgroundColor: '#6F4E37',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,
@@ -198,7 +172,7 @@ const styles = StyleSheet.create({
     
     modalContent: {
       backgroundColor: 'white',
-      padding: 20,
+      padding: 0,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
     },
@@ -210,7 +184,7 @@ const styles = StyleSheet.create({
       marginBottom: 20,
     },
     modalTitle: {
-      fontSize: 24,
+      fontSize: 20,
       fontWeight: 'bold',
       color: '#1a1a1a',
       fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
@@ -248,7 +222,6 @@ const styles = StyleSheet.create({
       paddingHorizontal: 12,
       paddingVertical: 8,
     },
-    
     unitSelectorText: {
       fontSize: 16,
       color: '#1a1a1a',

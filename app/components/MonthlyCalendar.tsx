@@ -16,37 +16,66 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
         markedDates={{
           [selectedDate]: {
             selected: true,
-            selectedColor: '#007AFF'
           }
         }}
         theme={{
           backgroundColor: 'white',
           calendarBackground: 'white',
           textSectionTitleColor: '#666',
-          selectedDayBackgroundColor: '#007AFF',
-          selectedDayTextColor: '#ffffff',
-          todayTextColor: '#007AFF',
+          todayTextColor: '#6F4E37',
           dayTextColor: '#1a1a1a',
-          textDisabledColor: '#d9e1e8',
+          textDisabledColor: '#DCD7C9',
           dotColor: '#007AFF',
           selectedDotColor: '#ffffff',
-          arrowColor: '#007AFF',
+          arrowColor: '#6F4E37',
           monthTextColor: '#1a1a1a',
           indicatorColor: '#007AFF',
-          textDayFontSize: 18,
-          textMonthFontSize: 20,
-          textDayHeaderFontSize: 16,
+          textDayFontSize: 14,
+          textMonthFontSize: 17,
+          textDayHeaderFontSize: 12,
           'stylesheet.calendar.header': {
+            monthText: {
+              fontSize: 17,
+              fontWeight: '500', // 👈 this makes the month bold
+              color: '#1a1a1a',
+            },
             header: {
               flexDirection: 'row',
               justifyContent: 'space-between',
-              paddingLeft: 10,
-              paddingRight: 10,
-              marginTop: 6,
+              paddingLeft: 80,
+              paddingRight: 80,
+              marginTop: 8,
               alignItems: 'center',
               height: 50
             }
-          }
+          },
+          'stylesheet.day.basic': {
+  base: {
+    width: 33,
+    height: 33,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  text: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    backgroundColor: 'transparent',
+    textAlign: 'center',
+    marginTop: 5,
+    },
+  today: {
+    backgroundColor: '#F5EFE7',
+    borderRadius: 18,
+  },
+  selected: {
+    backgroundColor: '#6F4E37',
+    borderRadius: 18,
+  },
+  selectedText: {
+    color: '#ffffff',
+  },
+}
+
         }}
         style={styles.calendar}
       />
