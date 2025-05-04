@@ -2041,9 +2041,8 @@ export default function TodoScreen() {
               backgroundColor: 'white',
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
-              paddingTop: 0,
               paddingHorizontal: 20,
-              height: '65%',
+              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '70%' : '60%',
               width: '100%'
             }]}>
 
@@ -2060,22 +2059,21 @@ export default function TodoScreen() {
                   padding: 6,
                 }}
               >
-                <Ionicons name="close" size={20} color="#666" />
+                <Ionicons name="close" size={18} color="#666" />
               </TouchableOpacity>
             </View>
-
-      
               <ScrollView
                 style={{ flex: 1 }}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ flexGrow: 1, paddingBottom: 30, paddingTop: 20 }}
+                contentContainerStyle={{ flexGrow: 1, paddingBottom: 0, paddingTop: 20 }}
               >
                 {/* Calendar View */}
                 <View style={{ 
                   flex: 1,
                   width: '100%',
-                  height: '100%',
                   backgroundColor: 'white',
+                  paddingTop: 10,
+                  marginBottom: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? -40 : 0,
                 }}>
                   <MonthlyCalendar
                     selectedDate={taskDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0]}
@@ -2089,12 +2087,15 @@ export default function TodoScreen() {
                 <View
                   ref={reminderButtonRef}
                   onLayout={(e) => setReminderButtonLayout(e.nativeEvent.layout)}
+                  style={{
+                    marginTop: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? -20 : 0,
+                  }}
                 >
                   <View style={{
                     backgroundColor: '#F5F5F5',
                     borderRadius: 12,
                     overflow: 'hidden',
-                    marginBottom: 16,
+                    marginBottom: 110,
                   }}>
                     {/* Set Reminder Button */}
                     <TouchableOpacity
@@ -2135,7 +2136,6 @@ export default function TodoScreen() {
                       }}
                       onPress={() => {
                         if (selectedRepeat) {
-                          console.log('🌀 Opening repeat picker');
                           setShowRepeatPicker(true);
                         }
                       }}
@@ -2160,45 +2160,40 @@ export default function TodoScreen() {
 
                     {/* Set End Date – Only show if repeat is not 'none' */}
                     {selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
-
                         <>
                           {(() => {
-                            console.log('Selected repeat:', selectedRepeat);
                             return null;
                           })()}
                          <TouchableOpacity
-  style={{
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-  }}
-  onPress={() => {
-    console.log('📅 Showing end date picker');
-    setShowRepeatEndDatePicker(true);
-  }}
->
-  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-    <Ionicons name="calendar-outline" size={20} color="#666" />
-    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-      {repeatEndDate
-        ? `Ends on ${repeatEndDate.toLocaleDateString()}`
-        : 'Set end date'}
-    </Text>
-  </View>
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: 16,
+                          }}
+                          onPress={() => {
+                            setShowRepeatEndDatePicker(true);
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Ionicons name="calendar-outline" size={20} color="#666" />
+                            <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
+                              {repeatEndDate
+                                ? `Ends on ${repeatEndDate.toLocaleDateString()}`
+                                : 'Set end date'}
+                            </Text>
+                          </View>
 
-  {repeatEndDate ? (
-    <TouchableOpacity onPress={() => setRepeatEndDate(null)}>
-      <Ionicons name="close" size={16} color="#999" />
-    </TouchableOpacity>
-  ) : (
-    <Ionicons name="chevron-forward" size={18} color="#666" />
-  )}
-</TouchableOpacity>
-
-                        </>
-                      )}
-
+                          {repeatEndDate ? (
+                            <TouchableOpacity onPress={() => setRepeatEndDate(null)}>
+                              <Ionicons name="close" size={16} color="#999" />
+                            </TouchableOpacity>
+                          ) : (
+                            <Ionicons name="chevron-forward" size={18} color="#666" />
+                          )}
+                        </TouchableOpacity>
+                      </>
+                    )}
                   </View>
                 </View>
 
@@ -2238,7 +2233,6 @@ export default function TodoScreen() {
                     onPress={() => {}} // Prevent closing when tapping inside
                   >
              
-
                     <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                       {/* Hour Picker */}
                       <Picker
@@ -2362,19 +2356,46 @@ export default function TodoScreen() {
         markedDates={Object.fromEntries(
           customSelectedDates.map((date) => [
             date,
-            { selected: true, selectedColor: '#007AFF' },
+            { selected: true, selectedColor: '#6F4E37' },
           ])
         )}
+        style={{
+          width: '100%',
+        }}
+        theme={{
+          'stylesheet.calendar.header': {
+            header: {
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+            },
+            monthText: {
+              fontSize: 16,
+              fontWeight: '600',
+              marginRight: 4,
+            },
+            arrow: {
+              paddingVertical: 18,
+              paddingHorizontal: 60,
+            },
+            arrowImage: {
+              tintColor: '#6F4E37',
+            },
+          },
+          todayTextColor: '#6F4E37',
+          todayBackgroundColor: 'transparent',
+        }}
       />
 
       <TouchableOpacity
         onPress={() => setShowCustomDatesPicker(false)}
         style={{
-          backgroundColor: '#BF9264',
+          backgroundColor: '#6F4E37',
           padding: 16,
           borderRadius: 12,
           alignItems: 'center',
-          marginTop: 20,
+          marginTop: 15,
+          marginBottom: 14, 
         }}
       >
         <Text style={{ color: 'white', fontWeight: '600' }}>Done</Text>
@@ -2433,35 +2454,16 @@ export default function TodoScreen() {
                     </TouchableOpacity>
                   </TouchableOpacity>
                 </Modal>
-
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    marginTop: 26,
-                    marginBottom: 20,
-                  }}
-                >
-                  <TouchableOpacity
-                    style={{
-                      flex: 1,
-                      backgroundColor: '#6F4E37',
-                      padding: 16,
-                      borderRadius: 12,
-                      alignItems: 'center'
-                      }}
-                    onPress={handleCloseSettingsModal}
-                  >
-                    <Text style={{ color: 'white', fontSize: 18, fontWeight: '600' }}>Done</Text>
-                  </TouchableOpacity>
-                </View>
-
               </ScrollView>
+              
+              <View style={styles.stickyFooter}>
+                <TouchableOpacity style={styles.doneButton} onPress={handleCloseSettingsModal}>
+                  <Text style={styles.doneText}>Done</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
-
-       
       </View>
 
       {/* New Category Modal */}
@@ -2470,7 +2472,6 @@ export default function TodoScreen() {
         transparent={true}
         visible={isNewCategoryModalVisible}
         onRequestClose={() => {
-          console.log('🔒 Modal close requested');
           setIsNewCategoryModalVisible(false);
         }}
       >
@@ -2485,7 +2486,6 @@ export default function TodoScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
               <TouchableOpacity onPress={() => {
-                  console.log('🔒 Close button pressed');
                   setIsNewCategoryModalVisible(false);
                   setTimeout(() => {
                     setIsNewTaskModalVisible(true); // ✅ Reopen task modal with preserved state
@@ -2590,7 +2590,7 @@ export default function TodoScreen() {
           }}
           
           style={{
-            backgroundColor: '#007AFF',
+            backgroundColor:'#6F4E37',
             padding: 16,
             borderRadius: 12,
             alignItems: 'center',

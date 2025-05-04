@@ -38,16 +38,14 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
               fontSize: 17,
               fontWeight: '500', // 👈 this makes the month bold
               color: '#1a1a1a',
+              marginBottom: 15,
             },
-            header: {
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              paddingLeft: 80,
-              paddingRight: 80,
-              marginTop: 8,
-              alignItems: 'center',
-              height: 50
-            }
+            arrow: {
+              color: '#6F4E37',
+              marginHorizontal: 60, // Adjust this to get arrows closer/further
+              marginBottom: 15,
+
+            },
           },
           'stylesheet.day.basic': {
   base: {
@@ -74,6 +72,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
   selectedText: {
     color: '#ffffff',
   },
+  
 }
 
         }}

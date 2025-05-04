@@ -272,6 +272,29 @@ const styles = StyleSheet.create({
     trashIconContainer: {
       padding: 9,
     },
+
+    stickyFooter: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      paddingHorizontal: 20,
+      paddingTop: 0,
+      backgroundColor: 'white',
+      borderTopColor: '#eee',
+    },
+    doneButton: {
+      marginBottom: 30,
+      backgroundColor: '#6F4E37',
+      paddingVertical: 14,
+      borderRadius: 8,
+      alignItems: 'center',
+    },
+    doneText: {
+      color: 'white',
+      fontSize: 16,
+      fontWeight: '600',
+    },
     
   });
 
