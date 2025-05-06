@@ -177,6 +177,7 @@ export default function HabitScreen() {
   );
   const [selectedNoteDate, setSelectedNoteDate] = useState<{ habitId: string; date: string } | null>(null);
   const [noteText, setNoteText] = useState('');
+  const [isNoteEditMode, setIsNoteEditMode] = useState(false);
 
   const today = moment();
   const todayStr = today.format('YYYY-MM-DD');
@@ -1060,12 +1061,27 @@ const formatDate = (date: Date): string => {
   const handleNotePress = (habitId: string, date: string) => {
     console.log('Note pressed for habit:', habitId, 'date:', date);
     setSelectedNoteDate({ habitId, date });
+    setIsNoteEditMode(true);
     const habit = habits.find(h => h.id === habitId);
     if (habit?.notes?.[date]) {
       console.log('Existing note found:', habit.notes[date]);
       setNoteText(habit.notes[date]);
     } else {
       console.log('No existing note');
+      setNoteText('');
+    }
+  };
+
+  const handleNoteLongPress = (habitId: string, date: string) => {
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    setSelectedNoteDate({ habitId, date });
+    setIsNoteEditMode(false);
+    const habit = habits.find(h => h.id === habitId);
+    if (habit?.notes?.[date]) {
+      setNoteText(habit.notes[date]);
+    } else {
       setNoteText('');
     }
   };
@@ -1303,11 +1319,13 @@ const formatDate = (date: Date): string => {
                                 { day: 'S', key: 'sun' }
                               ].map(({ day, key }, index) => {
                                 const today = new Date();
-                                const startOfWeek = new Date(today);
-                                const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
-                                startOfWeek.setDate(today.getDate() - (dayOfWeek - 1));
-                                const date = new Date(startOfWeek);
-                                date.setDate(startOfWeek.getDate() + index);
+                                const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+                                
+                                // Calculate the date for this weekday
+                                const date = new Date(today);
+                                const daysToAdd = (index + 1) - currentDay; // +1 because we want Monday to be 1
+                                date.setDate(today.getDate() + daysToAdd);
+                                
                                 const dateStr = date.toISOString().split('T')[0];
                                 const isCompleted = habit.completedDays.includes(dateStr);
                                 const hasNote = habit.notes && habit.notes[dateStr];
@@ -1317,25 +1335,7 @@ const formatDate = (date: Date): string => {
                                   <TouchableOpacity
                                     key={key}
                                     onPress={() => handleNotePress(habit.id, dateStr)}
-                                    onLongPress={() => {
-                                      if (Platform.OS !== 'web') {
-                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                      }
-                                      const currentHabit = habits.find(h => h.id === habit.id);
-                                      if (currentHabit) {
-                                        // Show note if exists
-                                        if (currentHabit.notes?.[dateStr]) {
-                                          setNoteText(currentHabit.notes[dateStr]);
-                                        }
-                                        // Show photo if exists
-                                        if (currentHabit.photos?.[dateStr]) {
-                                          setPreviewPhoto(currentHabit.photos[dateStr]);
-                                          setIsPhotoPreviewModalVisible(true);
-                                        }
-                                        // Show note modal
-                                        setSelectedNoteDate({ habitId: currentHabit.id, date: dateStr });
-                                      }
-                                    }}
+                                    onLongPress={() => handleNoteLongPress(habit.id, dateStr)}
                                     style={{
                                       width: 16,
                                       height: 16,
@@ -1670,7 +1670,7 @@ const formatDate = (date: Date): string => {
                             >
                               <Ionicons 
                                 name="camera-outline" 
-                                size={20} 
+                                size={15} 
                                 color={requirePhoto ? '#007AFF' : '#666'} 
                               />
                             </TouchableOpacity>
@@ -2078,7 +2078,10 @@ const formatDate = (date: Date): string => {
             visible={!!selectedNoteDate}
             transparent={true}
             animationType="slide"
-            onRequestClose={() => setSelectedNoteDate(null)}
+            onRequestClose={() => {
+              setSelectedNoteDate(null);
+              setIsNoteEditMode(false);
+            }}
           >
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
               <View style={{ 
@@ -2086,85 +2089,104 @@ const formatDate = (date: Date): string => {
                 padding: 20, 
                 borderTopLeftRadius: 20, 
                 borderTopRightRadius: 20,
-                height: '60%'
+                maxHeight: '80%',
+                minHeight: '40%'
               }}>
-                {/* Header */}
-                <View style={{ 
-                  flexDirection: 'row', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center', 
-                  marginBottom: 20 
-                }}>
-                  <Text style={{ fontSize: 20, fontWeight: '600' }}>
-                    {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.notes[selectedNoteDate.date] ? 'Note' : 'Add Note'}
-                  </Text>
-                  <TouchableOpacity onPress={() => setSelectedNoteDate(null)}>
-                    <Ionicons name="close" size={24} color="#666" />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Date */}
-                {selectedNoteDate && (
-                  <Text style={{ 
-                    fontSize: 14, 
-                    color: '#666',
-                    marginBottom: 20
+                <ScrollView style={{ flex: 1 }}>
+                  {/* Header */}
+                  <View style={{ 
+                    flexDirection: 'row', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    marginBottom: 8 
                   }}>
-                    {moment(selectedNoteDate.date).format('dddd, MMMM D')}
-                  </Text>
-                )}
-
-                {/* Photo */}
-                {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] && (
-                  <View style={{ marginBottom: 20 }}>
-                    <Image
-                      source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] }}
-                      style={{
-                        width: '100%',
-                        height: 200,
-                        borderRadius: 12,
-                        backgroundColor: '#f0f0f0'
-                      }}
-                      resizeMode="cover"
-                    />
+                    <Text style={{ fontSize: 20, fontWeight: '600' }}>
+                      {isNoteEditMode ? 'Add Note' : 'Note'}
+                    </Text>
+                    <TouchableOpacity onPress={() => {
+                      setSelectedNoteDate(null);
+                      setIsNoteEditMode(false);
+                    }}>
+                      <Ionicons name="close" size={24} color="#666" />
+                    </TouchableOpacity>
                   </View>
-                )}
 
-                {/* Note Input */}
-                <View style={{
-                  backgroundColor: '#F5F5F5',
-                  borderRadius: 12,
-                  padding: 12,
-                  marginBottom: 20,
-                  height: 150,
-                }}>
-                  <TextInput
-                    style={{
-                      fontSize: 16,
-                      color: '#1a1a1a',
-                      height: '100%',
-                      textAlignVertical: 'top'
-                    }}
-                    value={noteText}
-                    onChangeText={setNoteText}
-                    placeholder="Add a note for this day..."
-                    placeholderTextColor="#999"
-                    multiline
-                  />
-                </View>
+                  {/* Date */}
+                  {selectedNoteDate && (
+                    <Text style={{ 
+                      fontSize: 14, 
+                      color: '#666',
+                      marginBottom: 10
+                    }}>
+                      {new Date(selectedNoteDate.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    </Text>
+                  )}
 
-                {/* Save Button */}
-                <TouchableOpacity
-                  onPress={saveNote}
-                  style={{
-                    backgroundColor: '#007AFF',
-                    padding: 16,
+                  {/* Photo */}
+                  {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] && (
+                    <View style={{ marginBottom: 12 }}>
+                      <Image
+                        source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] }}
+                        style={{
+                          width: '100%',
+                          height: 200,
+                          borderRadius: 12,
+                          backgroundColor: 'transparent'
+                        }}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
+
+                  {/* Note Input/Display */}
+                  <View style={{
+                    backgroundColor: isNoteEditMode ? '#F5F5F5' : 'transparent',
                     borderRadius: 12,
-                    alignItems: 'center'
-                  }}
-                >
-                  <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Save Note</Text>
-                </TouchableOpacity>
+                    padding: 12,
+                    marginBottom: 16,
+                    minHeight: 120,
+                  }}>
+                    {isNoteEditMode ? (
+                      <TextInput
+                        style={{
+                          fontSize: 16,
+                          color: '#1a1a1a',
+                          minHeight: 120,
+                          textAlignVertical: 'top'
+                        }}
+                        value={noteText}
+                        onChangeText={setNoteText}
+                        placeholder="Add a note for this day..."
+                        placeholderTextColor="#999"
+                        multiline
+                      />
+                    ) : (
+                      <Text style={{
+                        fontSize: 16,
+                        color: '#1a1a1a',
+                        minHeight: 120,
+                      }}>
+                        {noteText || 'No note for this day'}
+                      </Text>
+                    )}
+                  </View>
+
+                  {/* Save Button - Only show in edit mode */}
+                  {isNoteEditMode && (
+                    <TouchableOpacity
+                      onPress={saveNote}
+                      style={{
+                        backgroundColor: '#007AFF',
+                        padding: 14,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        marginBottom: 20
+                      }}
+                    >
+                      <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Save Note</Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
               </View>
             </View>
           </Modal>
