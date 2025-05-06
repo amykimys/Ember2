@@ -1268,114 +1268,133 @@ const formatDate = (date: Date): string => {
                           }
                         ]}>
                           <View style={[styles.habitContent, { 
-                            justifyContent: 'center',
-                            paddingVertical: 4 // Reduce vertical padding
+                            paddingVertical: 4,
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
                           }]}>
-                            <View style={[styles.habitTitleRow, { 
-                              position: 'relative',
-                              flexDirection: 'column',
-                              alignItems: 'flex-start',
-                              gap: 4 // Space between streak and title
-                            }]}>
-                              <Text style={[styles.habitStreak, { 
-                                color: getTextColor(habit.color),
-                                fontSize: 12
+                            <View style={{ flex: 1 }}>
+                              <View style={[styles.habitTitleRow, { 
+                                position: 'relative',
+                                flexDirection: 'column',
+                                alignItems: 'flex-start',
+                                gap: 4,
+                                paddingTop: 5,
+                                paddingBottom: 2
                               }]}>
-                                <Ionicons name="flash-outline" size={12} color={getTextColor(habit.color)} /> {habit.streak}
-                              </Text>
-                              <Text style={[styles.habitName, { 
-                                color: getTextColor(habit.color), 
-                                flexShrink: 1,
-                                textAlign: 'left',
-                                fontSize: 15
-                              }]}>
-                                {habit.text}
-                              </Text>
-                              {habit.requirePhoto && (
-                                <Camera size={16} color={getTextColor(habit.color)} style={{ 
-                                  position: 'absolute',
-                                  right: 0,
-                                  top: '50%',
-                                  transform: [{ translateY: -8 }]
-                                }} />
+                                <Text style={[styles.habitName, { 
+                                  color: getTextColor(habit.color), 
+                                  flexShrink: 1,
+                                  textAlign: 'left',
+                                  fontSize: 15
+                                }]}>
+                                  {habit.text}
+                                </Text>
+                                {habit.requirePhoto && (
+                                  <Camera size={16} color={getTextColor(habit.color)} style={{ 
+                                    position: 'absolute',
+                                    right: 0,
+                                    top: '50%',
+                                    transform: [{ translateY: -8 }]
+                                  }} />
+                                )}
+                              </View>
+
+                              {/* Weekday completion indicators */}
+                              <View style={{ 
+                                flexDirection: 'row', 
+                                justifyContent: 'flex-start',
+                                alignItems: 'center',
+                                marginTop: 0,
+                                marginBottom: -6,
+                                gap: 6
+                              }}>
+                                {[
+                                  { day: 'M', key: 'mon' },
+                                  { day: 'T', key: 'tue' },
+                                  { day: 'W', key: 'wed' },
+                                  { day: 'T', key: 'thu' },
+                                  { day: 'F', key: 'fri' },
+                                  { day: 'S', key: 'sat' },
+                                  { day: 'S', key: 'sun' }
+                                ].map(({ day, key }, index) => {
+                                  const today = new Date();
+                                  const currentDay = today.getDay();
+                                  const date = new Date(today);
+                                  const daysToAdd = (index + 1) - currentDay;
+                                  date.setDate(today.getDate() + daysToAdd);
+                                  
+                                  const dateStr = date.toISOString().split('T')[0];
+                                  const isCompleted = habit.completedDays.includes(dateStr);
+                                  
+                                  return (
+                                    <TouchableOpacity
+                                      key={key}
+                                      onPress={() => handleNotePress(habit.id, dateStr)}
+                                      onLongPress={() => handleNoteLongPress(habit.id, dateStr)}
+                                      style={{
+                                        width: 16,
+                                        height: 16,
+                                        borderRadius: 8,
+                                        backgroundColor: isCompleted ? '#6F4E37' : '#F1EFEC',
+                                        justifyContent: 'center',
+                                        alignItems: 'center',
+                                        borderWidth: 1,
+                                        borderColor: '#6F4E37'
+                                      }}
+                                    >
+                                      <Text style={{
+                                        fontSize: 8,
+                                        color: isCompleted ? '#FFF8E8' : '#6F4E37',
+                                        fontWeight: '600'
+                                      }}>
+                                        {day}
+                                      </Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                                <Text style={{
+                                  fontSize: 11,
+                                  color: '#6F4E37',
+                                  marginLeft: 4,
+                                  fontWeight: '400',
+                                  lineHeight: 12
+                                }}>
+                                  {getWeeklyCompletionCount(habit)}/{habit.targetPerWeek}
+                                </Text>
+                              </View>
+
+                              {habit.description && (
+                                <Text style={[
+                                  styles.habitDetails,
+                                  { 
+                                    color: getTextColor(habit.color),
+                                    fontSize: 12,
+                                    marginTop: 2
+                                  }
+                                ]}>
+                                  {habit.description}
+                                </Text>
                               )}
                             </View>
 
-                            {/* Weekday completion indicators */}
+                            {/* Streak counter */}
                             <View style={{ 
-                              flexDirection: 'row', 
-                              justifyContent: 'flex-start',
+                              marginTop: 10,
+                              marginLeft: 12,
                               alignItems: 'center',
-                              marginTop: 4,
-                              gap: 8
+                              justifyContent: 'center',
+                              height: '100%'
                             }}>
-                              {[
-                                { day: 'M', key: 'mon' },
-                                { day: 'T', key: 'tue' },
-                                { day: 'W', key: 'wed' },
-                                { day: 'T', key: 'thu' },
-                                { day: 'F', key: 'fri' },
-                                { day: 'S', key: 'sat' },
-                                { day: 'S', key: 'sun' }
-                              ].map(({ day, key }, index) => {
-                                const today = new Date();
-                                const currentDay = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
-                                
-                                // Calculate the date for this weekday
-                                const date = new Date(today);
-                                const daysToAdd = (index + 1) - currentDay; // +1 because we want Monday to be 1
-                                date.setDate(today.getDate() + daysToAdd);
-                                
-                                const dateStr = date.toISOString().split('T')[0];
-                                const isCompleted = habit.completedDays.includes(dateStr);
-                                const hasNote = habit.notes && habit.notes[dateStr];
-                                const hasPhoto = habit.photos && habit.photos[dateStr];
-                                
-                                return (
-                                  <TouchableOpacity
-                                    key={key}
-                                    onPress={() => handleNotePress(habit.id, dateStr)}
-                                    onLongPress={() => handleNoteLongPress(habit.id, dateStr)}
-                                    style={{
-                                      width: 16,
-                                      height: 16,
-                                      borderRadius: 8,
-                                      backgroundColor: isCompleted ? '#6F4E37' : '#F1EFEC',
-                                      justifyContent: 'center',
-                                      alignItems: 'center',
-                                      borderWidth: 1,
-                                      borderColor: '#6F4E37'
-                                    }}
-                                  >
-                                    <Text style={{
-                                      fontSize: 8,
-                                      color: isCompleted ? '#FFF8E8' : '#6F4E37',
-                                      fontWeight: '600'
-                                    }}>
-                                      {day}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
-                            </View>
-
-                            {habit.description && (
-                              <Text style={[
-                                styles.habitDetails,
-                                { 
-                                  color: getTextColor(habit.color),
-                                  fontSize: 12, // Smaller description
-                                  marginTop: 2
-                                }
-                              ]}>
-                                {habit.description}
+                              <Text style={[styles.habitStreak, { 
+                                color: getTextColor(habit.color),
+                                fontSize: 20,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 2
+                              }]}>
+                                <Ionicons name="flash-outline" size={18} color={getTextColor(habit.color)} /> {habit.streak}
                               </Text>
-                            )}
-
-                            <View style={[styles.habitFooter, { 
-                              justifyContent: 'flex-end',
-                              marginTop: 2
-                            }]}>
                             </View>
                           </View>
                         </View>
@@ -1670,7 +1689,7 @@ const formatDate = (date: Date): string => {
                             >
                               <Ionicons 
                                 name="camera-outline" 
-                                size={15} 
+                                size={20} 
                                 color={requirePhoto ? '#007AFF' : '#666'} 
                               />
                             </TouchableOpacity>
@@ -2081,6 +2100,7 @@ const formatDate = (date: Date): string => {
             onRequestClose={() => {
               setSelectedNoteDate(null);
               setIsNoteEditMode(false);
+              setNoteText(''); // Reset note text when closing
             }}
           >
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
@@ -2106,6 +2126,7 @@ const formatDate = (date: Date): string => {
                     <TouchableOpacity onPress={() => {
                       setSelectedNoteDate(null);
                       setIsNoteEditMode(false);
+                      setNoteText(''); // Reset note text when closing
                     }}>
                       <Ionicons name="close" size={24} color="#666" />
                     </TouchableOpacity>
