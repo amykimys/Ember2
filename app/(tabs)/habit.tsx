@@ -169,7 +169,7 @@ export default function HabitScreen() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
-  const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false); // 💬 for the modal
+  const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const categoryInputRef = useRef<TextInput>(null);
   const [progressAnimations] = useState(() => 
@@ -198,23 +198,14 @@ export default function HabitScreen() {
   ];
 
   const THEMES = {
-    pastel: ['#FADADD', '#FFE5B4', '#FFFACD', '#D0F0C0', '#B0E0E6', '#D8BFD8', '#F0D9FF', '#C1E1C1']
-  ,
+    pastel: ['#FADADD', '#FFE5B4', '#FFFACD', '#D0F0C0', '#B0E0E6', '#D8BFD8', '#F0D9FF', '#C1E1C1'],
     forest: ['#4B6B43', '#7A9D54', '#A7C957', '#DDE26A', '#B49F73', '#856D5D', '#5C4033', '#E4D6A7'],
-  
     dreamscape: ['#E0F7FA', '#E1F5FE', '#D1C4E9', '#F3E5F5', '#F0F4C3', '#D7CCC8', '#C5CAE9', '#E8EAF6'],
-    
-    coastal: ['#A7D7C5', '#CFE8E0', '#BFDCE5', '#8AC6D1', '#DCE2C8', '#F1F6F9', '#A2C4C9', '#F7F5E6']
-  ,
-  
-    autumnglow: ['#FFB347', '#D2691E', '#FFD700', '#B22222', '#CD853F', '#FFA07A', '#8B4513', '#F4A460']
-  ,
-  
-    cosmicjelly: ['#F15BB5', '#FEE440', '#00BBF9', '#00F5D4', '#FF99C8', '#FCF6BD', '#D0F4DE', '#E4C1F9'], 
-  bloom: ['#FF69B4', '#FFD700', '#7FFF00', '#FF8C00', '#00CED1', '#BA55D3', '#FFA07A', '#40E0D0']
-  ,
-  
-  vintagepicnic: ['#F67280', '#C06C84', '#F8B195', '#355C7D', '#6C5B7B', '#FDCB82', '#99B898', '#FF847C']
+    coastal: ['#A7D7C5', '#CFE8E0', '#BFDCE5', '#8AC6D1', '#DCE2C8', '#F1F6F9', '#A2C4C9', '#F7F5E6'],
+    autumnglow: ['#FFB347', '#D2691E', '#FFD700', '#B22222', '#CD853F', '#FFA07A', '#8B4513', '#F4A460'],
+    cosmicjelly: ['#F15BB5', '#FEE440', '#00BBF9', '#00F5D4', '#FF99C8', '#FCF6BD', '#D0F4DE', '#E4C1F9'],
+    bloom: ['#FF69B4', '#FFD700', '#7FFF00', '#FF8C00', '#00CED1', '#BA55D3', '#FFA07A', '#40E0D0'],
+    vintagepicnic: ['#F67280', '#C06C84', '#F8B195', '#355C7D', '#6C5B7B', '#FDCB82', '#99B898', '#FF847C']
   };
 
   useEffect(() => {
@@ -226,13 +217,20 @@ export default function HabitScreen() {
     startOfWeek.setDate(today.getDate() - offset);
     startOfWeek.setHours(0, 0, 0, 0);
 
-for (let i = 0; i < 7; i++) {
-  const date = new Date(startOfWeek);
-  date.setDate(startOfWeek.getDate() + i);
-  week.push(date);
-}
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(startOfWeek);
+      date.setDate(startOfWeek.getDate() + i);
+      week.push(date);
+    }
 
     setCurrentWeek(week);
+    setCurrentDate(today);
+    // Set initial calendar strip position
+    setTimeout(() => {
+      if (calendarStripRef.current) {
+        calendarStripRef.current.setSelectedDate(moment(today));
+      }
+    }, 100);
     requestCameraPermissions();
   }, []);
 
@@ -1141,7 +1139,6 @@ const formatDate = (date: Date): string => {
               style={styles.menuButton}
               onPress={() => navigateWeek('prev')}
             >
-          
             </TouchableOpacity>
           </View>
 
@@ -1177,6 +1174,8 @@ const formatDate = (date: Date): string => {
               selectedDate={moment(currentDate)}
               onDateSelected={(date) => setCurrentDate(date.toDate())}
               customDatesStyles={customDatesStyles}
+              scrollToOnSetSelectedDate={true}
+              useNativeDriver={true}
             />
           </View>
 
@@ -1238,7 +1237,7 @@ const formatDate = (date: Date): string => {
                     }}
                     delayLongPress={500}
                     activeOpacity={0.9}
-                    style={{ marginVertical: 6 }}
+                    style={{ marginVertical: 0 }}
                   >
                     <View style={{ position: 'relative' }}>
                       <View style={{ position: 'relative', overflow: 'hidden', borderRadius: 16 }}>
@@ -1264,7 +1263,7 @@ const formatDate = (date: Date): string => {
                           { 
                             backgroundColor: 'transparent', 
                             position: 'relative',
-                            paddingVertical: 8
+                            paddingVertical: 4
                           }
                         ]}>
                           <View style={[styles.habitContent, { 
@@ -1340,8 +1339,11 @@ const formatDate = (date: Date): string => {
                                         justifyContent: 'center',
                                         alignItems: 'center',
                                         borderWidth: 1,
-                                        borderColor: '#6F4E37'
+                                        borderColor: '#6F4E37',
+                                        marginVertical: 2,
+                                        zIndex: 1
                                       }}
+                                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                     >
                                       <Text style={{
                                         fontSize: 8,
