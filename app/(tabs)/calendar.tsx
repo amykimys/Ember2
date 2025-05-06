@@ -59,7 +59,7 @@ const TOTAL_HORIZONTAL_PADDING = 16; // 8 left + 8 right
 const SIDE_PADDING = TOTAL_HORIZONTAL_PADDING / 2; // 8px left or right individually
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const CELL_WIDTH = (SCREEN_WIDTH - TOTAL_HORIZONTAL_PADDING) / 7;
-const CELL_HEIGHT = (SCREEN_HEIGHT - 140) / 6;
+const CELL_HEIGHT = Math.max((SCREEN_HEIGHT - 140) / 6, 120); // Significantly increased cell height
 
 const NUM_COLUMNS = 7;
 const NUM_ROWS = 6;
@@ -121,8 +121,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     marginLeft: 0.5,
-    height: 24, // Increased height for date number
-    lineHeight: 24, // Added line height to match height
+    height: 24,
+    lineHeight: 24,
   },
   todayCell: {
     backgroundColor: '#BF926420',
@@ -273,6 +273,12 @@ const styles = StyleSheet.create({
   dateTimePicker: {
     marginTop: -55, // Increased negative margin to cut off more of the top
     transform: [{ scale: 0.8 }], // This will make everything smaller including text
+  },
+  eventContainer: {
+    position: 'absolute',
+    left: 2,
+    right: 2,
+    zIndex: 1000,
   },
 });
 
@@ -937,69 +943,7 @@ const CalendarScreen: React.FC = () => {
           </View>
 
           <View style={[styles.grid, isMonthCompact && styles.gridCompact]}>
-            {/* Grid Cells */}
-            {days.map((date, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.cell,
-                  isMonthCompact ? styles.cellCompact : styles.cellExpanded,
-                  isSelected(date) && styles.selectedCell,
-                  isToday(date) && styles.todayCell,
-                ]}
-              >
-                {/* Date number */}
-                {date && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (date) {
-                        setSelectedDate(date);
-                        setIsMonthCompact(prev => !prev);
-                      }
-                    }}
-                    style={{ 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      height: 24,
-                      marginBottom: 4 // Added margin to create space between date and events
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dateNumber,
-                        !date && styles.invisibleText,
-                        isSelected(date) && styles.selectedText,
-                        isToday(date) && styles.todayText,
-                      ]}
-                    >
-                      {date?.getDate()}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-
-                {/* Background touchable for adding new events */}
-                <TouchableOpacity
-                  onPress={() => {
-                    if (date) {
-                      setSelectedDate(date);
-                      resetEventForm();
-                      setStartDateTime(new Date(date));
-                      setNewEventTitle('');
-                      setNewEventDescription('');
-                      setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000));
-                      setUserChangedEndTime(false);
-                      setCustomSelectedDates([]);
-                      setShowModal(true);
-                    }
-                  }}
-                  activeOpacity={date ? 0.7 : 1}
-                  disabled={!date}
-                  style={{ flex: 1, paddingTop: 0 }}
-                />
-              </View>
-            ))}
-
-            {/* Events Layer */}
+            {/* Multi-day Events Layer */}
             {days.map((date, i) => {
               if (!date) return null;
               const dateKey = getLocalDateString(date);
@@ -1011,29 +955,24 @@ const CalendarScreen: React.FC = () => {
                 const isStartDate = dateKey === getLocalDateString(eventStart);
                 const isEndDate = dateKey === getLocalDateString(eventEnd);
 
-                // Skip rendering if it's not the start date of a multi-day event
-                if (!isStartDate && isMultiDay) return null;
+                // Only render multi-day events in this layer
+                if (!isMultiDay || !isStartDate) return null;
 
                 // Calculate the width based on the number of days
                 const numberOfSpanningDays = Math.floor(
                   (eventEnd.getTime() - eventStart.getTime()) / (1000 * 60 * 60 * 24)
                 ) + 1;
 
-                const eventWidth = isMultiDay
-                  ? Math.min(numberOfSpanningDays, 7 - date.getDay()) * CELL_WIDTH - 8
-                  : CELL_WIDTH - 8;
+                const eventWidth = Math.min(numberOfSpanningDays, 7 - date.getDay()) * CELL_WIDTH - 8;
 
-                // Get the position for this date
-                const position = datePositions.get(dateKey);
-                if (!position) return null;
-
-                // Calculate the base top position for events with increased spacing
-                const baseTopPosition = 34 + (position.row * CELL_HEIGHT); // Increased base offset
-                const eventTopPosition = baseTopPosition + 28 + (idx * 24); // Increased spacing after date
+                // Calculate position
+                const row = Math.floor(i / 7);
+                const col = date.getDay();
+                const eventTop = row * CELL_HEIGHT + 30 + (idx * 22);
 
                 return (
                   <Swipeable
-                    key={`${dateKey}-${idx}`}
+                    key={`multi-${dateKey}-${idx}`}
                     overshootRight={false}
                     onSwipeableOpen={() => handleDeleteEvent(dateKey, idx)}
                     renderRightActions={() => (
@@ -1053,9 +992,10 @@ const CalendarScreen: React.FC = () => {
                     )}
                     containerStyle={{
                       position: 'absolute',
-                      top: eventTopPosition,
-                      left: SIDE_PADDING + (position.col * CELL_WIDTH) + 2,
+                      top: eventTop,
+                      left: SIDE_PADDING + (col * CELL_WIDTH) + 2,
                       zIndex: 1000,
+                      width: eventWidth,
                     }}
                   >
                     <TouchableOpacity
@@ -1063,7 +1003,7 @@ const CalendarScreen: React.FC = () => {
                         backgroundColor: event.categoryColor || '#eee',
                         borderRadius: 6,
                         paddingVertical: 2,
-                        width: eventWidth,
+                        width: '100%',
                         borderTopRightRadius: isEndDate ? 6 : 0,
                         borderBottomRightRadius: isEndDate ? 6 : 0,
                         borderTopLeftRadius: isStartDate ? 6 : 0,
@@ -1094,20 +1034,170 @@ const CalendarScreen: React.FC = () => {
                         numberOfLines={1}
                         style={{
                           fontSize: 10,
-                          color: isMultiDay && !isStartDate ? '#ddd' : '#fff',
-                          fontWeight: isMultiDay && !isStartDate ? '400' : '600',
-                          fontStyle: isMultiDay && !isStartDate ? 'italic' : 'normal',
+                          color: '#fff',
+                          fontWeight: '600',
                           textAlign: 'center',
                           paddingHorizontal: 4,
                         }}
                       >
-                        {event.isContinued ? 'Continued...' : event.title}
+                        {event.title}
                       </Text>
                     </TouchableOpacity>
                   </Swipeable>
                 );
               });
             })}
+
+            {/* Grid Cells */}
+            {days.map((date, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.cell,
+                  isMonthCompact ? styles.cellCompact : styles.cellExpanded,
+                  isSelected(date) && styles.selectedCell,
+                  isToday(date) && styles.todayCell,
+                ]}
+              >
+                {/* Date number */}
+                {date && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (date) {
+                        setSelectedDate(date);
+                        setIsMonthCompact(prev => !prev);
+                      }
+                    }}
+                    style={{ 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      height: 24,
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dateNumber,
+                        !date && styles.invisibleText,
+                        isSelected(date) && styles.selectedText,
+                        isToday(date) && styles.todayText,
+                      ]}
+                    >
+                      {date?.getDate()}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {/* Events Container - Only for single-day events */}
+                {date && (
+                  <View style={{ 
+                    position: 'relative',
+                    flex: 1,
+                    marginTop: 4,
+                  }}>
+                    {events[getLocalDateString(date)]?.map((event, idx) => {
+                      const eventStart = new Date(event.startDateTime!);
+                      const eventEnd = new Date(event.endDateTime!);
+
+                      const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
+                      // Skip multi-day events in the cell
+                      if (isMultiDay) return null;
+
+                      return (
+                        <Swipeable
+                          key={idx}
+                          overshootRight={false}
+                          onSwipeableOpen={() => handleDeleteEvent(getLocalDateString(date), idx)}
+                          renderRightActions={() => (
+                            <View
+                              style={{
+                                flex: 1,
+                                backgroundColor: 'red',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                borderRadius: 6,
+                                overflow: 'hidden',
+                                marginTop: idx === 0 ? 10 : 4,
+                              }}
+                            >
+                              <Ionicons name="trash-outline" size={10} color="white" />
+                            </View>
+                          )}
+                          containerStyle={{
+                            position: 'absolute',
+                            top: idx * 22,
+                            left: 2,
+                            right: 2,
+                            zIndex: 1000,
+                          }}
+                        >
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: event.categoryColor || '#eee',
+                              borderRadius: 6,
+                              paddingVertical: 2,
+                              width: CELL_WIDTH - 8,
+                            }}
+                            onLongPress={() => {
+                              const eventToEdit = events[getLocalDateString(date)][idx];
+                              setSelectedEvent({ event: eventToEdit, dateKey: getLocalDateString(date), index: idx });
+                              setEditedEventTitle(eventToEdit.title);
+                              setEditedEventDescription(eventToEdit.description ?? '');
+                              setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
+                              setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
+                              setEditedSelectedCategory(
+                                eventToEdit.categoryName && eventToEdit.categoryColor
+                                  ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
+                                  : null
+                              );
+                              setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
+                              setEditedRepeatOption(eventToEdit.repeatOption || 'None');
+                              setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
+                              setCustomSelectedDates(eventToEdit.customDates || []);
+
+                              collapseAllPickers();
+                              setShowEditEventModal(true);
+                            }}
+                          >
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                fontSize: 10,
+                                color: '#fff',
+                                fontWeight: '600',
+                                textAlign: 'center',
+                                paddingHorizontal: 4,
+                              }}
+                            >
+                              {event.title}
+                            </Text>
+                          </TouchableOpacity>
+                        </Swipeable>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Background touchable for adding new events */}
+                <TouchableOpacity
+                  onPress={() => {
+                    if (date) {
+                      setSelectedDate(date);
+                      resetEventForm();
+                      setStartDateTime(new Date(date));
+                      setNewEventTitle('');
+                      setNewEventDescription('');
+                      setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000));
+                      setUserChangedEndTime(false);
+                      setCustomSelectedDates([]);
+                      setShowModal(true);
+                    }
+                  }}
+                  activeOpacity={date ? 0.7 : 1}
+                  disabled={!date}
+                  style={{ flex: 1, paddingTop: 0 }}
+                />
+              </View>
+            ))}
           </View>
         </View>
       </View>

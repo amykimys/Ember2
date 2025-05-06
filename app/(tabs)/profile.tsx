@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Image, ScrollView, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, Image, ScrollView, TouchableOpacity, SafeAreaView, Alert } from 'react-native';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
@@ -77,20 +77,39 @@ export default function ProfileScreen() {
     try {
       console.log('Starting sign out process...');
       
-      // First, revoke Google access
-      await GoogleSignin.revokeAccess();
-      await GoogleSignin.signOut();
+      // First, revoke Google access and sign out
+      try {
+        await GoogleSignin.revokeAccess();
+        await GoogleSignin.signOut();
+        console.log('Successfully signed out from Google');
+      } catch (googleError) {
+        console.error('Error signing out from Google:', googleError);
+        // Continue with Supabase sign out even if Google sign out fails
+      }
       
       // Then sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error('Error signing out from Supabase:', error.message);
-      } else {
-        console.log('Sign out successful');
-        setUser(null);
+        throw error;
       }
+      
+      console.log('Successfully signed out from Supabase');
+      setUser(null);
+      
+      // Force clear any remaining auth state by signing out again
+      try {
+        await GoogleSignin.signOut();
+      } catch (error) {
+        console.log('Second sign out attempt completed');
+      }
+      
     } catch (error) {
-      console.error('Error signing out:', error);
+      console.error('Error in handleSignOut:', error);
+      Alert.alert(
+        'Error',
+        'There was a problem signing out. Please try again.'
+      );
     }
   };
 

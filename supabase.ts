@@ -12,6 +12,7 @@ GoogleSignin.configure({
   iosClientId: '407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds.apps.googleusercontent.com',
   webClientId: '407418160129-v3c55fd6db3f8mv747p9q5tsbcmvnrik.apps.googleusercontent.com',
   offlineAccess: true,
+  forceCodeForRefreshToken: true,
 });
 
 // ✅ Initialize Supabase client (cleaned-up)
@@ -20,7 +21,7 @@ export const supabase = createClient(
   supabaseAnonKey,
   {
     auth: {
-      storage: AsyncStorage, // ✅ Just pass the module directly
+      storage: AsyncStorage,
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: false,

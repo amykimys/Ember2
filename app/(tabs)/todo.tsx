@@ -1603,7 +1603,7 @@ export default function TodoScreen() {
             </View>
             
             {/* Add this after the header and before the task list */}
-            <View style={{ paddingHorizontal: -2, marginHorizontal: -5, marginBottom: 2 }}>
+            <View style={{ paddingHorizontal: -10, marginHorizontal: -18, marginBottom: 2 }}>
               {isMonthView ? (
                 <View style={{ flex: 1, height: '100%', backgroundColor: 'white' }}>
                   <MonthlyCalendar

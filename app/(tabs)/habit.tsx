@@ -972,6 +972,18 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     });
   };
 
+  const goToToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    if (calendarStripRef.current) {
+      calendarStripRef.current.setSelectedDate(moment(today));
+    }
+  };
+
+  const goToNextDay = () => {
+    // ... existing code ...
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -989,47 +1001,33 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
           </View>
 
           {/* Add Calendar Strip Header */}
-          <View style={{ paddingHorizontal: 0, marginHorizontal: 0, marginBottom: 5 }}>
-            <TouchableOpacity onPress={() => {
-              const now = moment();
-              setCurrentDate(now.toDate());
-              calendarStripRef.current?.setSelectedDate(now);
-            }} onLongPress={() => {
-              const now = moment();
-              setCurrentDate(now.toDate());
-                calendarStripRef.current?.setSelectedDate(now);            
-                }} delayLongPress={300}>
-              <TouchableOpacity onPress={() => {
-                const now = moment();
-                setCurrentDate(now.toDate());
-                  calendarStripRef.current?.setSelectedDate(now);             
-                   }}>
-                <Text style={{ color: '#000', fontSize: 18, fontWeight: 'bold', marginBottom: -2, textAlign: 'center' }}>
-                  {moment(currentDate).format('MMMM YYYY')}
-                </Text>
-              </TouchableOpacity>
+          <View style={{ paddingHorizontal: -10, marginHorizontal: -18, marginBottom: 2 }}>
+            <TouchableOpacity onPress={goToToday}>
+              <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
+                {moment(currentDate).format('MMMM YYYY')}
+              </Text>
             </TouchableOpacity>
             <CalendarStrip
               ref={calendarStripRef}
               scrollable
-              startingDate={moment().subtract(3, 'days')}
-              showMonth
+              startingDate={moment().subtract(30, 'days')}
+              showMonth={false}
               leftSelector={<View />}
               rightSelector={<View />}
-              style={{ height: 100, paddingTop: 0, paddingBottom: 0, paddingHorizontal: 0 }}
+              style={{ height: 100, paddingTop: 0, paddingBottom: 3, paddingHorizontal: 12 }}
               calendarColor={'#fff'}
               calendarHeaderStyle={{
                 display: 'none'
               }}
-              dateNumberStyle={{ color: '#999', fontSize: 15 }}
+              dateNumberStyle={{ color: '#999', fontSize: 17 }}
               dateNameStyle={{ color: '#999' }}
               highlightDateNumberStyle={{
-                color: isTodaySelected ? '#BF9264' : '#000',
-                fontSize: 30,
+                color: isTodaySelected ? '#6F4E37' : '#000',
+                fontSize: 34,
               }}
               highlightDateNameStyle={{
-                color: isTodaySelected ? '#BF9264' : '#000',
-                fontSize: 12.5,
+                color: isTodaySelected ? '#6F4E37' : '#000',
+                fontSize: 13,
               }}
               selectedDate={moment(currentDate)}
               onDateSelected={(date) => setCurrentDate(date.toDate())}
