@@ -68,6 +68,8 @@ interface Habit {
   user_id?: string;
   repeat_type: RepeatOption;
   repeat_end_date: string | null;
+  notes: { [date: string]: string };
+  photos: { [date: string]: string };
 }
 
 const HABIT_COLORS = [
@@ -170,11 +172,11 @@ export default function HabitScreen() {
   const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false); // 💬 for the modal
   const [newCategoryName, setNewCategoryName] = useState('');
   const categoryInputRef = useRef<TextInput>(null);
-
-
-
-  
-
+  const [progressAnimations] = useState(() => 
+    new Map(habits.map(habit => [habit.id, new Animated.Value(0)]))
+  );
+  const [selectedNoteDate, setSelectedNoteDate] = useState<{ habitId: string; date: string } | null>(null);
+  const [noteText, setNoteText] = useState('');
 
   const today = moment();
   const todayStr = today.format('YYYY-MM-DD');
@@ -240,7 +242,7 @@ for (let i = 0; i < 7; i++) {
       if (event === 'SIGNED_IN' && session?.user) {
         try {
           // Fetch user's habits when signed in
-          console.log('Fetching habits...');
+          console.log('Fetching habits for user:', session.user.id);
           const { data: habitsData, error: habitsError } = await supabase
             .from('habits')
             .select('*')
@@ -261,14 +263,16 @@ for (let i = 0; i < 7; i++) {
               photoProofs: habit.photo_proofs || {},
               reminderTime: habit.reminder_time,
               user_id: habit.user_id,
-              // Ensure all required fields are present
               streak: habit.streak || 0,
               completedToday: false,
               targetPerWeek: habit.target_per_week || 1,
               requirePhoto: habit.require_photo || false,
               repeat_type: habit.repeat_type || 'none',
               repeat_end_date: habit.repeat_end_date || null,
+              notes: habit.notes || {},
+              photos: habit.photos || {},
             }));
+            console.log('Mapped habits:', mappedHabits);
             setHabits(mappedHabits);
           }
         } catch (error) {
@@ -285,6 +289,19 @@ for (let i = 0; i < 7; i++) {
     return () => subscription.unsubscribe();
   }, []);
 
+  useEffect(() => {
+    habits.forEach(habit => {
+      const animation = progressAnimations.get(habit.id);
+      if (animation) {
+        Animated.timing(animation, {
+          toValue: getWeeklyProgressPercentage(habit),
+          duration: 300,
+          useNativeDriver: false
+        }).start();
+      }
+    });
+  }, [habits]);
+
   async function requestCameraPermissions() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -295,11 +312,11 @@ for (let i = 0; i < 7; i++) {
   }
 
   function getWeeklyProgressPercentage(habit: Habit) {
-  const completed = getWeeklyCompletionCount(habit);
-  const target = habit.targetPerWeek || 1; // avoid division by 0
-  const percentage = Math.min((completed / target) * 100, 100);
-  return percentage;
-}
+    const completed = getWeeklyCompletionCount(habit);
+    const target = habit.targetPerWeek || 1;
+    const percentage = Math.min((completed / target) * 100, 100);
+    return percentage;
+  }
 
 
   async function scheduleReminderNotification(taskTitle: string, reminderTime: Date) {
@@ -475,7 +492,9 @@ const formatDate = (date: Date): string => {
       photoProofs: {},
       repeat_type: selectedRepeat,
       repeat_end_date: repeatEndDate?.toISOString() || null,
-      user_id: user.id
+      user_id: user.id,
+      notes: {},
+      photos: {},
     };
 
     // Save to Supabase
@@ -531,41 +550,81 @@ const formatDate = (date: Date): string => {
     setHabits(habits => habits.filter(habit => habit.id !== habitId));
   };
   
-const handlePhotoCapture = async (type: 'camera' | 'library') => {
+  const handlePhotoCapture = async (type: 'camera' | 'library') => {
     try {
       let result;
       
       if (type === 'camera') {
+        // Close modal first for camera
+        setIsPhotoOptionsModalVisible(false);
+        await new Promise(resolve => setTimeout(resolve, 300)); // Wait for modal to close
+        
         result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           quality: 0.8,
           allowsEditing: true,
           aspect: [4, 3],
         });
       } else {
+        // For library, don't close modal until after picker is done
         result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           quality: 0.8,
           allowsEditing: true,
           aspect: [4, 3],
         });
+        
+        // Close modal after picker is done
+        setIsPhotoOptionsModalVisible(false);
       }
 
       if (!result.canceled && selectedHabitId && selectedDate) {
         const uri = result.assets[0].uri;
-        setHabits(habits.map(habit => {
-          if (habit.id === selectedHabitId) {
-            const updatedCompletedDays = [...habit.completedDays, selectedDate];
+        const habit = habits.find(h => h.id === selectedHabitId);
+        if (!habit) return;
+
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          console.error('No user logged in');
+          return;
+        }
+
+        const updatedPhotos = {
+          ...habit.photos,
+          [selectedDate]: uri
+        };
+
+        const updatedCompletedDays = [...habit.completedDays, selectedDate];
+        const newStreak = calculateStreak(habit, updatedCompletedDays);
+
+        // Update in Supabase
+        const { error } = await supabase
+          .from('habits')
+          .update({
+            photos: updatedPhotos,
+            completed_days: updatedCompletedDays,
+            streak: newStreak
+          })
+          .eq('id', selectedHabitId)
+          .eq('user_id', user.id);
+
+        if (error) {
+          console.error('Error saving photo:', error);
+          return;
+        }
+
+        // Update local state
+        setHabits(habits.map(h => {
+          if (h.id === selectedHabitId) {
             return {
-              ...habit,
-              photoProofs: { ...habit.photoProofs, [selectedDate]: uri },
+              ...h,
+              photos: updatedPhotos,
               completedDays: updatedCompletedDays,
-              streak: calculateStreak(habit, updatedCompletedDays),
+              streak: newStreak
             };
           }
-          return habit;
+          return h;
         }));
-        setShowPhotoModal(false);
       }
     } catch (error) {
       console.error('Error capturing photo:', error);
@@ -584,6 +643,14 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
 
     const habit = habits.find(h => h.id === habitId);
     if (!habit) return;
+
+    // If habit requires photo and no photo exists for this date
+    if (habit.requirePhoto && !habit.photos[normalizedDate]) {
+      setSelectedHabitId(habitId);
+      setSelectedDate(normalizedDate);
+      setIsPhotoOptionsModalVisible(true);
+      return;
+    }
 
     const newCompletedDays = habit.completedDays.includes(normalizedDate)
       ? habit.completedDays.filter(d => d !== normalizedDate)
@@ -653,7 +720,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
         text: newHabit.trim(),
         description: newDescription.trim() || undefined,
         color: newCategoryColor,
-        targetPerWeek: parseInt(frequencyInput),
+        targetPerWeek: parseInt(frequencyInput) || 1,
         requirePhoto,
         reminderTime: reminderEnabled ? reminderTime?.toISOString() : null,
         repeat_type: selectedRepeat,
@@ -672,7 +739,9 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
           require_photo: updatedHabit.requirePhoto,
           reminder_time: updatedHabit.reminderTime,
           repeat_type: updatedHabit.repeat_type,
-          repeat_end_date: updatedHabit.repeat_end_date
+          repeat_end_date: updatedHabit.repeat_end_date,
+          notes: updatedHabit.notes,
+          photos: updatedHabit.photos
         })
         .eq('id', updatedHabit.id)
         .eq('user_id', user.id);
@@ -695,12 +764,14 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
         completedToday: false,
         completedDays: [],
         color: newCategoryColor,
-        targetPerWeek: parseInt(frequencyInput),
+        targetPerWeek: parseInt(frequencyInput) || 1,
         requirePhoto,
         photoProofs: {},
         repeat_type: selectedRepeat,
         repeat_end_date: repeatEndDate?.toISOString() || null,
-        user_id: user.id
+        user_id: user.id,
+        notes: {},
+        photos: {},
       };
 
       // Save to Supabase
@@ -718,7 +789,9 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
           photo_proofs: newHabitItem.photoProofs,
           repeat_type: newHabitItem.repeat_type,
           repeat_end_date: newHabitItem.repeat_end_date,
-          user_id: user.id
+          user_id: user.id,
+          notes: newHabitItem.notes,
+          photos: newHabitItem.photos
         });
 
       if (error) {
@@ -785,23 +858,23 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
   };
 
   function getWeeklyCompletionCount(habit: Habit) {
-  const today = new Date();
-  const startOfWeek = new Date(today);
-  const day = today.getDay(); // Sunday = 0, Monday = 1, ..., Saturday = 6
-  startOfWeek.setDate(today.getDate() - day); // Start from Sunday
-  startOfWeek.setHours(0, 0, 0, 0);
+    const today = new Date();
+    const startOfWeek = new Date(today);
+    const day = today.getDay(); // Sunday = 0, Monday = 1, ..., Saturday = 6
+    startOfWeek.setDate(today.getDate() - day); // Start from Sunday
+    startOfWeek.setHours(0, 0, 0, 0);
 
-  const endOfWeek = new Date(startOfWeek);
-  endOfWeek.setDate(startOfWeek.getDate() + 6); // End on Saturday
-  endOfWeek.setHours(23, 59, 59, 999);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // End on Saturday
+    endOfWeek.setHours(23, 59, 59, 999);
 
-  const count = habit.completedDays.filter(dateStr => {
-    const date = new Date(dateStr);
-    return date >= startOfWeek && date <= endOfWeek;
-  }).length;
+    const count = habit.completedDays.filter(dateStr => {
+      const date = new Date(dateStr);
+      return date >= startOfWeek && date <= endOfWeek;
+    }).length;
 
-  return count;
-}
+    return count;
+  }
 
 
   function getTotalHabitCompletions(habit: Habit) {
@@ -984,6 +1057,62 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     // ... existing code ...
   };
 
+  const handleNotePress = (habitId: string, date: string) => {
+    console.log('Note pressed for habit:', habitId, 'date:', date);
+    setSelectedNoteDate({ habitId, date });
+    const habit = habits.find(h => h.id === habitId);
+    if (habit?.notes?.[date]) {
+      console.log('Existing note found:', habit.notes[date]);
+      setNoteText(habit.notes[date]);
+    } else {
+      console.log('No existing note');
+      setNoteText('');
+    }
+  };
+
+  const saveNote = async () => {
+    if (!selectedNoteDate) return;
+    
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const habit = habits.find(h => h.id === selectedNoteDate.habitId);
+    if (!habit) return;
+
+    const updatedNotes = {
+      ...habit.notes,
+      [selectedNoteDate.date]: noteText
+    };
+
+    // Update in Supabase
+    const { error } = await supabase
+      .from('habits')
+      .update({
+        notes: updatedNotes
+      })
+      .eq('id', selectedNoteDate.habitId)
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('Error saving note:', error);
+      return;
+    }
+
+    // Update local state
+    setHabits(habits.map(h => {
+      if (h.id === selectedNoteDate.habitId) {
+        return {
+          ...h,
+          notes: updatedNotes
+        };
+      }
+      return h;
+    }));
+
+    setSelectedNoteDate(null);
+    setNoteText('');
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -1077,55 +1206,176 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                       }
                       handleEditHabit(habit);
                     }}
+                    onPress={() => {
+                      const today = new Date();
+                      const dateStr = formatDate(today);
+                      
+                      // If habit requires photo and no photo exists for today
+                      if (habit.requirePhoto && !habit.photos[dateStr]) {
+                        setSelectedHabitId(habit.id);
+                        setSelectedDate(dateStr);
+                        setIsPhotoOptionsModalVisible(true);
+                        return;
+                      }
+                      
+                      handleHabitPress(habit.id, dateStr);
+                    }}
                     delayLongPress={500}
                     activeOpacity={0.9}
+                    style={{ marginVertical: 6 }}
                   >
                     <View style={{ position: 'relative' }}>
                       <View style={{ position: 'relative', overflow: 'hidden', borderRadius: 16 }}>
                         {/* Progress background layer */}
-                        <View style={{
+                        <Animated.View style={{
                           ...StyleSheet.absoluteFillObject,
                           backgroundColor: habit.color,
-                          width: `${getWeeklyProgressPercentage(habit)}%`,
+                          width: progressAnimations.get(habit.id)?.interpolate({
+                            inputRange: [0, 100],
+                            outputRange: ['0%', '100%']
+                          })
                         }} />
 
                         {/* Gray base layer */}
                         <View style={{
                           ...StyleSheet.absoluteFillObject,
-                          backgroundColor: '#d3d3d3', // light gray
+                          backgroundColor: '#F1EFEC',
                         }} />
 
                         {/* Content layer */}
                         <View style={[
                           styles.habitItem,
-                          { backgroundColor: 'transparent', position: 'relative' }
+                          { 
+                            backgroundColor: 'transparent', 
+                            position: 'relative',
+                            paddingVertical: 8
+                          }
                         ]}>
-                          <View style={styles.habitContent}>
-                            <View style={styles.habitTitleRow}>
-                              <Text style={[styles.habitName, { color: getTextColor(habit.color), flexShrink: 1 }]}>
+                          <View style={[styles.habitContent, { 
+                            justifyContent: 'center',
+                            paddingVertical: 4 // Reduce vertical padding
+                          }]}>
+                            <View style={[styles.habitTitleRow, { 
+                              position: 'relative',
+                              flexDirection: 'column',
+                              alignItems: 'flex-start',
+                              gap: 4 // Space between streak and title
+                            }]}>
+                              <Text style={[styles.habitStreak, { 
+                                color: getTextColor(habit.color),
+                                fontSize: 12
+                              }]}>
+                                <Ionicons name="flash-outline" size={12} color={getTextColor(habit.color)} /> {habit.streak}
+                              </Text>
+                              <Text style={[styles.habitName, { 
+                                color: getTextColor(habit.color), 
+                                flexShrink: 1,
+                                textAlign: 'left',
+                                fontSize: 15
+                              }]}>
                                 {habit.text}
                               </Text>
                               {habit.requirePhoto && (
-                                <Camera size={16} color={getTextColor(habit.color)} style={{ marginLeft: 8 }} />
+                                <Camera size={16} color={getTextColor(habit.color)} style={{ 
+                                  position: 'absolute',
+                                  right: 0,
+                                  top: '50%',
+                                  transform: [{ translateY: -8 }]
+                                }} />
                               )}
+                            </View>
+
+                            {/* Weekday completion indicators */}
+                            <View style={{ 
+                              flexDirection: 'row', 
+                              justifyContent: 'flex-start',
+                              alignItems: 'center',
+                              marginTop: 4,
+                              gap: 8
+                            }}>
+                              {[
+                                { day: 'M', key: 'mon' },
+                                { day: 'T', key: 'tue' },
+                                { day: 'W', key: 'wed' },
+                                { day: 'T', key: 'thu' },
+                                { day: 'F', key: 'fri' },
+                                { day: 'S', key: 'sat' },
+                                { day: 'S', key: 'sun' }
+                              ].map(({ day, key }, index) => {
+                                const today = new Date();
+                                const startOfWeek = new Date(today);
+                                const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
+                                startOfWeek.setDate(today.getDate() - (dayOfWeek - 1));
+                                const date = new Date(startOfWeek);
+                                date.setDate(startOfWeek.getDate() + index);
+                                const dateStr = date.toISOString().split('T')[0];
+                                const isCompleted = habit.completedDays.includes(dateStr);
+                                const hasNote = habit.notes && habit.notes[dateStr];
+                                const hasPhoto = habit.photos && habit.photos[dateStr];
+                                
+                                return (
+                                  <TouchableOpacity
+                                    key={key}
+                                    onPress={() => handleNotePress(habit.id, dateStr)}
+                                    onLongPress={() => {
+                                      if (Platform.OS !== 'web') {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                      }
+                                      const currentHabit = habits.find(h => h.id === habit.id);
+                                      if (currentHabit) {
+                                        // Show note if exists
+                                        if (currentHabit.notes?.[dateStr]) {
+                                          setNoteText(currentHabit.notes[dateStr]);
+                                        }
+                                        // Show photo if exists
+                                        if (currentHabit.photos?.[dateStr]) {
+                                          setPreviewPhoto(currentHabit.photos[dateStr]);
+                                          setIsPhotoPreviewModalVisible(true);
+                                        }
+                                        // Show note modal
+                                        setSelectedNoteDate({ habitId: currentHabit.id, date: dateStr });
+                                      }
+                                    }}
+                                    style={{
+                                      width: 16,
+                                      height: 16,
+                                      borderRadius: 8,
+                                      backgroundColor: isCompleted ? '#6F4E37' : '#F1EFEC',
+                                      justifyContent: 'center',
+                                      alignItems: 'center',
+                                      borderWidth: 1,
+                                      borderColor: '#6F4E37'
+                                    }}
+                                  >
+                                    <Text style={{
+                                      fontSize: 8,
+                                      color: isCompleted ? '#FFF8E8' : '#6F4E37',
+                                      fontWeight: '600'
+                                    }}>
+                                      {day}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
                             </View>
 
                             {habit.description && (
                               <Text style={[
                                 styles.habitDetails,
-                                { color: getTextColor(habit.color) }
+                                { 
+                                  color: getTextColor(habit.color),
+                                  fontSize: 12, // Smaller description
+                                  marginTop: 2
+                                }
                               ]}>
                                 {habit.description}
                               </Text>
                             )}
 
-                            <View style={styles.habitFooter}>
-                              <Text style={[styles.habitStreak, { color: getTextColor(habit.color) }]}>
-                                {`🔥 ${habit.streak} day streak`}
-                              </Text>
-                              <Text style={[styles.habitTarget, { color: getTextColor(habit.color) }]}>
-                                {`${getWeeklyCompletionCount(habit)} / ${habit.targetPerWeek}`}
-                              </Text>
+                            <View style={[styles.habitFooter, { 
+                              justifyContent: 'flex-end',
+                              marginTop: 2
+                            }]}>
                             </View>
                           </View>
                         </View>
@@ -1411,7 +1661,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                                 marginLeft: 8,
                               }}
                             >
-                              <Ionicons name="color-palette-outline" size={22} color="#666" />
+                              <Ionicons name="color-fill-outline" size={22} color="#666" />
                             </TouchableOpacity>
                             {/* Photo Button */}
                             <TouchableOpacity
@@ -1504,20 +1754,14 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                   <View style={{ flex: 1 }}>
                     <TouchableOpacity
                       style={{ paddingVertical: 14 }}
-                      onPress={() => {
-                        setIsPhotoOptionsModalVisible(false);
-                        handlePhotoCapture('camera');
-                      }}
+                      onPress={() => handlePhotoCapture('camera')}
                     >
                       <Text style={{ fontSize: 16 }}>📷 Take Photo</Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       style={{ paddingVertical: 14 }}
-                      onPress={() => {
-                        setIsPhotoOptionsModalVisible(false);
-                        handlePhotoCapture('library');
-                      }}
+                      onPress={() => handlePhotoCapture('library')}
                     >
                       <Text style={{ fontSize: 16 }}>🖼️ Choose from Library</Text>
                     </TouchableOpacity>
@@ -1611,19 +1855,22 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
             <TouchableWithoutFeedback onPress={handleReminderCancel}>
               <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
                 <View style={{ backgroundColor: 'white', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
+                  
+                  {/* Header */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                    <Text style={{ fontSize: 20, fontWeight: '600' }}>Set Reminder</Text>
+                    <Text style={{ fontSize: 20, fontWeight: '600' }}>Set Reminder Time</Text>
                     <TouchableOpacity onPress={handleReminderCancel}>
                       <Ionicons name="close" size={24} color="#666" />
                     </TouchableOpacity>
                   </View>
 
+                  {/* Time Pickers */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
                     {/* Hour Picker */}
                     <Picker
                       selectedValue={selectedHour}
                       style={{ flex: 1 }}
-                      onValueChange={(val: string) => setSelectedHour(val)}
+                      onValueChange={(value) => setSelectedHour(value)}
                     >
                       {Array.from({ length: 12 }, (_, i) => {
                         const val = (i + 1).toString().padStart(2, '0');
@@ -1635,7 +1882,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                     <Picker
                       selectedValue={selectedMinute}
                       style={{ flex: 1 }}
-                      onValueChange={(val: string) => setSelectedMinute(val)}
+                      onValueChange={(value) => setSelectedMinute(value)}
                     >
                       {Array.from({ length: 60 }, (_, i) => {
                         const val = i.toString().padStart(2, '0');
@@ -1647,15 +1894,27 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                     <Picker
                       selectedValue={selectedAmPm}
                       style={{ flex: 1 }}
-                      onValueChange={(val: string) => setSelectedAmPm(val)}
+                      onValueChange={(value) => setSelectedAmPm(value)}
                     >
                       <Picker.Item label="AM" value="AM" />
                       <Picker.Item label="PM" value="PM" />
                     </Picker>
                   </View>
 
+                  {/* Confirm Button */}
                   <TouchableOpacity
-                    onPress={handleReminderConfirm}
+                    onPress={() => {
+                      const hourNum = parseInt(selectedHour);
+                      const minuteNum = parseInt(selectedMinute);
+                      const date = new Date();
+                      let finalHour = hourNum % 12;
+                      if (selectedAmPm === 'PM') finalHour += 12;
+                      date.setHours(finalHour);
+                      date.setMinutes(minuteNum);
+                      date.setSeconds(0);
+                      setReminderTime(date);
+                      setShowReminderPicker(false);
+                    }}
                     style={{
                       backgroundColor: '#007AFF',
                       padding: 16,
@@ -1666,6 +1925,7 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
                   >
                     <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Set Reminder</Text>
                   </TouchableOpacity>
+
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -1813,91 +2073,101 @@ const handlePhotoCapture = async (type: 'camera' | 'library') => {
     </KeyboardAvoidingView>
   </Modal>
 
-  <Modal
-  visible={showReminderPicker}
-  transparent={true}
-  animationType="slide"
-  onRequestClose={() => setShowReminderPicker(false)}
->
-  <TouchableWithoutFeedback onPress={() => setShowReminderPicker(false)}>
-    <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-      <View style={{ backgroundColor: 'white', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
-        
-        {/* Header */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <Text style={{ fontSize: 20, fontWeight: '600' }}>Set Reminder Time</Text>
-          <TouchableOpacity onPress={() => setShowReminderPicker(false)}>
-            <Ionicons name="close" size={24} color="#666" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Time Pickers */}
-        <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-          {/* Hour Picker */}
-          <Picker
-            selectedValue={selectedHour}
-            style={{ flex: 1 }}
-            onValueChange={(value) => setSelectedHour(value)}
+          {/* Note Modal */}
+          <Modal
+            visible={!!selectedNoteDate}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setSelectedNoteDate(null)}
           >
-            {Array.from({ length: 12 }, (_, i) => {
-              const val = (i + 1).toString().padStart(2, '0');
-              return <Picker.Item key={val} label={val} value={val} />;
-            })}
-          </Picker>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+              <View style={{ 
+                backgroundColor: 'white', 
+                padding: 20, 
+                borderTopLeftRadius: 20, 
+                borderTopRightRadius: 20,
+                height: '60%'
+              }}>
+                {/* Header */}
+                <View style={{ 
+                  flexDirection: 'row', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  marginBottom: 20 
+                }}>
+                  <Text style={{ fontSize: 20, fontWeight: '600' }}>
+                    {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.notes[selectedNoteDate.date] ? 'Note' : 'Add Note'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setSelectedNoteDate(null)}>
+                    <Ionicons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
 
-          {/* Minute Picker */}
-          <Picker
-            selectedValue={selectedMinute}
-            style={{ flex: 1 }}
-            onValueChange={(value) => setSelectedMinute(value)}
-          >
-            {Array.from({ length: 60 }, (_, i) => {
-              const val = i.toString().padStart(2, '0');
-              return <Picker.Item key={val} label={val} value={val} />;
-            })}
-          </Picker>
+                {/* Date */}
+                {selectedNoteDate && (
+                  <Text style={{ 
+                    fontSize: 14, 
+                    color: '#666',
+                    marginBottom: 20
+                  }}>
+                    {moment(selectedNoteDate.date).format('dddd, MMMM D')}
+                  </Text>
+                )}
 
-          {/* AM/PM Picker */}
-          <Picker
-            selectedValue={selectedAmPm}
-            style={{ flex: 1 }}
-            onValueChange={(value) => setSelectedAmPm(value)}
-          >
-            <Picker.Item label="AM" value="AM" />
-            <Picker.Item label="PM" value="PM" />
-          </Picker>
-        </View>
+                {/* Photo */}
+                {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] && (
+                  <View style={{ marginBottom: 20 }}>
+                    <Image
+                      source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] }}
+                      style={{
+                        width: '100%',
+                        height: 200,
+                        borderRadius: 12,
+                        backgroundColor: '#f0f0f0'
+                      }}
+                      resizeMode="cover"
+                    />
+                  </View>
+                )}
 
-        {/* Confirm Button */}
-        <TouchableOpacity
-          onPress={() => {
-            const hourNum = parseInt(selectedHour);
-            const minuteNum = parseInt(selectedMinute);
-            const date = new Date();
-            let finalHour = hourNum % 12;
-            if (selectedAmPm === 'PM') finalHour += 12;
-            date.setHours(finalHour);
-            date.setMinutes(minuteNum);
-            date.setSeconds(0);
-            setReminderTime(date);
-            setShowReminderPicker(false);
-          }}
-          style={{
-            backgroundColor: '#007AFF',
-            padding: 16,
-            borderRadius: 12,
-            alignItems: 'center',
-            marginTop: 20,
-          }}
-        >
-          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Set Reminder</Text>
-        </TouchableOpacity>
+                {/* Note Input */}
+                <View style={{
+                  backgroundColor: '#F5F5F5',
+                  borderRadius: 12,
+                  padding: 12,
+                  marginBottom: 20,
+                  height: 150,
+                }}>
+                  <TextInput
+                    style={{
+                      fontSize: 16,
+                      color: '#1a1a1a',
+                      height: '100%',
+                      textAlignVertical: 'top'
+                    }}
+                    value={noteText}
+                    onChangeText={setNoteText}
+                    placeholder="Add a note for this day..."
+                    placeholderTextColor="#999"
+                    multiline
+                  />
+                </View>
 
-      </View>
-    </View>
-  </TouchableWithoutFeedback>
-</Modal>
-
+                {/* Save Button */}
+                <TouchableOpacity
+                  onPress={saveNote}
+                  style={{
+                    backgroundColor: '#007AFF',
+                    padding: 16,
+                    borderRadius: 12,
+                    alignItems: 'center'
+                  }}
+                >
+                  <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Save Note</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
 
         </View>
       </PanGestureHandler>
