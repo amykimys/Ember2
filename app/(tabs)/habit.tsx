@@ -562,39 +562,37 @@ const formatDate = (date: Date): string => {
   const calculateStreak = (habit: Habit, completedDays: string[]): number => {
   const completedSet = new Set(completedDays.map(date => formatDate(new Date(date))));
   const today = new Date();
-  let totalCompletions = 0;
+  let streak = 0;
 
-  // Start from current week's Sunday
+  // Start from current week's Monday
   let currentWeekStart = new Date(today);
-  const day = currentWeekStart.getDay(); // 0 = Sun, 6 = Sat
-  currentWeekStart.setDate(currentWeekStart.getDate() - day);
+  const day = currentWeekStart.getDay();
+  currentWeekStart.setDate(currentWeekStart.getDate() - (day === 0 ? 6 : day - 1)); // Adjust to Monday
   currentWeekStart.setHours(0, 0, 0, 0);
 
   while (true) {
-    // Clone week start and generate dates for this week
-    const thisWeekStart = new Date(currentWeekStart);
+    // Generate dates for this week
     const weekDates: string[] = [];
-
     for (let i = 0; i < 7; i++) {
-      const day = new Date(thisWeekStart);
-      day.setDate(thisWeekStart.getDate() + i);
-      weekDates.push(formatDate(day));
+      const date = new Date(currentWeekStart);
+      date.setDate(currentWeekStart.getDate() + i);
+      weekDates.push(formatDate(date));
     }
 
+    // Count completions for this week
     const completionsThisWeek = weekDates.filter(date => completedSet.has(date)).length;
 
+    // If we met the target for this week, increment streak and check previous week
     if (completionsThisWeek >= habit.targetPerWeek) {
-      totalCompletions += completionsThisWeek;
-      // Go back 7 days for the next week check (clone before mutation!)
-      const prevWeekStart = new Date(currentWeekStart);
-      prevWeekStart.setDate(prevWeekStart.getDate() - 7);
-      currentWeekStart = prevWeekStart;
+      streak++;
+      // Move to previous week
+      currentWeekStart.setDate(currentWeekStart.getDate() - 7);
     } else {
       break;
     }
   }
 
-  return totalCompletions;
+  return streak;
 };
 
 
@@ -1385,36 +1383,62 @@ const formatDate = (date: Date): string => {
       return;
     }
 
-    // First update all habits that use this category
-    const { error: updateError } = await supabase
-      .from('habits')
-      .update({ category_id: null })
-      .eq('category_id', categoryId)
-      .eq('user_id', user.id);
+    try {
+      // First update all habits that use this category
+      const { error: updateError } = await supabase
+        .from('habits')
+        .update({ category_id: null })
+        .eq('category_id', categoryId)
+        .eq('user_id', user.id);
 
-    if (updateError) {
-      console.error('Error updating habits:', updateError);
-      Alert.alert('Error', 'Failed to update habits. Please try again.');
-      return;
-    }
+      if (updateError) {
+        console.error('Error updating habits:', updateError);
+        Alert.alert('Error', 'Failed to update habits. Please try again.');
+        return;
+      }
 
-    // Then delete the category
-    const { error: deleteError } = await supabase
-      .from('categories')
-      .delete()
-      .eq('id', categoryId)
-      .eq('user_id', user.id);
+      // Then delete the category
+      const { error: deleteError } = await supabase
+        .from('categories')
+        .delete()
+        .eq('id', categoryId)
+        .eq('user_id', user.id);
 
-    if (deleteError) {
-      console.error('Error deleting category:', deleteError);
-      Alert.alert('Error', 'Failed to delete category. Please try again.');
-      return;
-    }
+      if (deleteError) {
+        console.error('Error deleting category:', deleteError);
+        Alert.alert('Error', 'Failed to delete category. Please try again.');
+        return;
+      }
 
-    // Update local state
-    setCategories(prev => prev.filter(cat => cat.id !== categoryId));
-    if (selectedCategoryId === categoryId) {
-      setSelectedCategoryId('');
+      // Update local state for categories
+      setCategories(prev => prev.filter(cat => cat.id !== categoryId));
+      
+      // Update local state for habits
+      setHabits(prev => prev.map(habit => {
+        if (habit.category_id === categoryId) {
+          return { ...habit, category_id: null };
+        }
+        return habit;
+      }));
+
+      // Clear selected category if it was the deleted one
+      if (selectedCategoryId === categoryId) {
+        setSelectedCategoryId('');
+      }
+
+      // Update expanded categories state
+      const category = categories.find(cat => cat.id === categoryId);
+      if (category) {
+        setExpandedCategories(prev => {
+          const newState = { ...prev };
+          delete newState[category.color];
+          return newState;
+        });
+      }
+
+    } catch (error) {
+      console.error('Error in category deletion:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
 
@@ -1577,7 +1601,7 @@ const formatDate = (date: Date): string => {
                           delayLongPress={500}
                           activeOpacity={0.9}
                           style={{
-                            backgroundColor: '#F9F8F7',
+                            backgroundColor: getWeeklyCompletionCount(habit) >= habit.targetPerWeek ? habit.color : '#F9F8F7',
                             borderRadius: 16,
                             padding: 14,
                             paddingBottom: 12,
@@ -1593,7 +1617,7 @@ const formatDate = (date: Date): string => {
                               bottom: 0,
                               right: 0,
                               backgroundColor: habit.color,
-                              opacity: 0.5,
+                              opacity: 0.4,
                               width: `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`
                             }}
                           />
@@ -1741,7 +1765,7 @@ const formatDate = (date: Date): string => {
                       borderTopLeftRadius: 20,
                       borderTopRightRadius: 20,
                       padding: 10,
-                      height: '35%',
+                      height: '45%',
                       width: '100%',
                       transform: [{
                         translateY: modalAnimation.interpolate({
@@ -1774,6 +1798,7 @@ const formatDate = (date: Date): string => {
                           placeholderTextColor="#999"
                           returnKeyType="next"
                           onSubmitEditing={() => newDescriptionInputRef.current?.focus()}
+                          autoFocus={true}
                         />
 
                         {/* Target Frequency Input */}
@@ -1841,7 +1866,10 @@ const formatDate = (date: Date): string => {
                             {categories.map((cat) => (
                               <TouchableOpacity
                                 key={cat.id}
-                                onPress={() => setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id)}
+                                onPress={() => {
+                                  setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
+                                  setShowCategoryBox(false);
+                                }}
                                 onLongPress={() => {
                                   if (Platform.OS !== 'web') {
                                     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -1925,27 +1953,30 @@ const formatDate = (date: Date): string => {
                             <TouchableOpacity
                               onPress={() => setShowCategoryBox((prev) => !prev)}
                               style={{
-                                marginRight: 8,
+                                marginRight: 0,
+                                marginLeft: 10,
                               }}
                             >
-                              <Ionicons name="color-fill-outline" size={22} color="#666" />
+                              <Ionicons name="color-fill-outline" size={20} color={selectedCategoryId ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666' : '#666'} />
                             </TouchableOpacity>
                             
                             {/* Selected Category Display */}
                             {selectedCategoryId && (
                               <TouchableOpacity
-                                onPress={() => setSelectedCategoryId('')}
+                                onPress={() => {
+                                  setSelectedCategoryId('');
+                                  setShowCategoryBox(true);
+                                }}
                                 style={{
                                   flexDirection: 'row',
                                   alignItems: 'center',
-                                  backgroundColor: categories.find(cat => cat.id === selectedCategoryId)?.color || '#F0F0F0',
                                   paddingVertical: 4,
                                   paddingHorizontal: 8,
-                                  borderRadius: 12,
+                                  marginRight: -10,
                                 }}
                               >
                                 <Text style={{
-                                  color: '#333',
+                                  color: categories.find(cat => cat.id === selectedCategoryId)?.color || '#333',
                                   fontSize: 12,
                                   fontWeight: '500',
                                   textTransform: 'uppercase',
@@ -1963,7 +1994,7 @@ const formatDate = (date: Date): string => {
                           >
                             <Ionicons 
                               name="camera-outline" 
-                              size={16} 
+                              size={20} 
                               color={requirePhoto ? '#007AFF' : '#666'} 
                             />
                           </TouchableOpacity>
@@ -2235,134 +2266,140 @@ const formatDate = (date: Date): string => {
         }}
       >
         <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0} // adjust if needed
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: 'white', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
-              <TouchableOpacity onPress={() => {
-                  console.log('🔒 Close button pressed');
-                  setIsNewCategoryModalVisible(false);
-                  setTimeout(() => {
-                    setIsNewHabitModalVisible(true); // ✅ Reopen task modal with preserved state
-                  }, 300);
-                }}>
-                  <Ionicons name="close" size={24} color="#666" />
-                </TouchableOpacity>
-
-            </View>
-
-            <TextInput
-              ref={categoryInputRef}
-              style={{
-                fontSize: 16,
-                color: '#1a1a1a',
-                padding: 12,
-                backgroundColor: '#F5F5F5',
-                borderRadius: 12,
-                marginBottom: 20,
-              }}
-              value={newCategoryName}
-              onChangeText={setNewCategoryName}
-              placeholder="Category name"
-              placeholderTextColor="#999"
-              autoFocus
-            />
-
-            <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Choose a color</Text>
-            
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 20 }}
-            >
-            {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
-              const isSelected = newCategoryColor === color;
-              return (
-                <TouchableOpacity
-                  key={color}
-                  onPress={() => setNewCategoryColor(color)}
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: color,
-                    marginRight: 12,
-                    borderColor: isSelected ? '#000' : 'transparent',
-                  }}
-                />
-              );
-            })}
-        </ScrollView>
-
-        <TouchableOpacity
-          onPress={async () => {
-            if (!newCategoryName.trim()) return;
-          
-            try {
-              const { data: { user } } = await supabase.auth.getUser();
-              if (!user) {
-                Alert.alert('Error', 'You must be logged in to create categories.');
-                return;
-              }
-          
-              const newCategory = {
-                id: uuidv4(),
-                label: newCategoryName.trim(),
-                color: newCategoryColor,
-              };
-          
-              const { data: savedCategory, error: categoryError } = await supabase
-                .from('categories')
-                .insert({
-                  id: newCategory.id,
-                  label: newCategory.label,
-                  color: newCategory.color,
-                  user_id: user.id
-                })
-                .select()
-                .single();
-          
-              if (categoryError || !savedCategory) {
-                console.error('Error saving category:', categoryError);
-                Alert.alert('Error', 'Failed to save category. Please try again.');
-                return;
-              }
-          
-              setCategories(prev => [...prev, savedCategory]);
-              setSelectedCategoryId(savedCategory.id); // ✅ Select the new category
-              setNewCategoryName('');
-              setIsNewCategoryModalVisible(false); // ✅ Close category modal
-          
-              setTimeout(() => {
-                showModal(); // ✅ Reopen new task modal
-              }, 300); // Give time for category modal to close
-          
-            } catch (error) {
-              console.error('Error creating category:', error);
-              Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-            }
-          }}
-          
-          style={{
-            backgroundColor: '#007AFF',
-            padding: 16,
-            borderRadius: 12,
-            alignItems: 'center',
-            marginTop: 'auto',
-          }}
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
-          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Done</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-    </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
-  </Modal>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+              <View style={{ 
+                backgroundColor: 'white', 
+                padding: 20, 
+                borderTopLeftRadius: 20, 
+                borderTopRightRadius: 20,
+                marginBottom: 0,
+              }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
+                  <TouchableOpacity onPress={() => {
+                      console.log('🔒 Close button pressed');
+                      setIsNewCategoryModalVisible(false);
+                      setTimeout(() => {
+                        setIsNewHabitModalVisible(true); // ✅ Reopen task modal with preserved state
+                      }, 300);
+                    }}>
+                    <Ionicons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+
+                </View>
+
+                <TextInput
+                  ref={categoryInputRef}
+                  style={{
+                    fontSize: 16,
+                    color: '#1a1a1a',
+                    padding: 12,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12,
+                    marginBottom: 20,
+                  }}
+                  value={newCategoryName}
+                  onChangeText={setNewCategoryName}
+                  placeholder="Category name"
+                  placeholderTextColor="#999"
+                  autoFocus
+                />
+
+                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Choose a color</Text>
+                
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                >
+                {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
+                  const isSelected = newCategoryColor === color;
+                  return (
+                    <TouchableOpacity
+                      key={color}
+                      onPress={() => setNewCategoryColor(color)}
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 18,
+                        backgroundColor: color,
+                        marginRight: 12,
+                        borderColor: isSelected ? '#000' : 'transparent',
+                      }}
+                    />
+                  );
+                })}
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={async () => {
+                if (!newCategoryName.trim()) return;
+              
+                try {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (!user) {
+                    Alert.alert('Error', 'You must be logged in to create categories.');
+                    return;
+                  }
+              
+                  const newCategory = {
+                    id: uuidv4(),
+                    label: newCategoryName.trim(),
+                    color: newCategoryColor,
+                  };
+              
+                  const { data: savedCategory, error: categoryError } = await supabase
+                    .from('categories')
+                    .insert({
+                      id: newCategory.id,
+                      label: newCategory.label,
+                      color: newCategory.color,
+                      user_id: user.id
+                    })
+                    .select()
+                    .single();
+              
+                  if (categoryError || !savedCategory) {
+                    console.error('Error saving category:', categoryError);
+                    Alert.alert('Error', 'Failed to save category. Please try again.');
+                    return;
+                  }
+              
+                  setCategories(prev => [...prev, savedCategory]);
+                  setSelectedCategoryId(savedCategory.id); // ✅ Select the new category
+                  setNewCategoryName('');
+                  setIsNewCategoryModalVisible(false); // ✅ Close category modal
+              
+                  setTimeout(() => {
+                    showModal(); // ✅ Reopen new task modal
+                  }, 300); // Give time for category modal to close
+              
+                } catch (error) {
+                  console.error('Error creating category:', error);
+                  Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                }
+              }}
+              
+              style={{
+                backgroundColor: '#007AFF',
+                padding: 16,
+                borderRadius: 12,
+                alignItems: 'center',
+                marginTop: 'auto',
+              }}
+            >
+              <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </Modal>
 
           {/* Note Modal */}
           <Modal

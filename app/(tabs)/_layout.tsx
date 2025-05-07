@@ -22,14 +22,16 @@ export default function TabLayout() {
         tabBarStyle: {
           borderTopWidth: 1,
           borderTopColor: '#E0E0E0',
-          backgroundColor: 'white',
+          backgroundColor: '#FFFFFF',
+          height: 60,
+          paddingBottom: 10,
           ...Platform.select({
             ios: {
               position: 'absolute',
-              bottom: -20
+              bottom: 0,
             },
             default: {
-              bottom: -20
+              bottom: 0,
             },
           }),
         },
