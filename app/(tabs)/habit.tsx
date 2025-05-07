@@ -88,6 +88,27 @@ const HABIT_COLORS = [
   { name: 'Blue Grey', value: '#607D8B', text: '#ffffff' },
 ];
 
+// Add color mapping for darker shades
+const DARKER_COLORS: { [key: string]: string } = {
+  '#E3F2FD': '#B0D8F7', // Sky
+  '#F3E5F5': '#D8B8E8', // Lavender
+  '#E8F5E9': '#B8E8C0', // Mint
+  '#FFF3E0': '#FFE0B2', // Peach
+  '#FCE4EC': '#F8BBD0', // Rose
+  '#E8EAF6': '#C5CAE9', // Indigo
+  '#E0F7FA': '#B2EBF2', // Cyan
+  '#FFF8E1': '#FFECB3', // Amber
+  '#673AB7': '#512DA8', // Deep Purple
+  '#009688': '#00796B', // Teal
+  '#FF5722': '#E64A19', // Orange
+  '#607D8B': '#455A64', // Blue Grey
+  '#BF9264': '#8B6B4A', // Custom Brown
+  '#6F826A': '#4F5D4C', // Custom Green
+  '#BBD8A3': '#8BA67A', // Custom Light Green
+  '#F0F1C5': '#D8D9A3', // Custom Yellow
+  '#FFCFCF': '#FFA6A6', // Custom Pink
+};
+
 const styles = StyleSheet.create({
   ...importedStyles,
   habitContent: {
@@ -114,13 +135,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   rightAction: {
-    height: '100%',
     backgroundColor: '#FF3B30',
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: 16,
-    marginVertical: 0,
-    overflow: 'hidden'
+    overflow: 'hidden',
+    height: '100%',
+    width: '100%'
   },
   trashIconContainer: {
     padding: 8,
@@ -271,6 +292,32 @@ export default function HabitScreen() {
           if (categoriesData) {
             console.log('Categories fetched:', categoriesData);
             setCategories(categoriesData);
+
+            // Fetch saved expanded state
+            const { data: preferencesData, error: preferencesError } = await supabase
+              .from('user_preferences')
+              .select('expanded_categories')
+              .eq('user_id', session.user.id) as { data: { expanded_categories: { [key: string]: boolean } }[] | null, error: any };
+
+            if (preferencesError) {
+              console.error('Error fetching preferences:', preferencesError);
+              // Initialize all categories as expanded if no saved state
+              const initialExpandedState = categoriesData.reduce((acc, cat) => {
+                acc[cat.color] = true;
+                return acc;
+              }, {} as { [key: string]: boolean });
+              setExpandedCategories(initialExpandedState);
+            } else if (preferencesData && preferencesData.length > 0 && preferencesData[0]?.expanded_categories) {
+              // Use saved expanded state
+              setExpandedCategories(preferencesData[0].expanded_categories);
+            } else {
+              // Initialize all categories as expanded if no saved state
+              const initialExpandedState = categoriesData.reduce((acc, cat) => {
+                acc[cat.color] = true;
+                return acc;
+              }, {} as { [key: string]: boolean });
+              setExpandedCategories(initialExpandedState);
+            }
           }
 
           // Then fetch user's habits
@@ -343,6 +390,32 @@ export default function HabitScreen() {
           if (categoriesData) {
             console.log('Initial categories fetched:', categoriesData);
             setCategories(categoriesData);
+
+            // Fetch saved expanded state
+            const { data: preferencesData, error: preferencesError } = await supabase
+              .from('user_preferences')
+              .select('expanded_categories')
+              .eq('user_id', user.id) as { data: { expanded_categories: { [key: string]: boolean } }[] | null, error: any };
+
+            if (preferencesError) {
+              console.error('Error fetching preferences:', preferencesError);
+              // Initialize all categories as expanded if no saved state
+              const initialExpandedState = categoriesData.reduce((acc, cat) => {
+                acc[cat.color] = true;
+                return acc;
+              }, {} as { [key: string]: boolean });
+              setExpandedCategories(initialExpandedState);
+            } else if (preferencesData && preferencesData.length > 0 && preferencesData[0]?.expanded_categories) {
+              // Use saved expanded state
+              setExpandedCategories(preferencesData[0].expanded_categories);
+            } else {
+              // Initialize all categories as expanded if no saved state
+              const initialExpandedState = categoriesData.reduce((acc, cat) => {
+                acc[cat.color] = true;
+                return acc;
+              }, {} as { [key: string]: boolean });
+              setExpandedCategories(initialExpandedState);
+            }
           }
 
           // Then fetch habits
@@ -690,9 +763,35 @@ const formatDate = (date: Date): string => {
           return;
         }
 
+        // Convert image to blob
+        const response = await fetch(uri);
+        const blob = await response.blob();
+
+        // Create a unique filename
+        const filename = `${user.id}/${habit.id}/${selectedDate}.jpg`;
+
+        // Upload image to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('habit-photos')
+          .upload(filename, blob, {
+            contentType: 'image/jpeg',
+            upsert: true
+          });
+
+        if (uploadError) {
+          console.error('Error uploading photo:', uploadError);
+          Alert.alert('Error', 'Failed to upload photo. Please try again.');
+          return;
+        }
+
+        // Get the public URL of the uploaded image
+        const { data: { publicUrl } } = supabase.storage
+          .from('habit-photos')
+          .getPublicUrl(filename);
+
         const updatedPhotos = {
           ...habit.photos,
-          [selectedDate]: uri
+          [selectedDate]: publicUrl
         };
 
         const updatedCompletedDays = [...habit.completedDays, selectedDate];
@@ -814,13 +913,15 @@ const formatDate = (date: Date): string => {
       return;
     }
 
+    const selectedCategory = categories.find(cat => cat.id === selectedCategoryId);
+
     if (editingHabit) {
       // Edit existing habit
       const updatedHabit = {
         ...editingHabit,
         text: newHabit.trim(),
         description: newDescription.trim() || undefined,
-        color: newCategoryColor,
+        color: selectedCategory?.color || newCategoryColor,
         targetPerWeek: parseInt(frequencyInput) || 1,
         requirePhoto,
         reminderTime: reminderEnabled ? reminderTime?.toISOString() : null,
@@ -866,7 +967,7 @@ const formatDate = (date: Date): string => {
         streak: 0,
         completedToday: false,
         completedDays: [],
-        color: newCategoryColor,
+        color: selectedCategory?.color || newCategoryColor,
         targetPerWeek: parseInt(frequencyInput) || 1,
         requirePhoto,
         photoProofs: {},
@@ -1238,12 +1339,42 @@ const formatDate = (date: Date): string => {
     setNoteText('');
   };
 
-  // Add toggle function
-  const toggleCategory = (color: string) => {
-    setExpandedCategories(prev => ({
-      ...prev,
-      [color]: !prev[color]
-    }));
+  // Add toggle function with persistence
+  const toggleCategory = async (color: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const newExpandedState = {
+      ...expandedCategories,
+      [color]: !expandedCategories[color]
+    };
+    setExpandedCategories(newExpandedState);
+
+    try {
+      // First try to insert
+      const { error: insertError } = await supabase
+        .from('user_preferences')
+        .insert({
+          user_id: user.id,
+          expanded_categories: newExpandedState
+        });
+
+      // If insert fails (likely because row exists), try update
+      if (insertError) {
+        const { error: updateError } = await supabase
+          .from('user_preferences')
+          .update({
+            expanded_categories: newExpandedState
+          })
+          .eq('user_id', user.id);
+
+        if (updateError) {
+          console.error('Error updating expanded state:', updateError);
+        }
+      }
+    } catch (error) {
+      console.error('Error saving expanded state:', error);
+    }
   };
 
   // Add this function before the return statement
@@ -1303,7 +1434,7 @@ const formatDate = (date: Date): string => {
           </View>
 
           {/* Add Calendar Strip Header */}
-          <View style={{ paddingHorizontal: -10, marginHorizontal: -18, marginBottom: 0 }}>
+          <View style={{ paddingHorizontal: 0, marginHorizontal: -18, marginBottom: -10 }}>
             <TouchableOpacity onPress={goToToday}>
               <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
                 {moment(currentDate).format('MMMM YYYY')}
@@ -1316,7 +1447,7 @@ const formatDate = (date: Date): string => {
               showMonth={false}
               leftSelector={<View />}
               rightSelector={<View />}
-              style={{ height: 100, paddingTop: 0, paddingBottom: 3, paddingHorizontal: 12 }}
+              style={{ height: 100, paddingTop: 0, paddingBottom: 3, paddingHorizontal: 24 }}
               calendarColor={'#fff'}
               calendarHeaderStyle={{
                 display: 'none'
@@ -1363,9 +1494,9 @@ const formatDate = (date: Date): string => {
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      paddingVertical: 8,
-                      paddingHorizontal: 4,
-                      marginTop: 16,
+                      paddingVertical: 7,
+                      paddingHorizontal: 6,
+                      marginTop: 8,
                     }}
                   >
                     <Text style={{
@@ -1377,138 +1508,193 @@ const formatDate = (date: Date): string => {
                       {categories.find(cat => cat.color === color)?.label || 'Uncategorized'}
                     </Text>
                     <Ionicons
-                      name={expandedCategories[color] ? "chevron-up" : "chevron-down"}
+                      name={expandedCategories[color] ? "chevron-down" : "chevron-up"}
                       size={16}
                       color="#666"
                     />
                   </TouchableOpacity>
                   {expandedCategories[color] && (
                     colorHabits.map((habit) => (
-                      <TouchableOpacity
+                      <Swipeable
                         key={habit.id}
-                        onLongPress={() => {
-                          if (Platform.OS !== 'web') {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          }
-                          handleEditHabit(habit);
-                        }}
-                        onPress={() => {
-                          const today = new Date();
-                          const dateStr = formatDate(today);
-                          
-                          if (habit.requirePhoto && !habit.photos[dateStr]) {
-                            setSelectedHabitId(habit.id);
-                            setSelectedDate(dateStr);
-                            setIsPhotoOptionsModalVisible(true);
-                            return;
-                          }
-                          
-                          handleHabitPress(habit.id, dateStr);
-                        }}
-                        delayLongPress={500}
-                        activeOpacity={0.9}
-                        style={{
-                          backgroundColor: '#F1EFEC',
-                          borderRadius: 16,
+                        renderRightActions={() => (
+                          <TouchableOpacity
+                            style={[styles.rightAction, {
+                              backgroundColor: `${DARKER_COLORS[habit.color] || '#FF3B30'}66`, // Use darker shade with 40% opacity
+                            }]}
+                            onPress={() => {
+                              if (Platform.OS !== 'web') {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              }
+                              Alert.alert(
+                                'Delete Habit',
+                                `Are you sure you want to delete "${habit.text}"?`,
+                                [
+                                  {
+                                    text: 'Cancel',
+                                    style: 'cancel'
+                                  },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: () => deleteHabit(habit.id)
+                                  }
+                                ]
+                              );
+                            }}
+                          >
+                            <View style={styles.trashIconContainer}>
+                              <Trash2 size={24} color="#FFF8E8" />
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                        containerStyle={{
                           marginVertical: 4,
-                          padding: 14,
-                          position: 'relative',
+                          borderRadius: 16,
                           overflow: 'hidden'
                         }}
                       >
-                        <Animated.View
-                          style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            bottom: 0,
-                            right: 0,
-                            backgroundColor: habit.color,
-                            opacity: 0.5,
-                            width: `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`
+                        <TouchableOpacity
+                          onLongPress={() => {
+                            if (Platform.OS !== 'web') {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            }
+                            handleEditHabit(habit);
                           }}
-                        />
-                        <Text style={{
-                          fontSize: 15,
-                          color: '#1a1a1a',
-                          fontWeight: '500',
-                          marginBottom: 5
-                        }}>
-                          {habit.text}
-                        </Text>
-                        
-                        <View style={{
-                          flexDirection: 'row',
-                          gap: 6,
-                          alignItems: 'center'
-                        }}>
-                          {[
-                            { day: 'M', key: 'mon' },
-                            { day: 'T', key: 'tue' },
-                            { day: 'W', key: 'wed' },
-                            { day: 'T', key: 'thu' },
-                            { day: 'F', key: 'fri' },
-                            { day: 'S', key: 'sat' },
-                            { day: 'S', key: 'sun' }
-                          ].map(({ day, key }, index) => {
+                          onPress={() => {
                             const today = new Date();
-                            const currentDay = today.getDay();
-                            const date = new Date(today);
-                            const daysToAdd = (index + 1) - currentDay;
-                            date.setDate(today.getDate() + daysToAdd);
+                            const dateStr = formatDate(today);
                             
-                            const dateStr = date.toISOString().split('T')[0];
-                            const isCompleted = habit.completedDays.includes(dateStr);
-                            const isToday = dateStr === formatDate(today);
+                            if (habit.requirePhoto && !habit.photos[dateStr]) {
+                              setSelectedHabitId(habit.id);
+                              setSelectedDate(dateStr);
+                              setIsPhotoOptionsModalVisible(true);
+                              return;
+                            }
                             
-                            return (
-                              <TouchableOpacity
-                                key={key}
-                                onPress={() => handleNotePress(habit.id, dateStr)}
-                                onLongPress={() => handleNoteLongPress(habit.id, dateStr)}
-                                style={{
-                                  width: 16,
-                                  height: 16,
-                                  borderRadius: 8,
-                                  backgroundColor: isCompleted ? '#6F4E37' : 'transparent',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  borderColor: isToday ? '#6F4E37' : 'transparent',
-                                }}
-                                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                              >
-                                <Text style={{
-                                  fontSize: 10,
-                                  color: isCompleted ? '#FFF8E8' : (isToday ? '#6F4E37' : '#6F4E37'),
-                                  fontWeight: '600'
-                                }}>
-                                  {day}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                          <Text style={{
-                            fontSize: 11,
-                            color: '#6F4E37',
-                            marginLeft: 4,
-                            fontWeight: '400'
-                          }}>
-                            {getWeeklyCompletionCount(habit)}/{habit.targetPerWeek}
-                          </Text>
-                        </View>
-                        {habit.requirePhoto && (
+                            handleHabitPress(habit.id, dateStr);
+                          }}
+                          delayLongPress={500}
+                          activeOpacity={0.9}
+                          style={{
+                            backgroundColor: '#F9F8F7',
+                            borderRadius: 16,
+                            padding: 14,
+                            paddingBottom: 12,
+                            position: 'relative',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          <Animated.View
+                            style={{
+                              position: 'absolute',
+                              top: 0,
+                              left: 0,
+                              bottom: 0,
+                              right: 0,
+                              backgroundColor: habit.color,
+                              opacity: 0.5,
+                              width: `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`
+                            }}
+                          />
                           <View style={{
-                            position: 'absolute',
-                            bottom: 8,
-                            right: 8,
-                            backgroundColor: '#6F4E37',
-                            borderRadius: 12,
-                            padding: 4
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 4
                           }}>
-                            <Camera size={14} color="#FFF8E8" />
+                            <Text style={{
+                              fontSize: 15,
+                              color: '#1a1a1a',
+                              fontWeight: '500',
+                            }}>
+                              {habit.text}
+                            </Text>
+                            <View style={{
+                              flexDirection: 'row',
+                              alignItems: 'center'
+                            }}>
+                              <Ionicons name="flash-outline" size={12} color="#6F4E37" style={{ marginRight: 2 }} />
+                              <Text style={{
+                                fontSize: 11,
+                                color: '#6F4E37',
+                                fontWeight: '600'
+                              }}>
+                                {calculateStreak(habit, habit.completedDays)}
+                              </Text>
+                            </View>
                           </View>
-                        )}
-                      </TouchableOpacity>
+                          <View style={{
+                            flexDirection: 'row',
+                            gap: 6,
+                            alignItems: 'center'
+                          }}>
+                            {[
+                              { day: 'M', key: 'mon' },
+                              { day: 'T', key: 'tue' },
+                              { day: 'W', key: 'wed' },
+                              { day: 'T', key: 'thu' },
+                              { day: 'F', key: 'fri' },
+                              { day: 'S', key: 'sat' },
+                              { day: 'S', key: 'sun' }
+                            ].map(({ day, key }, index) => {
+                              const today = new Date();
+                              const currentDay = today.getDay();
+                              const date = new Date(today);
+                              const daysToAdd = (index + 1) - currentDay;
+                              date.setDate(today.getDate() + daysToAdd);
+                              
+                              const dateStr = date.toISOString().split('T')[0];
+                              const isCompleted = habit.completedDays.includes(dateStr);
+                              const isToday = dateStr === formatDate(today);
+                              
+                              return (
+                                <TouchableOpacity
+                                  key={key}
+                                  onPress={() => handleNotePress(habit.id, dateStr)}
+                                  onLongPress={() => handleNoteLongPress(habit.id, dateStr)}
+                                  style={{
+                                    width: 16,
+                                    height: 16,
+                                    borderRadius: 8,
+                                    backgroundColor: isCompleted ? '#6F4E37' : 'transparent',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    borderColor: isToday ? '#6F4E37' : 'transparent',
+                                  }}
+                                  hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                                >
+                                  <Text style={{
+                                    fontSize: 10,
+                                    color: isCompleted ? '#FFF8E8' : (isToday ? '#6F4E37' : '#6F4E37'),
+                                    fontWeight: '600'
+                                  }}>
+                                    {day}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                            <Text style={{
+                              fontSize: 11,
+                              color: '#6F4E37',
+                              marginLeft: 4,
+                              fontWeight: '400'
+                            }}>
+                              {getWeeklyCompletionCount(habit)}/{habit.targetPerWeek}
+                            </Text>
+                            {habit.requirePhoto && (
+                              <View style={{
+                                backgroundColor: '#6F4E37',
+                                borderRadius: 12,
+                                padding: 3,
+                                marginLeft: 'auto'
+                              }}>
+                                <Camera size={12} color="#FFF8E8" />
+                              </View>
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      </Swipeable>
                     ))
                   )}
                 </View>
@@ -1777,7 +1963,7 @@ const formatDate = (date: Date): string => {
                           >
                             <Ionicons 
                               name="camera-outline" 
-                              size={20} 
+                              size={16} 
                               color={requirePhoto ? '#007AFF' : '#666'} 
                             />
                           </TouchableOpacity>

@@ -10,8 +10,7 @@ const styles = StyleSheet.create({
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      paddingHorizontal: 20,
-      marginBottom: 65,
+      marginBottom: 42,
     },
     menuButton: {
       padding: 4,
