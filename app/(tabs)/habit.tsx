@@ -70,6 +70,7 @@ interface Habit {
   repeat_end_date: string | null;
   notes: { [date: string]: string };
   photos: { [date: string]: string };
+  category_id: string | null;
 }
 
 const HABIT_COLORS = [
@@ -190,6 +191,8 @@ export default function HabitScreen() {
   const [selectedNoteDate, setSelectedNoteDate] = useState<{ habitId: string; date: string } | null>(null);
   const [noteText, setNoteText] = useState('');
   const [isNoteEditMode, setIsNoteEditMode] = useState(false);
+  // Add new state for expanded categories
+  const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
 
   const today = moment();
   const todayStr = today.format('YYYY-MM-DD');
@@ -282,6 +285,7 @@ export default function HabitScreen() {
               repeat_end_date: habit.repeat_end_date || null,
               notes: habit.notes || {},
               photos: habit.photos || {},
+              category_id: habit.category_id,
             }));
             console.log('Mapped habits:', mappedHabits);
             setHabits(mappedHabits);
@@ -332,6 +336,7 @@ export default function HabitScreen() {
               repeat_end_date: habit.repeat_end_date || null,
               notes: habit.notes || {},
               photos: habit.photos || {},
+              category_id: habit.category_id,
             }));
             console.log('Initial mapped habits:', mappedHabits);
             setHabits(mappedHabits);
@@ -551,6 +556,7 @@ const formatDate = (date: Date): string => {
       user_id: user.id,
       notes: {},
       photos: {},
+      category_id: selectedCategoryId || null
     };
 
     // Save to Supabase
@@ -568,7 +574,10 @@ const formatDate = (date: Date): string => {
         photo_proofs: newHabitItem.photoProofs,
         repeat_type: newHabitItem.repeat_type,
         repeat_end_date: newHabitItem.repeat_end_date,
-        user_id: user.id
+        user_id: user.id,
+        category_id: newHabitItem.category_id,
+        notes: newHabitItem.notes,
+        photos: newHabitItem.photos
       });
 
     if (error) {
@@ -781,7 +790,8 @@ const formatDate = (date: Date): string => {
         reminderTime: reminderEnabled ? reminderTime?.toISOString() : null,
         repeat_type: selectedRepeat,
         repeat_end_date: repeatEndDate?.toISOString() || null,
-        user_id: user.id
+        user_id: user.id,
+        category_id: selectedCategoryId || null
       };
 
       // Update in Supabase
@@ -796,6 +806,7 @@ const formatDate = (date: Date): string => {
           reminder_time: updatedHabit.reminderTime,
           repeat_type: updatedHabit.repeat_type,
           repeat_end_date: updatedHabit.repeat_end_date,
+          category_id: updatedHabit.category_id,
           notes: updatedHabit.notes,
           photos: updatedHabit.photos
         })
@@ -828,6 +839,7 @@ const formatDate = (date: Date): string => {
         user_id: user.id,
         notes: {},
         photos: {},
+        category_id: selectedCategoryId || null
       };
 
       // Save to Supabase
@@ -846,6 +858,7 @@ const formatDate = (date: Date): string => {
           repeat_type: newHabitItem.repeat_type,
           repeat_end_date: newHabitItem.repeat_end_date,
           user_id: user.id,
+          category_id: newHabitItem.category_id,
           notes: newHabitItem.notes,
           photos: newHabitItem.photos
         });
@@ -1184,6 +1197,14 @@ const formatDate = (date: Date): string => {
     setNoteText('');
   };
 
+  // Add toggle function
+  const toggleCategory = (color: string) => {
+    setExpandedCategories(prev => ({
+      ...prev,
+      [color]: !prev[color]
+    }));
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -1243,120 +1264,173 @@ const formatDate = (date: Date): string => {
                 <Text style={styles.emptyStateSubtitle}>Start building good habits :)</Text>
               </View>
             ) : (
-              habits.map((habit) => (
-                <TouchableOpacity
-                  key={habit.id}
-                  onLongPress={() => {
-                    if (Platform.OS !== 'web') {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    }
-                    handleEditHabit(habit);
-                  }}
-                  onPress={() => {
-                    const today = new Date();
-                    const dateStr = formatDate(today);
-                    
-                    if (habit.requirePhoto && !habit.photos[dateStr]) {
-                      setSelectedHabitId(habit.id);
-                      setSelectedDate(dateStr);
-                      setIsPhotoOptionsModalVisible(true);
-                      return;
-                    }
-                    
-                    handleHabitPress(habit.id, dateStr);
-                  }}
-                  delayLongPress={500}
-                  activeOpacity={0.9}
-                  style={{
-                    backgroundColor: '#F1EFEC',
-                    borderRadius: 16,
-                    marginVertical: 4,
-                    padding: 12,
-                    position: 'relative'
-                  }}
-                >
-                  <Text style={{
-                    fontSize: 15,
-                    color: '#1a1a1a',
-                    fontWeight: '500',
-                    marginBottom: 8
-                  }}>
-                    {habit.text}
-                  </Text>
-                  
-                  <View style={{
-                    flexDirection: 'row',
-                    gap: 6,
-                    alignItems: 'center'
-                  }}>
-                    {[
-                      { day: 'M', key: 'mon' },
-                      { day: 'T', key: 'tue' },
-                      { day: 'W', key: 'wed' },
-                      { day: 'T', key: 'thu' },
-                      { day: 'F', key: 'fri' },
-                      { day: 'S', key: 'sat' },
-                      { day: 'S', key: 'sun' }
-                    ].map(({ day, key }, index) => {
-                      const today = new Date();
-                      const currentDay = today.getDay();
-                      const date = new Date(today);
-                      const daysToAdd = (index + 1) - currentDay;
-                      date.setDate(today.getDate() + daysToAdd);
-                      
-                      const dateStr = date.toISOString().split('T')[0];
-                      const isCompleted = habit.completedDays.includes(dateStr);
-                      const isToday = dateStr === formatDate(today);
-                      
-                      return (
-                        <TouchableOpacity
-                          key={key}
-                          onPress={() => handleNotePress(habit.id, dateStr)}
-                          onLongPress={() => handleNoteLongPress(habit.id, dateStr)}
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: 8,
-                            backgroundColor: isCompleted ? '#6F4E37' : (isToday ? '#F1EFEC' : '#F1EFEC'),
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            borderWidth: 1,
-                            borderColor: isToday ? '#6F4E37' : '#6F4E37',
-                          }}
-                          hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                        >
-                          <Text style={{
-                            fontSize: 8,
-                            color: isCompleted ? '#FFF8E8' : (isToday ? '#6F4E37' : '#6F4E37'),
-                            fontWeight: '600'
-                          }}>
-                            {day}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
+              Object.entries(
+                habits.reduce((acc, habit) => {
+                  const color = habit.color;
+                  if (!acc[color]) {
+                    acc[color] = [];
+                  }
+                  acc[color].push(habit);
+                  return acc;
+                }, {} as { [key: string]: Habit[] })
+              ).map(([color, colorHabits]) => (
+                <View key={color}>
+                  <TouchableOpacity
+                    onPress={() => toggleCategory(color)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingVertical: 12,
+                      paddingHorizontal: 4,
+                      marginTop: 16,
+                    }}
+                  >
                     <Text style={{
-                      fontSize: 11,
-                      color: '#6F4E37',
-                      marginLeft: 4,
-                      fontWeight: '400'
+                      fontSize: 13,
+                      color: '#666',
+                      fontWeight: '600',
+                      textTransform: 'uppercase'
                     }}>
-                      {getWeeklyCompletionCount(habit)}/{habit.targetPerWeek}
+                      {categories.find(cat => cat.color === color)?.label || 'Uncategorized'}
                     </Text>
-                  </View>
-                  {habit.requirePhoto && (
-                    <View style={{
-                      position: 'absolute',
-                      bottom: 8,
-                      right: 8,
-                      backgroundColor: '#6F4E37',
-                      borderRadius: 12,
-                      padding: 4
-                    }}>
-                      <Camera size={14} color="#FFF8E8" />
-                    </View>
+                    <Ionicons
+                      name={expandedCategories[color] ? "chevron-up" : "chevron-down"}
+                      size={16}
+                      color="#666"
+                    />
+                  </TouchableOpacity>
+                  {expandedCategories[color] && (
+                    colorHabits.map((habit) => (
+                      <TouchableOpacity
+                        key={habit.id}
+                        onLongPress={() => {
+                          if (Platform.OS !== 'web') {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          }
+                          handleEditHabit(habit);
+                        }}
+                        onPress={() => {
+                          const today = new Date();
+                          const dateStr = formatDate(today);
+                          
+                          if (habit.requirePhoto && !habit.photos[dateStr]) {
+                            setSelectedHabitId(habit.id);
+                            setSelectedDate(dateStr);
+                            setIsPhotoOptionsModalVisible(true);
+                            return;
+                          }
+                          
+                          handleHabitPress(habit.id, dateStr);
+                        }}
+                        delayLongPress={500}
+                        activeOpacity={0.9}
+                        style={{
+                          backgroundColor: '#F1EFEC',
+                          borderRadius: 16,
+                          marginVertical: 4,
+                          padding: 12,
+                          position: 'relative',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        <Animated.View
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            bottom: 0,
+                            right: 0,
+                            backgroundColor: newCategoryColor,
+                            opacity: 0.3,
+                            width: `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`
+                          }}
+                        />
+                        <Text style={{
+                          fontSize: 15,
+                          color: '#1a1a1a',
+                          fontWeight: '500',
+                          marginBottom: 8
+                        }}>
+                          {habit.text}
+                        </Text>
+                        
+                        <View style={{
+                          flexDirection: 'row',
+                          gap: 6,
+                          alignItems: 'center'
+                        }}>
+                          {[
+                            { day: 'M', key: 'mon' },
+                            { day: 'T', key: 'tue' },
+                            { day: 'W', key: 'wed' },
+                            { day: 'T', key: 'thu' },
+                            { day: 'F', key: 'fri' },
+                            { day: 'S', key: 'sat' },
+                            { day: 'S', key: 'sun' }
+                          ].map(({ day, key }, index) => {
+                            const today = new Date();
+                            const currentDay = today.getDay();
+                            const date = new Date(today);
+                            const daysToAdd = (index + 1) - currentDay;
+                            date.setDate(today.getDate() + daysToAdd);
+                            
+                            const dateStr = date.toISOString().split('T')[0];
+                            const isCompleted = habit.completedDays.includes(dateStr);
+                            const isToday = dateStr === formatDate(today);
+                            
+                            return (
+                              <TouchableOpacity
+                                key={key}
+                                onPress={() => handleNotePress(habit.id, dateStr)}
+                                onLongPress={() => handleNoteLongPress(habit.id, dateStr)}
+                                style={{
+                                  width: 16,
+                                  height: 16,
+                                  borderRadius: 8,
+                                  backgroundColor: isCompleted ? '#6F4E37' : (isToday ? '#F1EFEC' : '#F1EFEC'),
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  borderWidth: 1,
+                                  borderColor: isToday ? '#6F4E37' : '#6F4E37',
+                                }}
+                                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                              >
+                                <Text style={{
+                                  fontSize: 8,
+                                  color: isCompleted ? '#FFF8E8' : (isToday ? '#6F4E37' : '#6F4E37'),
+                                  fontWeight: '600'
+                                }}>
+                                  {day}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                          <Text style={{
+                            fontSize: 11,
+                            color: '#6F4E37',
+                            marginLeft: 4,
+                            fontWeight: '400'
+                          }}>
+                            {getWeeklyCompletionCount(habit)}/{habit.targetPerWeek}
+                          </Text>
+                        </View>
+                        {habit.requirePhoto && (
+                          <View style={{
+                            position: 'absolute',
+                            bottom: 8,
+                            right: 8,
+                            backgroundColor: '#6F4E37',
+                            borderRadius: 12,
+                            padding: 4
+                          }}>
+                            <Camera size={14} color="#FFF8E8" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    ))
                   )}
-                </TouchableOpacity>
+                </View>
               ))
             )}
           </ScrollView>
@@ -1511,13 +1585,12 @@ const formatDate = (date: Date): string => {
       {/* ➕ Button */}
       <TouchableOpacity
         onPress={() => {
-  setShowCategoryBox(false);
-  setIsNewHabitModalVisible(false); // 🛠️ CLOSE the Habit modal first
-  setTimeout(() => {
-    setIsNewCategoryModalVisible(true); // ✅ THEN open Category modal
-  }, 300); // give it 300ms to close smoothly
-}}
-
+          setShowCategoryBox(false);
+          setIsNewHabitModalVisible(false);
+          setTimeout(() => {
+            setIsNewCategoryModalVisible(true);
+          }, 300);
+        }}
         style={{
           paddingVertical: 6,
           paddingHorizontal: 8,
@@ -1571,113 +1644,75 @@ const formatDate = (date: Date): string => {
 )}
 
 
-{showCategoryBox && (
-  <View style={{ marginBottom: -60, marginTop: 0 }}>
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: 8 }}
+{/* Quick Action Row - Fixed at bottom */}
+<View
+  style={{
+    position: 'absolute',
+    bottom: 25,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 10,
+    paddingTop: showFrequencyInline ? 40 : 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'white',
+    zIndex: 1,
+  }}
+>
+  {/* Left Section: Color + Reminder + Photo + Repeat */}
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    {/* Color Button */}
+    <TouchableOpacity
+      onPress={() => setShowCategoryBox((prev) => !prev)}
+      style={{
+        marginRight: 16,
+        marginLeft: 8,
+      }}
     >
-      {categories.map((cat) => (
-        <TouchableOpacity
-          key={cat.id}
-          onPress={() => setSelectedCategoryId(cat.id)}
-          style={{
-            paddingVertical: 6,
-            paddingHorizontal: 12,
-            borderRadius: 20,
-            backgroundColor: selectedCategoryId === cat.id ? cat.color : '#F0F0F0',
-            marginRight: 8,
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <Text
-            style={{
-              color: selectedCategoryId === cat.id ? '#fff' : '#333',
-              fontWeight: '500',
-              fontSize: 12.5,
-              textTransform: 'uppercase',
-            }}
-          >
-            {cat.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
-      
-    </ScrollView>
+      <Ionicons name="color-fill-outline" size={22} color="#666" />
+    </TouchableOpacity>
+    {/* Photo Button */}
+    <TouchableOpacity
+      onPress={() => setRequirePhoto(!requirePhoto)}
+      style={{ marginRight: 16 }}
+    >
+      <Ionicons 
+        name="camera-outline" 
+        size={20} 
+        color={requirePhoto ? '#007AFF' : '#666'} 
+      />
+    </TouchableOpacity>
+
+    {/* Reminder Button */}
+    <TouchableOpacity 
+      onPress={handleReminderPress}
+      style={{ marginRight: 16 }}
+    >
+      <Ionicons 
+        name="alarm-outline" 
+        size={20} 
+        color={reminderTime ? '#007AFF' : '#666'} 
+      />
+    </TouchableOpacity>
   </View>
-)}
 
-                        {/* Quick Action Row - Fixed at bottom */}
-                        <View
-                          style={{
-                            position: 'absolute',
-                            bottom: 25,
-                            left: 0,
-                            right: 0,
-                            paddingHorizontal: 10,
-                            paddingTop: showFrequencyInline ? 40 : 10, // ⬅️ Reserve space if needed
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            backgroundColor: 'white',
-                            zIndex: 1,
-                          }}
-                        >
-                          {/* Left Section: Color + Reminder + Photo + Repeat */}
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            {/* Color Button */}
-                            <TouchableOpacity
-                              onPress={() => setShowCategoryBox((prev) => !prev)}
-                              style={{
-                                marginRight: 16,
-                                marginLeft: 8,
-                              }}
-                            >
-                              <Ionicons name="color-fill-outline" size={22} color="#666" />
-                            </TouchableOpacity>
-                            {/* Photo Button */}
-                            <TouchableOpacity
-                              onPress={() => setRequirePhoto(!requirePhoto)}
-                              style={{ marginRight: 16 }}
-                            >
-                              <Ionicons 
-                                name="camera-outline" 
-                                size={20} 
-                                color={requirePhoto ? '#007AFF' : '#666'} 
-                              />
-                            </TouchableOpacity>
-
-                            {/* Reminder Button */}
-                            <TouchableOpacity 
-                              onPress={handleReminderPress}
-                              style={{ marginRight: 16 }}
-                            >
-                              <Ionicons 
-                                name="alarm-outline" 
-                                size={20} 
-                                color={reminderTime ? '#007AFF' : '#666'} 
-                              />
-                            </TouchableOpacity>
-                          </View>
-
-                          {/* Right Section: Send Button */}
-                          <TouchableOpacity
-                            onPress={handleSave}
-                            disabled={!newHabit.trim()}
-                            style={{
-                              width: 28,
-                              height: 28,
-                              borderRadius: 15,
-                              backgroundColor: newHabit.trim() ? '#007AFF' : '#B0BEC5',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <Ionicons name="arrow-up" size={18} color="#fff" />
-                          </TouchableOpacity>
-                        </View>
+  {/* Right Section: Send Button */}
+  <TouchableOpacity
+    onPress={handleSave}
+    disabled={!newHabit.trim()}
+    style={{
+      width: 28,
+      height: 28,
+      borderRadius: 15,
+      backgroundColor: newHabit.trim() ? '#007AFF' : '#B0BEC5',
+      alignItems: 'center',
+      justifyContent: 'center',
+    }}
+  >
+    <Ionicons name="arrow-up" size={18} color="#fff" />
+  </TouchableOpacity>
+</View>
                       </ScrollView>
                     </View>
                   </Animated.View>
