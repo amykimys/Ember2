@@ -23,7 +23,7 @@ const styles = StyleSheet.create({
     },
     habitList: {
       flex: 1,
-      paddingHorizontal: 20,
+      paddingHorizontal: 18,
     },
     emptyState: {
       flex: 1,

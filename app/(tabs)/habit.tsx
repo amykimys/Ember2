@@ -1303,7 +1303,7 @@ const formatDate = (date: Date): string => {
           </View>
 
           {/* Add Calendar Strip Header */}
-          <View style={{ paddingHorizontal: -10, marginHorizontal: -18, marginBottom: 2 }}>
+          <View style={{ paddingHorizontal: -10, marginHorizontal: -18, marginBottom: 0 }}>
             <TouchableOpacity onPress={goToToday}>
               <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
                 {moment(currentDate).format('MMMM YYYY')}
@@ -1363,7 +1363,7 @@ const formatDate = (date: Date): string => {
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      paddingVertical: 12,
+                      paddingVertical: 8,
                       paddingHorizontal: 4,
                       marginTop: 16,
                     }}
@@ -1411,7 +1411,7 @@ const formatDate = (date: Date): string => {
                           backgroundColor: '#F1EFEC',
                           borderRadius: 16,
                           marginVertical: 4,
-                          padding: 12,
+                          padding: 14,
                           position: 'relative',
                           overflow: 'hidden'
                         }}
@@ -1424,7 +1424,7 @@ const formatDate = (date: Date): string => {
                             bottom: 0,
                             right: 0,
                             backgroundColor: habit.color,
-                            opacity: 0.3,
+                            opacity: 0.5,
                             width: `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`
                           }}
                         />
@@ -1432,7 +1432,7 @@ const formatDate = (date: Date): string => {
                           fontSize: 15,
                           color: '#1a1a1a',
                           fontWeight: '500',
-                          marginBottom: 8
+                          marginBottom: 5
                         }}>
                           {habit.text}
                         </Text>
@@ -1470,10 +1470,10 @@ const formatDate = (date: Date): string => {
                                   width: 16,
                                   height: 16,
                                   borderRadius: 8,
-                                  backgroundColor: isCompleted ? '#6F4E37' : (isToday ? '#F1EFEC' : '#F1EFEC'),
+                                  backgroundColor: isCompleted ? '#6F4E37' : 'transparent',
                                   justifyContent: 'center',
                                   alignItems: 'center',
-                                  borderColor: isToday ? '#6F4E37' : '#6F4E37',
+                                  borderColor: isToday ? '#6F4E37' : 'transparent',
                                 }}
                                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                               >
