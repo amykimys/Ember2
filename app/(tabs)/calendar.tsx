@@ -1095,86 +1095,86 @@ const CalendarScreen: React.FC = () => {
                     marginTop: 4,
                   }}>
                     {events[getLocalDateString(date)]?.map((event, idx) => {
-                      const eventStart = new Date(event.startDateTime!);
-                      const eventEnd = new Date(event.endDateTime!);
+                const eventStart = new Date(event.startDateTime!);
+                const eventEnd = new Date(event.endDateTime!);
 
-                      const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
+                const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
                       // Skip multi-day events in the cell
                       if (isMultiDay) return null;
 
-                      return (
-                        <Swipeable
+                return (
+                  <Swipeable
                           key={idx}
-                          overshootRight={false}
+                    overshootRight={false}
                           onSwipeableOpen={() => handleDeleteEvent(getLocalDateString(date), idx)}
-                          renderRightActions={() => (
-                            <View
-                              style={{
-                                flex: 1,
-                                backgroundColor: 'red',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                                borderRadius: 6,
-                                overflow: 'hidden',
-                                marginTop: idx === 0 ? 10 : 4,
-                              }}
-                            >
-                              <Ionicons name="trash-outline" size={10} color="white" />
-                            </View>
-                          )}
-                          containerStyle={{
-                            position: 'absolute',
+                    renderRightActions={() => (
+                      <View
+                        style={{
+                          flex: 1,
+                          backgroundColor: 'red',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          borderRadius: 6,
+                          overflow: 'hidden',
+                          marginTop: idx === 0 ? 10 : 4,
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={10} color="white" />
+                      </View>
+                    )}
+                    containerStyle={{
+                      position: 'absolute',
                             top: idx * 22,
                             left: 2,
                             right: 2,
-                            zIndex: 1000,
-                          }}
-                        >
-                          <TouchableOpacity
-                            style={{
-                              backgroundColor: event.categoryColor || '#eee',
-                              borderRadius: 6,
-                              paddingVertical: 2,
+                      zIndex: 1000,
+                    }}
+                  >
+                    <TouchableOpacity
+                      style={{
+                        backgroundColor: event.categoryColor || '#eee',
+                        borderRadius: 6,
+                        paddingVertical: 2,
                               width: CELL_WIDTH - 8,
-                            }}
-                            onLongPress={() => {
+                      }}
+                      onLongPress={() => {
                               const eventToEdit = events[getLocalDateString(date)][idx];
                               setSelectedEvent({ event: eventToEdit, dateKey: getLocalDateString(date), index: idx });
-                              setEditedEventTitle(eventToEdit.title);
-                              setEditedEventDescription(eventToEdit.description ?? '');
-                              setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
-                              setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
-                              setEditedSelectedCategory(
-                                eventToEdit.categoryName && eventToEdit.categoryColor
-                                  ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
-                                  : null
-                              );
-                              setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
-                              setEditedRepeatOption(eventToEdit.repeatOption || 'None');
-                              setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
-                              setCustomSelectedDates(eventToEdit.customDates || []);
+                        setEditedEventTitle(eventToEdit.title);
+                        setEditedEventDescription(eventToEdit.description ?? '');
+                        setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
+                        setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
+                        setEditedSelectedCategory(
+                          eventToEdit.categoryName && eventToEdit.categoryColor
+                            ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
+                            : null
+                        );
+                        setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
+                        setEditedRepeatOption(eventToEdit.repeatOption || 'None');
+                        setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
+                        setCustomSelectedDates(eventToEdit.customDates || []);
 
-                              collapseAllPickers();
-                              setShowEditEventModal(true);
-                            }}
-                          >
-                            <Text
-                              numberOfLines={1}
-                              style={{
-                                fontSize: 10,
+                        collapseAllPickers();
+                        setShowEditEventModal(true);
+                      }}
+                    >
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: 10,
                                 color: '#fff',
                                 fontWeight: '600',
-                                textAlign: 'center',
-                                paddingHorizontal: 4,
-                              }}
-                            >
+                          textAlign: 'center',
+                          paddingHorizontal: 4,
+                        }}
+                      >
                               {event.title}
-                            </Text>
-                          </TouchableOpacity>
-                        </Swipeable>
-                      );
-                    })}
-                  </View>
+                      </Text>
+                    </TouchableOpacity>
+                  </Swipeable>
+                );
+            })}
+          </View>
                 )}
 
                 {/* Background touchable for adding new events */}

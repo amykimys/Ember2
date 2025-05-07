@@ -79,8 +79,8 @@ export default function ProfileScreen() {
       
       // First, revoke Google access and sign out
       try {
-        await GoogleSignin.revokeAccess();
-        await GoogleSignin.signOut();
+      await GoogleSignin.revokeAccess();
+      await GoogleSignin.signOut();
         console.log('Successfully signed out from Google');
       } catch (googleError) {
         console.error('Error signing out from Google:', googleError);
@@ -95,7 +95,7 @@ export default function ProfileScreen() {
       }
       
       console.log('Successfully signed out from Supabase');
-      setUser(null);
+        setUser(null);
       
       // Force clear any remaining auth state by signing out again
       try {
