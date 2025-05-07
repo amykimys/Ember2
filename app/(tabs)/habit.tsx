@@ -1136,7 +1136,12 @@ const formatDate = (date: Date): string => {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
-      }).start();
+      }).start(() => {
+        // Focus the title input after animation completes
+        setTimeout(() => {
+          newHabitInputRef.current?.focus();
+        }, 100);
+      });
     });
   };
 
@@ -1239,6 +1244,47 @@ const formatDate = (date: Date): string => {
       ...prev,
       [color]: !prev[color]
     }));
+  };
+
+  // Add this function before the return statement
+  const handleDeleteCategory = async (categoryId: string) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to delete categories.');
+      return;
+    }
+
+    // First update all habits that use this category
+    const { error: updateError } = await supabase
+      .from('habits')
+      .update({ category_id: null })
+      .eq('category_id', categoryId)
+      .eq('user_id', user.id);
+
+    if (updateError) {
+      console.error('Error updating habits:', updateError);
+      Alert.alert('Error', 'Failed to update habits. Please try again.');
+      return;
+    }
+
+    // Then delete the category
+    const { error: deleteError } = await supabase
+      .from('categories')
+      .delete()
+      .eq('id', categoryId)
+      .eq('user_id', user.id);
+
+    if (deleteError) {
+      console.error('Error deleting category:', deleteError);
+      Alert.alert('Error', 'Failed to delete category. Please try again.');
+      return;
+    }
+
+    // Update local state
+    setCategories(prev => prev.filter(cat => cat.id !== categoryId));
+    if (selectedCategoryId === categoryId) {
+      setSelectedCategoryId('');
+    }
   };
 
   return (
@@ -1377,7 +1423,7 @@ const formatDate = (date: Date): string => {
                             left: 0,
                             bottom: 0,
                             right: 0,
-                            backgroundColor: newCategoryColor,
+                            backgroundColor: habit.color,
                             opacity: 0.3,
                             width: `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`
                           }}
@@ -1432,7 +1478,7 @@ const formatDate = (date: Date): string => {
                                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                               >
                                 <Text style={{
-                                  fontSize: 8,
+                                  fontSize: 10,
                                   color: isCompleted ? '#FFF8E8' : (isToday ? '#6F4E37' : '#6F4E37'),
                                   fontWeight: '600'
                                 }}>
@@ -1591,16 +1637,14 @@ const formatDate = (date: Date): string => {
                       left: 0,
                       right: 0,
                       backgroundColor: 'white',
-                      borderTopWidth: 1,
                       borderTopColor: '#E0E0E0',
-                      paddingTop: 10,
+                      paddingTop: 0,
                     }}>
                       {/* Category List */}
                       {showCategoryBox && (
                         <View style={{
                           paddingHorizontal: 10,
-                          paddingVertical: 10,
-                          borderBottomWidth: 1,
+                          paddingVertical: 0,
                           borderBottomColor: '#E0E0E0',
                         }}>
                           <ScrollView
@@ -1611,7 +1655,28 @@ const formatDate = (date: Date): string => {
                             {categories.map((cat) => (
                               <TouchableOpacity
                                 key={cat.id}
-                                onPress={() => setSelectedCategoryId(cat.id)}
+                                onPress={() => setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id)}
+                                onLongPress={() => {
+                                  if (Platform.OS !== 'web') {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                  }
+                                  Alert.alert(
+                                    'Delete Category',
+                                    `Are you sure you want to delete "${cat.label}"?`,
+                                    [
+                                      {
+                                        text: 'Cancel',
+                                        style: 'cancel'
+                                      },
+                                      {
+                                        text: 'Delete',
+                                        style: 'destructive',
+                                        onPress: () => handleDeleteCategory(cat.id)
+                                      }
+                                    ]
+                                  );
+                                }}
+                                delayLongPress={500}
                                 style={{
                                   paddingVertical: 6,
                                   paddingHorizontal: 10,
@@ -1669,16 +1734,42 @@ const formatDate = (date: Date): string => {
                       }}>
                         {/* Left Section: Color + Reminder + Photo + Repeat */}
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          {/* Color Button */}
-                          <TouchableOpacity
-                            onPress={() => setShowCategoryBox((prev) => !prev)}
-                            style={{
-                              marginRight: 16,
-                              marginLeft: 8,
-                            }}
-                          >
-                            <Ionicons name="color-fill-outline" size={22} color="#666" />
-                          </TouchableOpacity>
+                          {/* Color Button and Selected Category */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
+                            <TouchableOpacity
+                              onPress={() => setShowCategoryBox((prev) => !prev)}
+                              style={{
+                                marginRight: 8,
+                              }}
+                            >
+                              <Ionicons name="color-fill-outline" size={22} color="#666" />
+                            </TouchableOpacity>
+                            
+                            {/* Selected Category Display */}
+                            {selectedCategoryId && (
+                              <TouchableOpacity
+                                onPress={() => setSelectedCategoryId('')}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: categories.find(cat => cat.id === selectedCategoryId)?.color || '#F0F0F0',
+                                  paddingVertical: 4,
+                                  paddingHorizontal: 8,
+                                  borderRadius: 12,
+                                }}
+                              >
+                                <Text style={{
+                                  color: '#333',
+                                  fontSize: 12,
+                                  fontWeight: '500',
+                                  textTransform: 'uppercase',
+                                }}>
+                                  {categories.find(cat => cat.id === selectedCategoryId)?.label}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+
                           {/* Photo Button */}
                           <TouchableOpacity
                             onPress={() => setRequirePhoto(!requirePhoto)}
