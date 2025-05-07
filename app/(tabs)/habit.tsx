@@ -255,7 +255,25 @@ export default function HabitScreen() {
       
       if (event === 'SIGNED_IN' && session?.user) {
         try {
-          // Fetch user's habits when signed in
+          // Fetch user's categories first
+          console.log('Fetching categories for user:', session.user.id);
+          const { data: categoriesData, error: categoriesError } = await supabase
+            .from('categories')
+            .select('*')
+            .eq('user_id', session.user.id);
+
+          if (categoriesError) {
+            console.error('Error fetching categories:', categoriesError);
+            Alert.alert('Error', 'Failed to load categories. Please try again.');
+            return;
+          }
+
+          if (categoriesData) {
+            console.log('Categories fetched:', categoriesData);
+            setCategories(categoriesData);
+          }
+
+          // Then fetch user's habits
           console.log('Fetching habits for user:', session.user.id);
           const { data: habitsData, error: habitsError } = await supabase
             .from('habits')
@@ -270,7 +288,6 @@ export default function HabitScreen() {
 
           if (habitsData) {
             console.log('Habits fetched:', habitsData);
-            // Map habits and ensure all fields are properly set
             const mappedHabits = habitsData.map(habit => ({
               ...habit,
               completedDays: habit.completed_days || [],
@@ -297,6 +314,7 @@ export default function HabitScreen() {
       } else if (event === 'SIGNED_OUT') {
         // Clear all local state when user signs out
         setHabits([]);
+        setCategories([]);
         resetForm();
       }
     });
@@ -305,11 +323,29 @@ export default function HabitScreen() {
   }, []);
 
   useEffect(() => {
-    const fetchInitialHabits = async () => {
+    const fetchInitialData = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          console.log('Fetching initial habits for user:', user.id);
+          console.log('Fetching initial data for user:', user.id);
+          
+          // Fetch categories first
+          const { data: categoriesData, error: categoriesError } = await supabase
+            .from('categories')
+            .select('*')
+            .eq('user_id', user.id);
+
+          if (categoriesError) {
+            console.error('Error fetching initial categories:', categoriesError);
+            return;
+          }
+
+          if (categoriesData) {
+            console.log('Initial categories fetched:', categoriesData);
+            setCategories(categoriesData);
+          }
+
+          // Then fetch habits
           const { data: habitsData, error: habitsError } = await supabase
             .from('habits')
             .select('*')
@@ -343,11 +379,11 @@ export default function HabitScreen() {
           }
         }
       } catch (error) {
-        console.error('Error fetching initial habits:', error);
+        console.error('Error fetching initial data:', error);
       }
     };
 
-    fetchInitialHabits();
+    fetchInitialData();
   }, []);
 
   useEffect(() => {
@@ -1391,7 +1427,6 @@ const formatDate = (date: Date): string => {
                                   backgroundColor: isCompleted ? '#6F4E37' : (isToday ? '#F1EFEC' : '#F1EFEC'),
                                   justifyContent: 'center',
                                   alignItems: 'center',
-                                  borderWidth: 1,
                                   borderColor: isToday ? '#6F4E37' : '#6F4E37',
                                 }}
                                 hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
@@ -1538,7 +1573,6 @@ const formatDate = (date: Date): string => {
                             backgroundColor: 'white',
                             borderRadius: 12,
                             marginTop: 0,
-                            //minHeight: 100,
                             textAlignVertical: 'top',
                           }}
                           value={newDescription}
@@ -1547,173 +1581,145 @@ const formatDate = (date: Date): string => {
                           placeholderTextColor="#999"
                           multiline
                         />
-
-{showCategoryBox && (
-  <View style={{ marginTop: 16, marginBottom: 32 }}>
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: 10 }}
-    >
-      {categories.map((cat) => (
-        <TouchableOpacity
-          key={cat.id}
-          onPress={() => setSelectedCategoryId(cat.id)}
-          style={{
-            paddingVertical: 6,
-            paddingHorizontal: 12,
-            borderRadius: 20,
-            backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
-            marginRight: 8,
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <Text
-            style={{
-              color: cat.id === selectedCategoryId ? '#fff' : '#333',
-              fontWeight: '500',
-              fontSize: 12.5,
-              textTransform: 'uppercase',
-            }}
-          >
-            {cat.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
-
-      {/* ➕ Button */}
-      <TouchableOpacity
-        onPress={() => {
-          setShowCategoryBox(false);
-          setIsNewHabitModalVisible(false);
-          setTimeout(() => {
-            setIsNewCategoryModalVisible(true);
-          }, 300);
-        }}
-        style={{
-          paddingVertical: 6,
-          paddingHorizontal: 8,
-          borderRadius: 20,
-          backgroundColor: '#F0F0F0',
-          flexDirection: 'row',
-          alignItems: 'center',
-        }}
-      >
-        <Ionicons name="add" size={18} color="#333" />
-      </TouchableOpacity>
-    </ScrollView>
-  </View>
-)}
-
-
-{showFrequencyInline && (
-  <View style={{ marginTop: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-    <Text style={{ fontSize: 16, color: '#1a1a1a' }}>
-      Target (per week)
-    </Text>
-
-    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-      <TouchableOpacity
-        onPress={() => {
-          const current = parseInt(frequencyInput) || 1;
-          const newVal = Math.max(1, current - 1);
-          setFrequencyInput(newVal.toString());
-        }}
-        style={{ paddingHorizontal: 8 }}
-      >
-        <Ionicons name="remove-circle-outline" size={20} color="#007AFF" />
-      </TouchableOpacity>
-
-      <Text style={{ fontSize: 16, marginHorizontal: 4 }}>
-        {frequencyInput || '-'}
-      </Text>
-
-      <TouchableOpacity
-        onPress={() => {
-          const current = parseInt(frequencyInput) || 1;
-          const newVal = Math.min(7, current + 1);
-          setFrequencyInput(newVal.toString());
-        }}
-        style={{ paddingHorizontal: 10 }}
-      >
-        <Ionicons name="add-circle-outline" size={20} color="#007AFF" />
-      </TouchableOpacity>
-    </View>
-  </View>
-)}
-
-
-{/* Quick Action Row - Fixed at bottom */}
-<View
-  style={{
-    position: 'absolute',
-    bottom: 25,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 10,
-    paddingTop: showFrequencyInline ? 40 : 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'white',
-    zIndex: 1,
-  }}
->
-  {/* Left Section: Color + Reminder + Photo + Repeat */}
-  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-    {/* Color Button */}
-    <TouchableOpacity
-      onPress={() => setShowCategoryBox((prev) => !prev)}
-      style={{
-        marginRight: 16,
-        marginLeft: 8,
-      }}
-    >
-      <Ionicons name="color-fill-outline" size={22} color="#666" />
-    </TouchableOpacity>
-    {/* Photo Button */}
-    <TouchableOpacity
-      onPress={() => setRequirePhoto(!requirePhoto)}
-      style={{ marginRight: 16 }}
-    >
-      <Ionicons 
-        name="camera-outline" 
-        size={20} 
-        color={requirePhoto ? '#007AFF' : '#666'} 
-      />
-    </TouchableOpacity>
-
-    {/* Reminder Button */}
-    <TouchableOpacity 
-      onPress={handleReminderPress}
-      style={{ marginRight: 16 }}
-    >
-      <Ionicons 
-        name="alarm-outline" 
-        size={20} 
-        color={reminderTime ? '#007AFF' : '#666'} 
-      />
-    </TouchableOpacity>
-  </View>
-
-  {/* Right Section: Send Button */}
-  <TouchableOpacity
-    onPress={handleSave}
-    disabled={!newHabit.trim()}
-    style={{
-      width: 28,
-      height: 28,
-      borderRadius: 15,
-      backgroundColor: newHabit.trim() ? '#007AFF' : '#B0BEC5',
-      alignItems: 'center',
-      justifyContent: 'center',
-    }}
-  >
-    <Ionicons name="arrow-up" size={18} color="#fff" />
-  </TouchableOpacity>
-</View>
                       </ScrollView>
+                    </View>
+
+                    {/* Fixed Bottom Section */}
+                    <View style={{
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'white',
+                      borderTopWidth: 1,
+                      borderTopColor: '#E0E0E0',
+                      paddingTop: 10,
+                    }}>
+                      {/* Category List */}
+                      {showCategoryBox && (
+                        <View style={{
+                          paddingHorizontal: 10,
+                          paddingVertical: 10,
+                          borderBottomWidth: 1,
+                          borderBottomColor: '#E0E0E0',
+                        }}>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={{ paddingHorizontal: 10 }}
+                          >
+                            {categories.map((cat) => (
+                              <TouchableOpacity
+                                key={cat.id}
+                                onPress={() => setSelectedCategoryId(cat.id)}
+                                style={{
+                                  paddingVertical: 6,
+                                  paddingHorizontal: 10,
+                                  borderRadius: 20,
+                                  backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
+                                  marginRight: 6,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    color: cat.id === selectedCategoryId ? '#fff' : '#333',
+                                    fontWeight: '500',
+                                    fontSize: 10,
+                                    textTransform: 'uppercase',
+                                  }}
+                                >
+                                  {cat.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+
+                            {/* ➕ Button */}
+                            <TouchableOpacity
+                              onPress={() => {
+                                setShowCategoryBox(false);
+                                setIsNewHabitModalVisible(false);
+                                setTimeout(() => {
+                                  setIsNewCategoryModalVisible(true);
+                                }, 300);
+                              }}
+                              style={{
+                                paddingVertical: 6,
+                                paddingHorizontal: 8,
+                                borderRadius: 20,
+                                backgroundColor: '#F0F0F0',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <Ionicons name="add" size={16} color="#333" />
+                            </TouchableOpacity>
+                          </ScrollView>
+                        </View>
+                      )}
+
+                      {/* Quick Action Row */}
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        paddingHorizontal: 10,
+                        paddingVertical: 10,
+                      }}>
+                        {/* Left Section: Color + Reminder + Photo + Repeat */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          {/* Color Button */}
+                          <TouchableOpacity
+                            onPress={() => setShowCategoryBox((prev) => !prev)}
+                            style={{
+                              marginRight: 16,
+                              marginLeft: 8,
+                            }}
+                          >
+                            <Ionicons name="color-fill-outline" size={22} color="#666" />
+                          </TouchableOpacity>
+                          {/* Photo Button */}
+                          <TouchableOpacity
+                            onPress={() => setRequirePhoto(!requirePhoto)}
+                            style={{ marginRight: 16 }}
+                          >
+                            <Ionicons 
+                              name="camera-outline" 
+                              size={20} 
+                              color={requirePhoto ? '#007AFF' : '#666'} 
+                            />
+                          </TouchableOpacity>
+
+                          {/* Reminder Button */}
+                          <TouchableOpacity 
+                            onPress={handleReminderPress}
+                            style={{ marginRight: 16 }}
+                          >
+                            <Ionicons 
+                              name="alarm-outline" 
+                              size={20} 
+                              color={reminderTime ? '#007AFF' : '#666'} 
+                            />
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Right Section: Send Button */}
+                        <TouchableOpacity
+                          onPress={handleSave}
+                          disabled={!newHabit.trim()}
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 15,
+                            backgroundColor: newHabit.trim() ? '#007AFF' : '#B0BEC5',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          <Ionicons name="arrow-up" size={18} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </Animated.View>
                 </View>
@@ -2009,7 +2015,6 @@ const formatDate = (date: Date): string => {
                     borderRadius: 18,
                     backgroundColor: color,
                     marginRight: 12,
-                    borderWidth: isSelected ? 1.4 : 0,
                     borderColor: isSelected ? '#000' : 'transparent',
                   }}
                 />
@@ -2207,6 +2212,7 @@ const formatDate = (date: Date): string => {
     </GestureHandlerRootView>
   );
 }
+
 
 
 
