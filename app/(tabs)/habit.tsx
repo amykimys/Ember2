@@ -214,6 +214,7 @@ export default function HabitScreen() {
   const [isNoteEditMode, setIsNoteEditMode] = useState(false);
   // Add new state for expanded categories
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const today = moment();
   const todayStr = today.format('YYYY-MM-DD');
@@ -898,7 +899,21 @@ const formatDate = (date: Date): string => {
     setFrequencyInput(habit.targetPerWeek.toString());
     setSelectedRepeat(habit.repeat_type);
     setRepeatEndDate(habit.repeat_end_date ? new Date(habit.repeat_end_date) : null);
+    setSelectedCategoryId(habit.category_id || '');
+    console.log('Setting modal visible to true');
     setIsNewHabitModalVisible(true);
+    requestAnimationFrame(() => {
+      Animated.timing(modalAnimation, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        console.log('Modal animation completed');
+        setTimeout(() => {
+          newHabitInputRef.current?.focus();
+        }, 100);
+      });
+    });
   };
   
 
@@ -1442,6 +1457,27 @@ const formatDate = (date: Date): string => {
     }
   };
 
+  useEffect(() => {
+    const keyboardWillShow = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+      }
+    );
+
+    const keyboardWillHide = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardWillShow.remove();
+      keyboardWillHide.remove();
+    };
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -1511,20 +1547,20 @@ const formatDate = (date: Date): string => {
                   return acc;
                 }, {} as { [key: string]: Habit[] })
               ).map(([color, colorHabits]) => (
-                <View key={color}>
+                <View key={color} style={{ marginBottom: 10 }}>
                   <TouchableOpacity
                     onPress={() => toggleCategory(color)}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      paddingVertical: 7,
+                      paddingVertical: 4,
                       paddingHorizontal: 6,
-                      marginTop: 8,
+                      marginTop: 4,
                     }}
                   >
                     <Text style={{
-                      fontSize: 13,
+                      fontSize: 12,
                       color: '#666',
                       fontWeight: '600',
                       textTransform: 'uppercase'
@@ -1739,15 +1775,15 @@ const formatDate = (date: Date): string => {
 
           {/* New Habit Modal */}
           <Modal
-          animationType="none"
-          transparent={true}
-          visible={isNewHabitModalVisible}
-          onRequestClose={handleCloseNewHabitModal}
-        >
+            animationType="none"
+            transparent={true}
+            visible={isNewHabitModalVisible}
+            onRequestClose={handleCloseNewHabitModal}
+          >
             <KeyboardAvoidingView 
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
               style={{ flex: 1 }}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+              keyboardVerticalOffset={0}
             >
               <TouchableWithoutFeedback
                 onPress={(e) => {
@@ -2049,23 +2085,21 @@ const formatDate = (date: Date): string => {
                   borderTopLeftRadius: 20,
                   borderTopRightRadius: 20,
                   padding: 20,
-                  height: '35%',
+                  height: '23%',
                   width: '100%'
                 }]}>
                   <View style={[styles.modalHeader, {
                     flexDirection: 'row',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    marginBottom: 20,
+                    marginBottom: 0,
                     paddingBottom: 10,
-                    borderBottomWidth: 1,
-                    borderBottomColor: '#E0E0E0'
                   }]}>
                     <Text style={[styles.modalTitle, {
                       fontSize: 24,
                       fontWeight: 'bold',
                       color: '#1a1a1a'
-                    }]}>Upload Photo</Text>
+                    }]}>Photo Proof</Text>
                     <TouchableOpacity 
                       onPress={handleClosePhotoOptionsModal}
                       disabled={isModalTransitioning}
@@ -2079,21 +2113,29 @@ const formatDate = (date: Date): string => {
                       style={{ paddingVertical: 14 }}
                       onPress={() => handlePhotoCapture('camera')}
                     >
-                      <Text style={{ fontSize: 16 }}>📷 Take Photo</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="camera-outline" size={16} color="#000" style={{ marginRight: 8 }} />
+                        <Text style={{ fontSize: 15 }}>Take Photo</Text>
+                      </View>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       style={{ paddingVertical: 14 }}
                       onPress={() => handlePhotoCapture('library')}
                     >
-                      <Text style={{ fontSize: 16 }}>🖼️ Choose from Library</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="images-outline" size={16} color="#000" style={{ marginRight: 8 }} />
+                        <Text style={{ fontSize: 15 }}>Choose from Library</Text>
+                      </View>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       style={{ paddingVertical: 14 }}
                       onPress={handleClosePhotoOptionsModal}
                     >
-                      <Text style={{ fontSize: 16, color: '#999' }}>Cancel</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 16, color: '#999' }}>Cancel</Text>
+                      </View>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -2268,7 +2310,7 @@ const formatDate = (date: Date): string => {
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          keyboardVerticalOffset={0}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
@@ -2277,6 +2319,8 @@ const formatDate = (date: Date): string => {
                 padding: 20, 
                 borderTopLeftRadius: 20, 
                 borderTopRightRadius: 20,
+                maxHeight: '50%',
+                minHeight: '40%',
                 marginBottom: 0,
               }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -2412,94 +2456,105 @@ const formatDate = (date: Date): string => {
               setNoteText(''); // Reset note text when closing
             }}
           >
-            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-              <View style={{ 
-                backgroundColor: 'white', 
-                padding: 20, 
-                borderTopLeftRadius: 20, 
-                borderTopRightRadius: 20,
-                maxHeight: '80%',
-                minHeight: '40%'
-              }}>
-                <ScrollView style={{ flex: 1 }}>
-                  {/* Header */}
-                  <View style={{ 
-                    flexDirection: 'row', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center', 
-                    marginBottom: 8 
-                  }}>
-                    <Text style={{ fontSize: 20, fontWeight: '600' }}>
-                      {isNoteEditMode ? 'Add Note' : 'Note'}
-                    </Text>
-                    <TouchableOpacity onPress={() => {
-                      setSelectedNoteDate(null);
-                      setIsNoteEditMode(false);
-                      setNoteText(''); // Reset note text when closing
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ flex: 1 }}
+              keyboardVerticalOffset={0}
+            >
+              <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+                <View style={{ 
+                  backgroundColor: 'white', 
+                  padding: 20, 
+                  borderTopLeftRadius: 20, 
+                  borderTopRightRadius: 20,
+                  maxHeight: '50%',
+                  minHeight: keyboardHeight > 0 ? '53%' : '33%',
+                  marginBottom: 0,
+                }}>
+                  <ScrollView 
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ paddingBottom: isNoteEditMode ? 80 : 0 }}
+                  >
+                    {/* Header */}
+                    <View style={{ 
+                      flexDirection: 'row', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      marginBottom: 8 
                     }}>
-                      <Ionicons name="close" size={24} color="#666" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Date */}
-                  {selectedNoteDate && (
-                    <Text style={{ 
-                      fontSize: 14, 
-                      color: '#666',
-                      marginBottom: 10
-                    }}>
-                      {new Date(selectedNoteDate.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                    </Text>
-                  )}
-
-                  {/* Photo */}
-                  {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] && (
-                    <View style={{ marginBottom: 12 }}>
-                      <Image
-                        source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] }}
-                        style={{
-                          width: '100%',
-                          height: 200,
-                          borderRadius: 12,
-                          backgroundColor: 'transparent'
-                        }}
-                        resizeMode="contain"
-                      />
+                      <Text style={{ fontSize: 20, fontWeight: '600' }}>
+                        {isNoteEditMode ? 'Add Note' : 'Note'}
+                      </Text>
+                      <TouchableOpacity onPress={() => {
+                        setSelectedNoteDate(null);
+                        setIsNoteEditMode(false);
+                        setNoteText(''); // Reset note text when closing
+                      }}>
+                        <Ionicons name="close" size={24} color="#666" />
+                      </TouchableOpacity>
                     </View>
-                  )}
 
-                  {/* Note Input/Display */}
-                  <View style={{
-                    backgroundColor: isNoteEditMode ? '#F5F5F5' : 'transparent',
-                    borderRadius: 12,
-                    padding: 12,
-                    marginBottom: 16,
-                    minHeight: 120,
-                  }}>
-                    {isNoteEditMode ? (
-                      <TextInput
-                        style={{
+                    {/* Date */}
+                    {selectedNoteDate && (
+                      <Text style={{ 
+                        fontSize: 14, 
+                        color: '#666',
+                        marginBottom: 10
+                      }}>
+                        {new Date(selectedNoteDate.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                      </Text>
+                    )}
+
+                    {/* Photo */}
+                    {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] && (
+                      <View style={{ marginBottom: 12 }}>
+                        <Image
+                          source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] }}
+                          style={{
+                            width: '100%',
+                            height: 200,
+                            borderRadius: 12,
+                            backgroundColor: 'transparent'
+                          }}
+                          resizeMode="contain"
+                        />
+                      </View>
+                    )}
+
+                    {/* Note Input/Display */}
+                    <View style={{
+                      backgroundColor: isNoteEditMode ? '#F5F5F5' : 'transparent',
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 8,
+                      minHeight: 120,
+                    }}>
+                      {isNoteEditMode ? (
+                        <TextInput
+                          style={{
+                            fontSize: 16,
+                            color: '#1a1a1a',
+                            minHeight: 120,
+                            textAlignVertical: 'top'
+                          }}
+                          value={noteText}
+                          onChangeText={setNoteText}
+                          placeholder="Add a note for this day..."
+                          placeholderTextColor="#999"
+                          multiline
+                          autoFocus={true}
+                        />
+                      ) : (
+                        <Text style={{
                           fontSize: 16,
                           color: '#1a1a1a',
                           minHeight: 120,
-                          textAlignVertical: 'top'
-                        }}
-                        value={noteText}
-                        onChangeText={setNoteText}
-                        placeholder="Add a note for this day..."
-                        placeholderTextColor="#999"
-                        multiline
-                      />
-                    ) : (
-                      <Text style={{
-                        fontSize: 16,
-                        color: '#1a1a1a',
-                        minHeight: 120,
-                      }}>
-                        {noteText || 'No note for this day'}
-                      </Text>
-                    )}
-                  </View>
+                        }}>
+                          {noteText || 'No note for this day'}
+                        </Text>
+                      )}
+                    </View>
+                  </ScrollView>
 
                   {/* Save Button - Only show in edit mode */}
                   {isNoteEditMode && (
@@ -2510,15 +2565,15 @@ const formatDate = (date: Date): string => {
                         padding: 14,
                         borderRadius: 12,
                         alignItems: 'center',
-                        marginBottom: 20
+                        marginTop: 'auto',
                       }}
                     >
                       <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Save Note</Text>
                     </TouchableOpacity>
                   )}
-                </ScrollView>
+                </View>
               </View>
-            </View>
+            </KeyboardAvoidingView>
           </Modal>
 
         </View>
