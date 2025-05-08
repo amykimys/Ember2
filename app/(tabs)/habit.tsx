@@ -34,6 +34,8 @@ import { useNavigation } from '@react-navigation/native';
 import CalendarStrip from 'react-native-calendar-strip';
 import moment from 'moment';
 import 'moment/locale/en-gb';
+import * as FileSystem from 'expo-file-system';
+import { decode } from 'base-64';
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -62,7 +64,6 @@ interface Habit {
   completedDays: string[];
   color: string;
   requirePhoto: boolean;
-  photoProofs: { [date: string]: string };
   targetPerWeek: number;
   reminderTime?: string | null;
   user_id?: string;
@@ -396,7 +397,7 @@ export default function HabitScreen() {
             const { data: preferencesData, error: preferencesError } = await supabase
               .from('user_preferences')
               .select('expanded_categories')
-              .eq('user_id', user.id) as { data: { expanded_categories: { [key: string]: boolean } }[] | null, error: any };
+              .eq('user_id', user.id);
 
             if (preferencesError) {
               console.error('Error fetching preferences:', preferencesError);
@@ -432,22 +433,33 @@ export default function HabitScreen() {
 
           if (habitsData) {
             console.log('Initial habits fetched:', habitsData);
-            const mappedHabits = habitsData.map(habit => ({
-              ...habit,
-              completedDays: habit.completed_days || [],
-              photoProofs: habit.photo_proofs || {},
-              reminderTime: habit.reminder_time,
-              user_id: habit.user_id,
-              streak: habit.streak || 0,
-              completedToday: false,
-              targetPerWeek: habit.target_per_week || 1,
-              requirePhoto: habit.require_photo || false,
-              repeat_type: habit.repeat_type || 'none',
-              repeat_end_date: habit.repeat_end_date || null,
-              notes: habit.notes || {},
-              photos: habit.photos || {},
-              category_id: habit.category_id,
-            }));
+            const mappedHabits = habitsData.map(habit => {
+              // Ensure photos object exists and has valid URLs
+              const photos = habit.photos || {};
+              const validatedPhotos = Object.entries(photos).reduce((acc, [date, url]) => {
+                if (url && typeof url === 'string') {
+                  acc[date] = url;
+                }
+                return acc;
+              }, {} as { [key: string]: string });
+
+              return {
+                ...habit,
+                completedDays: habit.completed_days || [],
+                photoProofs: habit.photo_proofs || {},
+                reminderTime: habit.reminder_time,
+                user_id: habit.user_id,
+                streak: habit.streak || 0,
+                completedToday: false,
+                targetPerWeek: habit.target_per_week || 1,
+                requirePhoto: habit.require_photo || false,
+                repeat_type: habit.repeat_type || 'none',
+                repeat_end_date: habit.repeat_end_date || null,
+                notes: habit.notes || {},
+                photos: validatedPhotos,
+                category_id: habit.category_id,
+              };
+            });
             console.log('Initial mapped habits:', mappedHabits);
             setHabits(mappedHabits);
           }
@@ -658,7 +670,6 @@ const formatDate = (date: Date): string => {
       color: newCategoryColor,
       targetPerWeek: parseInt(frequencyInput),
       requirePhoto,
-      photoProofs: {},
       repeat_type: selectedRepeat,
       repeat_end_date: repeatEndDate?.toISOString() || null,
       user_id: user.id,
@@ -679,13 +690,12 @@ const formatDate = (date: Date): string => {
         color: newHabitItem.color,
         target_per_week: newHabitItem.targetPerWeek,
         require_photo: newHabitItem.requirePhoto,
-        photo_proofs: newHabitItem.photoProofs,
+        photos: newHabitItem.photos,
         repeat_type: newHabitItem.repeat_type,
         repeat_end_date: newHabitItem.repeat_end_date,
         user_id: user.id,
         category_id: newHabitItem.category_id,
-        notes: newHabitItem.notes,
-        photos: newHabitItem.photos
+        notes: newHabitItem.notes
       });
 
     if (error) {
@@ -728,31 +738,29 @@ const formatDate = (date: Date): string => {
       let result;
       
       if (type === 'camera') {
-        // Close modal first for camera
         setIsPhotoOptionsModalVisible(false);
-        await new Promise(resolve => setTimeout(resolve, 300)); // Wait for modal to close
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ['images'],
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
           quality: 0.8,
           allowsEditing: true,
           aspect: [4, 3],
         });
       } else {
-        // For library, don't close modal until after picker is done
         result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
           quality: 0.8,
           allowsEditing: true,
           aspect: [4, 3],
         });
-        
-        // Close modal after picker is done
         setIsPhotoOptionsModalVisible(false);
       }
 
       if (!result.canceled && selectedHabitId && selectedDate) {
         const uri = result.assets[0].uri;
+        console.log('Selected image URI:', uri);
+        
         const habit = habits.find(h => h.id === selectedHabitId);
         if (!habit) return;
 
@@ -762,18 +770,37 @@ const formatDate = (date: Date): string => {
           return;
         }
 
-        // Convert image to blob
-        const response = await fetch(uri);
-        const blob = await response.blob();
+        // Create a unique filename with timestamp
+        const timestamp = new Date().getTime();
+        const filename = `${user.id}/${habit.id}/${selectedDate}_${timestamp}.jpg`;
+        console.log('Uploading file:', filename);
 
-        // Create a unique filename
-        const filename = `${user.id}/${habit.id}/${selectedDate}.jpg`;
+        // Get the file info
+        const fileInfo = await FileSystem.getInfoAsync(uri);
+        if (!fileInfo.exists) {
+          console.error('File does not exist:', uri);
+          Alert.alert('Error', 'Failed to access the selected image. Please try again.');
+          return;
+        }
+
+        // Read the file as base64
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        // Convert base64 to Uint8Array
+        const binaryString = atob(base64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
 
         // Upload image to Supabase Storage
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('habit-photos')
-          .upload(filename, blob, {
+          .upload(filename, bytes, {
             contentType: 'image/jpeg',
+            cacheControl: '3600',
             upsert: true
           });
 
@@ -783,32 +810,34 @@ const formatDate = (date: Date): string => {
           return;
         }
 
-        // Get the public URL of the uploaded image
+        console.log('Upload successful:', uploadData);
+
+        // Get the public URL
         const { data: { publicUrl } } = supabase.storage
           .from('habit-photos')
           .getPublicUrl(filename);
 
+        console.log('Public URL:', publicUrl);
+
+        // Update the habit's photos
         const updatedPhotos = {
           ...habit.photos,
           [selectedDate]: publicUrl
         };
 
-        const updatedCompletedDays = [...habit.completedDays, selectedDate];
-        const newStreak = calculateStreak(habit, updatedCompletedDays);
-
         // Update in Supabase
-        const { error } = await supabase
+        const { error: updateError } = await supabase
           .from('habits')
           .update({
             photos: updatedPhotos,
-            completed_days: updatedCompletedDays,
-            streak: newStreak
+            completed_days: [...habit.completedDays, selectedDate],
+            streak: calculateStreak(habit, [...habit.completedDays, selectedDate])
           })
           .eq('id', selectedHabitId)
           .eq('user_id', user.id);
 
-        if (error) {
-          console.error('Error saving photo:', error);
+        if (updateError) {
+          console.error('Error saving photo:', updateError);
           return;
         }
 
@@ -818,16 +847,24 @@ const formatDate = (date: Date): string => {
             return {
               ...h,
               photos: updatedPhotos,
-              completedDays: updatedCompletedDays,
-              streak: newStreak
+              completedDays: [...h.completedDays, selectedDate],
+              streak: calculateStreak(h, [...h.completedDays, selectedDate])
             };
           }
           return h;
         }));
+
+        // Force re-render of note modal if it's open
+        if (selectedNoteDate && selectedNoteDate.habitId === selectedHabitId) {
+          setSelectedNoteDate(null);
+          setTimeout(() => {
+            setSelectedNoteDate({ habitId: selectedHabitId, date: selectedDate });
+          }, 100);
+        }
       }
     } catch (error) {
       console.error('Error capturing photo:', error);
-      alert('Failed to capture photo. Please try again.');
+      Alert.alert('Error', 'Failed to capture photo. Please try again.');
     }
   };
 
@@ -983,7 +1020,6 @@ const formatDate = (date: Date): string => {
         color: selectedCategory?.color || newCategoryColor,
         targetPerWeek: parseInt(frequencyInput) || 1,
         requirePhoto,
-        photoProofs: {},
         repeat_type: selectedRepeat,
         repeat_end_date: repeatEndDate?.toISOString() || null,
         user_id: user.id,
@@ -1004,13 +1040,12 @@ const formatDate = (date: Date): string => {
           color: newHabitItem.color,
           target_per_week: newHabitItem.targetPerWeek,
           require_photo: newHabitItem.requirePhoto,
-          photo_proofs: newHabitItem.photoProofs,
+          photos: newHabitItem.photos,
           repeat_type: newHabitItem.repeat_type,
           repeat_end_date: newHabitItem.repeat_end_date,
           user_id: user.id,
           category_id: newHabitItem.category_id,
-          notes: newHabitItem.notes,
-          photos: newHabitItem.photos
+          notes: newHabitItem.notes
         });
 
       if (error) {
@@ -1035,7 +1070,7 @@ const formatDate = (date: Date): string => {
 
   const showPhotoProof = (habitId: string, date: string) => {
     const habit = habits.find(h => h.id === habitId);
-    const photoUri = habit?.photoProofs[date];
+    const photoUri = habit?.photos[date];
     if (photoUri) {
       setPreviewPhoto(photoUri);
       setIsPhotoPreviewModalVisible(true);
@@ -1476,6 +1511,89 @@ const formatDate = (date: Date): string => {
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
+  }, []);
+
+  // Add bucket verification
+  useEffect(() => {
+    const verifyBucketSetup = async () => {
+      try {
+        // First check authentication
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        if (sessionError) {
+          console.error('Error getting session:', sessionError);
+          return;
+        }
+
+        if (!session) {
+          console.error('No active session found');
+          return;
+        }
+
+        console.log('User authenticated:', session.user.email);
+        console.log('User role:', session.user.role);
+
+        // Try to list contents of the bucket directly
+        console.log('Attempting to list contents of habit-photos bucket...');
+        const { data: files, error: listError } = await supabase
+          .storage
+          .from('habit-photos')
+          .list();
+
+        if (listError) {
+          console.error('Error listing bucket contents:', listError);
+          console.error('Error details:', {
+            message: listError.message,
+            name: listError.name
+          });
+        } else {
+          console.log('Successfully listed bucket contents:', files);
+        }
+
+        // Try to create a test file to verify write permissions
+        const testFileName = `test_${Date.now()}.jpg`;
+        console.log('Attempting to upload test file...');
+        
+        // Create a minimal JPEG image in base64
+        const base64Image = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wAALCAABAAEBAREA/8QAJgABAAAAAAAAAAAAAAAAAAAAAxABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAAPwBcPAAF/9k=';
+        
+        // Convert base64 to blob
+        const response = await fetch(base64Image);
+        const blob = await response.blob();
+
+        const { data: testUpload, error: testUploadError } = await supabase
+          .storage
+          .from('habit-photos')
+          .upload(testFileName, blob, {
+            contentType: 'image/jpeg',
+            upsert: true
+          });
+
+        if (testUploadError) {
+          console.error('Error uploading test file:', testUploadError);
+          console.error('Error details:', {
+            message: testUploadError.message,
+            name: testUploadError.name
+          });
+        } else {
+          console.log('Test file uploaded successfully:', testUpload);
+          
+          // Clean up test file
+          const { error: deleteError } = await supabase
+            .storage
+            .from('habit-photos')
+            .remove([testFileName]);
+            
+          if (deleteError) {
+            console.error('Error deleting test file:', deleteError);
+          }
+        }
+
+      } catch (error) {
+        console.error('Error verifying bucket setup:', error);
+      }
+    };
+
+    verifyBucketSetup();
   }, []);
 
   return (
@@ -2506,20 +2624,54 @@ const formatDate = (date: Date): string => {
                     )}
 
                     {/* Photo */}
-                    {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] && (
-                      <View style={{ marginBottom: 12 }}>
-                        <Image
-                          source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos[selectedNoteDate.date] }}
-                          style={{
-                            width: '100%',
-                            height: 200,
-                            borderRadius: 12,
-                            backgroundColor: 'transparent'
-                          }}
-                          resizeMode="contain"
-                        />
-                      </View>
-                    )}
+                    {selectedNoteDate && (() => {
+                      const habit = habits.find(h => h.id === selectedNoteDate.habitId);
+                      const photoUrl = habit?.photos?.[selectedNoteDate.date];
+                      console.log('Note modal - Selected date:', selectedNoteDate.date);
+                      console.log('Note modal - Found habit:', habit?.id);
+                      console.log('Note modal - Photo URL:', photoUrl);
+                      
+                      if (photoUrl) {
+                        return (
+                          <View style={{ marginBottom: 12 }}>
+                            <Image
+                              source={{ 
+                                uri: photoUrl,
+                                cache: 'reload'
+                              }}
+                              style={{
+                                width: '100%',
+                                height: 200,
+                                borderRadius: 12,
+                                backgroundColor: '#f0f0f0'
+                              }}
+                              resizeMode="cover"
+                              onError={(error) => {
+                                console.error('Error loading image in note modal:', error.nativeEvent);
+                                // Try to reload the image with a cache-busting parameter
+                                const cacheBustedUrl = `${photoUrl}?t=${Date.now()}`;
+                                setHabits(habits.map(h => {
+                                  if (h.id === selectedNoteDate.habitId) {
+                                    return {
+                                      ...h,
+                                      photos: {
+                                        ...h.photos,
+                                        [selectedNoteDate.date]: cacheBustedUrl
+                                      }
+                                    };
+                                  }
+                                  return h;
+                                }));
+                              }}
+                              onLoad={() => {
+                                console.log('Image loaded successfully in note modal');
+                              }}
+                            />
+                          </View>
+                        );
+                      }
+                      return null;
+                    })()}
 
                     {/* Note Input/Display */}
                     <View style={{
