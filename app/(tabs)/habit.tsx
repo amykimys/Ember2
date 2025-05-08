@@ -2585,8 +2585,8 @@ const formatDate = (date: Date): string => {
                   padding: 20, 
                   borderTopLeftRadius: 20, 
                   borderTopRightRadius: 20,
-                  maxHeight: '50%',
-                  minHeight: keyboardHeight > 0 ? '53%' : '33%',
+                  maxHeight: '60%',
+                  minHeight: selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] ? '50%' : '33%',
                   marginBottom: 0,
                 }}>
                   <ScrollView 

@@ -58,17 +58,36 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 const TOTAL_HORIZONTAL_PADDING = 16; // 8 left + 8 right
 const SIDE_PADDING = TOTAL_HORIZONTAL_PADDING / 2; // 8px left or right individually
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const BASE_CELL_HEIGHT = Math.max((SCREEN_HEIGHT - 180) / 6, 100);
 const CELL_WIDTH = (SCREEN_WIDTH - TOTAL_HORIZONTAL_PADDING) / 7;
-const CELL_HEIGHT = Math.max((SCREEN_HEIGHT - 140) / 6, 120); // Significantly increased cell height
+
+// Function to determine if a month needs 6 rows
+const needsSixRows = (year: number, month: number) => {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  return daysInMonth + firstDayOfMonth > 35;
+};
+
+
+// Get cell height based on whether the month needs 6 rows
+const getCellHeight = (date: Date | null) => {
+  if (!date) return BASE_CELL_HEIGHT;
+
+  return needsSixRows(date.getFullYear(), date.getMonth())
+    ? BASE_CELL_HEIGHT - 25  // Shrink more for 6-row months to add more spacing
+    : BASE_CELL_HEIGHT;
+};
+
 
 const NUM_COLUMNS = 7;
-const NUM_ROWS = 6;
+const NUM_ROWS = 5;
 
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const generateMonthKey = (year: number, month: number) => `${year}-${month}`;
 
 const styles = StyleSheet.create({
+
   monthLabel: {
     fontSize: 16,
     fontWeight: '700',
@@ -99,6 +118,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     position: 'relative',
     overflow: 'visible',
+    rowGap: 12,
+  },
+  gridSixRows: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: 'white',
+    paddingHorizontal: 0,
+    position: 'relative',
+    overflow: 'visible',
+    rowGap: 35,
   },
   cell: {
     width: CELL_WIDTH,
@@ -111,10 +140,11 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   cellExpanded: {
-    height: CELL_HEIGHT + 12, // Normal full height
+    height: getCellHeight(new Date()) + 8, // Reduced padding
   },
   cellCompact: {
-    height: CELL_HEIGHT * 0.65, // 🛠 30% smaller when compact
+    height: getCellHeight(new Date()) * 0.65,
+    marginBottom: 4, // Add margin between rows for 6-row months
   },
   
   dateNumber: {
@@ -123,6 +153,9 @@ const styles = StyleSheet.create({
     marginLeft: 0.5,
     height: 24,
     lineHeight: 24,
+  },
+  adjacentMonthDate: {
+    color: '#ccc',  // Light gray color for adjacent month dates
   },
   todayCell: {
     backgroundColor: '#BF926420',
@@ -262,7 +295,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   gridCompact: {
-    height: CELL_HEIGHT * 2 + 180, // Reduce to 2 rows instead of 3
+    height: getCellHeight(new Date()) * 2 + 160, // Adjusted for better fit
     overflow: 'hidden',
   }, 
   dateTimePickerContainer: {
@@ -513,8 +546,6 @@ const CalendarScreen: React.FC = () => {
     }
   };
   
-  
-
     
   const getMonthData = (baseDate: Date, offset: number) => {
     const newDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + offset, 1);
@@ -524,12 +555,44 @@ const CalendarScreen: React.FC = () => {
     const startOffset = firstDay.getDay(); // 0 = Sunday
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
+    // Debug log for month data
+    console.log('Month data:', {
+      year,
+      month,
+      startOffset,
+      daysInMonth,
+      totalDaysNeeded: daysInMonth + startOffset
+    });
+
     const days: (Date | null)[] = [];
-    for (let i = 0; i < startOffset; i++) days.push(null);
+    
+    // Add days from previous month
+    const prevMonth = new Date(year, month, 0);
+    const daysInPrevMonth = prevMonth.getDate();
+    for (let i = startOffset - 1; i >= 0; i--) {
+      days.push(new Date(year, month - 1, daysInPrevMonth - i));
+    }
+
+    // Add days from current month
     for (let i = 1; i <= daysInMonth; i++) {
       days.push(new Date(year, month, i));
     }
-    while (days.length < NUM_COLUMNS * NUM_ROWS) days.push(null);
+
+    // Calculate how many days we need to add to fill the grid
+    const totalDaysNeeded = daysInMonth + startOffset;
+    const remainingDays = NUM_COLUMNS * NUM_ROWS - days.length;
+    
+    // If we need more than 35 days to display the month, only fill up to 35 days
+    const daysToAdd = totalDaysNeeded > 35 ? 35 - days.length : remainingDays;
+    
+    // Add days from next month
+    for (let i = 1; i <= daysToAdd; i++) {
+      days.push(new Date(year, month + 1, i));
+    }
+
+    // Debug log for final days array
+    console.log('Final days array length:', days.length);
+
     return { key: generateMonthKey(year, month), year, month, days };
   };
 
@@ -540,22 +603,6 @@ const CalendarScreen: React.FC = () => {
 
   const isSelected = (date: Date | null) =>
     date?.toDateString() === selectedDate.toDateString();
-
-  const expandReminderPicker = () => {
-    Animated.timing(reminderPickerHeight, {
-      toValue: 120, // or 120 if you want smaller
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
-  };
-  
-  const collapseReminderPicker = () => {
-    Animated.timing(reminderPickerHeight, {
-      toValue: 0,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
-  };
 
   const collapseAllPickers = () => {
     setShowStartPicker(false);
@@ -568,8 +615,6 @@ const CalendarScreen: React.FC = () => {
   };
 
   
-
-
   const handleDeleteEvent = async (dateKey: string, eventIndex: number) => {
     const eventToDelete = events[dateKey][eventIndex];
   
@@ -598,197 +643,7 @@ const CalendarScreen: React.FC = () => {
     setEvents(updatedEvents);
   };
 
-  const handleDeleteCategory = async (categoryId: string) => {
-    try {
-      const { error } = await supabase
-        .from('categories')
-        .delete()
-        .eq('id', categoryId);
-  
-      if (error) {
-        console.error('Failed to delete category:', error);
-        return;
-      }
-  
-      setCategories(prev => prev.filter(cat => cat.id !== categoryId));
-  
-      // Also deselect it if user had selected this category
-      if (selectedCategory?.id === categoryId) {
-        setSelectedCategory(null);
-      }
-  
-      if (editedSelectedCategory?.id === categoryId) {
-        setEditedSelectedCategory(null);
-      }
-  
-      console.log('Category deleted successfully');
-    } catch (e) {
-      console.error('Error deleting category:', e);
-    }
-  };
-  
 
-  const renderCell = (date: Date | null, index: number) => {
-    return (
-      <View
-        key={index}
-        style={[
-          styles.cell,
-          isMonthCompact ? styles.cellCompact : styles.cellExpanded,
-          isSelected(date) && styles.selectedCell,
-          isToday(date) && styles.todayCell,
-          { overflow: 'visible' }
-        ]}
-      >
-        {/* Date number */}
-        {date && (
-          <TouchableOpacity
-            onPress={() => {
-              if (date) {
-                setSelectedDate(date);
-                setIsMonthCompact(prev => !prev);
-              }
-            }}
-            style={{ alignItems: 'center', justifyContent: 'center', zIndex: 0 }}
-          >
-            <Text
-              style={[
-                styles.dateNumber,
-                !date && styles.invisibleText,
-                isSelected(date) && styles.selectedText,
-                isToday(date) && styles.todayText,
-              ]}
-            >
-              {date?.getDate()}
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Background touchable for adding new events */}
-        <TouchableOpacity
-          onPress={() => {
-            if (date) {
-              setSelectedDate(date);
-              resetEventForm();
-              setStartDateTime(new Date(date));
-              setNewEventTitle('');
-              setNewEventDescription('');
-              setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000));
-              setUserChangedEndTime(false);
-              setCustomSelectedDates([]);
-              setShowModal(true);
-            }
-          }}
-          activeOpacity={date ? 0.7 : 1}
-          disabled={!date}
-          style={{ flex: 1, paddingTop: 0, zIndex: 0 }}
-        />
-
-        {/* Events */}
-        {date && events[getLocalDateString(date)]?.map((event, idx) => {
-          const dateKey = getLocalDateString(date);
-          const eventStart = new Date(event.startDateTime!);
-          const eventEnd = new Date(event.endDateTime!);
-
-          const isMultiDay = eventStart.toDateString() !== eventEnd.toDateString();
-          const isStartDate = dateKey === getLocalDateString(eventStart);
-          const isEndDate = dateKey === getLocalDateString(eventEnd);
-
-          // Skip rendering if it's not the start date of a multi-day event
-          if (!isStartDate && isMultiDay) return null;
-
-          // Calculate the width based on the number of days
-          const numberOfSpanningDays = Math.floor(
-            (eventEnd.getTime() - eventStart.getTime()) / (1000 * 60 * 60 * 24)
-          ) + 1;
-
-          const eventWidth = isMultiDay
-            ? Math.min(numberOfSpanningDays, 7 - date.getDay()) * CELL_WIDTH - 8
-            : CELL_WIDTH - 8;
-
-          return (
-            <Swipeable
-              key={idx}
-              overshootRight={false}
-              onSwipeableOpen={() => handleDeleteEvent(dateKey, idx)}
-              renderRightActions={() => (
-                <View
-                  style={{
-                    flex: 1,
-                    backgroundColor: 'red',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    borderRadius: 6,
-                    overflow: 'hidden',
-                    marginTop: idx === 0 ? 10 : 4,
-                  }}
-                >
-                  <Ionicons name="trash-outline" size={10} color="white" />
-                </View>
-              )}
-              containerStyle={{
-                position: 'absolute',
-                top: idx === 0 ? 30 : 34 + (idx * 24),
-                left: 2,
-                right: 2,
-                zIndex: 100,
-              }}
-            >
-              <TouchableOpacity
-                style={{
-                  backgroundColor: event.categoryColor || '#eee',
-                  borderRadius: 6,
-                  paddingVertical: 2,
-                  overflow: 'visible',
-                  width: eventWidth,
-                  borderTopRightRadius: isEndDate ? 6 : 0,
-                  borderBottomRightRadius: isEndDate ? 6 : 0,
-                  borderTopLeftRadius: isStartDate ? 6 : 0,
-                  borderBottomLeftRadius: isStartDate ? 6 : 0,
-                }}
-                onLongPress={() => {
-                  const eventToEdit = events[dateKey][idx];
-                  setSelectedEvent({ event: eventToEdit, dateKey, index: idx });
-                  setEditedEventTitle(eventToEdit.title);
-                  setEditedEventDescription(eventToEdit.description ?? '');
-                  setEditedStartDateTime(eventToEdit.startDateTime ? new Date(eventToEdit.startDateTime) : new Date());
-                  setEditedEndDateTime(eventToEdit.endDateTime ? new Date(eventToEdit.endDateTime) : new Date());
-                  setEditedSelectedCategory(
-                    eventToEdit.categoryName && eventToEdit.categoryColor
-                      ? { name: eventToEdit.categoryName, color: eventToEdit.categoryColor }
-                      : null
-                  );
-                  setEditedReminderTime(eventToEdit.reminderTime ? new Date(eventToEdit.reminderTime) : null);
-                  setEditedRepeatOption(eventToEdit.repeatOption || 'None');
-                  setEditedRepeatEndDate(eventToEdit.repeatEndDate ? new Date(eventToEdit.repeatEndDate) : null);
-                  setCustomSelectedDates(eventToEdit.customDates || []);
-
-                  collapseAllPickers();
-                  setShowEditEventModal(true);
-                }}
-              >
-                <Text
-                  numberOfLines={1}
-                  style={{
-                    fontSize: 10,
-                    color: isMultiDay && !isStartDate ? '#ddd' : '#fff',
-                    fontWeight: isMultiDay && !isStartDate ? '400' : '600',
-                    fontStyle: isMultiDay && !isStartDate ? 'italic' : 'normal',
-                    textAlign: 'center',
-                    paddingHorizontal: 4,
-                  }}
-                >
-                  {event.isContinued ? 'Continued...' : event.title}
-                </Text>
-              </TouchableOpacity>
-            </Swipeable>
-          );
-        })}
-      </View>
-    );
-  };
-  
-  
   const resetEventForm = () => {
     setNewEventTitle('');
     setNewEventDescription('');
@@ -910,6 +765,8 @@ const CalendarScreen: React.FC = () => {
       year: 'numeric'
     });
 
+    const needsSixRowsThisMonth = item.days.length > 35;
+
     // Create a map of date positions for accurate event placement
     const datePositions = new Map();
     days.forEach((date, index) => {
@@ -942,7 +799,10 @@ const CalendarScreen: React.FC = () => {
             ))}
           </View>
 
-          <View style={[styles.grid, isMonthCompact && styles.gridCompact]}>
+          <View style={[
+            needsSixRowsThisMonth ? styles.gridSixRows : styles.grid,
+            isMonthCompact && styles.gridCompact
+          ]}>
             {/* Multi-day Events Layer */}
             {days.map((date, i) => {
               if (!date) return null;
@@ -968,7 +828,7 @@ const CalendarScreen: React.FC = () => {
                 // Calculate position
                 const row = Math.floor(i / 7);
                 const col = date.getDay();
-                const eventTop = row * CELL_HEIGHT + 30 + (idx * 22);
+                const eventTop = row * getCellHeight(date) + 30 + (idx * 22);
 
                 return (
                   <Swipeable
@@ -1050,15 +910,15 @@ const CalendarScreen: React.FC = () => {
 
             {/* Grid Cells */}
             {days.map((date, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.cell,
-                  isMonthCompact ? styles.cellCompact : styles.cellExpanded,
-                  isSelected(date) && styles.selectedCell,
-                  isToday(date) && styles.todayCell,
-                ]}
-              >
+               <View
+    key={i}
+    style={[
+      styles.cell,
+      needsSixRows(item.year, item.month) ? styles.cellCompact : styles.cellExpanded,
+      isSelected(date) && styles.selectedCell,
+      isToday(date) && styles.todayCell,
+    ]}
+  >
                 {/* Date number */}
                 {date && (
                   <TouchableOpacity
@@ -1075,15 +935,26 @@ const CalendarScreen: React.FC = () => {
                     }}
                   >
                     <Text
-                      style={[
-                        styles.dateNumber,
-                        !date && styles.invisibleText,
-                        isSelected(date) && styles.selectedText,
-                        isToday(date) && styles.todayText,
-                      ]}
-                    >
-                      {date?.getDate()}
-                    </Text>
+  style={[
+    styles.dateNumber,
+    !date && styles.invisibleText,
+    isSelected(date) && styles.selectedText,
+    isToday(date) && styles.todayText,
+  ]}
+>
+  {(() => {
+    const totalGridSlots = days.length;
+    const isLastCell = i === days.length - 1;
+    const isSixthRow = totalGridSlots > 35;
+    const currentDate = date?.getDate();
+    const nextDate = days[i + 1]?.getDate();
+    if (isSixthRow && isLastCell && currentDate && nextDate) {
+      return `${currentDate}/${nextDate}`;
+    }
+    return currentDate;
+  })()}
+</Text>
+
                   </TouchableOpacity>
                 )}
 
@@ -1207,14 +1078,16 @@ const CalendarScreen: React.FC = () => {
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -3, paddingHorizontal: 14 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -8, paddingHorizontal: 14, marginTop: -15 }}>
           <TouchableOpacity
             onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
-            style={{ backgroundColor: '#BF9264', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 20 }}
+            style={{ paddingVertical: 6, paddingHorizontal: 10 }}
           >
-            <Text style={{ color: 'white', fontWeight: '600', fontSize: 8 }}>
-              {calendarMode === 'month' ? 'Month View' : 'Week View'}
-            </Text>
+            <MaterialIcons 
+              name={calendarMode === 'month' ? 'calendar-view-week' : 'calendar-view-month'}
+              size={20} 
+              color="#BF9264"
+            />
           </TouchableOpacity>
         </View>
 
@@ -2203,7 +2076,11 @@ const CalendarScreen: React.FC = () => {
                 markedDates={Object.fromEntries(
                   customSelectedDates.map((date) => [
                     date,
-                    { selected: true, selectedColor: '#BF9264' },
+                    { 
+                      selected: true,
+                      selectedColor: '#BF9264',
+                      selectedTextColor: '#fff'
+                    },
                   ])
                 )}
                 style={{
@@ -2231,6 +2108,34 @@ const CalendarScreen: React.FC = () => {
                   },
                   todayTextColor: '#BF9264',
                   todayBackgroundColor: 'transparent',
+                  'stylesheet.day.basic': {
+                    base: {
+                      width: 32,
+                      height: 32,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                    text: {
+                      fontSize: 14,
+                      color: '#333',
+                      textAlign: 'center',
+                    },
+                    selected: {
+                      backgroundColor: '#BF9264',
+                      borderRadius: 16,
+                    },
+                    selectedText: {
+                      color: '#fff',
+                      fontWeight: '600',
+                    },
+                  },
+                  'stylesheet.calendar.main': {
+                    dayContainer: {
+                      flex: 1,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    },
+                  },
                 }}
               />
 
