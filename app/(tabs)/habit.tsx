@@ -1639,7 +1639,8 @@ const formatDate = (date: Date): string => {
   const handleProgressPress = () => {
     setIsProgressModalVisible(true);
     setSelectedProgressMonth(moment()); // Reset to current month
-    setTimeout(centerTodayColumn, 100);
+    // Add a longer delay to ensure the modal is fully rendered
+    setTimeout(centerTodayColumn, 500);
   };
 
   // Add function to get dates for the current month
@@ -1665,12 +1666,20 @@ const formatDate = (date: Date): string => {
     const todayDate = today.date();
     const cellWidth = 36; // Width of each cell
     const screenWidth = Dimensions.get('window').width;
-    const offset = (todayDate - 1) * cellWidth - (screenWidth / 2) + (cellWidth / 2);
     
-    // Add some delay to ensure the scroll view is ready
-    setTimeout(() => {
-      scrollViewRef.current?.scrollTo({ x: Math.max(0, offset), animated: false });
-    }, 100);
+    // Calculate the position of today's column
+    const todayPosition = (todayDate - 1) * cellWidth;
+    
+    // Calculate the offset needed to center today's column
+    // Add a larger offset to move everything more to the right
+    const offset = todayPosition - (screenWidth / 2) + (cellWidth / 2) -30;
+    
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        x: Math.max(0, offset),
+        animated: false
+      });
+    }
   };
 
   // Add scroll handler
@@ -1696,8 +1705,11 @@ const formatDate = (date: Date): string => {
           {/* Add Calendar Strip Header */}
           <View style={{ paddingHorizontal: 0, marginHorizontal: -18, marginBottom: -10 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24 }}>
-              <TouchableOpacity onPress={handleProgressPress}>
-                <Ionicons name="bar-chart-outline" size={24} color="#6F4E37" />
+              <TouchableOpacity 
+                onPress={handleProgressPress}
+                style={{ paddingLeft: 20 }}
+              >
+                <MaterialIcons name="stacked-line-chart" size={20} color="#6F4E37" />
               </TouchableOpacity>
               <TouchableOpacity onPress={goToToday}>
                 <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
@@ -2199,7 +2211,7 @@ const formatDate = (date: Date): string => {
                                 marginLeft: 10,
                               }}
                             >
-                              <Ionicons name="color-fill-outline" size={20} color={selectedCategoryId ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666' : '#666'} />
+                              <MaterialIcons name="colorize" size={20} color={selectedCategoryId ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666' : '#666'} />
                             </TouchableOpacity>
                             
                             {/* Selected Category Display */}
