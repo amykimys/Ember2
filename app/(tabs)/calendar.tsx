@@ -850,7 +850,7 @@ const CalendarScreen: React.FC = () => {
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: -8, paddingHorizontal: 14, marginTop: -15 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-start', marginBottom: -8, paddingHorizontal: 14, marginTop: -15 }}>
           <TouchableOpacity
             onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
             style={{ paddingVertical: 6, paddingHorizontal: 10 }}

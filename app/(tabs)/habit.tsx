@@ -36,6 +36,8 @@ import moment from 'moment';
 import 'moment/locale/en-gb';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base-64';
+import { LineChart } from 'react-native-chart-kit';
+import { Dimensions } from 'react-native';
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -216,6 +218,10 @@ export default function HabitScreen() {
   // Add new state for expanded categories
   const [expandedCategories, setExpandedCategories] = useState<{ [key: string]: boolean }>({});
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // Add new state for progress modal
+  const [isProgressModalVisible, setIsProgressModalVisible] = useState(false);
+  // Add new state for selected month in progress view
+  const [selectedProgressMonth, setSelectedProgressMonth] = useState(moment());
 
   const today = moment();
   const todayStr = today.format('YYYY-MM-DD');
@@ -1596,6 +1602,57 @@ const formatDate = (date: Date): string => {
     verifyBucketSetup();
   }, []);
 
+  // Add function to calculate monthly progress
+  const calculateMonthlyProgress = () => {
+    const currentMonth = moment(currentDate).format('YYYY-MM');
+    const daysInMonth = moment(currentDate).daysInMonth();
+    
+    // Create array of dates for the current month
+    const monthDates = Array.from({ length: daysInMonth }, (_, i) => 
+      moment(currentDate).startOf('month').add(i, 'days').format('YYYY-MM-DD')
+    );
+
+    // Calculate daily completion rates
+    const dailyRates = monthDates.map(date => {
+      const totalHabits = habits.length;
+      if (totalHabits === 0) return 0;
+      
+      const completedHabits = habits.filter(habit => 
+        habit.completedDays.includes(date)
+      ).length;
+      
+      return (completedHabits / totalHabits) * 100;
+    });
+
+    return {
+      labels: monthDates.map(date => moment(date).format('D')),
+      datasets: [{
+        data: dailyRates
+      }]
+    };
+  };
+
+  // Add function to handle progress modal
+  const handleProgressPress = () => {
+    setIsProgressModalVisible(true);
+  };
+
+  // Add function to get dates for the current month
+  const getMonthDates = () => {
+    const daysInMonth = selectedProgressMonth.daysInMonth();
+    return Array.from({ length: daysInMonth }, (_, i) => 
+      selectedProgressMonth.startOf('month').add(i, 'days').format('YYYY-MM-DD')
+    );
+  };
+
+  // Add function to navigate months in progress view
+  const navigateProgressMonth = (direction: 'prev' | 'next') => {
+    setSelectedProgressMonth(prev => direction === 'prev' 
+      ? moment(prev).subtract(1, 'month')
+      : moment(prev).add(1, 'month')
+    );
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -1613,11 +1670,17 @@ const formatDate = (date: Date): string => {
 
           {/* Add Calendar Strip Header */}
           <View style={{ paddingHorizontal: 0, marginHorizontal: -18, marginBottom: -10 }}>
-            <TouchableOpacity onPress={goToToday}>
-              <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
-                {moment(currentDate).format('MMMM YYYY')}
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24 }}>
+              <TouchableOpacity onPress={handleProgressPress}>
+                <Ionicons name="bar-chart-outline" size={24} color="#6F4E37" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={goToToday}>
+                <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
+                  {moment(currentDate).format('MMMM YYYY')}
+                </Text>
+              </TouchableOpacity>
+              <View style={{ width: 24 }} /> {/* Empty view for balance */}
+            </View>
             <CalendarStrip
               ref={calendarStripRef}
               scrollable
@@ -2726,6 +2789,174 @@ const formatDate = (date: Date): string => {
                 </View>
               </View>
             </KeyboardAvoidingView>
+          </Modal>
+
+          {/* Progress Chart Modal */}
+          <Modal
+            visible={isProgressModalVisible}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setIsProgressModalVisible(false)}
+          >
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+              <View style={{ 
+                backgroundColor: 'white', 
+                padding: 20, 
+                borderTopLeftRadius: 20, 
+                borderTopRightRadius: 20,
+                maxHeight: '80%',
+                minHeight: '50%',
+              }}>
+                <View style={{ 
+                  flexDirection: 'row', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  marginBottom: 12 
+                }}>
+                  <Text style={{ fontSize: 20, fontWeight: '600' }}>Monthly Progress</Text>
+                  <TouchableOpacity onPress={() => setIsProgressModalVisible(false)}>
+                    <Ionicons name="close" size={24} color="#666" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Month Navigation */}
+                <View style={{ 
+                  flexDirection: 'row', 
+                  alignItems: 'center',
+                  marginBottom: 20,
+                  alignSelf: 'flex-start'
+                }}>
+                  <TouchableOpacity 
+                    onPress={() => navigateProgressMonth('prev')}
+                    style={{ padding: 4 }}
+                  >
+                    <Text>
+                      <Ionicons name="chevron-back" size={15} color="#6F4E37" />
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <Text style={{ 
+                    fontSize: 14, 
+                    color: '#666',
+                    fontWeight: '500',
+                    marginHorizontal: 8
+                  }}>
+                    {selectedProgressMonth.format('MMMM YYYY')}
+                  </Text>
+                  
+                  <TouchableOpacity 
+                    onPress={() => navigateProgressMonth('next')}
+                    style={{ padding: 4 }}
+                  >
+                    <Text>
+                      <Ionicons name="chevron-forward" size={15} color="#6F4E37" />
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={{ flex: 1 }} horizontal>
+                  <ScrollView>
+                    {habits.length > 0 ? (
+                      <View>
+                        {/* Header row with dates */}
+                        <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                          <View style={{ width: 85 }} /> {/* Empty space for habit names */}
+                          {getMonthDates().map((date, index) => (
+                            <View key={date} style={{ width: 36, alignItems: 'center', justifyContent: 'center' }}>
+                              <Text style={{ 
+                                fontSize: 11, 
+                                color: '#666',
+                                fontWeight: moment(date).isSame(moment(), 'day') ? 'bold' : 'normal',
+                                textAlign: 'center',
+                                width: '100%'
+                              }}>
+                                {moment(date).format('D')}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        {/* Grid rows for each habit */}
+                        {habits.map(habit => (
+                          <View key={habit.id} style={{ flexDirection: 'row', marginBottom: 12 }}>
+                            {/* Habit name */}
+                            <View style={{ 
+                              width: 85, 
+                              paddingRight: 4,
+                              justifyContent: 'center'
+                            }}>
+                              <Text style={{ 
+                                fontSize: 13, 
+                                color: '#1a1a1a',
+                                fontWeight: '500'
+                              }} numberOfLines={1}>
+                                {habit.text}
+                              </Text>
+                            </View>
+
+                            {/* Status cells */}
+                            {getMonthDates().map(date => {
+                              const isCompleted = habit.completedDays.includes(date);
+                              const isToday = moment(date).isSame(moment(), 'day');
+                              const hasNote = habit.notes?.[date];
+                              return (
+                                <TouchableOpacity 
+                                  key={date} 
+                                  style={{ 
+                                    width: 36, 
+                                    height: 36,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: isToday ? '#F5EFE7' : 'transparent',
+                                    borderRadius: 4,
+                                    padding: 3
+                                  }}
+                                  onPress={() => {
+                                    if (hasNote) {
+                                      setSelectedNoteDate({ habitId: habit.id, date });
+                                      setIsNoteEditMode(false);
+                                      setNoteText(habit.notes[date]);
+                                    }
+                                  }}
+                                >
+                                  {hasNote ? (
+                                    <Text 
+                                      style={{ 
+                                        fontSize: 9,
+                                        color: '#6F4E37',
+                                        textAlign: 'center',
+                                        lineHeight: 12
+                                      }}
+                                      numberOfLines={3}
+                                    >
+                                      {habit.notes[date]}
+                                    </Text>
+                                  ) : isCompleted ? (
+                                    <Text>
+                                      <Ionicons name="checkmark-circle" size={18} color="#6F4E37" />
+                                    </Text>
+                                  ) : (
+                                    <Text>
+                                      <Ionicons name="close-circle" size={18} color="#DCD7C9" />
+                                    </Text>
+                                  )}
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
+                        <Text style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
+                          No habits to track yet. Add some habits to see your progress!
+                        </Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </ScrollView>
+              </View>
+            </View>
           </Modal>
 
         </View>
