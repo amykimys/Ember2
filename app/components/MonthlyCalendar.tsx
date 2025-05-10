@@ -22,12 +22,12 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
           backgroundColor: 'white',
           calendarBackground: 'white',
           textSectionTitleColor: '#666',
-          todayTextColor: '#6F4E37',
+          todayTextColor: '#FF9A8B',
           dayTextColor: '#1a1a1a',
           textDisabledColor: '#DCD7C9',
           dotColor: '#007AFF',
           selectedDotColor: '#ffffff',
-          arrowColor: '#6F4E37',
+          arrowColor: '#FF9A8B',
           monthTextColor: '#1a1a1a',
           indicatorColor: '#007AFF',
           textDayFontSize: 14,
@@ -41,7 +41,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
               marginBottom: 15,
             },
             arrow: {
-              color: '#6F4E37',
+              color: '#FF9A8B',
               marginHorizontal: 60, // Adjust this to get arrows closer/further
               marginBottom: 15,
 
@@ -62,11 +62,11 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
     marginTop: 5,
     },
   today: {
-    backgroundColor: '#F5EFE7',
+    backgroundColor: '#FAF9F6',
     borderRadius: 18,
   },
   selected: {
-    backgroundColor: '#6F4E37',
+    backgroundColor: '#FF9A8B',
     borderRadius: 18,
   },
   selectedText: {

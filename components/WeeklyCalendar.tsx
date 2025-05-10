@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button } from 'react-native';
+import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button, Alert } from 'react-native';
 import EventModal from '../components/EventModal';
 import { Swipeable } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -54,6 +54,7 @@ interface WeeklyCalendarViewProps {
     setEditedRepeatOption: React.Dispatch<React.SetStateAction<'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'>>;
     setEditedRepeatEndDate: React.Dispatch<React.SetStateAction<Date | null>>;
     setShowEditEventModal: (show: boolean) => void;
+    hideHeader?: boolean;
   }
 
   const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
@@ -76,6 +77,7 @@ interface WeeklyCalendarViewProps {
     setEditedRepeatOption,
     setEditedRepeatEndDate,
     setShowEditEventModal,
+    hideHeader = false,
   }) => {
   
     const baseDate = new Date(selectedDate);
@@ -92,6 +94,9 @@ const getLocalDateString = (date: Date): string => {
 const [newEventStart, setNewEventStart] = useState<Date | null>(null);
 const [newEventEnd, setNewEventEnd] = useState<Date | null>(null);
 const [newEventTitle, setNewEventTitle] = useState('');
+const [showTimePicker, setShowTimePicker] = useState(false);
+const [isStartTime, setIsStartTime] = useState(true);
+const [tempHour, setTempHour] = useState('');
 
 const isToday = (date: Date) => {
     const today = new Date();
@@ -171,22 +176,24 @@ const isToday = (date: Date) => {
 
   return (
     <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
-       {/* ✨ Add Centered Month Title */}
-       <TouchableOpacity
-  onPress={() => {
-    const today = new Date();
-    setSelectedDate(today);
-    flatListRef.current?.scrollToIndex({ index: 50, animated: true });
-  }}
-  activeOpacity={0.7}
-  style={{ alignItems: 'center', marginTop: 0, marginBottom: 0 }}
->
-  <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#333' }}>
-    {weekStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-  </Text>
-</TouchableOpacity>
+       <Text style={{ display: 'none' }}>✨ Add Centered Month Title</Text>
+       {!hideHeader && (
+         <TouchableOpacity
+           onPress={() => {
+             const today = new Date();
+             setSelectedDate(today);
+             flatListRef.current?.scrollToIndex({ index: 50, animated: true });
+           }}
+           activeOpacity={0.7}
+           style={{ alignItems: 'center', marginTop: 0, marginBottom: 0 }}
+         >
+           <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#333' }}>
+             {weekStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+           </Text>
+         </TouchableOpacity>
+       )}
 
-      {/* Week Strip */}
+      <Text style={{ display: 'none' }}>Week Strip</Text>
       <View style={styles.weekStrip}>
         {weekDates.map((date, idx) => (
           <TouchableOpacity
@@ -207,10 +214,10 @@ const isToday = (date: Date) => {
         ))}
       </View>
 
-      {/* Timetable */}
+      <Text style={{ display: 'none' }}>Timetable</Text>
       <ScrollView style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row' }}>
-          {/* LEFT: Time indicators */}
+          <Text style={{ display: 'none' }}>LEFT: Time indicators</Text>
           <View style={styles.timeColumn}>
             {hours.map((hour, idx) => (
               <View key={idx} style={styles.timeRow}>
@@ -219,13 +226,13 @@ const isToday = (date: Date) => {
             ))}
           </View>
 
-          {/* RIGHT: Day columns */}
+          <Text style={{ display: 'none' }}>RIGHT: Day columns</Text>
           <ScrollView horizontal style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row' }}>
               {weekDates.map((dayDate, dayIdx) => (
                 <View key={dayIdx} style={[styles.dayColumn, { position: 'relative' }]}>
                   
-                  {/* 🔥 1. Render event bubbles first */}
+                  <Text style={{ display: 'none' }}>🔥 1. Render event bubbles first</Text>
                   {events[getLocalDateString(dayDate)]?.map((event) => {
                     const eventStart = new Date(event.startDateTime!);
                     const eventEnd = new Date(event.endDateTime!);
@@ -274,7 +281,7 @@ const isToday = (date: Date) => {
                               
                                 if (error) {
                                   console.error('Failed to delete event from Supabase:', error);
-                                  alert('Failed to delete event.');
+                                  Alert.alert('Error', 'Failed to delete event.');
                                   return;
                                 }
                               
@@ -291,7 +298,7 @@ const isToday = (date: Date) => {
                             </TouchableOpacity>
                         )}
                         >
-                        {/* ✅ Wrap bubble content with TouchableOpacity */}
+                        <Text style={{ display: 'none' }}>✅ Wrap bubble content with TouchableOpacity</Text>
                         <TouchableOpacity
                         activeOpacity={0.8}
                         onLongPress={() => {
@@ -334,7 +341,7 @@ const isToday = (date: Date) => {
                     );
                   })}
 
-                  {/* 🔥 2. Then render the hour grid cells */}
+                  <Text style={{ display: 'none' }}>🔥 2. Then render the hour grid cells</Text>
                   <View style={{ position: 'relative', zIndex: 0 }}>
                     {hours.map((_, hourIdx) => (
                       <TouchableOpacity
@@ -406,16 +413,13 @@ const isToday = (date: Date) => {
       <TouchableOpacity
         style={styles.input}
         onPress={() => {
-          const now = newEventStart || new Date();
-          const picked = prompt('Enter Start Hour (0-23)', now.getHours().toString());
-          if (picked !== null) {
-            const newStart = new Date(now);
-            newStart.setHours(parseInt(picked), 0, 0, 0);
-            setNewEventStart(newStart);
-          }
+          setIsStartTime(true);
+          setTempHour(newEventStart ? newEventStart.getHours().toString() : '');
+          setShowTimePicker(true);
         }}
       >
-        <Text>
+        <Text style={{ display: 'none' }}>🔥 Start Time Picker</Text>
+        <Text style={{ color: '#333' }}>
           {newEventStart
             ? `Start Time: ${newEventStart.getHours()}:00`
             : 'Pick Start Time'}
@@ -426,21 +430,64 @@ const isToday = (date: Date) => {
       <TouchableOpacity
         style={styles.input}
         onPress={() => {
-          const now = newEventEnd || new Date();
-          const picked = prompt('Enter End Hour (0-23)', now.getHours().toString());
-          if (picked !== null) {
-            const newEnd = new Date(now);
-            newEnd.setHours(parseInt(picked), 0, 0, 0);
-            setNewEventEnd(newEnd);
-          }
+          setIsStartTime(false);
+          setTempHour(newEventEnd ? newEventEnd.getHours().toString() : '');
+          setShowTimePicker(true);
         }}
       >
-        <Text>
+        <Text style={{ display: 'none' }}>🔥 End Time Picker</Text>
+        <Text style={{ color: '#333' }}>
           {newEventEnd
             ? `End Time: ${newEventEnd.getHours()}:00`
             : 'Pick End Time'}
         </Text>
       </TouchableOpacity>
+
+      {/* Time Picker Modal */}
+      <Modal
+        visible={showTimePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowTimePicker(false)}
+      >
+        <Text style={{ display: 'none' }}>Time Picker Modal</Text>
+        <View style={styles.modalBackground}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>
+              {isStartTime ? 'Set Start Time' : 'Set End Time'}
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter hour (0-23)"
+              value={tempHour}
+              onChangeText={setTempHour}
+              keyboardType="number-pad"
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  const hour = parseInt(tempHour);
+                  if (hour >= 0 && hour <= 23) {
+                    const newTime = new Date();
+                    newTime.setHours(hour, 0, 0, 0);
+                    if (isStartTime) {
+                      setNewEventStart(newTime);
+                    } else {
+                      setNewEventEnd(newTime);
+                    }
+                  }
+                  setShowTimePicker(false);
+                }}
+              >
+                <Text style={styles.saveButtonText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.modalActions}>
         <TouchableOpacity onPress={() => setEventModalVisible(false)}>
@@ -450,7 +497,7 @@ const isToday = (date: Date) => {
         <TouchableOpacity
           onPress={() => {
             if (!newEventTitle.trim() || !newEventStart || !newEventEnd) {
-              alert('Please enter title and time');
+              Alert.alert('Error', 'Please enter title and time');
               return;
             }
 

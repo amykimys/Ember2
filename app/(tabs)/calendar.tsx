@@ -11,7 +11,8 @@ import {
   Platform, 
   Keyboard,
   TouchableWithoutFeedback,
-  ScrollView
+  ScrollView,
+  Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native';
@@ -22,7 +23,6 @@ import { supabase } from '../../supabase';
 import { Swipeable } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import CustomToast from '../../components/CustomToast';
-import { Alert } from 'react-native';
 import WeeklyCalendarView from '../../components/WeeklyCalendar'; 
 import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
 
@@ -95,21 +95,23 @@ const styles = StyleSheet.create({
     marginTop: 0,
     marginBottom: 28,
     color: '#333',
+    fontFamily: 'Manrope',
   },
   weekRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderColor: '#eee',
     backgroundColor: 'white',
-    marginTop: -8,        // ✨ Add this (negative value moves it UP)
+    marginTop: -8,
     paddingVertical: 2,
   },
   weekday: {
     width: CELL_WIDTH,
     textAlign: 'center',
-    color: '#333',      // black/dark gray
-    paddingBottom: 7,   // move it UP (less padding)
-    fontSize: 12,       // optional: slightly bigger text if you want
+    color: '#333',
+    paddingBottom: 7,
+    fontSize: 12,
+    fontFamily: 'Manrope',
   },
   grid: {
     flexDirection: 'row',
@@ -153,12 +155,13 @@ const styles = StyleSheet.create({
     marginLeft: 0.5,
     height: 24,
     lineHeight: 24,
+    fontFamily: 'Manrope',
   },
   adjacentMonthDate: {
     color: '#ccc',  // Light gray color for adjacent month dates
   },
   todayCell: {
-    backgroundColor: '#BF926420',
+    backgroundColor: '#A0C3B2',
   },
   selectedCell: {
     borderColor: '#BF9264',
@@ -177,18 +180,19 @@ const styles = StyleSheet.create({
   },
   addButton: {
     position: 'absolute',
-    right: 22,
-    bottom: 82,
-    backgroundColor: '#BF9264',
-    borderRadius: 28,
-    width: 52,
-    height: 52,
-    justifyContent: 'center',
+    right: 10,
+    bottom: 50,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#A0C3B2',
     alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
     shadowColor: '#000',
-    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
     shadowRadius: 4,
-    elevation: 5,
   },
   addIcon: {
     fontSize: 30,
@@ -210,11 +214,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 8,
+    fontFamily: 'Manrope',
   },
   modalSubtitle: {
     fontSize: 14,
     color: '#666',
     marginBottom: 12,
+    fontFamily: 'Manrope',
   },
   input: {
     borderWidth: 0.5,
@@ -222,6 +228,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     padding: 10,
     marginBottom: 12,
+    fontFamily: 'Manrope',
   },
   modalActions: {
     flexDirection: 'row',
@@ -230,17 +237,20 @@ const styles = StyleSheet.create({
   cancel: {
     fontSize: 16,
     color: '#666',
+    fontFamily: 'Manrope',
   },
   save: {
     fontSize: 16,
     color: '#007AFF',
     fontWeight: '600',
+    fontFamily: 'Manrope',
   },
   eventText: {
     fontSize: 10,
     color: '#333',
     marginTop: 2,
     paddingRight: 2,
+    fontFamily: 'Manrope',
   },
   inputTitle: {
     fontSize: 16,
@@ -249,6 +259,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     marginBottom: 10,
+    fontFamily: 'Manrope',
   },
   inputDescription: {
     fontSize: 14,
@@ -259,6 +270,7 @@ const styles = StyleSheet.create({
     height: 80,
     textAlignVertical: 'top',
     marginBottom: 10,
+    fontFamily: 'Manrope',
   },
   quickActionRow: {
     flexDirection: 'row',
@@ -277,12 +289,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
+    fontFamily: 'Manrope',
   },
   inlineSettingTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
     marginBottom: 4,
+    fontFamily: 'Manrope',
   },
   inlineSettingRowDate: {
     flexDirection: 'row',
@@ -293,6 +307,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
     color: '#666',
+    fontFamily: 'Manrope',
   },
   gridCompact: {
     height: getCellHeight(new Date()) * 2 + 160, // Adjusted for better fit
@@ -654,7 +669,7 @@ const CalendarScreen: React.FC = () => {
 
   const handleSaveEvent = async () => {
     if (!newEventTitle.trim()) {
-      alert('Please enter a title for the event.');
+      Alert.alert('Error', 'Please enter a title for the event.');
       return;
     }
   
@@ -682,7 +697,7 @@ const CalendarScreen: React.FC = () => {
   
     if (error) {
       console.error('Error saving event:', error);
-      alert('Failed to save event.');
+      Alert.alert('Error', 'Failed to save event.');
       setIsSaving(false);
       return;
     }
@@ -769,16 +784,33 @@ const CalendarScreen: React.FC = () => {
 
     return (
       <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
-        <TouchableOpacity
-          onPress={() => {
-            const todayIndex = findMonthIndex(today);
-            if (todayIndex !== -1) {
-              flatListRef.current?.scrollToIndex({ index: todayIndex, animated: true });
-            }
-          }}
-        >
-          <Text style={styles.monthLabel}>{label}</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 28, paddingHorizontal: 8 }}>
+          <TouchableOpacity
+            onPress={() => setCalendarMode((prev: 'month' | 'week') => prev === 'month' ? 'week' : 'month')}
+            style={{ paddingVertical: 6, paddingHorizontal: 10 }}
+          >
+            <MaterialIcons 
+              name={(calendarMode as 'month' | 'week') === 'month' ? 'calendar-view-week' : 'calendar-view-month'}
+              size={20} 
+              color="#333"
+            />
+          </TouchableOpacity>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <TouchableOpacity
+              onPress={() => {
+                const todayIndex = findMonthIndex(today);
+                if (todayIndex !== -1) {
+                  flatListRef.current?.scrollToIndex({ index: todayIndex, animated: true });
+                }
+              }}
+            >
+              <Text style={[styles.monthLabel, { marginBottom: 0 }]}>{label}</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={{ width: 40 }}>
+            <Text style={{ color: 'transparent' }}>Spacer</Text>
+          </View>
+        </View>
         <View style={{ paddingHorizontal: SIDE_PADDING }}>
           <View style={styles.weekRow}>
             {weekdays.map((day, idx) => (
@@ -850,19 +882,6 @@ const CalendarScreen: React.FC = () => {
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-start', marginBottom: -8, paddingHorizontal: 14, marginTop: -15 }}>
-          <TouchableOpacity
-            onPress={() => setCalendarMode(prev => prev === 'month' ? 'week' : 'month')}
-            style={{ paddingVertical: 6, paddingHorizontal: 10 }}
-          >
-            <MaterialIcons 
-              name={calendarMode === 'month' ? 'calendar-view-week' : 'calendar-view-month'}
-              size={20} 
-              color="#BF9264"
-            />
-          </TouchableOpacity>
-        </View>
-
         {calendarMode === 'month' ? (
           <View style={{ flex: 1, flexDirection: 'column' }}>
             <View style={{ flex: isMonthCompact ? 0.9 : 1 }}>
@@ -944,36 +963,61 @@ const CalendarScreen: React.FC = () => {
             )}
           </View>
         ) : (
-          <WeeklyCalendarView
-            selectedDate={selectedDate}
-            setSelectedDate={setSelectedDate}
-            events={events}
-            setEvents={setEvents}
-            setShowModal={setShowModal}
-            setStartDateTime={setStartDateTime}
-            setEndDateTime={setEndDateTime}
-            setSelectedEvent={setSelectedEvent}
-            setEditedEventTitle={setEditedEventTitle}
-            setEditedEventDescription={setEditedEventDescription}
-            setEditedStartDateTime={setEditedStartDateTime}
-            setEditedEndDateTime={setEditedEndDateTime}
-            setEditedSelectedCategory={setEditedSelectedCategory}
-            setEditedReminderTime={setEditedReminderTime}
-            setEditedRepeatOption={setEditedRepeatOption}
-            setEditedRepeatEndDate={setEditedRepeatEndDate}
-            setShowEditEventModal={setShowEditEventModal}
-          />
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: -3, paddingHorizontal: 12 }}>
+              <TouchableOpacity
+                onPress={() => setCalendarMode((prev: 'month' | 'week') => prev === 'month' ? 'week' : 'month')}
+                style={{ paddingVertical: 6, paddingHorizontal: 6 }}
+              >
+                <MaterialIcons 
+                  name={(calendarMode as 'month' | 'week') === 'month' ? 'calendar-view-week' : 'calendar-view-month'}
+                  size={20} 
+                  color="#333"
+                />
+              </TouchableOpacity>
+              <View style={{ flex: 1, alignItems: 'center' }}>
+                <Text style={[styles.monthLabel, { marginBottom: 0 }]}>
+                  {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                </Text>
+              </View>
+              <View style={{ width: 40 }}>
+                <Text style={{ color: 'transparent' }}>Spacer</Text>
+              </View>
+            </View>
+            <WeeklyCalendarView
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
+              events={events}
+              setEvents={setEvents}
+              setShowModal={setShowModal}
+              setStartDateTime={setStartDateTime}
+              setEndDateTime={setEndDateTime}
+              setSelectedEvent={setSelectedEvent}
+              setEditedEventTitle={setEditedEventTitle}
+              setEditedEventDescription={setEditedEventDescription}
+              setEditedStartDateTime={setEditedStartDateTime}
+              setEditedEndDateTime={setEditedEndDateTime}
+              setEditedSelectedCategory={setEditedSelectedCategory}
+              setEditedReminderTime={setEditedReminderTime}
+              setEditedRepeatOption={setEditedRepeatOption}
+              setEditedRepeatEndDate={setEditedRepeatEndDate}
+              setShowEditEventModal={setShowEditEventModal}
+              hideHeader={true}
+            />
+          </View>
         )}
 
-        <TouchableOpacity
-          onPress={() => {
-            resetEventForm();
-            setShowModal(true);
-          }}
-          style={styles.addButton}
-        >
-          <Text style={styles.addIcon}>＋</Text>
-        </TouchableOpacity>
+<TouchableOpacity
+            style={styles.addButton}
+            onPress={() => {
+              resetEventForm();
+              setShowModal(true);
+            }}
+          >
+            <Ionicons name="add" size={22} color="white" />
+          </TouchableOpacity>
+
+        
       </SafeAreaView>
 
       <Modal
@@ -1028,7 +1072,8 @@ const CalendarScreen: React.FC = () => {
                       />
 
                       {/* 🕓 Starts */}
-                      <View style={{ marginBottom: 10, marginTop: 5, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🕓 Starts</Text>
                         <TouchableOpacity
                           onPress={() => setShowStartPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1061,7 +1106,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* 🛑 Ends */}
-                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🛑 Ends</Text>
                         <TouchableOpacity
                           onPress={() => setShowEndPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1092,7 +1138,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* 🕑 Set Reminder */}
-                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🕑 Set Reminder</Text>
                         <TouchableOpacity
                           onPress={() => setShowReminderPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1122,7 +1169,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* 🔁 Set Repeat */}
-                      <View style={{ marginBottom: 5, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🔁 Set Repeat</Text>
                         <TouchableOpacity
                           onPress={() => setShowRepeatPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1155,7 +1203,8 @@ const CalendarScreen: React.FC = () => {
 
                       {/* 📅 Set End Date */}
                       {repeatOption !== 'None' && (
-                        <View style={{ marginBottom: 5, marginTop: 4, marginLeft: 5 }}>
+                        <View style={{ flex: 1, alignItems: 'center' }}>
+                          <Text style={{ display: 'none' }}>📅 Set End Date</Text>
                           <TouchableOpacity
                             onPress={() => setShowEndDatePicker(prev => !prev)}
                             style={styles.inlineSettingRow}
@@ -1194,7 +1243,8 @@ const CalendarScreen: React.FC = () => {
                   )}
 
                   {/* 🗂 Set Category */}
-                  <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                  <View style={{ flex: 1, alignItems: 'center' }}>
+                    <Text style={{ display: 'none' }}>🗂 Set Category</Text>
                     <TouchableOpacity
                       onPress={() => {
                         setShowCategoryPicker(prev => !prev);
@@ -1206,7 +1256,7 @@ const CalendarScreen: React.FC = () => {
                       }}
                       style={styles.inlineSettingRow}
                     >
-                      <Ionicons name="color-fill-outline" size={22} color={selectedCategory ? selectedCategory.color : '#666'} />
+                      <MaterialIcons name="colorize" size={22} color={selectedCategory ? selectedCategory.color : '#666'} />
                       <Text style={[styles.inlineSettingText, { color: selectedCategory ? selectedCategory.color : '#000' }]}>
                         {selectedCategory ? selectedCategory.name : 'Set Category'}
                       </Text>
@@ -1263,7 +1313,8 @@ const CalendarScreen: React.FC = () => {
 
                   {/* 📅 Pick Dates (only shown in custom dates mode) */}
                   {repeatOption === 'Custom' && (
-                    <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ display: 'none' }}>📅 Pick Dates (only shown in custom dates mode)</Text>
                       <TouchableOpacity
                         onPress={() => {
                           setShowModal(false);
@@ -1409,7 +1460,8 @@ const CalendarScreen: React.FC = () => {
                       />
 
                       {/* 🕓 Starts */}
-                      <View style={{ marginBottom: 10, marginTop: 5, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🕓 Starts</Text>
                         <TouchableOpacity
                           onPress={() => setShowStartPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1442,7 +1494,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* Ends */}
-                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🛑 Ends</Text>
                         <TouchableOpacity
                           onPress={() => setShowEndPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1473,7 +1526,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* Set Category */}
-                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🗂 Set Category</Text>
                         <TouchableOpacity
                           onPress={() => {
                             setShowCategoryPicker(prev => !prev);
@@ -1485,7 +1539,7 @@ const CalendarScreen: React.FC = () => {
                           }}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="color-palette-outline" size={22} color={editedSelectedCategory ? editedSelectedCategory.color : '#666'} />
+                          <MaterialIcons name="colorize" size={22} color={editedSelectedCategory ? editedSelectedCategory.color : '#666'} />
                           <Text style={[styles.inlineSettingText, { color: editedSelectedCategory ? editedSelectedCategory.color : '#000' }]}>
                             {editedSelectedCategory ? editedSelectedCategory.name : 'Set Category'}
                           </Text>
@@ -1541,7 +1595,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* Set Reminder */}
-                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🕑 Set Reminder</Text>
                         <TouchableOpacity
                           onPress={() => setShowReminderPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1571,7 +1626,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* Set Repeat */}
-                      <View style={{ marginBottom: 5, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🔁 Set Repeat</Text>
                         <TouchableOpacity
                           onPress={() => setShowRepeatPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
@@ -1613,7 +1669,8 @@ const CalendarScreen: React.FC = () => {
                       />
 
                       {/* Set Category */}
-                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>🗂 Set Category</Text>
                         <TouchableOpacity
                           onPress={() => {
                             setShowCategoryPicker(prev => !prev);
@@ -1625,7 +1682,7 @@ const CalendarScreen: React.FC = () => {
                           }}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="color-palette-outline" size={22} color={editedSelectedCategory ? editedSelectedCategory.color : '#666'} />
+                          <MaterialIcons name="colorize" size={22} color={editedSelectedCategory ? editedSelectedCategory.color : '#666'} />
                           <Text style={[styles.inlineSettingText, { color: editedSelectedCategory ? editedSelectedCategory.color : '#000' }]}>
                             {editedSelectedCategory ? editedSelectedCategory.name : 'Set Category'}
                           </Text>
@@ -1681,7 +1738,8 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* 📅 Pick Dates */}
-                      <View style={{ marginBottom: 10, marginLeft: 5 }}>
+                      <View style={{ flex: 1, alignItems: 'center' }}>
+                        <Text style={{ display: 'none' }}>📅 Pick Dates</Text>
                         <TouchableOpacity
                           onPress={() => {
                             setShowEditEventModal(false);

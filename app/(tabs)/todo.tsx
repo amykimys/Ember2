@@ -21,6 +21,7 @@ import {
   Keyboard,
   StyleSheet,
   TouchableWithoutFeedback,
+  GestureResponderEvent,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -206,11 +207,11 @@ export default function TodoScreen() {
     {
       date: todayStr,
       dateNameStyle: {
-        color: isTodaySelected ? '#6F4E37' : '#6F4E37',
+        color: isTodaySelected ? '#FFB6B9' : '#FFB6B9',
         fontWeight: 'bold',
       },
       dateNumberStyle: {
-        color: isTodaySelected ? '#6F4E37' : '#6F4E37',
+        color: isTodaySelected ? '#FFB6B9' : '#FFB6B9',
         fontWeight: 'bold',
       },
     },
@@ -310,10 +311,10 @@ export default function TodoScreen() {
   const renderCustomRepeatSection = () => (
     <View style={styles.customRepeatContainer}>
       <View style={styles.customRepeatInputContainer}>
-        <Text style={styles.everyText}>Every</Text>
+        <Text style={[styles.everyText, { fontFamily: 'Onest' }]}>Every</Text>
         
         <TextInput
-          style={styles.customRepeatInput}
+          style={[styles.customRepeatInput, { fontFamily: 'Onest' }]}
           value={customRepeatFrequency}
           onChangeText={(text) => {
             const number = text.replace(/[^0-9]/g, '');
@@ -334,7 +335,7 @@ export default function TodoScreen() {
               style={styles.unitSelector}
               onPress={() => setUnitMenuVisible(true)}
             >
-              <Text style={styles.unitSelectorText}>
+              <Text style={[styles.unitSelectorText, { fontFamily: 'Onest' }]}>
                 {REPEAT_UNITS.find((unit) => unit.value === customRepeatUnit)?.label}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#666" />
@@ -356,7 +357,7 @@ export default function TodoScreen() {
   
       {customRepeatUnit === 'weeks' && (
         <View style={styles.weekDaysContainer}>
-          <Text style={styles.weekDaysTitle}>Repeat on</Text>
+          <Text style={[styles.weekDaysTitle, { fontFamily: 'Onest' }]}>Repeat on</Text>
           <View style={styles.weekDayButtons}>
             {WEEK_DAYS.map((day) => (
               <TouchableOpacity
@@ -371,6 +372,7 @@ export default function TodoScreen() {
                   style={[
                     styles.weekDayButtonText,
                     selectedWeekDays.includes(day.value) && styles.selectedWeekDayButtonText,
+                    { fontFamily: 'Onest' },
                   ]}
                 >
                   {day.shortLabel}
@@ -614,6 +616,7 @@ export default function TodoScreen() {
       // Reset form and close modal
       resetForm();
       setIsNewTaskModalVisible(false);
+      Keyboard.dismiss(); // Only dismiss keyboard when task is actually saved
       
       // Provide haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -783,11 +786,11 @@ export default function TodoScreen() {
   
     return (
       <View style={{ alignItems: 'center' }}>
-        <Text style={styles.dateText}>
+        <Text style={[styles.dateText, { fontFamily: 'Onest' }]}>
           {fullDate}
         </Text>
         {relativeDay !== '' && (
-          <Text style={styles.relativeDayText}>
+          <Text style={[styles.relativeDayText, { fontFamily: 'Onest' }]}>
             {relativeDay}
           </Text>
         )}
@@ -949,7 +952,7 @@ export default function TodoScreen() {
           style={{ marginRight: 12, justifyContent: 'center', alignItems: 'center', marginLeft: 2 }}
         >
           {todo.completed ? (
-            <Ionicons name="checkmark" size={17} color="#000"/>
+            <Ionicons name="checkmark" size={17} color="#3A3A3A"/>
           ) : (
             <View
               style={{
@@ -969,14 +972,16 @@ export default function TodoScreen() {
         <View style={styles.todoContent}>
           <Text style={[
             styles.todoText,
-            todo.completed && styles.completedText
+            todo.completed && styles.completedText,
+            { color: '#3A3A3A', fontFamily: 'Onest' }
           ]}>
             {todo.text}
           </Text>
           {todo.description && (
             <Text style={[
               styles.todoDescription,
-              todo.completed && styles.completedDescription
+              todo.completed && styles.completedDescription,
+              { fontFamily: 'Onest' }
             ]}>
               {todo.description}
             </Text>
@@ -1134,11 +1139,11 @@ export default function TodoScreen() {
       >
 
       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          <Text style={[styles.categoryTitle, { flex: 1 }]}>{category.label}</Text>
+          <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>{category.label}</Text>
           <Ionicons
             name={isCollapsed ? 'chevron-up' : 'chevron-down'}
             size={15}
-            color="#000"
+            color="#3A3A3A"
             style={{ marginRight: 8}}
           />
         </View>
@@ -1167,12 +1172,15 @@ export default function TodoScreen() {
           style={styles.categoryHeader}
           onPress={() => toggleCategoryCollapse('uncategorized')}
         >
-          <Text style={styles.categoryTitle}>Todo</Text>
-          {isCollapsed ? (
-            <Ionicons name="chevron-up" size={16} color="#666" />
-          ) : (
-            <Ionicons name="chevron-down" size={16} color="#666" />
-          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>Todo</Text>
+            <Ionicons
+              name={isCollapsed ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color="#3A3A3A"
+              style={{ marginRight: 8 }}
+            />
+          </View>
         </TouchableOpacity>
 
 
@@ -1205,7 +1213,7 @@ export default function TodoScreen() {
             <Ionicons
               name={isCollapsed ? 'chevron-up' : 'chevron-down'}
               size={15}
-              color="#000"
+              color="#3A3A3A"
               style={{ marginRight: 8 }}
             />
           </View>
@@ -1368,7 +1376,6 @@ export default function TodoScreen() {
   );
 
   const handleCloseNewTaskModal = useCallback(() => {
-    Keyboard.dismiss();
     hideModal();
   }, []);
 
@@ -1380,32 +1387,15 @@ export default function TodoScreen() {
       setTimeout(() => {
         showModal();
         setIsModalTransitioning(false);
+        // Focus the input after modal transition
+        setTimeout(() => {
+          newTodoInputRef.current?.focus();
+        }, 100);
       }, 300);
     }, 300),
     [isModalTransitioning]
   );
 
-  // Add debounced date picker handler
-  const handleDatePickerPress = useCallback(
-    debounce(() => {
-      if (isDatePickerTransitioning) return;
-      setIsDatePickerTransitioning(true);
-      setShowTaskDatePicker(true);
-      setTimeout(() => {
-        setIsDatePickerTransitioning(false);
-      }, 300);
-    }, 300),
-    [isDatePickerTransitioning]
-  );
-
-
-  // Update date picker confirm handler
-  const handleDatePickerConfirm = useCallback((date: Date) => {
-    setTaskDate(date);
-    setShowTaskDatePicker(false);
-    setIsDatePickerTransitioning(false);
-    requestAnimationFrame(showModal);
-  }, []);
   
   const handleCancelFromSettings = () => {
     setIsSettingsModalVisible(false);
@@ -1626,7 +1616,7 @@ export default function TodoScreen() {
                     calendarStripRef.current?.scrollToDate(now);
                   }} delayLongPress={300}>
                     <TouchableOpacity onPress={goToToday}>
-                      <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
+                      <Text style={{ color: '#3A3A3A', fontSize: 19, fontWeight: 'bold', marginBottom: 0, textAlign: 'center', fontFamily: 'Onest' }}>
                         {moment(currentDate).format('MMMM YYYY')}
                       </Text>
                     </TouchableOpacity>
@@ -1642,19 +1632,23 @@ export default function TodoScreen() {
                     calendarHeaderStyle={{
                       display: 'none'
                     }}
-                    dateNumberStyle={{ color: '#999', fontSize: 17 }}
-                    dateNameStyle={{ color: '#999' }}
+                    dateNumberStyle={{ color: '#888888', fontSize: 19, fontFamily: 'Onest', marginTop: 0 }}
+                    dateNameStyle={{ color: '#888888', fontFamily: 'Onest', marginBottom: -1 }}
                     highlightDateNumberStyle={{
-                      color: isTodaySelected ? '#6F4E37' : '#000',
+                      color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
                       fontSize: 34,
+                      fontFamily: 'Onest',
+                      marginTop: -1
                     }}
                     highlightDateNameStyle={{
-                      color: isTodaySelected ? '#6F4E37' : '#000',
-                      fontSize: 13,
+                      color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
+                      fontSize: 15,
+                      fontFamily: 'Onest',
+                      marginBottom: -1
                     }}
+                    customDatesStyles={customDatesStyles}
                     selectedDate={moment(currentDate)}
                     onDateSelected={(date) => setCurrentDate(date.toDate())}
-                    customDatesStyles={customDatesStyles}
                   />
                 </>
               )}
@@ -1792,7 +1786,10 @@ export default function TodoScreen() {
                           {categories.filter(cat => cat.label.toLowerCase() !== 'todo').map((cat) => (
                             <Pressable
                               key={cat.id}
-                              onPress={() => setSelectedCategoryId(cat.id)}
+                              onPress={() => {
+                                setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
+                                setShowCategoryBox(false);
+                              }}
                               onLongPress={() => {
                                 Alert.alert(
                                   "Delete Category",
@@ -1892,9 +1889,9 @@ export default function TodoScreen() {
                             }, 300);
                           }}
                           style={{
-                            paddingVertical: 6,
-                            paddingHorizontal: 6,
-                            borderRadius: 20,
+                            paddingVertical: 4,
+                            paddingHorizontal: 4,
+                            borderRadius: 16,
                             backgroundColor: '#F0F0F0',
                             flexDirection: 'row',
                             alignItems: 'center',
@@ -1948,8 +1945,8 @@ export default function TodoScreen() {
   }}
 >
   <Ionicons
-    name="color-fill-outline"
-    size={21}
+    name="folder-outline"
+    size={20}
     color={
       selectedCategoryId
         ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666'
@@ -1982,7 +1979,7 @@ export default function TodoScreen() {
       >
         <Ionicons
           name="close"
-          size={16}
+          size={14}
           color={categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666'}
         />
       </TouchableOpacity>
@@ -1997,7 +1994,10 @@ export default function TodoScreen() {
 
 
     {/* Calendar Button */}
-    <TouchableOpacity onPress={handleCalendarPress}>
+    <TouchableOpacity 
+      onPress={handleCalendarPress}
+      style={{ marginLeft: selectedCategoryId ? -8 : 0 }}
+    >
       <Ionicons name="calendar-outline" size={20} color="#666" />
     </TouchableOpacity>
   </View>
@@ -2010,7 +2010,7 @@ export default function TodoScreen() {
       width: 28,
       height: 28,
       borderRadius: 15,
-      backgroundColor: newTodo.trim() ? '#6F4E37' : '#DCD7C9',
+      backgroundColor: newTodo.trim() ? '#FFB6B9' : '#DCD7C9',
       alignItems: 'center',
       justifyContent: 'center',
     }}
@@ -2042,7 +2042,7 @@ export default function TodoScreen() {
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               paddingHorizontal: 20,
-              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '70%' : '60%',
+              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '80%' : '70%',
               width: '100%'
             }]}>
 
@@ -2224,7 +2224,7 @@ export default function TodoScreen() {
                       paddingBottom: 24,
                       borderTopLeftRadius: 20,
                       borderTopRightRadius: 20,
-                      shadowColor: '#000',
+                      shadowColor: '#3A3A3A',
                       shadowOffset: { width: 0, height: -2 },
                       shadowOpacity: 0.1,
                       shadowRadius: 10,
@@ -2356,7 +2356,7 @@ export default function TodoScreen() {
         markedDates={Object.fromEntries(
           customSelectedDates.map((date) => [
             date,
-            { selected: true, selectedColor: '#6F4E37' },
+            { selected: true, selectedColor: '#FFB6B9' },
           ])
         )}
         style={{
@@ -2379,10 +2379,10 @@ export default function TodoScreen() {
               paddingHorizontal: 60,
             },
             arrowImage: {
-              tintColor: '#6F4E37',
+              tintColor: '#FFB6B9',
             },
           },
-          todayTextColor: '#6F4E37',
+          todayTextColor: '#FFB6B9',
           todayBackgroundColor: 'transparent',
         }}
       />
@@ -2390,7 +2390,7 @@ export default function TodoScreen() {
       <TouchableOpacity
         onPress={() => setShowCustomDatesPicker(false)}
         style={{
-          backgroundColor: '#6F4E37',
+          backgroundColor: '#FFB6B9',
           padding: 16,
           borderRadius: 12,
           alignItems: 'center',
@@ -2431,7 +2431,7 @@ export default function TodoScreen() {
                         paddingBottom: 24,
                         borderTopLeftRadius: 16,
                         borderTopRightRadius: 16,
-                        shadowColor: '#000',
+                        shadowColor: '#3A3A3A',
                         shadowOffset: { width: 0, height: -2 },
                         shadowOpacity: 0.1,
                         shadowRadius: 10,
@@ -2476,134 +2476,161 @@ export default function TodoScreen() {
         }}
       >
         <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0} // adjust if needed
-      >
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: 'white', padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 20, fontWeight: '600' }}>New Category</Text>
-              <TouchableOpacity onPress={() => {
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <TouchableWithoutFeedback onPress={(e) => {
+              // Only dismiss keyboard if clicking outside the modal content
+              if (e.target === e.currentTarget) {
+                Keyboard.dismiss();
+              }
+            }}>
+              <View style={{ flex: 1 }} />
+            </TouchableWithoutFeedback>
+            <View style={{ 
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: 'white',
+              padding: 20,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              shadowColor: '#000',
+              shadowOffset: {
+                width: 0,
+                height: -2,
+              },
+              shadowOpacity: 0.25,
+              shadowRadius: 3.84,
+              elevation: 5,
+            }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>New Category</Text>
+                <TouchableOpacity onPress={() => {
                   setIsNewCategoryModalVisible(false);
                   setTimeout(() => {
-                    setIsNewTaskModalVisible(true); // ✅ Reopen task modal with preserved state
+                    setIsNewTaskModalVisible(true);
                   }, 300);
                 }}>
-                  <Ionicons name="close" size={24} color="#666" />
+                  <Ionicons name="close" size={20} color="#666" style={{ marginTop: -8, marginRight: -5 }} />
                 </TouchableOpacity>
+              </View>
 
+              <TextInput
+                ref={categoryInputRef}
+                style={{
+                  fontSize: 16,
+                  color: '#1a1a1a',
+                  padding: 12,
+                  backgroundColor: '#F5F5F5',
+                  borderRadius: 12,
+                  marginBottom: 20,
+                  fontFamily: 'Onest',
+                }}
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                placeholder="Category name"
+                placeholderTextColor="#999"
+                autoFocus
+              />
+
+              <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest' }}>Choose a color</Text>
+              
+              <View 
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderTerminationRequest={() => false}
+              >
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                >
+                  {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
+                    const isSelected = newCategoryColor === color;
+                    return (
+                      <TouchableOpacity
+                        key={color}
+                        onPress={() => setNewCategoryColor(color)}
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 18,
+                          backgroundColor: color,
+                          marginRight: 12,
+                          opacity: isSelected ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
+                        }}
+                      />
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!newCategoryName.trim()) return;
+                
+                  try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) {
+                      Alert.alert('Error', 'You must be logged in to create categories.');
+                      return;
+                    }
+                
+                    const newCategory = {
+                      id: uuidv4(),
+                      label: newCategoryName.trim(),
+                      color: newCategoryColor,
+                    };
+                
+                    const { data: savedCategory, error: categoryError } = await supabase
+                      .from('categories')
+                      .insert({
+                        id: newCategory.id,
+                        label: newCategory.label,
+                        color: newCategory.color,
+                        user_id: user.id
+                      })
+                      .select()
+                      .single();
+                
+                    if (categoryError || !savedCategory) {
+                      console.error('Error saving category:', categoryError);
+                      Alert.alert('Error', 'Failed to save category. Please try again.');
+                      return;
+                    }
+                
+                    setCategories(prev => [...prev, savedCategory]);
+                    setSelectedCategoryId(savedCategory.id);
+                    setNewCategoryName('');
+                    setIsNewCategoryModalVisible(false);
+                
+                    setTimeout(() => {
+                      showModal();
+                    }, 300);
+                
+                  } catch (error) {
+                    console.error('Error creating category:', error);
+                    Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                  }
+                }}
+                style={{
+                  backgroundColor:'#FFB6B9',
+                  padding: 13,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  marginTop: 'auto',
+                }}
+              >
+                <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
+              </TouchableOpacity>
             </View>
-
-            <TextInput
-              ref={categoryInputRef}
-              style={{
-                fontSize: 16,
-                color: '#1a1a1a',
-                padding: 12,
-                backgroundColor: '#F5F5F5',
-                borderRadius: 12,
-                marginBottom: 20,
-              }}
-              value={newCategoryName}
-              onChangeText={setNewCategoryName}
-              placeholder="Category name"
-              placeholderTextColor="#999"
-              autoFocus
-            />
-
-            <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12 }}>Choose a color</Text>
-            
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 20 }}
-            >
-            {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
-              const isSelected = newCategoryColor === color;
-              return (
-                <TouchableOpacity
-                  key={color}
-                  onPress={() => setNewCategoryColor(color)}
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 18,
-                    backgroundColor: color,
-                    marginRight: 12,
-                    borderWidth: isSelected ? 1.4 : 0,
-                    borderColor: isSelected ? '#000' : 'transparent',
-                  }}
-                />
-              );
-            })}
-        </ScrollView>
-
-        <TouchableOpacity
-          onPress={async () => {
-            if (!newCategoryName.trim()) return;
-          
-            try {
-              const { data: { user } } = await supabase.auth.getUser();
-              if (!user) {
-                Alert.alert('Error', 'You must be logged in to create categories.');
-                return;
-              }
-          
-              const newCategory = {
-                id: uuidv4(),
-                label: newCategoryName.trim(),
-                color: newCategoryColor,
-              };
-          
-              const { data: savedCategory, error: categoryError } = await supabase
-                .from('categories')
-                .insert({
-                  id: newCategory.id,
-                  label: newCategory.label,
-                  color: newCategory.color,
-                  user_id: user.id
-                })
-                .select()
-                .single();
-          
-              if (categoryError || !savedCategory) {
-                console.error('Error saving category:', categoryError);
-                Alert.alert('Error', 'Failed to save category. Please try again.');
-                return;
-              }
-          
-              setCategories(prev => [...prev, savedCategory]);
-              setSelectedCategoryId(savedCategory.id); // ✅ Select the new category
-              setNewCategoryName('');
-              setIsNewCategoryModalVisible(false); // ✅ Close category modal
-          
-              setTimeout(() => {
-                showModal(); // ✅ Reopen new task modal
-              }, 300); // Give time for category modal to close
-          
-            } catch (error) {
-              console.error('Error creating category:', error);
-              Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-            }
-          }}
-          
-          style={{
-            backgroundColor:'#6F4E37',
-            padding: 16,
-            borderRadius: 12,
-            alignItems: 'center',
-            marginTop: 'auto',
-          }}
-        >
-          <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Done</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-    </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
-  </Modal>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
 
     </GestureHandlerRootView>

@@ -77,14 +77,14 @@ interface Habit {
 }
 
 const HABIT_COLORS = [
-  { name: 'Sky', value: '#E3F2FD', text: '#1a1a1a' },
-  { name: 'Lavender', value: '#F3E5F5', text: '#1a1a1a' },
-  { name: 'Mint', value: '#E8F5E9', text: '#1a1a1a' },
-  { name: 'Peach', value: '#FFF3E0', text: '#1a1a1a' },
-  { name: 'Rose', value: '#FCE4EC', text: '#1a1a1a' },
-  { name: 'Indigo', value: '#E8EAF6', text: '#1a1a1a' },
-  { name: 'Cyan', value: '#E0F7FA', text: '#1a1a1a' },
-  { name: 'Amber', value: '#FFF8E1', text: '#1a1a1a' },
+  { name: 'Sky', value: '#E3F2FD', text: '#3A3A3A' },
+  { name: 'Lavender', value: '#F3E5F5', text: '#3A3A3A' },
+  { name: 'Mint', value: '#E8F5E9', text: '#3A3A3A' },
+  { name: 'Peach', value: '#FFF3E0', text: '#3A3A3A' },
+  { name: 'Rose', value: '#FCE4EC', text: '#3A3A3A' },
+  { name: 'Indigo', value: '#E8EAF6', text: '#3A3A3A' },
+  { name: 'Cyan', value: '#E0F7FA', text: '#3A3A3A' },
+  { name: 'Amber', value: '#FFF8E1', text: '#3A3A3A' },
   { name: 'Deep Purple', value: '#673AB7', text: '#ffffff' },
   { name: 'Teal', value: '#009688', text: '#ffffff' },
   { name: 'Orange', value: '#FF5722', text: '#ffffff' },
@@ -1102,13 +1102,13 @@ const formatDate = (date: Date): string => {
               <View key={index} style={styles.dayColumn}>
                 <Text style={[
                   styles.dayAbbreviation,
-                  isToday && { fontWeight: 'bold', color: '#1a1a1a' }
+                  isToday && { fontWeight: 'bold', color: '#3A3A3A' }
                 ]}>
                   {date.toLocaleDateString('en-US', { weekday: 'short' }).charAt(0)}
                 </Text>
                 <Text style={[
                   styles.dateNumber,
-                  isToday && { fontWeight: 'bold', color: '#1a1a1a' }
+                  isToday && { fontWeight: 'bold', color: '#3A3A3A' }
                 ]}>
                   {date.getDate()}
                 </Text>
@@ -1136,7 +1136,8 @@ const formatDate = (date: Date): string => {
       return date >= startOfWeek && date <= endOfWeek;
     }).length;
 
-    return count;
+    // Ensure we return exactly the target when met or exceeded
+    return count >= habit.targetPerWeek ? habit.targetPerWeek : count;
   }
 
 
@@ -1699,20 +1700,23 @@ const formatDate = (date: Date): string => {
               style={styles.menuButton}
               onPress={() => navigateWeek('prev')}
             >
+              <Text style={{ display: 'none' }}>Previous Week</Text>
             </TouchableOpacity>
           </View>
 
           {/* Add Calendar Strip Header */}
           <View style={{ paddingHorizontal: 0, marginHorizontal: -18, marginBottom: -10 }}>
+            <Text style={{ display: 'none' }}>Add Calendar Strip Header</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24 }}>
               <TouchableOpacity 
                 onPress={handleProgressPress}
                 style={{ paddingLeft: 20 }}
               >
-                <MaterialIcons name="stacked-line-chart" size={20} color="#6F4E37" />
+                <Text style={{ display: 'none' }}>Progress Chart</Text>
+                <MaterialIcons name="stacked-line-chart" size={20} color="#3A3A3A" />
               </TouchableOpacity>
               <TouchableOpacity onPress={goToToday}>
-                <Text style={{ color: '#000', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
+                <Text style={{ color: '#3A3A3A', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
                   {moment(currentDate).format('MMMM YYYY')}
                 </Text>
               </TouchableOpacity>
@@ -1730,14 +1734,14 @@ const formatDate = (date: Date): string => {
               calendarHeaderStyle={{
                 display: 'none'
               }}
-              dateNumberStyle={{ color: '#999', fontSize: 17 }}
-              dateNameStyle={{ color: '#999' }}
+              dateNumberStyle={{ color: '#888888', fontSize: 17 }}
+              dateNameStyle={{ color: '#888888' }}
               highlightDateNumberStyle={{
-                color: isTodaySelected ? '#6F4E37' : '#000',
+                color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
                 fontSize: 34,
               }}
               highlightDateNameStyle={{
-                color: isTodaySelected ? '#6F4E37' : '#000',
+                color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
                 fontSize: 13,
               }}
               selectedDate={moment(currentDate)}
@@ -1779,12 +1783,13 @@ const formatDate = (date: Date): string => {
                   >
                     <Text style={{
                       fontSize: 12,
-                      color: '#666',
+                      color: '#3A3A3A',
                       fontWeight: '600',
                       textTransform: 'uppercase'
                     }}>
                       {categories.find(cat => cat.color === color)?.label || 'Uncategorized'}
                     </Text>
+                    <Text style={{ display: 'none' }}>Category Toggle</Text>
                     <Ionicons
                       name={expandedCategories[color] ? "chevron-down" : "chevron-up"}
                       size={16}
@@ -1855,12 +1860,13 @@ const formatDate = (date: Date): string => {
                           delayLongPress={500}
                           activeOpacity={0.9}
                           style={{
-                            backgroundColor: getWeeklyCompletionCount(habit) >= habit.targetPerWeek ? habit.color : '#F9F8F7',
+                            backgroundColor: '#F9F8F7',
                             borderRadius: 16,
                             padding: 14,
                             paddingBottom: 12,
                             position: 'relative',
-                            overflow: 'hidden'
+                            overflow: 'hidden',
+                            width: '100%'
                           }}
                         >
                           <Animated.View
@@ -1871,8 +1877,10 @@ const formatDate = (date: Date): string => {
                               bottom: 0,
                               right: 0,
                               backgroundColor: habit.color,
-                              opacity: 0.4,
-                              width: `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`
+                              opacity: 0.2,
+                              width: getWeeklyCompletionCount(habit) >= habit.targetPerWeek ? '102%' : `${(getWeeklyCompletionCount(habit) / habit.targetPerWeek) * 100}%`,
+                              borderRadius: 16,
+                              marginRight: -2
                             }}
                           />
                           <View style={{
@@ -1883,7 +1891,7 @@ const formatDate = (date: Date): string => {
                           }}>
                             <Text style={{
                               fontSize: 15,
-                              color: '#1a1a1a',
+                              color: '#3A3A3A',
                               fontWeight: '500',
                             }}>
                               {habit.text}
@@ -1892,10 +1900,10 @@ const formatDate = (date: Date): string => {
                               flexDirection: 'row',
                               alignItems: 'center'
                             }}>
-                              <Ionicons name="flash-outline" size={12} color="#6F4E37" style={{ marginRight: 2 }} />
+                              <Ionicons name="flash-outline" size={12} color="#3A3A3A" style={{ marginRight: 2 }} />
                               <Text style={{
                                 fontSize: 11,
-                                color: '#6F4E37',
+                                color: '#3A3A3A',
                                 fontWeight: '600'
                               }}>
                                 {calculateStreak(habit, habit.completedDays)}
@@ -1905,7 +1913,8 @@ const formatDate = (date: Date): string => {
                           <View style={{
                             flexDirection: 'row',
                             gap: 6,
-                            alignItems: 'center'
+                            alignItems: 'center',
+                            paddingTop: 3
                           }}>
                             {[
                               { day: 'M', key: 'mon' },
@@ -1935,16 +1944,16 @@ const formatDate = (date: Date): string => {
                                     width: 16,
                                     height: 16,
                                     borderRadius: 8,
-                                    backgroundColor: isCompleted ? '#6F4E37' : 'transparent',
+                                    backgroundColor: isCompleted ? '#F2C6B4' : (isToday ? '#F2C6B4' : 'transparent'),
                                     justifyContent: 'center',
                                     alignItems: 'center',
-                                    borderColor: isToday ? '#6F4E37' : 'transparent',
+                                    borderColor: isToday ? '#F2C6B4' : 'transparent',
                                   }}
                                   hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                                 >
                                   <Text style={{
                                     fontSize: 10,
-                                    color: isCompleted ? '#FFF8E8' : (isToday ? '#6F4E37' : '#6F4E37'),
+                                    color: isCompleted ? '#FFF8E8' : (isToday ? '#FFFFFF' : '#888888'),
                                     fontWeight: '600'
                                   }}>
                                     {day}
@@ -1954,7 +1963,7 @@ const formatDate = (date: Date): string => {
                             })}
                             <Text style={{
                               fontSize: 11,
-                              color: '#6F4E37',
+                              color: '#888888',
                               marginLeft: 4,
                               fontWeight: '400'
                             }}>
@@ -1962,12 +1971,10 @@ const formatDate = (date: Date): string => {
                             </Text>
                             {habit.requirePhoto && (
                               <View style={{
-                                backgroundColor: '#6F4E37',
-                                borderRadius: 12,
-                                padding: 3,
-                                marginLeft: 'auto'
+                                marginLeft: 'auto',
+                                paddingTop: 3
                               }}>
-                                <Camera size={12} color="#FFF8E8" />
+                                <Camera size={13} color="#3A3A3A" />
                               </View>
                             )}
                           </View>
@@ -1988,7 +1995,8 @@ const formatDate = (date: Date): string => {
               showModal();
             }}
           >
-            <Ionicons name="add" size={24} color="white" />
+            <Text style={{ display: 'none' }}>Add Habit</Text>
+            <Ionicons name="add" size={22} color="white" />
           </TouchableOpacity>
 
           {/* New Habit Modal */}
@@ -2012,6 +2020,7 @@ const formatDate = (date: Date): string => {
                 }}
               >
                 <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+                  <Text style={{ display: 'none' }}>Modal Background</Text>
                   <Animated.View 
                     style={{
                       backgroundColor: 'white',
@@ -2029,6 +2038,7 @@ const formatDate = (date: Date): string => {
                       }],
                     }}
                   >
+                    <Text style={{ display: 'none' }}>Modal Content</Text>
                     <View style={{ flexGrow: 1 }}>
                       <ScrollView
                         style={{ flex: 1 }}
@@ -2040,7 +2050,7 @@ const formatDate = (date: Date): string => {
                           ref={newHabitInputRef}
                           style={{
                             fontSize: 20,
-                            color: '#1a1a1a',
+                            color: '#3A3A3A',
                             padding: 10,
                             backgroundColor: 'white',
                             borderRadius: 12,
@@ -2064,7 +2074,7 @@ const formatDate = (date: Date): string => {
                           placeholderTextColor="#999"
                           style={{
                             fontSize: 16,
-                            color: '#1a1a1a',
+                            color: '#3A3A3A',
                             padding: 10,
                             backgroundColor: 'white',
                             borderRadius: 12,
@@ -2079,7 +2089,7 @@ const formatDate = (date: Date): string => {
                           ref={newDescriptionInputRef}
                           style={{
                             fontSize: 16,
-                            color: '#1a1a1a',
+                            color: '#3A3A3A',
                             padding: 10,
                             backgroundColor: 'white',
                             borderRadius: 12,
@@ -2298,6 +2308,7 @@ const formatDate = (date: Date): string => {
           >
             <TouchableWithoutFeedback onPress={handleClosePhotoOptionsModal}>
               <View style={[styles.modalOverlay]}>
+                <Text style={{ display: 'none' }}>Photo Options Modal</Text>
                 <View style={[styles.modalContent, { 
                   backgroundColor: 'white',
                   borderTopLeftRadius: 20,
@@ -2306,6 +2317,7 @@ const formatDate = (date: Date): string => {
                   height: '23%',
                   width: '100%'
                 }]}>
+                  <Text style={{ display: 'none' }}>Photo Options Content</Text>
                   <View style={[styles.modalHeader, {
                     flexDirection: 'row',
                     justifyContent: 'space-between',
@@ -2322,6 +2334,7 @@ const formatDate = (date: Date): string => {
                       onPress={handleClosePhotoOptionsModal}
                       disabled={isModalTransitioning}
                     >
+                      <Text style={{ display: 'none' }}>Close Button</Text>
                       <Ionicons name="close" size={24} color="#666" />
                     </TouchableOpacity>
                   </View>
@@ -2331,6 +2344,7 @@ const formatDate = (date: Date): string => {
                       style={{ paddingVertical: 14 }}
                       onPress={() => handlePhotoCapture('camera')}
                     >
+                      <Text style={{ display: 'none' }}>Take Photo Option</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Ionicons name="camera-outline" size={16} color="#000" style={{ marginRight: 8 }} />
                         <Text style={{ fontSize: 15 }}>Take Photo</Text>
@@ -2341,6 +2355,7 @@ const formatDate = (date: Date): string => {
                       style={{ paddingVertical: 14 }}
                       onPress={() => handlePhotoCapture('library')}
                     >
+                      <Text style={{ display: 'none' }}>Choose from Library Option</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Ionicons name="images-outline" size={16} color="#000" style={{ marginRight: 8 }} />
                         <Text style={{ fontSize: 15 }}>Choose from Library</Text>
@@ -2351,6 +2366,7 @@ const formatDate = (date: Date): string => {
                       style={{ paddingVertical: 14 }}
                       onPress={handleClosePhotoOptionsModal}
                     >
+                      <Text style={{ display: 'none' }}>Cancel Option</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Text style={{ fontSize: 16, color: '#999' }}>Cancel</Text>
                       </View>
@@ -2559,7 +2575,7 @@ const formatDate = (date: Date): string => {
                   ref={categoryInputRef}
                   style={{
                     fontSize: 16,
-                    color: '#1a1a1a',
+                    color: '#3A3A3A',
                     padding: 12,
                     backgroundColor: '#F5F5F5',
                     borderRadius: 12,
@@ -2785,7 +2801,7 @@ const formatDate = (date: Date): string => {
                         <TextInput
                           style={{
                             fontSize: 16,
-                            color: '#1a1a1a',
+                            color: '#3A3A3A',
                             minHeight: 120,
                             textAlignVertical: 'top'
                           }}
@@ -2799,7 +2815,7 @@ const formatDate = (date: Date): string => {
                       ) : (
                         <Text style={{
                           fontSize: 16,
-                          color: '#1a1a1a',
+                          color: '#3A3A3A',
                           minHeight: 120,
                         }}>
                           {noteText || 'No note for this day'}
@@ -2836,6 +2852,7 @@ const formatDate = (date: Date): string => {
             onRequestClose={() => setIsProgressModalVisible(false)}
           >
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+              <Text style={{ display: 'none' }}>Progress Modal Background</Text>
               <View style={{ 
                 backgroundColor: 'white', 
                 padding: 20, 
@@ -2844,14 +2861,16 @@ const formatDate = (date: Date): string => {
                 maxHeight: '80%',
                 minHeight: '50%',
               }}>
+                <Text style={{ display: 'none' }}>Progress Modal Content</Text>
                 <View style={{ 
                   flexDirection: 'row', 
                   justifyContent: 'space-between', 
                   alignItems: 'center', 
                   marginBottom: 12 
                 }}>
-                  <Text style={{ fontSize: 20, fontWeight: '600' }}>Monthly Progress</Text>
+                  <Text style={{ fontSize: 20, fontWeight: '600', color: '#3A3A3A' }}>Monthly Progress</Text>
                   <TouchableOpacity onPress={() => setIsProgressModalVisible(false)}>
+                    <Text style={{ display: 'none' }}>Close Progress Modal</Text>
                     <Ionicons name="close" size={24} color="#666" />
                   </TouchableOpacity>
                 </View>
@@ -2863,18 +2882,20 @@ const formatDate = (date: Date): string => {
                   marginBottom: 20,
                   alignSelf: 'flex-start'
                 }}>
+                  <Text style={{ display: 'none' }}>Month Navigation</Text>
                   <TouchableOpacity 
                     onPress={() => navigateProgressMonth('prev')}
                     style={{ padding: 4 }}
                   >
-                    <Text>
+                    <Text style={{ display: 'none' }}>Previous Month</Text>
+               
                       <Ionicons name="chevron-back" size={15} color="#6F4E37" />
-                    </Text>
+            
                   </TouchableOpacity>
                   
                   <Text style={{ 
                     fontSize: 14, 
-                    color: '#666',
+                    color: '#3A3A3A',
                     fontWeight: '500',
                     marginHorizontal: 10
                   }}>
@@ -2885,22 +2906,23 @@ const formatDate = (date: Date): string => {
                     onPress={() => navigateProgressMonth('next')}
                     style={{ padding: 4 }}
                   >
-                    <Text>
+                    <Text style={{ display: 'none' }}>Next Month</Text>
+       
                       <Ionicons name="chevron-forward" size={15} color="#6F4E37" />
-                    </Text>
+       
                   </TouchableOpacity>
                 </View>
 
                 <View style={{ flex: 1 }}>
+                  <Text style={{ display: 'none' }}>Fixed habit names column</Text>
                   {habits.length > 0 ? (
                     <View style={{ flexDirection: 'row' }}>
-                      {/* Fixed habit names column */}
                       <View style={{ 
                         width: 64,
                         backgroundColor: 'white',
                         zIndex: 2
                       }}>
-                        {/* Empty space for header alignment */}
+                        <Text style={{ display: 'none' }}>Empty space for header alignment</Text>
                         <View style={{ height: 20 }} />
                         {/* Habit names */}
                         {habits.map(habit => (
@@ -2914,7 +2936,7 @@ const formatDate = (date: Date): string => {
                           >
                             <Text style={{ 
                               fontSize: 13, 
-                              color: '#1a1a1a',
+                              color: '#3A3A3A',
                               fontWeight: '500'
                             }} numberOfLines={1}>
                               {habit.text}
@@ -2932,14 +2954,15 @@ const formatDate = (date: Date): string => {
                         showsHorizontalScrollIndicator={false}
                         style={{ flex: 1 }}
                       >
+                        <Text style={{ display: 'none' }}>Scrollable dates section</Text>
                         <View>
-                          {/* Header row with dates */}
+                          <Text style={{ display: 'none' }}>Header row with dates</Text>
                           <View style={{ flexDirection: 'row', marginBottom: 8 }}>
                             {getMonthDates().map((date, index) => (
                               <View key={date} style={{ width: 36, alignItems: 'center', justifyContent: 'center' }}>
                                 <Text style={{ 
                                   fontSize: 11, 
-                                  color: '#666',
+                                  color: '#3A3A3A',
                                   fontWeight: moment(date).isSame(moment(), 'day') ? 'bold' : 'normal',
                                   textAlign: 'center',
                                   width: '100%'
@@ -2951,6 +2974,7 @@ const formatDate = (date: Date): string => {
                           </View>
 
                           {/* Grid rows for each habit */}
+                          <Text style={{ display: 'none' }}>Grid rows for each habit</Text>
                           {habits.map(habit => (
                             <View key={habit.id} style={{ 
                               flexDirection: 'row', 
@@ -2985,7 +3009,7 @@ const formatDate = (date: Date): string => {
                                       <Text 
                                         style={{ 
                                           fontSize: 9,
-                                          color: '#6F4E37',
+                                          color: '#888888',
                                           textAlign: 'center',
                                           lineHeight: 12
                                         }}
@@ -2994,13 +3018,15 @@ const formatDate = (date: Date): string => {
                                         {habit.notes[date]}
                                       </Text>
                                     ) : isCompleted ? (
-                                      <Text>
-                                        <Ionicons name="checkmark-circle" size={18} color="#6F4E37" />
-                                      </Text>
+                                      <View style={{ justifyContent: 'center', alignItems: 'center' }}>
+  <Ionicons name="checkmark-circle" size={18} color="#F2C6B4" />
+</View>
+
                                     ) : (
-                                      <Text>
-                                        <Ionicons name="close-circle" size={18} color="#DCD7C9" />
-                                      </Text>
+                                      <View style={{ justifyContent: 'center', alignItems: 'center' }}>
+                                      <Ionicons name="close-circle" size={18} color="#F2C6B4" />
+                                    </View>
+                                    
                                     )}
                                   </TouchableOpacity>
                                 );
@@ -3012,7 +3038,7 @@ const formatDate = (date: Date): string => {
                     </View>
                   ) : (
                     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 }}>
-                      <Text style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
+                      <Text style={{ fontSize: 16, color: '#3A3A3A', textAlign: 'center' }}>
                         No habits to track yet. Add some habits to see your progress!
                       </Text>
                     </View>

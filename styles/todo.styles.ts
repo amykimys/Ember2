@@ -23,21 +23,21 @@ const styles = StyleSheet.create({
       fontSize: 25,
       fontWeight: 'bold',
       color: '#1a1a1a',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     dateText: {
       fontSize: 26,
       color: '#666',
       fontWeight: 'bold',
       letterSpacing: 1.2,
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     relativeDayText: {
       fontSize: 16,
       color: '#007AFF',
       fontWeight: 'normal',
       marginTop: 5,
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     todoList: {
       flex: 1,
@@ -56,12 +56,12 @@ const styles = StyleSheet.create({
       color: '#1a1a1a',
       marginBottom: 8,
       marginTop: 150,
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     emptyStateSubtitle: {
       fontSize: 18,
       color: '#666',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     categoryContainer: {
       marginBottom: 20,
@@ -80,7 +80,7 @@ const styles = StyleSheet.create({
       letterSpacing: 0.3,
       marginHorizontal: 10,
       paddingBottom: 4,
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     categoryContent: {
       borderRadius: 12,
@@ -109,23 +109,23 @@ const styles = StyleSheet.create({
     todoText: {
       fontSize: 15,
       color: '#1a1a1a',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     todoDescription: {
       fontSize: 12,
       color: '#666',
       marginTop: 4,
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     completedText: {
       textDecorationLine: 'line-through',
       color: '#666',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     completedDescription: {
       textDecorationLine: 'line-through',
       color: '#666',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     completedSection: {
       marginTop: 24,
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
       width: 50,
       height: 50,
       borderRadius: 25,
-      backgroundColor: '#6F4E37',
+      backgroundColor: '#A0C3B2',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     optionText: {
       fontSize: 16,
       color: '#666',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     modalOverlay: {
       flex: 1,
@@ -187,7 +187,7 @@ const styles = StyleSheet.create({
       fontSize: 20,
       fontWeight: 'bold',
       color: '#1a1a1a',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
    
     customRepeatContainer: {
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
     everyText: {
       fontSize: 16,
       color: '#1a1a1a',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     customRepeatInput: {
       width: 60,
@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
     unitSelectorText: {
       fontSize: 16,
       color: '#1a1a1a',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     weekDaysContainer: {
       gap: 12,
@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
     weekDaysTitle: {
       fontSize: 14,
       color: '#1a1a1a',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     weekDayButtons: {
       flexDirection: 'row',
@@ -248,16 +248,16 @@ const styles = StyleSheet.create({
       justifyContent: 'center',
     },
     selectedWeekDayButton: {
-      backgroundColor: '#007AFF',
+      backgroundColor: '#FFB6B9',
     },
     weekDayButtonText: {
       fontSize: 14,
       color: '#1a1a1a',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     selectedWeekDayButtonText: {
       color: '#fff',
-      fontFamily: Platform.OS === 'ios' ? 'System' : 'sans-serif',
+      fontFamily: 'Onest',
     },
     
     rightAction: {
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     },
     doneButton: {
       marginBottom: 30,
-      backgroundColor: '#6F4E37',
+      backgroundColor: '#FFB6B9',
       paddingVertical: 14,
       borderRadius: 8,
       alignItems: 'center',

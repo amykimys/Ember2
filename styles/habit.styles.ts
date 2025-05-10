@@ -19,6 +19,7 @@ const styles = StyleSheet.create({
       fontSize: 23,
       fontWeight: 'bold',
       color: '#1a1a1a',
+      fontFamily: 'Manrope',
     },
     habitList: {
       flex: 1,
@@ -57,6 +58,7 @@ const styles = StyleSheet.create({
     habitName: {
       fontSize: 16,
       fontWeight: '600',
+      fontFamily: 'Manrope',
     },
     habitDetails: {
       fontSize: 10,
@@ -66,7 +68,8 @@ const styles = StyleSheet.create({
       fontSize: 14.5,
       fontWeight: '600',
       color: '#1a1a1a',
-      marginLeft: -3
+      marginLeft: -3,
+      fontFamily: 'Manrope',
     },
     checkmarksContainer: {
       flexDirection: 'row',
@@ -96,12 +99,12 @@ const styles = StyleSheet.create({
     },
     addButton: {
       position: 'absolute',
-      right: 28,
-      bottom: 85,
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      backgroundColor: '#BF9264',
+      right: 24,
+      bottom: 80,
+      width: 50,
+      height: 50,
+      borderRadius: 25,
+      backgroundColor: '#A0C3B2',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,
@@ -163,6 +166,7 @@ const styles = StyleSheet.create({
       fontSize: 24,
       fontWeight: 'bold',
       color: '#1a1a1a',
+      fontFamily: 'Manrope',
     },
     input: {
       fontSize: 14,
@@ -171,6 +175,7 @@ const styles = StyleSheet.create({
       backgroundColor: '#F5F5F5',
       borderRadius: 8,
       marginBottom: 16,
+      fontFamily: 'Manrope',
     },
     descriptionInput: {
       minHeight: 100,
@@ -291,9 +296,6 @@ const styles = StyleSheet.create({
     cancelButton: {
       backgroundColor: '#F5F5F5',
     },
-    saveButton: {
-      backgroundColor: '#007AFF',
-    },
     saveButtonDisabled: {
       opacity: 0.5,
     },
@@ -301,11 +303,13 @@ const styles = StyleSheet.create({
       fontSize: 16,
       fontWeight: '600',
       color: '#666',
+      fontFamily: 'Manrope',
     },
     saveButtonText: {
       fontSize: 16,
       fontWeight: '600',
       color: '#fff',
+      fontFamily: 'Manrope',
     },
     photoModalContent: {
       backgroundColor: '#fff',

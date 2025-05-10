@@ -31,6 +31,7 @@
     "expo-auth-session": "~6.0.3",
     "expo-blur": "~14.0.3",
     "expo-constants": "~17.0.8",
+    "expo-dev-client": "~5.0.20",
     "expo-file-system": "~18.0.12",
     "expo-font": "~13.0.4",
     "expo-haptics": "~14.0.1",
@@ -69,6 +70,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@react-native-community/cli": "^18.0.0",
     "@types/jest": "^29.5.12",
     "@types/react": "~18.3.12",
     "@types/react-test-renderer": "^18.3.0",

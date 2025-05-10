@@ -11,6 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yunseokim.jani",
+      "buildNumber": "5",
       "infoPlist": {
         "CFBundleURLTypes": [
           {
@@ -55,6 +56,11 @@
         "projectId": "c77ca206-6258-4213-b712-5d687c9861d3"
       }
     },
-    "owner": "amykimys"
+    "owner": "amykimys",
+    "fonts": {
+      "Manrope": "./assets/fonts/Manrope-Regular.ttf",
+      "Manrope-Bold": "./assets/fonts/Manrope-Bold.ttf",
+      "Manrope-Medium": "./assets/fonts/Manrope-Medium.ttf"
+    }
   }
 }

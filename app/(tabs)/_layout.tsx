@@ -14,17 +14,22 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#007AFF',
+        tabBarActiveTintColor: '#A0C3B2',
         tabBarInactiveTintColor: '#666',
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarBackground: TabBarBackground,
+        tabBarShowLabel: false,
         tabBarStyle: {
-          borderTopWidth: 1,
-          borderTopColor: '#E0E0E0',
+          borderTopWidth: 0,
+          borderTopColor: 'transparent',
           backgroundColor: '#FFFFFF',
-          height: 60,
-          paddingBottom: 10,
+          height: 55,
+          paddingBottom: 0,
+          elevation: 0,
+          shadowOpacity: 0,
+          shadowColor: 'transparent',
+          shadowOffset: { width: 0, height: 0 },
+          shadowRadius: 0,
           ...Platform.select({
             ios: {
               position: 'absolute',
