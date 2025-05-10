@@ -2014,7 +2014,6 @@ const formatDate = (date: Date): string => {
               <TouchableWithoutFeedback
                 onPress={(e) => {
                   if (e.target === e.currentTarget) {
-                    Keyboard.dismiss();
                     handleCloseNewHabitModal();
                   }
                 }}
@@ -2221,7 +2220,7 @@ const formatDate = (date: Date): string => {
                                 marginLeft: 10,
                               }}
                             >
-                              <MaterialIcons name="colorize" size={20} color={selectedCategoryId ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666' : '#666'} />
+                              <Ionicons name="folder-outline" size={20} color={selectedCategoryId ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666' : '#666'} />
                             </TouchableOpacity>
                             
                             {/* Selected Category Display */}
