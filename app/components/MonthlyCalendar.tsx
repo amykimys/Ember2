@@ -33,48 +33,51 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
           textDayFontSize: 14,
           textMonthFontSize: 17,
           textDayHeaderFontSize: 12,
+          textDayFontFamily: 'Onest',
+          textMonthFontFamily: 'Onest',
+          textDayHeaderFontFamily: 'Onest',
           'stylesheet.calendar.header': {
             monthText: {
               fontSize: 17,
-              fontWeight: '500', // 👈 this makes the month bold
+              fontWeight: '500',
               color: '#1a1a1a',
               marginBottom: 15,
+              fontFamily: 'Onest',
             },
             arrow: {
               color: '#FF9A8B',
-              marginHorizontal: 60, // Adjust this to get arrows closer/further
+              marginHorizontal: 60,
               marginBottom: 15,
-
             },
           },
           'stylesheet.day.basic': {
-  base: {
-    width: 33,
-    height: 33,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  text: {
-    fontSize: 14,
-    color: '#1a1a1a',
-    backgroundColor: 'transparent',
-    textAlign: 'center',
-    marginTop: 5,
-    },
-  today: {
-    backgroundColor: '#FAF9F6',
-    borderRadius: 18,
-  },
-  selected: {
-    backgroundColor: '#FF9A8B',
-    borderRadius: 18,
-  },
-  selectedText: {
-    color: '#ffffff',
-  },
-  
-}
-
+            base: {
+              width: 33,
+              height: 33,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+            text: {
+              fontSize: 14,
+              color: '#1a1a1a',
+              backgroundColor: 'transparent',
+              textAlign: 'center',
+              marginTop: 5,
+              fontFamily: 'Onest',
+            },
+            today: {
+              backgroundColor: '#FAF9F6',
+              borderRadius: 18,
+            },
+            selected: {
+              backgroundColor: '#FF9A8B',
+              borderRadius: 18,
+            },
+            selectedText: {
+              color: '#ffffff',
+              fontFamily: 'Onest',
+            },
+          }
         }}
         style={styles.calendar}
       />

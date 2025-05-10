@@ -1728,12 +1728,13 @@ export default function TodoScreen() {
                       <TextInput
                         ref={newTodoInputRef}
                         style={{
-                          fontSize: 20,
+                          fontSize: 18,
                           color: '#1a1a1a',
                           padding: 10,
                           backgroundColor: 'white',
                           borderRadius: 12,
                           marginBottom: -10,
+                          fontFamily: 'Onest',
                         }}
                         value={newTodo}
                         onChangeText={setNewTodo}
@@ -1746,7 +1747,7 @@ export default function TodoScreen() {
                       <TextInput
                         ref={newDescriptionInputRef}
                         style={{
-                          fontSize: 17,
+                          fontSize: 15,
                           color: '#1a1a1a',
                           padding: 10,
                           backgroundColor: 'white',
@@ -1755,6 +1756,7 @@ export default function TodoScreen() {
                           marginTop: 6,
                           textAlignVertical: 'top',
                           marginBottom: 20,
+                          fontFamily: 'Onest',
                         }}
                         value={newDescription}
                         onChangeText={setNewDescription}
@@ -2010,7 +2012,7 @@ export default function TodoScreen() {
       width: 28,
       height: 28,
       borderRadius: 15,
-      backgroundColor: newTodo.trim() ? '#FFB6B9' : '#DCD7C9',
+      backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ECE7E1',
       alignItems: 'center',
       justifyContent: 'center',
     }}
@@ -2042,7 +2044,7 @@ export default function TodoScreen() {
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               paddingHorizontal: 20,
-              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '80%' : '70%',
+              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '70%' : '65%',
               width: '100%'
             }]}>
 
@@ -2221,7 +2223,7 @@ export default function TodoScreen() {
                     style={{
                       backgroundColor: '#fff',
                       paddingTop: 16,
-                      paddingBottom: 24,
+                      paddingBottom: 28,
                       borderTopLeftRadius: 20,
                       borderTopRightRadius: 20,
                       shadowColor: '#3A3A3A',
@@ -2232,12 +2234,36 @@ export default function TodoScreen() {
                     }}
                     onPress={() => {}} // Prevent closing when tapping inside
                   >
+                    <Text style={{ 
+                      fontSize: 20, 
+                      fontWeight: '700', 
+                      color: '#1a1a1a', 
+                      marginBottom: 10,
+                      marginLeft: 22,
+                      fontFamily: 'Onest'
+                    }}>
+                      Reminder Time
+                    </Text>
              
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                    <View style={{ 
+                      flexDirection: 'row', 
+                      justifyContent: 'space-around',
+                      paddingHorizontal: 20,
+                      marginBottom: 8
+                    }}>
                       {/* Hour Picker */}
                       <Picker
                         selectedValue={selectedHour}
-                        style={{ flex: 1 }}
+                        style={{ 
+                          flex: 1,
+                          height: 120,
+                        }}
+                        itemStyle={{
+                          height: 120,
+                          fontSize: 24,
+                          fontFamily: 'Onest',
+                          color: '#1a1a1a'
+                        }}
                         onValueChange={(val) => setSelectedHour(val)}
                       >
                         {Array.from({ length: 12 }, (_, i) => {
@@ -2246,10 +2272,27 @@ export default function TodoScreen() {
                         })}
                       </Picker>
 
+                      <Text style={{
+                        fontSize: 35,
+                        color: '#1a1a1a',
+                        fontFamily: 'Onest',
+                        marginHorizontal: 10,
+                        marginTop: 34
+                      }}>:</Text>
+
                       {/* Minute Picker */}
                       <Picker
                         selectedValue={selectedMinute}
-                        style={{ flex: 1 }}
+                        style={{ 
+                          flex: 1,
+                          height: 120,
+                        }}
+                        itemStyle={{
+                          height: 120,
+                          fontSize: 24,
+                          fontFamily: 'Onest',
+                          color: '#1a1a1a'
+                        }}
                         onValueChange={(val) => setSelectedMinute(val)}
                       >
                         {Array.from({ length: 60 }, (_, i) => {
@@ -2261,13 +2304,46 @@ export default function TodoScreen() {
                       {/* AM/PM Picker */}
                       <Picker
                         selectedValue={selectedAmPm}
-                        style={{ flex: 1 }}
+                        style={{ 
+                          flex: 1,
+                          height: 120,
+                        }}
+                        itemStyle={{
+                          height: 120,
+                          fontSize: 24,
+                          fontFamily: 'Onest',
+                          color: '#1a1a1a'
+                        }}
                         onValueChange={(val) => setSelectedAmPm(val)}
                       >
                         <Picker.Item label="AM" value="AM" />
                         <Picker.Item label="PM" value="PM" />
                       </Picker>
                     </View>
+
+                    <TouchableOpacity
+                      onPress={() => {
+                        handleReminderConfirm();
+                        setShowReminderPicker(false);
+                      }}
+                      style={{
+                        backgroundColor: '#FF9A8B',
+                        marginHorizontal: 20,
+                        paddingVertical: 12,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        marginTop: 4,
+                      }}
+                    >
+                      <Text style={{ 
+                        color: 'white', 
+                        fontSize: 16, 
+                        fontWeight: '600',
+                        fontFamily: 'Onest',
+                      }}>
+                        Set Time
+                      </Text>
+                    </TouchableOpacity>
                   </TouchableOpacity>
                 </TouchableOpacity>
               </Modal>
@@ -2293,11 +2369,27 @@ export default function TodoScreen() {
                       style={{
                         backgroundColor: '#fff',
                         paddingTop: 16,
-                        paddingBottom: 24,
-                        borderTopLeftRadius: 16,
-                        borderTopRightRadius: 16,
+                        paddingBottom: 28,
+                        borderTopLeftRadius: 20,
+                        borderTopRightRadius: 20,
+                        shadowColor: '#3A3A3A',
+                        shadowOffset: { width: 0, height: -2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 10,
+                        elevation: 10,
                       }}
                     >
+                      <Text style={{ 
+                        fontSize: 20, 
+                        fontWeight: '700', 
+                        color: '#1a1a1a', 
+                        marginBottom: 10,
+                        marginLeft: 22,
+                        fontFamily: 'Onest'
+                      }}>
+                        Repeat
+                      </Text>
+
                       {REPEAT_OPTIONS.map((opt) => (
                         <TouchableOpacity
                           key={opt.value}
@@ -2316,7 +2408,13 @@ export default function TodoScreen() {
                             paddingHorizontal: 24,
                           }}
                         >
-                          <Text style={{ fontSize: 16 }}>{opt.label}</Text>
+                          <Text style={{ 
+                            fontSize: 16, 
+                            color: '#1a1a1a',
+                            fontFamily: 'Onest'
+                          }}>
+                            {opt.label}
+                          </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
@@ -2356,34 +2454,72 @@ export default function TodoScreen() {
         markedDates={Object.fromEntries(
           customSelectedDates.map((date) => [
             date,
-            { selected: true, selectedColor: '#FFB6B9' },
+            { selected: true, selectedColor: '#FF9A8B' },
           ])
         )}
         style={{
           width: '100%',
         }}
         theme={{
+          backgroundColor: 'white',
+          calendarBackground: 'white',
+          textSectionTitleColor: '#666',
+          todayTextColor: '#FF9A8B',
+          dayTextColor: '#1a1a1a',
+          textDisabledColor: '#DCD7C9',
+          dotColor: '#007AFF',
+          selectedDotColor: '#ffffff',
+          arrowColor: '#FF9A8B',
+          monthTextColor: '#1a1a1a',
+          indicatorColor: '#007AFF',
+          textDayFontSize: 14,
+          textMonthFontSize: 17,
+          textDayHeaderFontSize: 12,
+          textDayFontFamily: 'Onest',
+          textMonthFontFamily: 'Onest',
+          textDayHeaderFontFamily: 'Onest',
           'stylesheet.calendar.header': {
-            header: {
-              flexDirection: 'row',
-              justifyContent: 'center',
-              alignItems: 'center',
-            },
             monthText: {
-              fontSize: 16,
-              fontWeight: '600',
-              marginRight: 4,
+              fontSize: 17,
+              fontWeight: '500',
+              color: '#1a1a1a',
+              marginBottom: 15,
+              fontFamily: 'Onest',
             },
             arrow: {
-              paddingVertical: 18,
-              paddingHorizontal: 60,
-            },
-            arrowImage: {
-              tintColor: '#FFB6B9',
+              color: '#FF9A8B',
+              marginHorizontal: 60,
+              marginBottom: 15,
             },
           },
-          todayTextColor: '#FFB6B9',
-          todayBackgroundColor: 'transparent',
+          'stylesheet.day.basic': {
+            base: {
+              width: 33,
+              height: 33,
+              alignItems: 'center',
+              justifyContent: 'center',
+            },
+            text: {
+              fontSize: 14,
+              color: '#1a1a1a',
+              backgroundColor: 'transparent',
+              textAlign: 'center',
+              marginTop: 5,
+              fontFamily: 'Onest',
+            },
+            today: {
+              backgroundColor: '#FAF9F6',
+              borderRadius: 18,
+            },
+            selected: {
+              backgroundColor: '#FF9A8B',
+              borderRadius: 18,
+            },
+            selectedText: {
+              color: '#ffffff',
+              fontFamily: 'Onest',
+            },
+          }
         }}
       />
 
@@ -2398,7 +2534,7 @@ export default function TodoScreen() {
           marginBottom: 14, 
         }}
       >
-        <Text style={{ color: 'white', fontWeight: '600' }}>Done</Text>
+        <Text style={{ color: 'white', fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
       </TouchableOpacity>
     </View>
   </TouchableOpacity>
@@ -2457,8 +2593,11 @@ export default function TodoScreen() {
               </ScrollView>
               
               <View style={styles.stickyFooter}>
-                <TouchableOpacity style={styles.doneButton} onPress={handleCloseSettingsModal}>
-                  <Text style={styles.doneText}>Done</Text>
+                <TouchableOpacity 
+                  style={[styles.doneButton, { backgroundColor: '#FF9A8B' }]} 
+                  onPress={handleCloseSettingsModal}
+                >
+                  <Text style={[styles.doneText, { color: 'white' }]}>Done</Text>
                 </TouchableOpacity>
               </View>
             </View>
