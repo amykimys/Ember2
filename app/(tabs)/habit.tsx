@@ -829,7 +829,7 @@ const formatDate = (date: Date): string => {
         setIsPhotoOptionsModalVisible(false);
       }
 
-      if (!result.canceled && selectedHabitId && selectedDate) {
+      if (!result.canceled && selectedHabitId) {
         const uri = result.assets[0].uri;
         console.log('Selected image URI:', uri);
         
@@ -842,9 +842,12 @@ const formatDate = (date: Date): string => {
           return;
         }
 
+        const today = moment().format('YYYY-MM-DD');
+        console.log('Using today\'s date for completion:', today);
+
         // Create a unique filename with timestamp
         const timestamp = new Date().getTime();
-        const filename = `${user.id}/${habit.id}/${selectedDate}_${timestamp}.jpg`;
+        const filename = `${user.id}/${habit.id}/${today}_${timestamp}.jpg`;
         console.log('Uploading file:', filename);
 
         // Get the file info
@@ -892,7 +895,7 @@ const formatDate = (date: Date): string => {
         // Update the habit's photos
         const updatedPhotos = {
           ...habit.photos,
-          [selectedDate]: publicUrl
+          [today]: publicUrl
         };
 
         // Update in Supabase
@@ -900,8 +903,8 @@ const formatDate = (date: Date): string => {
           .from('habits')
           .update({
             photos: updatedPhotos,
-            completed_days: [...habit.completedDays, selectedDate],
-            streak: calculateStreak(habit, [...habit.completedDays, selectedDate])
+            completed_days: [...habit.completedDays, today],
+            streak: calculateStreak(habit, [...habit.completedDays, today])
           })
           .eq('id', selectedHabitId)
           .eq('user_id', user.id);
@@ -917,8 +920,8 @@ const formatDate = (date: Date): string => {
             return {
               ...h,
               photos: updatedPhotos,
-              completedDays: [...h.completedDays, selectedDate],
-              streak: calculateStreak(h, [...h.completedDays, selectedDate])
+              completedDays: [...h.completedDays, today],
+              streak: calculateStreak(h, [...h.completedDays, today])
             };
           }
           return h;
@@ -928,7 +931,7 @@ const formatDate = (date: Date): string => {
         if (selectedNoteDate && selectedNoteDate.habitId === selectedHabitId) {
           setSelectedNoteDate(null);
           setTimeout(() => {
-            setSelectedNoteDate({ habitId: selectedHabitId, date: selectedDate });
+            setSelectedNoteDate({ habitId: selectedHabitId, date: today });
           }, 100);
         }
       }
