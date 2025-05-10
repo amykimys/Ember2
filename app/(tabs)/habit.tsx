@@ -132,10 +132,12 @@ const styles = StyleSheet.create({
   habitStreak: {
     fontSize: 14,
     fontWeight: '600',
+    fontFamily: 'Onest',
   },
   habitTarget: {
     fontSize: 14,
     fontWeight: '500',
+    fontFamily: 'Onest',
   },
   rightAction: {
     backgroundColor: '#FF3B30',
@@ -156,6 +158,20 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
     marginBottom: -7,
     marginLeft: 2
+  },
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#3A3A3A',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontFamily: 'Onest',
+  },
+  emptyStateSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    fontFamily: 'Onest',
   },
 });
 
@@ -645,40 +661,44 @@ const formatDate = (date: Date): string => {
   
   
   const calculateStreak = (habit: Habit, completedDays: string[]): number => {
-  const completedSet = new Set(completedDays.map(date => formatDate(new Date(date))));
-  const today = new Date();
-  let streak = 0;
+    const completedSet = new Set(completedDays.map(date => formatDate(new Date(date))));
+    const today = moment();
+    let streak = 0;
 
-  // Start from current week's Monday
-  let currentWeekStart = new Date(today);
-  const day = currentWeekStart.getDay();
-  currentWeekStart.setDate(currentWeekStart.getDate() - (day === 0 ? 6 : day - 1)); // Adjust to Monday
-  currentWeekStart.setHours(0, 0, 0, 0);
+    // Start from current week's Monday
+    let currentWeekStart = moment(today).startOf('week');
+    currentWeekStart.add(1, 'days'); // Adjust to Monday
 
-  while (true) {
-    // Generate dates for this week
-    const weekDates: string[] = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(currentWeekStart);
-      date.setDate(currentWeekStart.getDate() + i);
-      weekDates.push(formatDate(date));
+    while (true) {
+      // Generate dates for this week
+      const weekDates: string[] = [];
+      for (let i = 0; i < 7; i++) {
+        const date = moment(currentWeekStart).add(i, 'days');
+        weekDates.push(date.format('YYYY-MM-DD'));
+      }
+
+      // Count completions for this week
+      const completionsThisWeek = weekDates.filter(date => completedSet.has(date)).length;
+
+      // If we met the target for this week, increment streak and check previous week
+      if (completionsThisWeek >= habit.targetPerWeek) {
+        streak++;
+        // Move to previous week
+        currentWeekStart.subtract(7, 'days');
+      } else {
+        break;
+      }
     }
 
-    // Count completions for this week
-    const completionsThisWeek = weekDates.filter(date => completedSet.has(date)).length;
+    console.log('Streak calculation:', {
+      habit: habit.text,
+      streak,
+      targetPerWeek: habit.targetPerWeek,
+      completedDays: Array.from(completedSet)
+    });
 
-    // If we met the target for this week, increment streak and check previous week
-    if (completionsThisWeek >= habit.targetPerWeek) {
-      streak++;
-      // Move to previous week
-      currentWeekStart.setDate(currentWeekStart.getDate() - 7);
-    } else {
-      break;
-    }
-  }
-
-  return streak;
-};
+    return streak;
+  };
 
 
   
@@ -958,13 +978,15 @@ const formatDate = (date: Date): string => {
       const isCompleted = habit.completedDays.includes(today);
       console.log('Current completion status:', { isCompleted, completedDays: habit.completedDays });
 
-      if (habit.requirePhoto && !isCompleted) {
+      // Only show photo modal if the habit requires a photo AND it's not already completed
+      if (habit.requirePhoto && !isCompleted && !habit.photos[today]) {
         setSelectedHabitId(habitId);
         setSelectedDate(today);
         setIsPhotoOptionsModalVisible(true);
         return;
       }
 
+      // If the habit is already completed, just toggle it off
       const newCompletedDays = isCompleted
         ? habit.completedDays.filter(d => d !== today)
         : [...habit.completedDays, today];
@@ -1750,7 +1772,7 @@ const formatDate = (date: Date): string => {
                 <MaterialIcons name="stacked-line-chart" size={20} color="#3A3A3A" />
               </TouchableOpacity>
               <TouchableOpacity onPress={goToToday}>
-                <Text style={{ color: '#3A3A3A', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center' }}>
+                <Text style={{ color: '#3A3A3A', fontSize: 17, fontWeight: 'bold', marginBottom: 0, textAlign: 'center', fontFamily: 'Onest' }}>
                   {moment(currentDate).format('MMMM YYYY')}
                 </Text>
               </TouchableOpacity>
@@ -1822,7 +1844,8 @@ const formatDate = (date: Date): string => {
                         fontSize: 12,
                         color: '#3A3A3A',
                         fontWeight: '600',
-                        textTransform: 'uppercase'
+                        textTransform: 'uppercase',
+                        fontFamily: 'Onest'
                       }}>
                         {category?.label || 'Uncategorized'}
                       </Text>
@@ -1929,6 +1952,7 @@ const formatDate = (date: Date): string => {
                                   fontSize: 15,
                                   color: '#3A3A3A',
                                   fontWeight: '500',
+                                  fontFamily: 'Onest'
                                 }}>
                                   {habit.text}
                                 </Text>
@@ -1940,7 +1964,8 @@ const formatDate = (date: Date): string => {
                                   <Text style={{
                                     fontSize: 11,
                                     color: '#3A3A3A',
-                                    fontWeight: '600'
+                                    fontWeight: '600',
+                                    fontFamily: 'Onest'
                                   }}>
                                     {calculateStreak(habit, habit.completedDays)}
                                   </Text>
@@ -2001,7 +2026,8 @@ const formatDate = (date: Date): string => {
                                       <Text style={{
                                         fontSize: 12,
                                         color: isCompleted ? '#FFF8E8' : '#888888',
-                                        fontWeight: isToday ? '700' : '500'
+                                        fontWeight: isToday ? '700' : '500',
+                                        fontFamily: 'Onest'
                                       }}>
                                         {day}
                                       </Text>
@@ -2012,7 +2038,8 @@ const formatDate = (date: Date): string => {
                                   fontSize: 11,
                                   color: '#888888',
                                   marginLeft: 4,
-                                  fontWeight: '400'
+                                  fontWeight: '400',
+                                  fontFamily: 'Onest'
                                 }}>
                                   {getWeeklyCompletionCount(habit)}/{habit.targetPerWeek}
                                 </Text>
@@ -2104,6 +2131,7 @@ const formatDate = (date: Date): string => {
                             backgroundColor: 'white',
                             borderRadius: 12,
                             marginBottom: -10,
+                            fontFamily: 'Onest'
                           }}
                           value={newHabit}
                           onChangeText={setNewHabit}
@@ -2130,6 +2158,7 @@ const formatDate = (date: Date): string => {
                             marginTop: 10,
                             minHeight: 10,
                             textAlignVertical: 'top',
+                            fontFamily: 'Onest'
                           }}
                         />
 
@@ -2144,6 +2173,7 @@ const formatDate = (date: Date): string => {
                             borderRadius: 12,
                             marginTop: 0,
                             textAlignVertical: 'top',
+                            fontFamily: 'Onest'
                           }}
                           value={newDescription}
                           onChangeText={setNewDescription}
@@ -2301,11 +2331,11 @@ const formatDate = (date: Date): string => {
                                   textTransform: 'uppercase',
                                   marginRight: 4,
                                   marginTop: 2,
-              
+                                  fontFamily: 'Onest'
                                 }}>
                                   {categories.find(cat => cat.id === selectedCategoryId)?.label}
                                 </Text>
-                                <Ionicons name="close-outline" size={13} color={categories.find(cat => cat.id === selectedCategoryId)?.color || '#333'} style={{ marginTop: 4}} />
+                                <Ionicons name="close-circle" size={13} color={categories.find(cat => cat.id === selectedCategoryId)?.color || '#333'} style={{ marginTop: 4}} />
                               </TouchableOpacity>
                             )}
                           </View>
@@ -2335,15 +2365,27 @@ const formatDate = (date: Date): string => {
                               style={{ marginTop: 2}}
                             />
                             {reminderTime && (
-                              <Text style={{ 
-                                color: '#FF9A8B', 
-                                fontSize: 12, 
-                                marginLeft: 4,
-                                marginTop: 3,
-                                fontWeight: '500'
-                              }}>
-                                {reminderTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                              </Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={{ 
+                                  color: '#FF9A8B', 
+                                  fontSize: 12, 
+                                  marginLeft: 4,
+                                  marginTop: 3,
+                                  fontWeight: '500',
+                                  fontFamily: 'Onest'
+                                }}>
+                                  {reminderTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                </Text>
+                                <TouchableOpacity 
+                                  onPress={() => {
+                                    setReminderTime(null);
+                                    setReminderEnabled(false);
+                                  }}
+                                  style={{ marginLeft: 4, marginTop: 3 }}
+                                >
+                                  <Ionicons name="close-circle" size={14} color="#FF9A8B" />
+                                </TouchableOpacity>
+                              </View>
                             )}
                           </TouchableOpacity>
                         </View>
@@ -2850,7 +2892,7 @@ const formatDate = (date: Date): string => {
                   borderTopLeftRadius: 20, 
                   borderTopRightRadius: 20,
                   maxHeight: '60%',
-                  minHeight: selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] ? '50%' : '33%',
+                  minHeight: selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] ? '35%' : '35%',
                   marginBottom: 0,
                 }}>
                   <ScrollView 
@@ -2864,7 +2906,7 @@ const formatDate = (date: Date): string => {
                       alignItems: 'center', 
                       marginBottom: 8 
                     }}>
-                      <Text style={{ fontSize: 20, fontWeight: '600' }}>
+                      <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>
                         {isNoteEditMode ? 'Add Note' : 'Note'}
                       </Text>
                       <TouchableOpacity onPress={() => {
@@ -2881,14 +2923,15 @@ const formatDate = (date: Date): string => {
                       <Text style={{ 
                         fontSize: 14, 
                         color: '#666',
-                        marginBottom: 10
+                        marginBottom: 20,
+                        fontFamily: 'Onest'
                       }}>
                         {new Date(selectedNoteDate.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                       </Text>
                     )}
 
                     {/* Photo */}
-                    {selectedNoteDate && (() => {
+                    {selectedNoteDate && !isNoteEditMode && (() => {
                       const habit = habits.find(h => h.id === selectedNoteDate.habitId);
                       const photoUrl = habit?.photos?.[selectedNoteDate.date];
                       console.log('Note modal - Selected date:', selectedNoteDate.date);
@@ -2951,7 +2994,8 @@ const formatDate = (date: Date): string => {
                             fontSize: 16,
                             color: '#3A3A3A',
                             minHeight: 120,
-                            textAlignVertical: 'top'
+                            textAlignVertical: 'top',
+                            fontFamily: 'Onest'
                           }}
                           value={noteText}
                           onChangeText={setNoteText}
@@ -2965,6 +3009,7 @@ const formatDate = (date: Date): string => {
                           fontSize: 16,
                           color: '#3A3A3A',
                           minHeight: 120,
+                          fontFamily: 'Onest'
                         }}>
                           {noteText || 'No note for this day'}
                         </Text>
@@ -2977,14 +3022,15 @@ const formatDate = (date: Date): string => {
                     <TouchableOpacity
                       onPress={saveNote}
                       style={{
-                        backgroundColor: '#007AFF',
+                        backgroundColor: '#FF9A8B',
                         padding: 14,
                         borderRadius: 12,
                         alignItems: 'center',
                         marginTop: 'auto',
+                        marginBottom: 10,
                       }}
                     >
-                      <Text style={{ color: 'white', fontSize: 16, fontWeight: '600' }}>Save Note</Text>
+                      <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Save Note</Text>
                     </TouchableOpacity>
                   )}
                 </View>
