@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     marginTop: 0,
     marginBottom: 28,
     color: '#333',
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
   },
   weekRow: {
     flexDirection: 'row',
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
     color: '#333',
     paddingBottom: 7,
     fontSize: 12,
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
   },
   grid: {
     flexDirection: 'row',
@@ -155,13 +155,13 @@ const styles = StyleSheet.create({
     marginLeft: 0.5,
     height: 24,
     lineHeight: 24,
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
   },
   adjacentMonthDate: {
     color: '#ccc',  // Light gray color for adjacent month dates
   },
   todayCell: {
-    backgroundColor: '#A0C3B2',
+    backgroundColor: 'transparent',
   },
   selectedCell: {
     borderColor: '#BF9264',
@@ -172,31 +172,30 @@ const styles = StyleSheet.create({
     color: '#BF9264',
   },
   todayText: {
-    fontWeight: 'bold',
-    color: '#BF9264',
+    fontWeight: '500',
+    color: '#fff',
+    backgroundColor: '#A0C3B2',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    textAlign: 'center',
+    lineHeight: 22,
   },
   invisibleText: {
     color: 'transparent',
   },
   addButton: {
     position: 'absolute',
-    right: 10,
-    bottom: 50,
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#A0C3B2',
+    right: 16,
+    top: 58,
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
   },
   addIcon: {
-    fontSize: 30,
-    color: 'white',
+    fontSize: 24,
+    color: '#333',
   },
   modalOverlay: {
     flex: 1,
@@ -207,20 +206,21 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '85%',
     backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 20,
+    borderRadius: 16,
+    padding: 24,
   },
   modalTitle: {
     fontSize: 20,
     fontWeight: '600',
-    marginBottom: 8,
-    fontFamily: 'Manrope',
+    marginBottom: 4,
+    fontFamily: 'Onest',
+    color: '#333',
   },
   modalSubtitle: {
     fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-    fontFamily: 'Manrope',
+    color: '#A0C3B2',
+    marginBottom: 24,
+    fontFamily: 'Onest',
   },
   input: {
     borderWidth: 0.5,
@@ -228,49 +228,55 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     padding: 10,
     marginBottom: 12,
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
   },
   cancel: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#666',
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
   },
   save: {
-    fontSize: 16,
-    color: '#007AFF',
+    fontSize: 15,
+    color: '#A0C3B2',
     fontWeight: '600',
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
   },
   eventText: {
     fontSize: 10,
     color: '#333',
     marginTop: 2,
     paddingRight: 2,
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
   },
   inputTitle: {
     fontSize: 16,
     padding: 12,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 8,
-    marginBottom: 10,
-    fontFamily: 'Manrope',
+    marginBottom: 16,
+    fontFamily: 'Onest',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
   },
   inputDescription: {
     fontSize: 14,
     padding: 12,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 8,
     height: 80,
     textAlignVertical: 'top',
-    marginBottom: 10,
-    fontFamily: 'Manrope',
+    marginBottom: 16,
+    fontFamily: 'Onest',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 12,
   },
   quickActionRow: {
     flexDirection: 'row',
@@ -281,22 +287,23 @@ const styles = StyleSheet.create({
   inlineSettingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    marginBottom: 0,
+    marginBottom: 16,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
   },
   inlineSettingText: {
-    marginLeft: 10,
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    fontFamily: 'Manrope',
+    marginLeft: 12,
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
   },
   inlineSettingTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
     marginBottom: 4,
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
   },
   inlineSettingRowDate: {
     flexDirection: 'row',
@@ -307,7 +314,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginLeft: 8,
     color: '#666',
-    fontFamily: 'Manrope',
+    fontFamily: 'Onest',
   },
   gridCompact: {
     height: getCellHeight(new Date()) * 2 + 160, // Adjusted for better fit
@@ -1014,7 +1021,7 @@ const CalendarScreen: React.FC = () => {
               setShowModal(true);
             }}
           >
-            <Ionicons name="add" size={22} color="white" />
+            <MaterialIcons name="add" size={22} color="#3a3a3a" />
           </TouchableOpacity>
 
         
@@ -1049,7 +1056,7 @@ const CalendarScreen: React.FC = () => {
                       }
                     }}
                   >
-                    <Text style={[styles.modalSubtitle, { color: '#6F4E37' }]}>
+                    <Text style={[styles.modalSubtitle, { color: '#888888' }]}>
                       {repeatOption === 'Custom' ? 'Custom Dates' : startDateTime.toDateString()}
                     </Text>
                   </TouchableOpacity>
@@ -1072,13 +1079,13 @@ const CalendarScreen: React.FC = () => {
                       />
 
                       {/* 🕓 Starts */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
                         <Text style={{ display: 'none' }}>🕓 Starts</Text>
                         <TouchableOpacity
                           onPress={() => setShowStartPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="play-outline" size={22} color="#666" />
+                          <Ionicons name="play-outline" size={20} color="#A0C3B2" />
                           <Text style={styles.inlineSettingText}>
                             {startDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </Text>
@@ -1106,13 +1113,13 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* 🛑 Ends */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
                         <Text style={{ display: 'none' }}>🛑 Ends</Text>
                         <TouchableOpacity
                           onPress={() => setShowEndPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="caret-back-outline" size={22} color="#666" />
+                          <Ionicons name="caret-back-outline" size={20} color="#A0C3B2" />
                           <Text style={styles.inlineSettingText}>
                             {endDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </Text>
@@ -1138,13 +1145,13 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* 🕑 Set Reminder */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
                         <Text style={{ display: 'none' }}>🕑 Set Reminder</Text>
                         <TouchableOpacity
                           onPress={() => setShowReminderPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="alarm-outline" size={22} color="#666" />
+                          <Ionicons name="alarm-outline" size={20} color="#A0C3B2" />
                           <Text style={styles.inlineSettingText}>
                             {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set Reminder'}
                           </Text>
@@ -1169,13 +1176,13 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* 🔁 Set Repeat */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
                         <Text style={{ display: 'none' }}>🔁 Set Repeat</Text>
                         <TouchableOpacity
                           onPress={() => setShowRepeatPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="repeat" size={22} color="#666" />
+                          <Ionicons name="repeat" size={20} color="#A0C3B2" />
                           <Text style={styles.inlineSettingText}>
                             {repeatOption !== 'None' ? repeatOption : 'Set Repeat'}
                           </Text>
@@ -1203,13 +1210,13 @@ const CalendarScreen: React.FC = () => {
 
                       {/* 📅 Set End Date */}
                       {repeatOption !== 'None' && (
-                        <View style={{ flex: 1, alignItems: 'center' }}>
+                        <View style={{ flex: 1 }}>
                           <Text style={{ display: 'none' }}>📅 Set End Date</Text>
                           <TouchableOpacity
                             onPress={() => setShowEndDatePicker(prev => !prev)}
                             style={styles.inlineSettingRow}
                           >
-                            <Ionicons name="calendar-outline" size={22} color="#666" />
+                            <Ionicons name="calendar-outline" size={20} color="#A0C3B2" />
                             <Text style={styles.inlineSettingText}>
                               {repeatEndDate ? `Until ${repeatEndDate.toLocaleDateString()}` : 'Set End Date'}
                             </Text>
@@ -1256,8 +1263,8 @@ const CalendarScreen: React.FC = () => {
                       }}
                       style={styles.inlineSettingRow}
                     >
-                      <MaterialIcons name="colorize" size={22} color={selectedCategory ? selectedCategory.color : '#666'} />
-                      <Text style={[styles.inlineSettingText, { color: selectedCategory ? selectedCategory.color : '#000' }]}>
+                      <Ionicons name="folder-outline" size={20} color={selectedCategory ? selectedCategory.color : '#A0C3B2'} />
+                      <Text style={[styles.inlineSettingText, { color: selectedCategory ? selectedCategory.color : '#3A3A3A' }]}>
                         {selectedCategory ? selectedCategory.name : 'Set Category'}
                       </Text>
 
@@ -1460,13 +1467,13 @@ const CalendarScreen: React.FC = () => {
                       />
 
                       {/* 🕓 Starts */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
                         <Text style={{ display: 'none' }}>🕓 Starts</Text>
                         <TouchableOpacity
                           onPress={() => setShowStartPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="play-outline" size={22} color="#666" />
+                          <Ionicons name="play-outline" size={20} color="#A0C3B2" />
                           <Text style={styles.inlineSettingText}>
                             {editedStartDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </Text>
@@ -1494,13 +1501,13 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {/* Ends */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
+                      <View style={{ flex: 1 }}>
                         <Text style={{ display: 'none' }}>🛑 Ends</Text>
                         <TouchableOpacity
                           onPress={() => setShowEndPicker(prev => !prev)}
                           style={styles.inlineSettingRow}
                         >
-                          <Ionicons name="caret-back-outline" size={22} color="#666" />
+                          <Ionicons name="caret-back-outline" size={20} color="#A0C3B2" />
                           <Text style={styles.inlineSettingText}>
                             {editedEndDateTime.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                           </Text>
@@ -1539,7 +1546,7 @@ const CalendarScreen: React.FC = () => {
                           }}
                           style={styles.inlineSettingRow}
                         >
-                          <MaterialIcons name="colorize" size={22} color={editedSelectedCategory ? editedSelectedCategory.color : '#666'} />
+                          <Ionicons name="folder-outline" size={20} color={editedSelectedCategory ? editedSelectedCategory.color : '#A0C3B2'} />
                           <Text style={[styles.inlineSettingText, { color: editedSelectedCategory ? editedSelectedCategory.color : '#000' }]}>
                             {editedSelectedCategory ? editedSelectedCategory.name : 'Set Category'}
                           </Text>
@@ -1682,7 +1689,7 @@ const CalendarScreen: React.FC = () => {
                           }}
                           style={styles.inlineSettingRow}
                         >
-                          <MaterialIcons name="colorize" size={22} color={editedSelectedCategory ? editedSelectedCategory.color : '#666'} />
+                          <Ionicons name="folder-outline" size={20} color={editedSelectedCategory ? editedSelectedCategory.color : '#A0C3B2'} />
                           <Text style={[styles.inlineSettingText, { color: editedSelectedCategory ? editedSelectedCategory.color : '#000' }]}>
                             {editedSelectedCategory ? editedSelectedCategory.name : 'Set Category'}
                           </Text>

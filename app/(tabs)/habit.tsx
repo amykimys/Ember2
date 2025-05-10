@@ -1790,15 +1790,17 @@ const formatDate = (date: Date): string => {
               calendarHeaderStyle={{
                 display: 'none'
               }}
-              dateNumberStyle={{ color: '#888888', fontSize: 17 }}
-              dateNameStyle={{ color: '#888888' }}
+              dateNumberStyle={{ color: '#888888', fontSize: 17, fontFamily: 'Onest' }}
+              dateNameStyle={{ color: '#888888', fontFamily: 'Onest' }}
               highlightDateNumberStyle={{
                 color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
                 fontSize: 34,
+                fontFamily: 'Onest'
               }}
               highlightDateNameStyle={{
                 color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
                 fontSize: 13,
+                fontFamily: 'Onest'
               }}
               selectedDate={moment(currentDate)}
               onDateSelected={(date) => setCurrentDate(date.toDate())}
@@ -3077,11 +3079,11 @@ const formatDate = (date: Date): string => {
                   alignSelf: 'flex-start',
                   marginLeft: 0,
                 }}>
-                  <Text style={{ display: 'none' }}>Month Navigation</Text>
+                  <Text style={{ display: 'none', fontFamily: 'Onest' }}>Month Navigation</Text>
                 </View>
 
                 <View style={{ flex: 1 }}>
-                  <Text style={{ display: 'none' }}>Fixed habit names column</Text>
+                  <Text style={{ display: 'none', fontFamily: 'Onest' }}>Fixed habit names column</Text>
                   {habits.length > 0 ? (
                     <View style={{ flexDirection: 'row' }}>
                       <View style={{ 
@@ -3104,7 +3106,7 @@ const formatDate = (date: Date): string => {
                           }}
                         >
                           <Animated.View style={{ marginTop: -2 }}>
-                            <Text style={styles.monthText}>
+                            <Text style={[styles.monthText, { fontFamily: 'Onest' }]}>
                               {selectedProgressMonth.format('MMMM')}
                             </Text>
                           </Animated.View>
@@ -3142,9 +3144,9 @@ const formatDate = (date: Date): string => {
                         showsHorizontalScrollIndicator={false}
                         style={{ flex: 1 }}
                       >
-                        <Text style={{ display: 'none' }}>Scrollable dates section</Text>
+                        <Text style={{ display: 'none', fontFamily: 'Onest' }}>Scrollable dates section</Text>
                         <View>
-                          <Text style={{ display: 'none' }}>Header row with dates</Text>
+                          <Text style={{ display: 'none', fontFamily: 'Onest' }}>Header row with dates</Text>
                           <View style={{ flexDirection: 'row', marginBottom: 8 }}>
                             {getMonthDates().map((date, index) => (
                               <View key={date} style={{ width: 36, alignItems: 'center', justifyContent: 'center' }}>
@@ -3163,7 +3165,7 @@ const formatDate = (date: Date): string => {
                           </View>
 
                           {/* Grid rows for each habit */}
-                          <Text style={{ display: 'none' }}>Grid rows for each habit</Text>
+                          <Text style={{ display: 'none', fontFamily: 'Onest' }}>Grid rows for each habit</Text>
                           {habits.map(habit => (
                             <View key={habit.id} style={{ 
                               flexDirection: 'row', 
@@ -3208,14 +3210,12 @@ const formatDate = (date: Date): string => {
                                       </Text>
                                     ) : isCompleted ? (
                                       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
-  <Ionicons name="checkmark-circle" size={17} color="#A0C3B2" />
-</View>
-
+                                        <Ionicons name="checkmark-circle" size={17} color="#A0C3B2" />
+                                      </View>
                                     ) : (
                                       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
-                                      <Ionicons name="close-circle" size={17} color="#ECE7E1" />
-                                    </View>
-                                    
+                                        <Ionicons name="close-circle" size={17} color="#ECE7E1" />
+                                      </View>
                                     )}
                                   </TouchableOpacity>
                                 );
