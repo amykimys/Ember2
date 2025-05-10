@@ -2481,14 +2481,7 @@ export default function TodoScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
           <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <TouchableWithoutFeedback onPress={(e) => {
-              // Only dismiss keyboard if clicking outside the modal content
-              if (e.target === e.currentTarget) {
-                Keyboard.dismiss();
-              }
-            }}>
-              <View style={{ flex: 1 }} />
-            </TouchableWithoutFeedback>
+            <View style={{ flex: 1 }} />
             <View style={{ 
               position: 'absolute',
               bottom: 0,
@@ -2519,55 +2512,59 @@ export default function TodoScreen() {
                 </TouchableOpacity>
               </View>
 
-              <TextInput
-                ref={categoryInputRef}
-                style={{
-                  fontSize: 16,
-                  color: '#1a1a1a',
-                  padding: 12,
-                  backgroundColor: '#F5F5F5',
-                  borderRadius: 12,
-                  marginBottom: 20,
-                  fontFamily: 'Onest',
-                }}
-                value={newCategoryName}
-                onChangeText={setNewCategoryName}
-                placeholder="Category name"
-                placeholderTextColor="#999"
-                autoFocus
-              />
+              <ScrollView keyboardShouldPersistTaps="always">
+                <TextInput
+                  ref={categoryInputRef}
+                  style={{
+                    fontSize: 16,
+                    color: '#1a1a1a',
+                    padding: 12,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12,
+                    marginBottom: 20,
+                    fontFamily: 'Onest',
+                  }}
+                  value={newCategoryName}
+                  onChangeText={setNewCategoryName}
+                  placeholder="Category name"
+                  placeholderTextColor="#999"
+                  autoFocus
+                />
 
-              <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest' }}>Choose a color</Text>
-              
-              <View 
-                onStartShouldSetResponder={() => true}
-                onMoveShouldSetResponder={() => true}
-                onResponderTerminationRequest={() => false}
-              >
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: 20 }}
+                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
+                
+                <View 
+                  onStartShouldSetResponder={() => true}
+                  onMoveShouldSetResponder={() => true}
+                  onResponderTerminationRequest={() => false}
                 >
-                  {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
-                    const isSelected = newCategoryColor === color;
-                    return (
-                      <TouchableOpacity
-                        key={color}
-                        onPress={() => setNewCategoryColor(color)}
-                        style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 18,
-                          backgroundColor: color,
-                          marginRight: 12,
-                          opacity: isSelected ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
-                        }}
-                      />
-                    );
-                  })}
-                </ScrollView>
-              </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                    keyboardShouldPersistTaps="always"
+                  >
+                    {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
+                      const isSelected = newCategoryColor === color;
+                      return (
+                        <TouchableOpacity
+                          key={color}
+                          onPress={() => setNewCategoryColor(color)}
+                          style={{
+                            width: 30,
+                            height: 30,
+                            borderRadius: 15,
+                            backgroundColor: color,
+                            marginRight: 8,
+                            marginLeft: 2,
+                            opacity: isSelected ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
+                          }}
+                        />
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </ScrollView>
 
               <TouchableOpacity
                 onPress={async () => {
@@ -2603,14 +2600,17 @@ export default function TodoScreen() {
                       return;
                     }
                 
+                    // Update state in the correct order
                     setCategories(prev => [...prev, savedCategory]);
                     setSelectedCategoryId(savedCategory.id);
                     setNewCategoryName('');
+                    
+                    // Close category modal and show task modal
+                    Keyboard.dismiss();
                     setIsNewCategoryModalVisible(false);
-                
-                    setTimeout(() => {
-                      showModal();
-                    }, 300);
+                    requestAnimationFrame(() => {
+                      setIsNewTaskModalVisible(true);
+                    });
                 
                   } catch (error) {
                     console.error('Error creating category:', error);
@@ -2619,10 +2619,11 @@ export default function TodoScreen() {
                 }}
                 style={{
                   backgroundColor:'#FFB6B9',
-                  padding: 13,
+                  padding: 12,
                   borderRadius: 12,
                   alignItems: 'center',
                   marginTop: 'auto',
+                  marginBottom: 8,
                 }}
               >
                 <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
