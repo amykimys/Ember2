@@ -24,7 +24,7 @@ export default function TabLayout() {
           borderTopColor: 'transparent',
           backgroundColor: '#FFFFFF',
           height: 55,
-          paddingBottom: 0,
+          paddingBottom: 6,
           elevation: 0,
           shadowOpacity: 0,
           shadowColor: 'transparent',
@@ -33,10 +33,10 @@ export default function TabLayout() {
           ...Platform.select({
             ios: {
               position: 'absolute',
-              bottom: 0,
+              bottom: 6,
             },
             default: {
-              bottom: 0,
+              bottom: 6,
             },
           }),
         },
