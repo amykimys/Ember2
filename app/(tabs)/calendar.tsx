@@ -680,6 +680,11 @@ const CalendarScreen: React.FC = () => {
       Alert.alert('Error', 'Please enter a title for the event.');
       return;
     }
+
+    if (!startDateTime || !endDateTime) {
+      Alert.alert('Error', 'Please set start and end times for the event.');
+      return;
+    }
   
     setIsSaving(true);
   
@@ -692,8 +697,8 @@ const CalendarScreen: React.FC = () => {
           date: getLocalDateString(startDateTime),
           start_datetime: startDateTime.toISOString(),
           end_datetime: endDateTime.toISOString(),
-          category_name: selectedCategory?.name || null,
-          category_color: selectedCategory?.color || null,
+          category_name: selectedCategory?.name || 'No Category',
+          category_color: selectedCategory?.color || '#FF9A8B', // Default pink coral color
           reminder_time: reminderTime ? reminderTime.toISOString() : null,
           repeat_option: repeatOption || 'None',
           repeat_end_date: repeatEndDate ? repeatEndDate.toISOString() : null,
@@ -832,55 +837,143 @@ const CalendarScreen: React.FC = () => {
             needsSixRowsThisMonth ? styles.gridSixRows : styles.grid,
             isMonthCompact && styles.gridCompact
           ]}>
-            {days.map((date, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.cell,
-                  needsSixRows(item.year, item.month) ? styles.cellCompact : styles.cellExpanded,
-                  isSelected(date) && styles.selectedCell,
-                  isToday(date) && styles.todayCell,
-                ]}
-              >
-                {date && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (date) {
-                        setSelectedDate(date);
-                        setIsMonthCompact(prev => !prev);
-                      }
-                    }}
-                    style={{ 
-                      alignItems: 'center', 
-                      justifyContent: 'center', 
-                      height: 24,
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.dateNumber,
-                        !date && styles.invisibleText,
-                        isSelected(date) && styles.selectedText,
-                        isToday(date) && styles.todayText,
-                        date.getMonth() !== month && styles.adjacentMonthDate,
-                      ]}
-                    >
-                      {(() => {
-                        const totalGridSlots = days.length;
-                        const isLastCell = i === days.length - 1;
-                        const isSixthRow = totalGridSlots > 35;
-                        const currentDate = date?.getDate();
-                        const nextDate = days[i + 1]?.getDate();
-                        if (isSixthRow && isLastCell && currentDate && nextDate) {
-                          return `${currentDate}/${nextDate}`;
-                        }
-                        return currentDate;
-                      })()}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
+            {days.map((date, i) => {
+              const dateKey = date ? getLocalDateString(date) : '';
+              const dayEvents = date ? (events[dateKey] || []) as CalendarEvent[] : [];
+              const hasEvents = dayEvents.length > 0;
+
+              return (
+                <View
+                  key={i}
+                  style={[
+                    styles.cell,
+                    needsSixRows(item.year, item.month) ? styles.cellCompact : styles.cellExpanded,
+                    isSelected(date) && styles.selectedCell,
+                    isToday(date) && styles.todayCell,
+                  ]}
+                >
+                  {date && (
+                    <View style={{ flex: 1 }}>
+                      {/* Date Section - Fixed Height */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          if (date) {
+                            setSelectedDate(date);
+                            setIsMonthCompact(prev => !prev);
+                          }
+                        }}
+                        style={{ 
+                          height: 24,
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.dateNumber,
+                            !date && styles.invisibleText,
+                            isSelected(date) && styles.selectedText,
+                            isToday(date) && styles.todayText,
+                            date.getMonth() !== month && styles.adjacentMonthDate,
+                          ]}
+                        >
+                          {(() => {
+                            const totalGridSlots = days.length;
+                            const isLastCell = i === days.length - 1;
+                            const isSixthRow = totalGridSlots > 35;
+                            const currentDate = date?.getDate();
+                            const nextDate = days[i + 1]?.getDate();
+                            if (isSixthRow && isLastCell && currentDate && nextDate) {
+                              return `${currentDate}/${nextDate}`;
+                            }
+                            return currentDate;
+                          })()}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Events Section - Below Date */}
+                      {hasEvents && (
+                        <View style={{ 
+                          flexDirection: 'column', 
+                          justifyContent: 'flex-start', 
+                          alignItems: 'center',
+                          marginTop: 2,
+                          width: '100%',
+                          paddingHorizontal: 2,
+                          minHeight: 0,
+                          flex: 1
+                        }}>
+                          {dayEvents.slice(0, 3).map((event, eventIndex) => (
+                            <View
+                              key={`${event.id}-${eventIndex}`}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                marginBottom: 2,
+                                width: '90%',
+                                justifyContent: 'center'
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: 3,
+                                  backgroundColor: event.categoryColor || '#FF9A8B',
+                                  marginRight: 4,
+                                }}
+                              />
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  fontSize: 11,
+                                  color: '#3A3A3A',
+                                  flex: 1,
+                                  fontFamily: 'Onest',
+                                  textAlign: 'left'
+                                }}
+                              >
+                                {event.title}
+                              </Text>
+                            </View>
+                          ))}
+                          {dayEvents.length > 3 && (
+                            <View
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: '90%'
+                              }}
+                            >
+                              <View
+                                style={{
+                                  width: 5,
+                                  height: 5,
+                                  borderRadius: 3,
+                                  backgroundColor: '#999',
+                                  marginRight: 4,
+                                }}
+                              />
+                              <Text
+                                style={{
+                                  fontSize: 11,
+                                  color: '#999',
+                                  fontFamily: 'Onest',
+                                  textAlign: 'left'
+                                }}
+                              >
+                                +{dayEvents.length - 3} more
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </View>
         </View>
       </View>
@@ -1878,97 +1971,7 @@ const CalendarScreen: React.FC = () => {
 
                   <View style={[styles.modalActions, { justifyContent: 'center' }]}>
                     <TouchableOpacity
-                     onPress={async () => {
-                      if (selectedEvent) {
-                        const updatedEvents = { ...events };
-                        const { dateKey, index } = selectedEvent;
-                        
-                        // Remove the event from all dates it was previously on
-                        Object.keys(updatedEvents).forEach(key => {
-                          updatedEvents[key] = updatedEvents[key].filter(event => event.id !== selectedEvent.event.id);
-                          if (updatedEvents[key].length === 0) {
-                            delete updatedEvents[key];
-                          }
-                        });
-
-                        // If it's a custom repeat event, create events only on the selected custom dates
-                        if (editedRepeatOption === 'Custom' && customSelectedDates.length > 0) {
-                          customSelectedDates.forEach(dateStr => {
-                            if (!updatedEvents[dateStr]) updatedEvents[dateStr] = [];
-                            updatedEvents[dateStr].push({
-                              id: selectedEvent.event.id,
-                              title: editedEventTitle,
-                              description: editedEventDescription,
-                              date: dateStr,
-                              startDateTime: editedStartDateTime,
-                              endDateTime: editedEndDateTime,
-                              categoryName: editedSelectedCategory?.name ?? '',
-                              categoryColor: editedSelectedCategory?.color ?? '',
-                              reminderTime: editedReminderTime || undefined,
-                              repeatOption: editedRepeatOption,
-                              repeatEndDate: editedRepeatEndDate || undefined,
-                              customDates: customSelectedDates,
-                            });
-                          });
-                        } else {
-                          // For non-custom repeat events, create events across the date range
-                          let currentDate = new Date(editedStartDateTime);
-                          const end = new Date(editedEndDateTime);
-                          let isFirstDay = true;
-
-                          while (currentDate <= end) {
-                            const newDateKey = getLocalDateString(currentDate);
-                            if (!updatedEvents[newDateKey]) updatedEvents[newDateKey] = [];
-
-                            updatedEvents[newDateKey].push({
-                              id: selectedEvent.event.id,
-                              title: editedEventTitle,
-                              description: editedEventDescription,
-                              date: newDateKey,
-                              startDateTime: editedStartDateTime,
-                              endDateTime: editedEndDateTime,
-                              categoryName: editedSelectedCategory?.name ?? '',
-                              categoryColor: editedSelectedCategory?.color ?? '',
-                              reminderTime: editedReminderTime || undefined,
-                              repeatOption: editedRepeatOption,
-                              repeatEndDate: editedRepeatEndDate || undefined,
-                              isContinued: !isFirstDay,
-                            });
-
-                            isFirstDay = false;
-                            currentDate.setDate(currentDate.getDate() + 1);
-                          }
-                        }
-
-                        // Update the event in the database
-                        const { error } = await supabase
-                          .from('events')
-                          .update({
-                            title: editedEventTitle,
-                            description: editedEventDescription,
-                            date: getLocalDateString(editedStartDateTime),
-                            start_datetime: editedStartDateTime.toISOString(),
-                            end_datetime: editedEndDateTime.toISOString(),
-                            category_name: editedSelectedCategory?.name ?? null,
-                            category_color: editedSelectedCategory?.color ?? null,
-                            reminder_time: editedReminderTime?.toISOString() ?? null,
-                            repeat_option: editedRepeatOption,
-                            repeat_end_date: editedRepeatEndDate?.toISOString() ?? null,
-                            custom_dates: editedRepeatOption === 'Custom' ? customSelectedDates : null,
-                          })
-                          .eq('id', selectedEvent.event.id);
-
-                        if (error) {
-                          console.error('Error updating event:', error);
-                          return;
-                        }
-
-                        setEvents(updatedEvents);
-                      }
-                      
-                      setUserChangedEndTime(false);
-                      setShowEditEventModal(false);
-                     }}
+                     onPress={handleSaveEvent}
                      style={{
                        backgroundColor: '#FF9A8B',
                        paddingVertical: 12,
@@ -2056,7 +2059,7 @@ const CalendarScreen: React.FC = () => {
                       alignItems: 'center',
                     },
                     monthText: {
-                      fontSize: 16,
+                      fontSize: 18,
                       fontWeight: '600',
                       marginRight: 4,
                     },
