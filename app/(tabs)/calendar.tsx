@@ -412,6 +412,9 @@ const CalendarScreen: React.FC = () => {
   const [showCustomStartPicker, setShowCustomStartPicker] = useState(false);
   const [showCustomEndPicker, setShowCustomEndPicker] = useState(false);
 
+  const reminderSwipeableRef = useRef<Swipeable>(null);
+  const repeatSwipeableRef = useRef<Swipeable>(null);
+  const endDateSwipeableRef = useRef<Swipeable>(null);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -1350,94 +1353,188 @@ const CalendarScreen: React.FC = () => {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
                           <View style={{ flex: 1, marginRight: 12 }}>
                             <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
-                            <TouchableOpacity
-                              onPress={() => setShowReminderPicker(prev => !prev)}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
+                            <Swipeable
+                              ref={reminderSwipeableRef}
+                              onSwipeableOpen={() => {
+                                setReminderTime(null);
+                                setShowReminderPicker(false);
+                                // Close the swipeable after resetting
+                                setTimeout(() => {
+                                  reminderSwipeableRef.current?.close();
+                                }, 100);
                               }}
-                            >
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={{ 
-                                  fontSize: 13, 
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
+                              renderLeftActions={() => null}
+                              renderRightActions={() => (
+                                <View style={{ 
+                                  width: 80,
+                                  backgroundColor: 'transparent',
+                                  justifyContent: 'center',
+                                  alignItems: 'flex-end',
+                                  paddingRight: 20,
+                                  borderTopLeftRadius: 12,
+                                  borderBottomLeftRadius: 12,
+                             
                                 }}>
-                                  {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set Reminder'}
-                                </Text>
+                                </View>
+                              )}
+                              friction={1}
+                              rightThreshold={20}
+                              overshootLeft={false}
+                              overshootRight={false}
+                              enableTrackpadTwoFingerGesture
+                            >
+                              <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
+                                <TouchableOpacity
+                                  onPress={() => setShowReminderPicker(prev => !prev)}
+                                  style={{
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 12,
+                                    marginTop: 2,
+                                    alignItems: 'center',
+                                    shadowColor: '#000',
+                                    shadowOffset: { width: 0, height: 1 },
+                                    shadowOpacity: 0.05,
+                                    shadowRadius: 2,
+                                    elevation: 1,
+                                  }}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Text style={{ 
+                                      fontSize: (reminderTime || repeatOption !== 'None') ? 11 : 13, 
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      fontWeight: '500'
+                                    }}>
+                                      {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
+                                    </Text>
+                                  </View>
+                                </TouchableOpacity>
                               </View>
-                            </TouchableOpacity>
+                            </Swipeable>
                           </View>
                           <View style={{ flex: 1, marginRight: repeatOption !== 'None' ? 12 : 0 }}>
                             <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
-                            <TouchableOpacity
-                              onPress={() => setShowRepeatPicker(prev => !prev)}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
+                            <Swipeable
+                              ref={repeatSwipeableRef}
+                              onSwipeableOpen={() => {
+                                setRepeatOption('None');
+                                setRepeatEndDate(null);
+                                setShowRepeatPicker(false);
+                                // Close the swipeable after resetting
+                                setTimeout(() => {
+                                  repeatSwipeableRef.current?.close();
+                                }, 100);
                               }}
-                            >
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={{ 
-                                  fontSize: 13, 
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
+                              renderLeftActions={() => null}
+                              renderRightActions={() => (
+                                <View style={{ 
+                                  width: 80,
+                                  backgroundColor: 'transparent',
+                                  justifyContent: 'center',
+                                  alignItems: 'flex-end',
+                                  paddingRight: 20,
+                                  borderTopLeftRadius: 12,
+                                  borderBottomLeftRadius: 12,
+                             
                                 }}>
-                                  {repeatOption !== 'None' ? repeatOption : 'Do Not Repeat'}
-                                </Text>
+                                </View>
+                              )}
+                              friction={1}
+                              rightThreshold={20}
+                              overshootLeft={false}
+                              overshootRight={false}
+                              enableTrackpadTwoFingerGesture
+                            >
+                              <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
+                                <TouchableOpacity
+                                  onPress={() => setShowRepeatPicker(prev => !prev)}
+                                  style={{
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 12,
+                                    marginTop: 2,
+                                    alignItems: 'center',
+                                    shadowColor: '#000',
+                                    shadowOffset: { width: 0, height: 1 },
+                                    shadowOpacity: 0.05,
+                                    shadowRadius: 2,
+                                    elevation: 1,
+                                  }}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Text style={{ 
+                                      fontSize: repeatOption !== 'None' ? 11 : 13, 
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      fontWeight: '500'
+                                    }}>
+                                      {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
+                                    </Text>
+                                  </View>
+                                </TouchableOpacity>
                               </View>
-                            </TouchableOpacity>
+                            </Swipeable>
                           </View>
                           {repeatOption !== 'None' && (
                             <View style={{ flex: 1 }}>
                               <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
-                              <TouchableOpacity
-                                onPress={() => setShowEndDatePicker(prev => !prev)}
-                                style={{
-                                  backgroundColor: '#fafafa',
-                                  borderRadius: 12,
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 12,
-                                  marginTop: 2,
-                                  alignItems: 'center',
-                                  shadowColor: '#000',
-                                  shadowOffset: { width: 0, height: 1 },
-                                  shadowOpacity: 0.05,
-                                  shadowRadius: 2,
-                                  elevation: 1,
+                              <Swipeable
+                                ref={endDateSwipeableRef}
+                                onSwipeableOpen={() => {
+                                  setRepeatEndDate(null);
+                                  setShowEndDatePicker(false);
+                                  // Close the swipeable after resetting
+                                  setTimeout(() => {
+                                    endDateSwipeableRef.current?.close();
+                                  }, 100);
                                 }}
-                              >
-                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                  <Text style={{ 
-                                    fontSize: 13, 
-                                    color: '#3a3a3a',
-                                    fontFamily: 'Onest',
-                                    fontWeight: '500'
+                                renderLeftActions={() => null}
+                                renderRightActions={() => (
+                                  <View style={{ 
+                                    width: 80,
+                                  backgroundColor: 'transparent',
+                                  justifyContent: 'center',
+                                  alignItems: 'flex-end',
+                                  paddingRight: 20,
+                                  borderTopLeftRadius: 12,
+                                  borderBottomLeftRadius: 12,
+                             
                                   }}>
-                                    {repeatEndDate ? repeatEndDate.toLocaleDateString() : 'Set End Date'}
-                                  </Text>
+                                  </View>
+                                )}
+                                friction={1}
+                                rightThreshold={20}
+                                overshootLeft={false}
+                                overshootRight={false}
+                                enableTrackpadTwoFingerGesture
+                              >
+                                <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
+                                  <TouchableOpacity
+                                    onPress={() => setShowEndDatePicker(prev => !prev)}
+                                    style={{
+                                      paddingVertical: 10,
+                                      paddingHorizontal: 12,
+                                      marginTop: 2,
+                                      alignItems: 'center',
+                                      shadowColor: '#000',
+                                      shadowOffset: { width: 0, height: 1 },
+                                      shadowOpacity: 0.05,
+                                      shadowRadius: 2,
+                                      elevation: 1,
+                                    }}
+                                  >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                      <Text style={{ 
+                                        fontSize: repeatEndDate ? 11 : 11, 
+                                        color: '#3a3a3a',
+                                        fontFamily: 'Onest',
+                                        fontWeight: '500'
+                                      }}>
+                                        {repeatEndDate ? repeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Set End Date'}
+                                      </Text>
+                                    </View>
+                                  </TouchableOpacity>
                                 </View>
-                              </TouchableOpacity>
+                              </Swipeable>
                             </View>
                           )}
                         </View>
