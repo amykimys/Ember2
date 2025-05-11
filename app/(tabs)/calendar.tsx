@@ -12,7 +12,8 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   ScrollView,
-  Alert
+  Alert,
+  Pressable
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native';
@@ -208,6 +209,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 16,
     padding: 24,
+    paddingBottom: 4,
   },
   modalTitle: {
     fontSize: 20,
@@ -232,11 +234,9 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
+    justifyContent: 'center',
+    marginTop: 0,
+    paddingTop: 0,
   },
   cancel: {
     fontSize: 15,
@@ -250,8 +250,6 @@ const styles = StyleSheet.create({
     color: '#A0C3B2',
     fontWeight: '600',
     fontFamily: 'Onest',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
   },
   eventText: {
     fontSize: 10,
@@ -1046,10 +1044,18 @@ const CalendarScreen: React.FC = () => {
               <View style={styles.modalContent}>
                 <ScrollView
                   style={{ flexGrow: 0 }}
-                  contentContainerStyle={{ paddingBottom: 40 }}
+                  contentContainerStyle={{ paddingBottom: 20 }}
                   keyboardShouldPersistTaps="handled"
                 >
-                  <Text style={styles.modalTitle}>Add Event</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, marginTop: -8, marginRight: -8 }}>
+                    <Text style={styles.modalTitle}>Add Event</Text>
+                    <TouchableOpacity 
+                      onPress={() => setShowModal(false)}
+                      style={{ padding: 12, marginTop: -8, marginRight: -8 }}
+                    >
+                      <Ionicons name="close" size={20} color="#666" />
+                    </TouchableOpacity>
+                  </View>
                   <TouchableOpacity 
                     onPress={() => {
                       if (repeatOption === 'Custom') {
@@ -1080,6 +1086,232 @@ const CalendarScreen: React.FC = () => {
                         onChangeText={setNewEventDescription}
                         multiline
                       />
+
+                      {/* Category Selection */}
+                      <View style={{ marginBottom: 12 }}>
+                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Category</Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setShowCategoryPicker(prev => !prev);
+                              if (showCategoryPicker) {
+                                setShowAddCategoryForm(false);
+                                setNewCategoryName('');
+                                setNewCategoryColor('#FADADD');
+                              }
+                            }}
+                            style={{
+                              backgroundColor: '#fafafa',
+                              borderRadius: 12,
+                              paddingVertical: 10,
+                              paddingHorizontal: 12,
+                              marginTop: 2,
+                              alignItems: 'center',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 1 },
+                              shadowOpacity: 0.05,
+                              shadowRadius: 2,
+                              elevation: 1,
+                              marginBottom: 15,
+                            }}
+                          >
+                            {!showCategoryPicker ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                {selectedCategory ? (
+                                  <>
+                                    <View style={{ 
+                                      width: 8, 
+                                      height: 8, 
+                                      borderRadius: 4, 
+                                      backgroundColor: selectedCategory.color,
+                                      marginRight: 8
+                                    }} />
+                                    <Text style={{ 
+                                      fontSize: 13, 
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      fontWeight: '500'
+                                    }}>
+                                      {selectedCategory.name}
+                                    </Text>
+                                  </>
+                                ) : (
+                                  <Text style={{ 
+                                    fontSize: 13, 
+                                    color: '#3a3a3a',
+                                    fontFamily: 'Onest',
+                                    fontWeight: '500'
+                                  }}>
+                                    Set Category
+                                  </Text>
+                                )}
+                              </View>
+                            ) : (
+                              <View style={{ 
+                                flexDirection: 'row', 
+                                flexWrap: 'wrap', 
+                                justifyContent: 'center',
+                                gap: 8,
+                                width: '100%',
+                              }}>
+                                {categories.map((cat, idx) => (
+                                  <Pressable
+                                    key={idx}
+                                    onPress={() => {
+                                      setSelectedCategory(cat);
+                                      setShowCategoryPicker(false);
+                                      setShowAddCategoryForm(false);
+                                    }}
+                                    style={({ pressed }) => ({
+                                      backgroundColor: '#fafafa',
+                                      paddingVertical: 5,
+                                      paddingHorizontal: 8,
+                                      borderRadius: 9,
+                                      borderWidth: (pressed || selectedCategory?.name === cat.name) ? 1 : 0,
+                                      borderColor: cat.color,
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                    })}
+                                  >
+                                    <View style={{ 
+                                      width: 6, 
+                                      height: 6, 
+                                      borderRadius: 3, 
+                                      backgroundColor: cat.color,
+                                    }} />
+                                    <Text style={{ 
+                                      color: '#3a3a3a', 
+                                      fontSize: 12, 
+                                      fontFamily: 'Onest',
+                                      fontWeight: selectedCategory?.name === cat.name ? '600' : '500'
+                                    }}>
+                                      {cat.name}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+                                <TouchableOpacity
+                                  onPress={() => setShowAddCategoryForm(true)}
+                                  style={{
+                                    backgroundColor: '#fafafa',
+                                    paddingVertical: 5,
+                                    paddingHorizontal: 8,
+                                    borderRadius: 9,
+                                    borderWidth: 0,
+                                    borderColor: '#eee',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                  }}
+                                >
+                                  <Ionicons name="add" size={14} color="#666" />
+                                </TouchableOpacity>
+
+                                {showAddCategoryForm && (
+                                  <View style={{
+                                    backgroundColor: '#fafafa',
+                                    padding: 2,
+                                    borderRadius: 12,
+                                    marginTop: 8,
+                                    width: '100%',
+                                  }}>
+                                    <Text style={{
+                                      fontSize: 13,
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      marginBottom: 8,
+                                    }}>
+                                      New Category
+                                    </Text>
+                                    <TextInput
+                                      style={{
+                                        backgroundColor: 'white',
+                                        padding: 10,
+                                        borderRadius: 8,
+                                        marginBottom: 9,
+                                        fontSize: 13,
+                                        marginTop: 4,
+                                        fontFamily: 'Onest',
+                                      }}
+                                      placeholder="Category name"
+                                      value={newCategoryName}
+                                      onChangeText={setNewCategoryName}
+                                    />
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <TouchableOpacity
+                                        onPress={() => {
+                                          setShowAddCategoryForm(false);
+                                          setNewCategoryName('');
+                                        }}
+                                        style={{
+                                          paddingVertical: 8,
+                                          paddingHorizontal: 6,
+                                        }}
+                                      >
+                                        <Text style={{
+                                          color: '#666',
+                                          fontSize: 12,
+                                          fontFamily: 'Onest',
+                                        }}>
+                                          Cancel
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        onPress={async () => {
+                                          if (newCategoryName.trim()) {
+                                            const { data, error } = await supabase
+                                              .from('categories')
+                                              .insert([
+                                                {
+                                                  label: newCategoryName.trim(),
+                                                  color: newCategoryColor,
+                                                  user_id: user?.id,
+                                                }
+                                              ])
+                                              .select();
+
+                                            if (error) {
+                                              console.error('Error creating category:', error);
+                                              return;
+                                            }
+
+                                            if (data) {
+                                              const newCategory = {
+                                                id: data[0].id,
+                                                name: data[0].label,
+                                                color: data[0].color,
+                                              };
+                                              setCategories(prev => [...prev, newCategory]);
+                                              setSelectedCategory(newCategory);
+                                              setShowAddCategoryForm(false);
+                                              setNewCategoryName('');
+                                            }
+                                          }
+                                        }}
+                                        style={{
+                                          backgroundColor: '#FF9A8B',
+                                          paddingVertical: 6,
+                                          paddingHorizontal: 12,
+                                          borderRadius: 8,
+                                        }}
+                                      >
+                                        <Text style={{
+                                          color: 'white',
+                                          fontSize: 12,
+                                          fontFamily: 'Onest',
+                                          fontWeight: '600',
+                                        }}>
+                                          Add
+                                        </Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                          </TouchableOpacity>
+
+                          {/* Remove the separate category picker view since we're showing it inline now */}
+                        </View>
 
                       {/* 🕓 Starts & Ends in one row */}
                       <View style={{ flex: 1, marginBottom: 20 }}>
@@ -1150,130 +1382,15 @@ const CalendarScreen: React.FC = () => {
                                   hour12: true 
                                 }).replace(',', ' ·')}
                               </Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
 
-                        {/* Category Selection */}
-                        <View style={{ marginBottom: 12 }}>
-                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Category</Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setShowCategoryPicker(prev => !prev);
-                              if (showCategoryPicker) {
-                                setShowAddCategoryForm(false);
-                                setNewCategoryName('');
-                                setNewCategoryColor('#FADADD');
-                              }
-                            }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
-                          >
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              {selectedCategory ? (
-                                <>
-                                  <View style={{ 
-                                    width: 12, 
-                                    height: 12, 
-                                    borderRadius: 6, 
-                                    backgroundColor: selectedCategory.color,
-                                    marginRight: 8
-                                  }} />
-                                  <Text style={{ 
-                                    fontSize: 13, 
-                                    color: '#3a3a3a',
-                                    fontFamily: 'Onest',
-                                    fontWeight: '500'
-                                  }}>
-                                    {selectedCategory.name}
-                                  </Text>
-                                </>
-                              ) : (
-                                <Text style={{ 
-                                  fontSize: 13, 
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
-                                  Set Category
-                                </Text>
-                              )}
-                            </View>
-                          </TouchableOpacity>
-
-                          {showCategoryPicker && (
-                            <Animated.View style={{ 
-                              flexDirection: 'row', 
-                              flexWrap: 'wrap', 
-                              marginTop: 12,
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              padding: 12,
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}>
-                              {categories.map((cat, idx) => (
-                                <TouchableOpacity
-                                  key={idx}
-                                  onPress={() => {
-                                    setSelectedCategory(cat);
-                                    setShowCategoryPicker(false);
-                                    setShowAddCategoryForm(false);
-                                  }}
-                                  style={{
-                                    backgroundColor: cat.color,
-                                    paddingVertical: 6,
-                                    paddingHorizontal: 12,
-                                    borderRadius: 20,
-                                    marginRight: 8,
-                                    marginBottom: 8,
-                                    marginTop: 1,
-                                    borderWidth: selectedCategory?.name === cat.name ? 1.4 : 0,
-                                    borderColor: selectedCategory?.name === cat.name ? '#333' : 'transparent',
-                                  }}
-                                >
-                                  <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{cat.name}</Text>
-                                </TouchableOpacity>
-                              ))}
-                              <TouchableOpacity
-                                onPress={() => setShowAddCategoryForm(true)}
-                                style={{
-                                  backgroundColor: '#ccc',
-                                  paddingVertical: 5,
-                                  paddingHorizontal: 12,
-                                  borderRadius: 20,
-                                  marginBottom: 8,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                }}
-                              >
-                                <Ionicons name="add" size={16} color="#333" />
-                              </TouchableOpacity>
-                            </Animated.View>
-                          )}
-                        </View>
-
-                        {showStartPicker && (
+                              {showStartPicker && (
                           <Animated.View style={[styles.dateTimePickerContainer, {
                             backgroundColor: '#fafafa',
                             borderRadius: 16,
                             paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 12,
+                            paddingHorizontal: 12,
+                            marginRight: 175,
+                            marginTop: 9,
                             marginBottom: 4,
                             shadowColor: '#000',
                             shadowOffset: { width: 0, height: 1 },
@@ -1302,8 +1419,9 @@ const CalendarScreen: React.FC = () => {
                               style={{
                                 height: 180,
                                 width: '100%',
+                                marginLeft: 10,
                               }}
-                              textColor="#333"
+                              textColor="#3a3a3a"
                             />
                           </Animated.View>
                         )}
@@ -1313,8 +1431,9 @@ const CalendarScreen: React.FC = () => {
                             backgroundColor: '#fafafa',
                             borderRadius: 16,
                             paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 12,
+                            paddingHorizontal: 12,
+                            marginRight: 175,
+                            marginTop: 9,
                             marginBottom: 4,
                             shadowColor: '#000',
                             shadowOffset: { width: 0, height: 1 },
@@ -1336,16 +1455,22 @@ const CalendarScreen: React.FC = () => {
                                   setTimeout(() => {
                                     setShowEndPicker(false);
                                   }, 2000);
-                                }
+                                } 
                               }}
                               style={{
                                 height: 180,
                                 width: '100%',
+                                marginLeft: 10,
                               }}
-                              textColor="#333"
+                              textColor="#3a3a3a"
                             />
                           </Animated.View>
                         )}
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+
+                        
                       </View>
 
                       {/* 🕑 Set Reminder, Repeat, and End Date in one row */}
@@ -1677,7 +1802,7 @@ const CalendarScreen: React.FC = () => {
                           }}
                           style={styles.inlineSettingRow}
                         >
-                          <Text style={[styles.inlineSettingText, { color: editedSelectedCategory ? editedSelectedCategory.color : '#000' }]}>
+                          <Text style={[styles.inlineSettingText, { color: editedSelectedCategory ? editedSelectedCategory.color : '#3a3a3a' }]}>
                             {editedSelectedCategory ? editedSelectedCategory.name : 'Set Category'}
                           </Text>
 
@@ -1691,14 +1816,14 @@ const CalendarScreen: React.FC = () => {
                         {showCategoryPicker && (
                           <Animated.View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
                             {categories.map((cat, idx) => (
-                              <TouchableOpacity
+                              <Pressable
                                 key={idx}
                                 onPress={() => {
                                   setEditedSelectedCategory(cat);
                                   setShowCategoryPicker(false);
                                   setShowAddCategoryForm(false); // Add this line
                                 }}
-                                style={{
+                                style={({ pressed }) => ({
                                   backgroundColor: cat.color,
                                   paddingVertical: 6,
                                   paddingHorizontal: 12,
@@ -1707,11 +1832,11 @@ const CalendarScreen: React.FC = () => {
                                   marginBottom: 8,
                                   marginTop: 1,
                                   borderWidth: editedSelectedCategory?.name === cat.name && editedSelectedCategory?.color === cat.color ? 1.4 : 0,
-                                  borderColor: editedSelectedCategory?.name === cat.name && editedSelectedCategory?.color === cat.color ? '#333' : 'transparent',
-                                }}
+                                  borderColor: editedSelectedCategory?.name === cat.name && editedSelectedCategory?.color === cat.color ? '#3a3a3a' : 'transparent',
+                                })}
                               >
-                                <Text style={{ color: 'white', fontSize: 12, fontWeight: '600' }}>{cat.name}</Text>
-                              </TouchableOpacity>
+                                <Text style={{ color: 'white', fontSize: 9, fontWeight: '600' }}>{cat.name}</Text>
+                              </Pressable>
                             ))}
                             <TouchableOpacity
                               onPress={() => setShowAddCategoryForm(true)}
@@ -1751,10 +1876,7 @@ const CalendarScreen: React.FC = () => {
                     </>
                   )}
 
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity onPress={() => setShowEditEventModal(false)}>
-                      <Text style={styles.cancel}>Cancel</Text>
-                    </TouchableOpacity>
+                  <View style={[styles.modalActions, { justifyContent: 'center' }]}>
                     <TouchableOpacity
                      onPress={async () => {
                       if (selectedEvent) {
@@ -1847,8 +1969,23 @@ const CalendarScreen: React.FC = () => {
                       setUserChangedEndTime(false);
                       setShowEditEventModal(false);
                      }}
+                     style={{
+                       backgroundColor: '#FF9A8B',
+                       paddingVertical: 12,
+                       paddingHorizontal: 24,
+                       borderRadius: 12,
+                       alignItems: 'center',
+                       width: '100%',
+                     }}
                     >
-                      <Text style={styles.save}>Save</Text>
+                      <Text style={{ 
+                        color: 'white', 
+                        fontSize: 16, 
+                        fontFamily: 'Onest',
+                        fontWeight: '600' 
+                      }}>
+                        Save
+                      </Text>
                     </TouchableOpacity>
                   </View>
                   </ScrollView>
