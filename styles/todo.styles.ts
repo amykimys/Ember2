@@ -19,26 +19,7 @@ const styles = StyleSheet.create({
       marginBottom: 40,
       marginTop: 20,
     },
-    title: {
-      fontSize: 25,
-      fontWeight: 'bold',
-      color: '#1a1a1a',
-      fontFamily: 'Onest',
-    },
-    dateText: {
-      fontSize: 26,
-      color: '#666',
-      fontWeight: 'bold',
-      letterSpacing: 1.2,
-      fontFamily: 'Onest',
-    },
-    relativeDayText: {
-      fontSize: 16,
-      color: '#007AFF',
-      fontWeight: 'normal',
-      marginTop: 5,
-      fontFamily: 'Onest',
-    },
+
     todoList: {
       flex: 1,
       paddingTop: 0, 
@@ -51,7 +32,7 @@ const styles = StyleSheet.create({
       minHeight: 300,
     },
     emptyStateTitle: {
-      fontSize: 24,
+      fontSize: 20,
       fontWeight: 'bold',
       color: '#1a1a1a',
       marginBottom: 8,
@@ -59,7 +40,7 @@ const styles = StyleSheet.create({
       fontFamily: 'Onest',
     },
     emptyStateSubtitle: {
-      fontSize: 18,
+      fontSize: 17,
       color: '#666',
       fontFamily: 'Onest',
     },
@@ -149,20 +130,7 @@ const styles = StyleSheet.create({
     keyboardAvoidingView: {
       flex: 1,
     },
-    optionButton: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      padding: 12,
-      backgroundColor: '#F5F5F5',
-      borderRadius: 8,
-      marginBottom: 16,
-    },
-    optionText: {
-      fontSize: 16,
-      color: '#666',
-      fontFamily: 'Onest',
-    },
+    
     modalOverlay: {
       flex: 1,
       backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -190,76 +158,6 @@ const styles = StyleSheet.create({
       fontFamily: 'Onest',
     },
    
-    customRepeatContainer: {
-      marginTop: 16,
-      gap: 16,
-    },
-    customRepeatInputContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-    },
-    everyText: {
-      fontSize: 16,
-      color: '#1a1a1a',
-      fontFamily: 'Onest',
-    },
-    customRepeatInput: {
-      width: 60,
-      fontSize: 16,
-      color: '#1a1a1a',
-      padding: 8,
-      backgroundColor: '#F5F5F5',
-      borderRadius: 8,
-      textAlign: 'center',
-    },
-    unitSelector: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      borderWidth: 1,
-      borderColor: '#ddd',
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-    },
-    unitSelectorText: {
-      fontSize: 16,
-      color: '#1a1a1a',
-      fontFamily: 'Onest',
-    },
-    weekDaysContainer: {
-      gap: 12,
-    },
-    weekDaysTitle: {
-      fontSize: 14,
-      color: '#1a1a1a',
-      fontFamily: 'Onest',
-    },
-    weekDayButtons: {
-      flexDirection: 'row',
-      gap: 8,
-    },
-    weekDayButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: '#F5F5F5',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    selectedWeekDayButton: {
-      backgroundColor: '#FFB6B9',
-    },
-    weekDayButtonText: {
-      fontSize: 14,
-      color: '#1a1a1a',
-      fontFamily: 'Onest',
-    },
-    selectedWeekDayButtonText: {
-      color: '#fff',
-      fontFamily: 'Onest',
-    },
-    
     rightAction: {
       backgroundColor: '#FF3B30',
       justifyContent: 'center',

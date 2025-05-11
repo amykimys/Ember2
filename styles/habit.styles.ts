@@ -16,10 +16,9 @@ const styles = StyleSheet.create({
       padding: 4,
     },
     title: {
-      fontSize: 23,
+      fontSize: 25,
       fontWeight: 'bold',
       color: '#1a1a1a',
-      fontFamily: 'Manrope',
     },
     habitList: {
       flex: 1,
@@ -32,16 +31,17 @@ const styles = StyleSheet.create({
       minHeight: 300,
     },
     emptyStateTitle: {
-      fontSize: 24,
-      fontWeight: 'bold',
-      color: '#1a1a1a',
-      marginBottom: 8,
-      marginTop: 170,
+      fontSize: 20,
+      fontWeight: '700',
+      color: '#3A3A3A',
+      textAlign: 'center',
     },
     emptyStateSubtitle: {
       fontSize: 18,
       color: '#666',
+      textAlign: 'center',
     },
+
     habitItem: {
       padding: 15,
       borderRadius: 10,
@@ -88,6 +88,12 @@ const styles = StyleSheet.create({
     monthText: {
       fontSize: 18,
       fontWeight: '600',
+      color: '#1a1a1a',
+      width: 90,
+    },
+    progressMonthText: {
+      fontSize: 14,
+      fontWeight: '700',
       color: '#1a1a1a',
       width: 90,
     },

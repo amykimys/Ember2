@@ -241,11 +241,6 @@ export default function TodoScreen() {
     }
   }, [isNewTaskModalVisible]);
 
-  const handleContentLayout = (event: any) => {
-    const { height } = event.nativeEvent.layout;
-    setContentHeight(height);
-  };
-
   const resetForm = () => {
     setNewTodo('');
     setNewDescription('');
@@ -307,84 +302,6 @@ export default function TodoScreen() {
       alert('Permission for notifications not granted!');
     }
   }
-
-  const renderCustomRepeatSection = () => (
-    <View style={styles.customRepeatContainer}>
-      <View style={styles.customRepeatInputContainer}>
-        <Text style={[styles.everyText, { fontFamily: 'Onest' }]}>Every</Text>
-        
-        <TextInput
-          style={[styles.customRepeatInput, { fontFamily: 'Onest' }]}
-          value={customRepeatFrequency}
-          onChangeText={(text) => {
-            const number = text.replace(/[^0-9]/g, '');
-            if (number === '' || parseInt(number, 10) > 0) {
-              setCustomRepeatFrequency(number);
-            }
-          }}
-          keyboardType="numeric"
-          placeholder="1"
-          placeholderTextColor="#A3A3A3"
-        />
-        
-        <Menu
-          visible={unitMenuVisible}
-          onDismiss={() => setUnitMenuVisible(false)}
-          anchor={
-            <TouchableOpacity
-              style={styles.unitSelector}
-              onPress={() => setUnitMenuVisible(true)}
-            >
-              <Text style={[styles.unitSelectorText, { fontFamily: 'Onest' }]}>
-                {REPEAT_UNITS.find((unit) => unit.value === customRepeatUnit)?.label}
-              </Text>
-              <Ionicons name="chevron-down" size={20} color="#666" />
-            </TouchableOpacity>
-          }
-        >
-          {REPEAT_UNITS.map((unit) => (
-            <Menu.Item
-              key={unit.value}
-              onPress={() => {
-                setCustomRepeatUnit(unit.value);
-                setUnitMenuVisible(false);   // close after selecting ✅
-              }}
-              title={unit.label}
-            />
-          ))}
-        </Menu>
-      </View>
-  
-      {customRepeatUnit === 'weeks' && (
-        <View style={styles.weekDaysContainer}>
-          <Text style={[styles.weekDaysTitle, { fontFamily: 'Onest' }]}>Repeat on</Text>
-          <View style={styles.weekDayButtons}>
-            {WEEK_DAYS.map((day) => (
-              <TouchableOpacity
-                key={day.value}
-                style={[
-                  styles.weekDayButton,
-                  selectedWeekDays.includes(day.value) && styles.selectedWeekDayButton,
-                ]}
-                onPress={() => toggleWeekDay(day.value)}
-              >
-                <Text
-                  style={[
-                    styles.weekDayButtonText,
-                    selectedWeekDays.includes(day.value) && styles.selectedWeekDayButtonText,
-                    { fontFamily: 'Onest' },
-                  ]}
-                >
-                  {day.shortLabel}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      )}
-    </View>
-  );
-  
 
   const checkCategories = async () => {
     try {
@@ -627,8 +544,6 @@ export default function TodoScreen() {
     }
   };
   
-  
-
   const handleEditSave = async () => {
     if (editingTodo && newTodo.trim()) {
       const updatedTodo = {
@@ -761,42 +676,6 @@ export default function TodoScreen() {
       [categoryId]: !prev[categoryId]
     }));
   };
-
-  const formatDateHeader = (date: Date) => {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-  
-    const fullDate = date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    });
-  
-    let relativeDay = '';
-    if (isSameDay(date, today)) {
-      relativeDay = 'Today';
-    } else if (isSameDay(date, tomorrow)) {
-      relativeDay = 'Tomorrow';
-    } else if (isSameDay(date, yesterday)) {
-      relativeDay = 'Yesterday';
-    }
-  
-    return (
-      <View style={{ alignItems: 'center' }}>
-        <Text style={[styles.dateText, { fontFamily: 'Onest' }]}>
-          {fullDate}
-        </Text>
-        {relativeDay !== '' && (
-          <Text style={[styles.relativeDayText, { fontFamily: 'Onest' }]}>
-            {relativeDay}
-          </Text>
-        )}
-      </View>
-    );
-  };
   
   const isSameDay = (date1: Date, date2: Date) => {
     return (
@@ -842,18 +721,6 @@ export default function TodoScreen() {
     setTimeout(() => {
       calendarStripRef.current?.scrollToIndex({ index: 30, animated: true });
     }, 50);
-  };
-
-  const goToNextDay = () => {
-    const nextDate = new Date(currentDate);
-    nextDate.setDate(nextDate.getDate() + 1);
-    setCurrentDate(nextDate);
-  };
-  
-  const goToPreviousDay = () => {
-    const prevDate = new Date(currentDate);
-    prevDate.setDate(prevDate.getDate() - 1);
-    setCurrentDate(prevDate);
   };
 
   const renderTodoItem = (todo: Todo) => {
@@ -1335,22 +1202,6 @@ export default function TodoScreen() {
       calendarStripRef.current?.scrollToIndex({ index: 30, animated: false }); // <- Center on today
     }, 100); // Delay until strip is rendered
   }, []);
-  
-
-  // Add this function after your existing functions
-  const formatCalendarDate = (date: Date) => {
-    const day = date.getDate();
-    const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-    return { day, dayName };
-  };
-
-  // callbacks
-  const handleSheetChanges = useCallback((index: number) => {
-    console.log('handleSheetChanges', index);
-    if (index === -1) {
-      resetForm();
-    }
-  }, []);
 
   // Add debounce function
   const debounce = (func: () => void, wait: number) => {
@@ -1427,12 +1278,6 @@ export default function TodoScreen() {
 
   const handleReminderCancel = useCallback(() => {
     setShowReminderPicker(false);
-  }, []);
-
-  // Add repeat option handlers
-  const handleRepeatPress = useCallback(() => {
-    console.log('Opening repeat options');
-    setShowRepeatOptions(true);
   }, []);
 
   // Add this function to handle sign out
@@ -1514,24 +1359,6 @@ export default function TodoScreen() {
     return week;
   };
 
-  // Function to handle week navigation
-  const navigateWeek = (direction: 'prev' | 'next') => {
-    const newIndex = direction === 'prev' ? currentWeekIndex - 1 : currentWeekIndex + 1;
-    const newStartDate = new Date(currentWeek[0]);
-    newStartDate.setDate(newStartDate.getDate() + (direction === 'prev' ? -7 : 7));
-    const newWeek = generateWeekDates(newStartDate);
-    setCurrentWeek(newWeek);
-    setCurrentWeekIndex(newIndex);
-    setCurrentDate(newWeek[0]); // Update current date to the first day of the new week
-  };
-
-  // Function to handle day navigation
-  const navigateDay = (direction: 'prev' | 'next') => {
-    const newDate = new Date(currentDate);
-    newDate.setDate(newDate.getDate() + (direction === 'prev' ? -1 : 1));
-    setCurrentDate(newDate);
-  };
-
   const onHandlerStateChange = (event: any) => {
     if (event.nativeEvent.translationY > 50) {
       setIsMonthView(true);
@@ -1549,7 +1376,6 @@ export default function TodoScreen() {
     });
   };
   
-
   const hideModal = () => {
     Animated.timing(modalAnimation, {
       toValue: 0,
@@ -1575,8 +1401,6 @@ export default function TodoScreen() {
   }, [showRepeatEndDatePicker]);
   
   
-
-
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
@@ -1657,9 +1481,22 @@ export default function TodoScreen() {
             {/* TASK LIST */}
             <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
               {todayTodos.length === 0 ? (
-                <View style={styles.emptyState}>
-                  <Text style={styles.emptyStateTitle}>no tasks!</Text>
-                  <Text style={styles.emptyStateSubtitle}>Take a breather :)</Text>
+                <View style={[styles.emptyState, { 
+                  flex: 1, 
+                  justifyContent: 'center', 
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
+                  marginTop: 50
+                }]}>
+                  <Text style={[styles.emptyStateTitle, { 
+                    textAlign: 'center',
+                    width: '100%',
+                    fontWeight: '700'
+                  }]}>no tasks!</Text>
+                  <Text style={[styles.emptyStateSubtitle, { 
+                    textAlign: 'center',
+                    width: '100%'
+                  }]}>Take a breather :)</Text>
                 </View>
               ) : (
                 <>
@@ -2044,7 +1881,7 @@ export default function TodoScreen() {
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
               paddingHorizontal: 20,
-              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '70%' : '65%',
+              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '75%' : '68%',
               width: '100%'
             }]}>
 
@@ -2075,7 +1912,7 @@ export default function TodoScreen() {
                   width: '100%',
                   backgroundColor: 'white',
                   paddingTop: 10,
-                  marginBottom: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? -40 : 0,
+                  marginBottom: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? 40 : 0,
                 }}>
                   <MonthlyCalendar
                     selectedDate={taskDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0]}
@@ -2550,8 +2387,8 @@ export default function TodoScreen() {
                   <TouchableOpacity
                     activeOpacity={1}
                     onPress={() => {
-                      handleEndDateConfirm(); // ✅ Save the selected date
-                      setShowRepeatEndDatePicker(false); // ✅ Close the modal
+                      handleEndDateConfirm();
+                      setShowRepeatEndDatePicker(false);
                     }}
                     style={{
                       flex: 1,
@@ -2564,9 +2401,9 @@ export default function TodoScreen() {
                       style={{
                         backgroundColor: '#fff',
                         paddingTop: 16,
-                        paddingBottom: 24,
-                        borderTopLeftRadius: 16,
-                        borderTopRightRadius: 16,
+                        paddingBottom: 28,
+                        borderTopLeftRadius: 20,
+                        borderTopRightRadius: 20,
                         shadowColor: '#3A3A3A',
                         shadowOffset: { width: 0, height: -2 },
                         shadowOpacity: 0.1,
@@ -2575,18 +2412,114 @@ export default function TodoScreen() {
                       }}
                       onPress={() => {}} // Prevent closing when tapping inside
                     >
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
-                        <Picker selectedValue={selectedYear} onValueChange={setSelectedYear} style={{ flex: 1 }}>
-                          {years.map((y) => <Picker.Item key={y} label={y} value={y} />)}
+                      <Text style={{ 
+                        fontSize: 20, 
+                        fontWeight: '700', 
+                        color: '#1a1a1a', 
+                        marginBottom: 10,
+                        marginLeft: 22,
+                        fontFamily: 'Onest'
+                      }}>
+                        Pick End Date
+                      </Text>
+
+                      <View style={{ 
+                        flexDirection: 'row', 
+                        justifyContent: 'space-around',
+                        paddingHorizontal: 20,
+                        marginBottom: 8
+                      }}>
+                        <Picker selectedValue={selectedYear} 
+                          style={{ 
+                            flex: 1,
+                            height: 120,
+                          }}
+                          itemStyle={{
+                            height: 120,
+                            fontSize: 24,
+                            fontFamily: 'Onest',
+                            color: '#1a1a1a'
+                          }}
+                          onValueChange={setSelectedYear}>
+                          {years.map((y) => (
+                            <Picker.Item 
+                              key={y} 
+                              label={y.slice(-2)} 
+                              value={y} 
+                            />
+                          ))}
                         </Picker>
-                        <Picker selectedValue={selectedMonth} onValueChange={setSelectedMonth} style={{ flex: 1 }}>
+
+                        <Text style={{
+                          fontSize: 35,
+                          color: '#1a1a1a',
+                          fontFamily: 'Onest',
+                          marginHorizontal: 10,
+                          marginTop: 34
+                        }}>/</Text>
+
+                        <Picker selectedValue={selectedMonth} 
+                          style={{ 
+                            flex: 1,
+                            height: 120,
+                          }}
+                          itemStyle={{
+                            height: 120,
+                            fontSize: 24,
+                            fontFamily: 'Onest',
+                            color: '#1a1a1a'
+                          }}
+                          onValueChange={setSelectedMonth}>
                           {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
                         </Picker>
-                        <Picker selectedValue={selectedDay} onValueChange={setSelectedDay} style={{ flex: 1 }}>
+
+                        <Text style={{
+                          fontSize: 35,
+                          color: '#1a1a1a',
+                          fontFamily: 'Onest',
+                          marginHorizontal: 10,
+                          marginTop: 34
+                        }}>/</Text>
+
+                        <Picker selectedValue={selectedDay} 
+                          style={{ 
+                            flex: 1,
+                            height: 120,
+                          }}
+                          itemStyle={{
+                            height: 120,
+                            fontSize: 24,
+                            fontFamily: 'Onest',
+                            color: '#1a1a1a'
+                          }}
+                          onValueChange={setSelectedDay}>
                           {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
                         </Picker>
                       </View>
 
+                      <TouchableOpacity
+                        onPress={() => {
+                          handleEndDateConfirm();
+                          setShowRepeatEndDatePicker(false);
+                        }}
+                        style={{
+                          backgroundColor: '#FF9A8B',
+                          marginHorizontal: 20,
+                          paddingVertical: 12,
+                          borderRadius: 12,
+                          alignItems: 'center',
+                          marginTop: 4,
+                        }}
+                      >
+                        <Text style={{ 
+                          color: 'white', 
+                          fontSize: 16, 
+                          fontWeight: '600',
+                          fontFamily: 'Onest',
+                        }}>
+                          Set Date
+                        </Text>
+                      </TouchableOpacity>
                     </TouchableOpacity>
                   </TouchableOpacity>
                 </Modal>
@@ -2757,7 +2690,7 @@ export default function TodoScreen() {
                   }
                 }}
                 style={{
-                  backgroundColor:'#FFB6B9',
+                  backgroundColor:'#FF9A8B',
                   padding: 12,
                   borderRadius: 12,
                   alignItems: 'center',

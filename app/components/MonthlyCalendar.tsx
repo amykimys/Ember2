@@ -43,11 +43,20 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
               color: '#1a1a1a',
               marginBottom: 15,
               fontFamily: 'Onest',
+              textAlign: 'center',
+              width: '100%',
             },
             arrow: {
               color: '#FF9A8B',
               marginHorizontal: 60,
               marginBottom: 15,
+            },
+            header: {
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+              paddingLeft: 10,
+              paddingRight: 10,
             },
           },
           'stylesheet.day.basic': {
