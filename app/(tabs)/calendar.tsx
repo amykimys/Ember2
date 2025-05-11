@@ -853,123 +853,114 @@ const CalendarScreen: React.FC = () => {
                   ]}
                 >
                   {date && (
-                    <View style={{ flex: 1 }}>
-                      {/* Date Section - Fixed Height */}
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (date) {
-                            setSelectedDate(date);
-                            setIsMonthCompact(prev => !prev);
-                          }
-                        }}
-                        style={{ 
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (date) {
+                          setSelectedDate(date);
+                          resetEventForm();
+                          setStartDateTime(date);
+                          setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000)); // Set end time to 1 hour later
+                          setShowModal(true);
+                        }
+                      }}
+                      style={{ flex: 1 }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        {/* Date Section - Fixed Height */}
+                        <View style={{ 
                           height: 24,
                           alignItems: 'center', 
                           justifyContent: 'center',
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.dateNumber,
-                            !date && styles.invisibleText,
-                            isSelected(date) && styles.selectedText,
-                            isToday(date) && styles.todayText,
-                            date.getMonth() !== month && styles.adjacentMonthDate,
-                          ]}
-                        >
-                          {(() => {
-                            const totalGridSlots = days.length;
-                            const isLastCell = i === days.length - 1;
-                            const isSixthRow = totalGridSlots > 35;
-                            const currentDate = date?.getDate();
-                            const nextDate = days[i + 1]?.getDate();
-                            if (isSixthRow && isLastCell && currentDate && nextDate) {
-                              return `${currentDate}/${nextDate}`;
-                            }
-                            return currentDate;
-                          })()}
-                        </Text>
-                      </TouchableOpacity>
-
-                      {/* Events Section - Below Date */}
-                      {hasEvents && (
-                        <View style={{ 
-                          flexDirection: 'column', 
-                          justifyContent: 'flex-start', 
-                          alignItems: 'center',
-                          marginTop: 2,
-                          width: '100%',
-                          paddingHorizontal: 2,
-                          minHeight: 0,
-                          flex: 1
                         }}>
-                          {dayEvents.slice(0, 3).map((event, eventIndex) => (
-                            <View
-                              key={`${event.id}-${eventIndex}`}
-                              style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                marginBottom: 2,
-                                width: '90%',
-                                justifyContent: 'center'
-                              }}
-                            >
-                              <View
-                                style={{
-                                  width: 5,
-                                  height: 5,
-                                  borderRadius: 3,
-                                  backgroundColor: event.categoryColor || '#FF9A8B',
-                                  marginRight: 4,
-                                }}
-                              />
-                              <Text
-                                numberOfLines={1}
-                                style={{
-                                  fontSize: 11,
-                                  color: '#3A3A3A',
-                                  flex: 1,
-                                  fontFamily: 'Onest',
-                                  textAlign: 'left'
-                                }}
-                              >
-                                {event.title}
-                              </Text>
-                            </View>
-                          ))}
-                          {dayEvents.length > 3 && (
-                            <View
-                              style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                width: '90%'
-                              }}
-                            >
-                              <View
-                                style={{
-                                  width: 5,
-                                  height: 5,
-                                  borderRadius: 3,
-                                  backgroundColor: '#999',
-                                  marginRight: 4,
-                                }}
-                              />
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  color: '#999',
-                                  fontFamily: 'Onest',
-                                  textAlign: 'left'
-                                }}
-                              >
-                                +{dayEvents.length - 3} more
-                              </Text>
-                            </View>
-                          )}
+                          <View style={{ 
+                            height: 25,
+                            width: 25,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            backgroundColor: isSelected(date) ? '#A0C3B2' : (isToday(date) ? '#FAF9F6' : 'transparent'),
+                            borderRadius: 12.5,
+                            marginVertical: 2
+                          }}>
+                            <Text style={{ 
+                              fontSize: 15,
+                              color: isSelected(date) ? '#FFFFFF' : (isToday(date) ? '#A0C3B2' : '#3A3A3A'),
+                              fontWeight: isSelected(date) || isToday(date) ? '400' : '400',
+                              fontFamily: 'Onest',
+                              textAlign: 'center'
+                            }}>
+                              {date ? date.getDate() : ''}
+                            </Text>
+                          </View>
                         </View>
-                      )}
-                    </View>
+
+                        {/* Events Section - Below Date */}
+                        {hasEvents && (
+                          <View style={{ 
+                            flexDirection: 'column', 
+                            justifyContent: 'flex-start', 
+                            alignItems: 'center',
+                            marginTop: 2,
+                            width: '100%',
+                            paddingHorizontal: 2,
+                            minHeight: 0,
+                            flex: 1,
+                            gap: 2
+                          }}>
+                            {dayEvents.slice(0, 3).map((event, eventIndex) => (
+                              <View
+                                key={`${event.id}-${eventIndex}`}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  width: '100%',
+                                  backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
+                                  borderRadius: 4,
+                                  paddingVertical: 2,
+                                  paddingHorizontal: 4,
+                                }}
+                              >
+                                <Text
+                                  numberOfLines={1}
+                                  style={{
+                                    fontSize: 11,
+                                    color: '#3A3A3A',
+                                    flex: 1,
+                                    fontFamily: 'Onest',
+                                    textAlign: 'left'
+                                  }}
+                                >
+                                  {event.title}
+                                </Text>
+                              </View>
+                            ))}
+                            {dayEvents.length > 3 && (
+                              <View
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  width: '90%',
+                                  backgroundColor: '#F5F5F5',
+                                  borderRadius: 4,
+                                  paddingVertical: 2,
+                                  paddingHorizontal: 4,
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 11,
+                                    color: '#999',
+                                    fontFamily: 'Onest',
+                                    textAlign: 'left'
+                                  }}
+                                >
+                                  +{dayEvents.length - 3} more
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
                   )}
                 </View>
               );
@@ -1402,8 +1393,6 @@ const CalendarScreen: React.FC = () => {
                               </View>
                             )}
                           </TouchableOpacity>
-
-                          {/* Remove the separate category picker view since we're showing it inline now */}
                         </View>
 
                       {/* 🕓 Starts & Ends in one row */}
@@ -1877,13 +1866,13 @@ const CalendarScreen: React.FC = () => {
                       <TextInput
                         style={styles.inputTitle}
                         placeholder="Title"
-                        value={editedEventTitle}
-                        onChangeText={setEditedEventTitle}
+                        value={newEventTitle}
+                        onChangeText={setNewEventTitle}
                       />
 
-                      {/* Set Category */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
-                        <Text style={{ display: 'none' }}>🗂 Set Category</Text>
+                      {/* Category Selection - MATCHES set-date modal */}
+                      <View style={{ marginBottom: 12 }}>
+                        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Category</Text>
                         <TouchableOpacity
                           onPress={() => {
                             setShowCategoryPicker(prev => !prev);
@@ -1893,77 +1882,253 @@ const CalendarScreen: React.FC = () => {
                               setNewCategoryColor('#FADADD');
                             }
                           }}
-                          style={styles.inlineSettingRow}
+                          style={{
+                            backgroundColor: '#fafafa',
+                            borderRadius: 12,
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            marginTop: 2,
+                            alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 1 },
+                            shadowOpacity: 0.05,
+                            shadowRadius: 2,
+                            elevation: 1,
+                            marginBottom: 15,
+                          }}
                         >
-                          <Text style={[styles.inlineSettingText, { color: editedSelectedCategory ? editedSelectedCategory.color : '#3a3a3a' }]}>
-                            {editedSelectedCategory ? editedSelectedCategory.name : 'Set Category'}
-                          </Text>
+                          {!showCategoryPicker ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {selectedCategory ? (
+                                <>
+                                  <View style={{ 
+                                    width: 8, 
+                                    height: 8, 
+                                    borderRadius: 4, 
+                                    backgroundColor: selectedCategory.color,
+                                    marginRight: 8
+                                  }} />
+                                  <Text style={{ 
+                                    fontSize: 13, 
+                                    color: '#3a3a3a',
+                                    fontFamily: 'Onest',
+                                    fontWeight: '500'
+                                  }}>
+                                    {selectedCategory.name}
+                                  </Text>
+                                </>
+                              ) : (
+                                <Text style={{ 
+                                  fontSize: 13, 
+                                  color: '#3a3a3a',
+                                  fontFamily: 'Onest',
+                                  fontWeight: '500'
+                                }}>
+                                  Set Category
+                                </Text>
+                              )}
+                            </View>
+                          ) : (
+                            <View style={{ 
+                              flexDirection: 'row', 
+                              flexWrap: 'wrap', 
+                              justifyContent: 'center',
+                              gap: 8,
+                              width: '100%',
+                            }}>
+                              {categories.map((cat, idx) => (
+                                <Pressable
+                                  key={idx}
+                                  onPress={() => {
+                                    setSelectedCategory(cat);
+                                    setShowCategoryPicker(false);
+                                    setShowAddCategoryForm(false);
+                                  }}
+                                  style={({ pressed }) => ({
+                                    backgroundColor: '#fafafa',
+                                    paddingVertical: 5,
+                                    paddingHorizontal: 8,
+                                    borderRadius: 9,
+                                    borderWidth: (pressed || selectedCategory?.name === cat.name) ? 1 : 0,
+                                    borderColor: cat.color,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                  })}
+                                >
+                                  <View style={{ 
+                                    width: 6, 
+                                    height: 6, 
+                                    borderRadius: 3, 
+                                    backgroundColor: cat.color,
+                                  }} />
+                                  <Text style={{ 
+                                    color: '#3a3a3a', 
+                                    fontSize: 12, 
+                                    fontFamily: 'Onest',
+                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500'
+                                  }}>
+                                    {cat.name}
+                                  </Text>
+                                </Pressable>
+                              ))}
+                              <TouchableOpacity
+                                onPress={() => setShowAddCategoryForm(true)}
+                                style={{
+                                  backgroundColor: '#fafafa',
+                                  paddingVertical: 5,
+                                  paddingHorizontal: 8,
+                                  borderRadius: 9,
+                                  borderWidth: 0,
+                                  borderColor: '#eee',
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                }}
+                              >
+                                <Ionicons name="add" size={14} color="#666" />
+                              </TouchableOpacity>
 
-                          {editedSelectedCategory && (
-                            <TouchableOpacity onPress={(e) => { e.stopPropagation(); setEditedSelectedCategory(null); }} style={{ marginLeft: 8 }}>
-                              <Text style={{ fontSize: 12, color: '#aaa' }}>✕</Text>
-                            </TouchableOpacity>
+                              {showAddCategoryForm && (
+                                <View style={{
+                                  backgroundColor: '#fafafa',
+                                  padding: 2,
+                                  borderRadius: 12,
+                                  marginTop: 8,
+                                  width: '100%',
+                                }}>
+                                  <Text style={{
+                                    fontSize: 13,
+                                    color: '#3a3a3a',
+                                    fontFamily: 'Onest',
+                                    marginBottom: 8,
+                                  }}>
+                                    New Category
+                                  </Text>
+                                  <TextInput
+                                    style={{
+                                      backgroundColor: 'white',
+                                      padding: 10,
+                                      borderRadius: 8,
+                                      marginBottom: 9,
+                                      fontSize: 13,
+                                      marginTop: 4,
+                                      fontFamily: 'Onest',
+                                    }}
+                                    placeholder="Category name"
+                                    value={newCategoryName}
+                                    onChangeText={setNewCategoryName}
+                                  />
+                                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        setShowAddCategoryForm(false);
+                                        setNewCategoryName('');
+                                      }}
+                                      style={{
+                                        paddingVertical: 8,
+                                        paddingHorizontal: 6,
+                                      }}
+                                    >
+                                      <Text style={{
+                                        color: '#666',
+                                        fontSize: 12,
+                                        fontFamily: 'Onest',
+                                      }}>
+                                        Cancel
+                                      </Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity
+                                      onPress={async () => {
+                                        if (newCategoryName.trim()) {
+                                          const { data, error } = await supabase
+                                            .from('categories')
+                                            .insert([
+                                              {
+                                                label: newCategoryName.trim(),
+                                                color: newCategoryColor,
+                                                user_id: user?.id,
+                                              }
+                                            ])
+                                            .select();
+
+                                          if (error) {
+                                            console.error('Error creating category:', error);
+                                            return;
+                                          }
+
+                                          if (data) {
+                                            const newCategory = {
+                                              id: data[0].id,
+                                              name: data[0].label,
+                                              color: data[0].color,
+                                            };
+                                            setCategories(prev => [...prev, newCategory]);
+                                            setSelectedCategory(newCategory);
+                                            setShowAddCategoryForm(false);
+                                            setNewCategoryName('');
+                                          }
+                                        }
+                                      }}
+                                      style={{
+                                        backgroundColor: '#FF9A8B',
+                                        paddingVertical: 6,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 8,
+                                      }}
+                                    >
+                                      <Text style={{
+                                        color: 'white',
+                                        fontSize: 12,
+                                        fontFamily: 'Onest',
+                                        fontWeight: '600',
+                                      }}>
+                                        Add
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                </View>
+                              )}
+                            </View>
                           )}
                         </TouchableOpacity>
-
-                        {showCategoryPicker && (
-                          <Animated.View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 10 }}>
-                            {categories.map((cat, idx) => (
-                              <Pressable
-                                key={idx}
-                                onPress={() => {
-                                  setEditedSelectedCategory(cat);
-                                  setShowCategoryPicker(false);
-                                  setShowAddCategoryForm(false); // Add this line
-                                }}
-                                style={({ pressed }) => ({
-                                  backgroundColor: cat.color,
-                                  paddingVertical: 6,
-                                  paddingHorizontal: 12,
-                                  borderRadius: 20,
-                                  marginRight: 8,
-                                  marginBottom: 8,
-                                  marginTop: 1,
-                                  borderWidth: editedSelectedCategory?.name === cat.name && editedSelectedCategory?.color === cat.color ? 1.4 : 0,
-                                  borderColor: editedSelectedCategory?.name === cat.name && editedSelectedCategory?.color === cat.color ? '#3a3a3a' : 'transparent',
-                                })}
-                              >
-                                <Text style={{ color: 'white', fontSize: 9, fontWeight: '600' }}>{cat.name}</Text>
-                              </Pressable>
-                            ))}
-                            <TouchableOpacity
-                              onPress={() => setShowAddCategoryForm(true)}
-                              style={{
-                                backgroundColor: '#ccc',
-                                paddingVertical: 5,
-                                paddingHorizontal: 12,
-                                borderRadius: 20,
-                                marginBottom: 8,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <Ionicons name="add" size={16} color="#333" />
-                            </TouchableOpacity>
-                          </Animated.View>
-                        )}
                       </View>
 
                       {/* 📅 Pick Dates */}
-                      <View style={{ flex: 1, alignItems: 'center' }}>
-                        <Text style={{ display: 'none' }}>📅 Pick Dates</Text>
+                      <View style={{ marginBottom: 12 }}>
+                        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Custom Dates</Text>
                         <TouchableOpacity
                           onPress={() => {
-                            setShowEditEventModal(false);
-                            setTimeout(() => {
-                              setShowCustomDatesPicker(true);
-                            }, 300);
+                            // First set the custom dates picker to true
+                            setShowCustomDatesPicker(true);
+                            // Then close the add event modal
+                            setShowModal(false);
                           }}
-                          style={styles.inlineSettingRow}
+                          style={{
+                            backgroundColor: '#fafafa',
+                            borderRadius: 12,
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            marginTop: 2,
+                            alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 1 },
+                            shadowOpacity: 0.05,
+                            shadowRadius: 2,
+                            elevation: 1,
+                            marginBottom: 15,
+                          }}
                         >
-                          <Text style={styles.inlineSettingText}>
-                            Pick Dates {customSelectedDates.length > 0 ? `(${customSelectedDates.length} selected)` : ''}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={{ 
+                              fontSize: 13, 
+                              color: '#3a3a3a',
+                              fontFamily: 'Onest',
+                              fontWeight: '500'
+                            }}>
+                              {customSelectedDates.length > 0 ? `${customSelectedDates.length} dates selected` : 'Select Dates'}
+                            </Text>
+                          </View>
                         </TouchableOpacity>
                       </View>
                     </>
@@ -2000,354 +2165,542 @@ const CalendarScreen: React.FC = () => {
         <Modal
           visible={showCustomDatesPicker}
           transparent
-          animationType="fade"
+          animationType="slide"
           onRequestClose={() => setShowCustomDatesPicker(false)}
         >
-          <TouchableOpacity
-            activeOpacity={1}
-            onPressOut={() => setShowCustomDatesPicker(false)}
-            style={{
-              flex: 1,
-              backgroundColor: 'rgba(0,0,0,0.3)',
-              justifyContent: 'flex-end',
-            }}
-          >
+          <View style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            justifyContent: 'flex-end',
+          }}>
             <View style={{
               backgroundColor: '#fff',
-              padding: 20,
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
-              maxHeight: '80%',
-              minHeight: selectedDateForCustomTime ? '60%' : '35%',
-              marginBottom: 0,
+              height: '90%', // Changed from maxHeight to fixed height
+              flexDirection: 'column', // Added to ensure proper flex layout
             }}>
-              <RNCalendar
-                onDayPress={(day: DateData) => {
-                  const dateStr = day.dateString;
-                  setCustomSelectedDates((prev) =>
-                    prev.includes(dateStr)
-                      ? prev.filter((d) => d !== dateStr)
-                      : [...prev, dateStr]
-                  );
-                }}
-                onDayLongPress={(day: DateData) => {
-                  const dateStr = day.dateString;
-                  if (customSelectedDates.includes(dateStr)) {
-                    setSelectedDateForCustomTime(dateStr);
-                    setCustomStartTime(startDateTime);
-                    setCustomEndTime(endDateTime);
-                  }
-                }}
-                markedDates={Object.fromEntries(
-                  customSelectedDates.map((date) => [
-                    date,
-                    { 
-                      selected: true,
-                      selectedColor: '#BF9264',
-                      selectedTextColor: '#fff'
-                    },
-                  ])
-                )}
-                style={{
-                  width: '100%',
-                }}
-                theme={{
-                  'stylesheet.calendar.header': {
-                    header: {
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    },
-                    monthText: {
-                      fontSize: 18,
-                      fontWeight: '600',
-                      marginRight: 4,
-                    },
-                    arrow: {
-                      paddingVertical: 18,
-                      paddingHorizontal: 60,
-                    },
-                    arrowImage: {
-                      tintColor: '#BF9264',
-                    },
-                  },
-                  todayTextColor: '#BF9264',
-                  todayBackgroundColor: 'transparent',
-                  'stylesheet.day.basic': {
-                    base: {
-                      width: 32,
-                      height: 32,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    },
-                    text: {
-                      fontSize: 14,
-                      color: '#333',
-                      textAlign: 'center',
-                    },
-                    selected: {
-                      backgroundColor: '#BF9264',
-                      borderRadius: 16,
-                    },
-                    selectedText: {
-                      color: '#fff',
-                      fontWeight: '600',
-                    },
-                  },
-                  'stylesheet.calendar.main': {
-                    dayContainer: {
-                      flex: 1,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    },
-                  },
-                }}
-              />
-
-              {/* Time Picker */}
-              <View style={{ marginTop: 20, marginBottom: 20 }}>
-                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10, color: '#333' }}>Default Event Time</Text>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={{ fontSize: 14, color: '#3a3a3a', marginBottom: 5 }}>Start</Text>
-                    <TouchableOpacity
-                      onPress={() => setShowStartPicker(true)}
-                      style={{
-                        borderWidth: 1,
-                        borderColor: '#ddd',
-                        borderRadius: 8,
-                        padding: 10,
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ fontSize: 16, color: '#333' }}>
-                        {startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 14, color: '#666', marginBottom: 5 }}>End</Text>
-                    <TouchableOpacity
-                      onPress={() => setShowEndPicker(true)}
-                      style={{
-                        borderWidth: 1,
-                        borderColor: '#ddd',
-                        borderRadius: 8,
-                        padding: 10,
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ fontSize: 16, color: '#333' }}>
-                        {endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {showStartPicker && (
-                  <Animated.View style={styles.dateTimePickerContainer}>
-                    <DateTimePicker
-                      value={startDateTime}
-                      mode="time"
-                      display="spinner"
-                      onChange={(event, selectedTime) => {
-                        if (selectedTime) {
-                          setStartDateTime(selectedTime);
-                          if (!userChangedEndTime) {
-                            setEndDateTime(new Date(selectedTime.getTime() + 60 * 60 * 1000));
-                          }
-                        }
-                        setShowStartPicker(false);
-                      }}
-                      style={styles.dateTimePicker}
-                    />
-                  </Animated.View>
-                )}
-
-                {showEndPicker && (
-                  <Animated.View style={styles.dateTimePickerContainer}>
-                    <DateTimePicker
-                      value={endDateTime}
-                      mode="time"
-                      display="spinner"
-                      onChange={(event, selectedTime) => {
-                        if (selectedTime) {
-                          setEndDateTime(selectedTime);
-                          setUserChangedEndTime(true);
-                        }
-                        setShowEndPicker(false);
-                      }}
-                      style={styles.dateTimePicker}
-                    />
-                  </Animated.View>
-                )}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingTop: 20,
+                paddingBottom: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f0f0f0',
+                backgroundColor: '#fff', // Added to ensure header stays visible
+                zIndex: 1, // Added to keep header above scroll content
+              }}>
+                <Text style={{ 
+                  fontSize: 20, 
+                  fontWeight: '600', 
+                  color: '#333',
+                  fontFamily: 'Onest'
+                }}>
+                  Select Custom Dates
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => setShowCustomDatesPicker(false)}
+                  style={{ padding: 8 }}
+                >
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
               </View>
 
-              {/* Custom Time for Selected Date */}
-              {selectedDateForCustomTime && (
-                <View style={{ marginBottom: 20 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#333' }}>
-                      Time for {new Date(selectedDateForCustomTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+              <ScrollView 
+                style={{ flex: 1 }}
+                contentContainerStyle={{ 
+                  paddingHorizontal: 20,
+                  paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+                  flexGrow: 1, // Added to ensure content fills available space
+                }}
+                showsVerticalScrollIndicator={true} // Changed to true for better UX
+              >
+                <Text style={{ 
+                  fontSize: 14, 
+                  color: '#666', 
+                  marginBottom: 16,
+                  marginTop: 16,
+                  fontFamily: 'Onest',
+                }}>
+                  Tap dates to select or deselect them. Long press a date to set custom times.
+                </Text>
+
+                <RNCalendar
+                  onDayPress={(day: DateData) => {
+                    const dateStr = day.dateString;
+                    setCustomSelectedDates((prev) =>
+                      prev.includes(dateStr)
+                        ? prev.filter((d) => d !== dateStr)
+                        : [...prev, dateStr]
+                    );
+                  }}
+                  onDayLongPress={(day: DateData) => {
+                    const dateStr = day.dateString;
+                    if (customSelectedDates.includes(dateStr)) {
+                      setSelectedDateForCustomTime(dateStr);
+                      setCustomStartTime(startDateTime);
+                      setCustomEndTime(endDateTime);
+                      setShowCustomStartPicker(true);
+                    }
+                  }}
+                  markedDates={Object.fromEntries(
+                    customSelectedDates.map((date) => [
+                      date,
+                      { 
+                        selected: true,
+                        selectedColor: '#A0C3B2',
+                        selectedTextColor: '#fff'
+                      },
+                    ])
+                  )}
+                  style={{
+                    width: '100%',
+                    marginBottom: 20,
+                  }}
+                  theme={{
+                    'stylesheet.calendar.header': {
+                      header: {
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        paddingHorizontal: 8,
+                        paddingVertical: 12,
+                      },
+                      monthText: {
+                        fontSize: 16,
+                        fontWeight: '600',
+                        color: '#333',
+                        fontFamily: 'Onest',
+                      },
+                      dayHeader: {
+                        color: '#666',
+                        fontSize: 12,
+                        fontFamily: 'Onest',
+                        fontWeight: '500',
+                        textAlign: 'center',
+                        width: 32,
+                      },
+                      arrow: {
+                        padding: 12,
+                      },
+                      arrowImage: {
+                        tintColor: '#A0C3B2',
+                      },
+                    },
+                    todayTextColor: '#A0C3B2',
+                    todayBackgroundColor: 'transparent',
+                    'stylesheet.day.basic': {
+                      base: {
+                        width: 32,
+                        height: 32,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      },
+                      text: {
+                        fontSize: 14,
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        textAlign: 'center',
+                      },
+                      selected: {
+                        backgroundColor: '#A0C3B2',
+                        borderRadius: 16,
+                      },
+                      selectedText: {
+                        color: '#fff',
+                        fontWeight: '600',
+                      },
+                      today: {
+                        borderWidth: 1,
+                        borderColor: '#A0C3B2',
+                        borderRadius: 16,
+                      },
+                    },
+                    'stylesheet.calendar.main': {
+                      dayContainer: {
+                        flex: 1,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      },
+                      week: {
+                        marginTop: 4,
+                        marginBottom: 4,
+                        flexDirection: 'row',
+                        justifyContent: 'space-around',
+                      },
+                    },
+                  }}
+                />
+
+                {/* Selected Dates Summary */}
+                {customSelectedDates.length > 0 && (
+                  <View style={{ 
+                    backgroundColor: '#fafafa',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 20
+                  }}>
+                    <Text style={{ 
+                      fontSize: 14, 
+                      fontWeight: '600', 
+                      color: '#333',
+                      marginBottom: 8,
+                      fontFamily: 'Onest'
+                    }}>
+                      Selected Dates ({customSelectedDates.length})
                     </Text>
-                    <TouchableOpacity 
-                      onPress={() => {
-                        setCustomDateTimes(prev => ({
-                          ...prev,
-                          [selectedDateForCustomTime]: { start: customStartTime, end: customEndTime }
-                        }));
-                        setSelectedDateForCustomTime(null);
-                      }}
-                      style={{
-                        backgroundColor: '#6F4E37',
-                        paddingVertical: 6,
-                        paddingHorizontal: 12,
-                        borderRadius: 6
-                      }}
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false}
+                      style={{ flexDirection: 'row' }}
                     >
-                      <Text style={{ color: 'white', fontSize: 12 }}>Save</Text>
-                    </TouchableOpacity>
+                      {customSelectedDates.map((date, index) => (
+                        <View 
+                          key={date}
+                          style={{
+                            backgroundColor: '#A0C3B2',
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 16,
+                            marginRight: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{ 
+                            color: '#fff',
+                            fontSize: 13,
+                            fontFamily: 'Onest',
+                            marginRight: 4
+                          }}>
+                            {new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setCustomSelectedDates(prev => prev.filter(d => d !== date));
+                              // Also remove any custom times for this date
+                              setCustomDateTimes(prev => {
+                                const newTimes = { ...prev };
+                                delete newTimes[date];
+                                return newTimes;
+                              });
+                            }}
+                          >
+                            <Ionicons name="close-circle" size={16} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
                   </View>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <View style={{ flex: 1, marginRight: 10 }}>
-                      <Text style={{ fontSize: 14, color: '#666', marginBottom: 5 }}>Start</Text>
+                )}
+
+                <View style={{ 
+                  backgroundColor: '#fafafa',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 20
+                }}>
+                  <Text style={{ 
+                    fontSize: 14, 
+                    fontWeight: '600', 
+                    color: '#333',
+                    marginBottom: 12,
+                    fontFamily: 'Onest'
+                  }}>
+                    Default Event Time
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
                       <TouchableOpacity
-                        onPress={() => setShowCustomStartPicker(true)}
+                        onPress={() => setShowStartPicker(true)}
                         style={{
-                          borderWidth: 1,
-                          borderColor: '#ddd',
+                          backgroundColor: '#fff',
                           borderRadius: 8,
-                          padding: 10,
-                          alignItems: 'center'
+                          padding: 12,
+                          alignItems: 'center',
+                          borderWidth: 1,
+                          borderColor: '#eee'
                         }}
                       >
-                        <Text style={{ fontSize: 16, color: '#333' }}>
-                          {customStartTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
+                          {startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                       </TouchableOpacity>
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, color: '#666', marginBottom: 5 }}>End</Text>
+                      <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
                       <TouchableOpacity
-                        onPress={() => setShowCustomEndPicker(true)}
+                        onPress={() => setShowEndPicker(true)}
                         style={{
-                          borderWidth: 1,
-                          borderColor: '#ddd',
+                          backgroundColor: '#fff',
                           borderRadius: 8,
-                          padding: 10,
-                          alignItems: 'center'
+                          padding: 12,
+                          alignItems: 'center',
+                          borderWidth: 1,
+                          borderColor: '#eee'
                         }}
                       >
-                        <Text style={{ fontSize: 16, color: '#333' }}>
-                          {customEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
+                          {endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </Text>
                       </TouchableOpacity>
                     </View>
                   </View>
-
-                  {showCustomStartPicker && (
-                    <Animated.View style={styles.dateTimePickerContainer}>
-                      <DateTimePicker
-                        value={customStartTime}
-                        mode="time"
-                        display="spinner"
-                        onChange={(event, selectedTime) => {
-                          if (selectedTime) {
-                            setCustomStartTime(selectedTime);
-                            setCustomEndTime(new Date(selectedTime.getTime() + 60 * 60 * 1000));
-                          }
-                          setShowCustomStartPicker(false);
-                        }}
-                        style={styles.dateTimePicker}
-                      />
-                    </Animated.View>
-                  )}
-
-                  {showCustomEndPicker && (
-                    <Animated.View style={styles.dateTimePickerContainer}>
-                      <DateTimePicker
-                        value={customEndTime}
-                        mode="time"
-                        display="spinner"
-                        onChange={(event, selectedTime) => {
-                          if (selectedTime) {
-                            setCustomEndTime(selectedTime);
-                          }
-                          setShowCustomEndPicker(false);
-                        }}
-                        style={styles.dateTimePicker}
-                      />
-                    </Animated.View>
-                  )}
                 </View>
-              )}
 
-              {/* Custom Times List */}
-              {Object.keys(customDateTimes).length > 0 && (
-                <View style={{ marginBottom: 20 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 10, color: '#333' }}>Custom Times</Text>
-                  {Object.entries(customDateTimes).map(([date, times]) => (
-                    <View key={date} style={{ 
+                {selectedDateForCustomTime && (
+                  <View style={{ 
+                    backgroundColor: '#fafafa',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 20
+                  }}>
+                    <View style={{ 
                       flexDirection: 'row', 
                       justifyContent: 'space-between', 
                       alignItems: 'center',
-                      backgroundColor: '#f5f5f5',
-                      padding: 10,
-                      borderRadius: 8,
-                      marginBottom: 8
+                      marginBottom: 12
                     }}>
-                      <Text style={{ fontSize: 14, color: '#666' }}>
-                        {new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                      <Text style={{ 
+                        fontSize: 14, 
+                        fontWeight: '600', 
+                        color: '#333',
+                        fontFamily: 'Onest'
+                      }}>
+                        Custom Time for {new Date(selectedDateForCustomTime).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                       </Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 14, color: '#333', marginRight: 10 }}>
-                          {times.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      <TouchableOpacity 
+                        onPress={() => {
+                          setCustomDateTimes(prev => ({
+                            ...prev,
+                            [selectedDateForCustomTime]: { start: customStartTime, end: customEndTime }
+                          }));
+                          setSelectedDateForCustomTime(null);
+                        }}
+                        style={{
+                          backgroundColor: '#A0C3B2',
+                          paddingVertical: 6,
+                          paddingHorizontal: 12,
+                          borderRadius: 8
+                        }}
+                      >
+                        <Text style={{ 
+                          color: 'white', 
+                          fontSize: 13,
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          Save Time
                         </Text>
-                        <Text style={{ fontSize: 14, color: '#666' }}>to</Text>
-                        <Text style={{ fontSize: 14, color: '#333', marginLeft: 10 }}>
-                          {times.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
-                        <TouchableOpacity 
-                          onPress={() => {
-                            setCustomDateTimes(prev => {
-                              const newTimes = { ...prev };
-                              delete newTimes[date];
-                              return newTimes;
-                            });
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
+                        <TouchableOpacity
+                          onPress={() => setShowCustomStartPicker(true)}
+                          style={{
+                            backgroundColor: '#fff',
+                            borderRadius: 8,
+                            padding: 12,
+                            alignItems: 'center',
+                            borderWidth: 1,
+                            borderColor: '#eee'
                           }}
-                          style={{ marginLeft: 10 }}
                         >
-                          <Text style={{ color: '#ff4444' }}>✕</Text>
+                          <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
+                            {customStartTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
+                        <TouchableOpacity
+                          onPress={() => setShowCustomEndPicker(true)}
+                          style={{
+                            backgroundColor: '#fff',
+                            borderRadius: 8,
+                            padding: 12,
+                            alignItems: 'center',
+                            borderWidth: 1,
+                            borderColor: '#eee'
+                          }}
+                        >
+                          <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
+                            {customEndTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
                         </TouchableOpacity>
                       </View>
                     </View>
-                  ))}
-                </View>
-              )}
 
-              <TouchableOpacity
-                onPress={() => {
-                  setShowCustomDatesPicker(false);
-                  setTimeout(() => {
+                    {showCustomStartPicker && (
+                      <Animated.View style={[styles.dateTimePickerContainer, {
+                        backgroundColor: '#fafafa',
+                        borderRadius: 16,
+                        paddingVertical: 8,
+                        paddingHorizontal: 16,
+                        marginTop: 12,
+                        marginBottom: 4,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.03,
+                        shadowRadius: 3,
+                        elevation: 1,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }]}>
+                        <DateTimePicker
+                          value={customStartTime}
+                          mode="time"
+                          display="spinner"
+                          onChange={(event, selectedTime) => {
+                            if (selectedTime) {
+                              setCustomStartTime(selectedTime);
+                              // Update end time to be 1 hour after start time
+                              setCustomEndTime(new Date(selectedTime.getTime() + 60 * 60 * 1000));
+                            }
+                            setShowCustomStartPicker(false);
+                          }}
+                          style={{
+                            height: 180,
+                            width: '100%',
+                          }}
+                          textColor="#333"
+                        />
+                      </Animated.View>
+                    )}
+
+                    {showCustomEndPicker && (
+                      <Animated.View style={[styles.dateTimePickerContainer, {
+                        backgroundColor: '#fafafa',
+                        borderRadius: 16,
+                        paddingVertical: 8,
+                        paddingHorizontal: 16,
+                        marginTop: 12,
+                        marginBottom: 4,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.03,
+                        shadowRadius: 3,
+                        elevation: 1,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }]}>
+                        <DateTimePicker
+                          value={customEndTime}
+                          mode="time"
+                          display="spinner"
+                          onChange={(event, selectedTime) => {
+                            if (selectedTime) {
+                              setCustomEndTime(selectedTime);
+                            }
+                            setShowCustomEndPicker(false);
+                          }}
+                          style={{
+                            height: 180,
+                            width: '100%',
+                          }}
+                          textColor="#333"
+                        />
+                      </Animated.View>
+                    )}
+                  </View>
+                )}
+
+                {Object.keys(customDateTimes).length > 0 && (
+                  <View style={{ 
+                    backgroundColor: '#fafafa',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 20
+                  }}>
+                    <Text style={{ 
+                      fontSize: 14, 
+                      fontWeight: '600', 
+                      color: '#333',
+                      marginBottom: 12,
+                      fontFamily: 'Onest'
+                    }}>
+                      Custom Times
+                    </Text>
+                    {Object.entries(customDateTimes).map(([date, times]) => (
+                      <View key={date} style={{ 
+                        backgroundColor: '#fff',
+                        padding: 12,
+                        borderRadius: 8,
+                        marginBottom: 8,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: '#eee'
+                      }}>
+                        <Text style={{ 
+                          fontSize: 13, 
+                          color: '#333',
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          {new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={{ fontSize: 13, color: '#666', fontFamily: 'Onest' }}>
+                            {times.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                          <Text style={{ fontSize: 13, color: '#666', fontFamily: 'Onest' }}>to</Text>
+                          <Text style={{ fontSize: 13, color: '#666', fontFamily: 'Onest' }}>
+                            {times.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                          <TouchableOpacity 
+                            onPress={() => {
+                              setCustomDateTimes(prev => {
+                                const newTimes = { ...prev };
+                                delete newTimes[date];
+                                return newTimes;
+                              });
+                            }}
+                            style={{ padding: 4 }}
+                          >
+                            <Ionicons name="close-circle" size={16} color="#999" />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowCustomDatesPicker(false);
                     if (isEditingEvent) {
                       setShowEditEventModal(true);
                     } else {
                       setShowModal(true);
                     }
-                  }, 300);
-                }}
-                style={{
-                  backgroundColor: '#6F4E37',
-                  padding: 12,
-                  paddingHorizontal: 24,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{ color: 'white', fontWeight: '600' }}>Done</Text>
-              </TouchableOpacity>
+                  }}
+                  style={{
+                    backgroundColor: '#A0C3B2',
+                    padding: 16,
+                    borderRadius: 12,
+                    alignItems: 'center',
+                    marginTop: 8,
+                  }}
+                >
+                  <Text style={{ 
+                    color: '#fff', 
+                    fontSize: 16,
+                    fontWeight: '600',
+                    fontFamily: 'Onest'
+                  }}>
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
-          </TouchableOpacity>
+          </View>
         </Modal>
         <Toast
           config={{
