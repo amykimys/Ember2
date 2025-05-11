@@ -672,6 +672,10 @@ const CalendarScreen: React.FC = () => {
     setRepeatOption('None');
     setRepeatEndDate(null);
     setCustomSelectedDates([]);
+    setCustomDateTimes({}); // Reset custom times
+    setSelectedDateForCustomTime(null); // Reset selected date for custom time
+    setCustomStartTime(new Date()); // Reset custom start time
+    setCustomEndTime(new Date(new Date().getTime() + 60 * 60 * 1000)); // Reset custom end time
     setUserChangedEndTime(false);
   };
 
@@ -1401,7 +1405,10 @@ const CalendarScreen: React.FC = () => {
                           <View style={{ flex: 1, marginRight: 12 }}>
                             <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
                             <TouchableOpacity
-                              onPress={() => setShowStartPicker(prev => !prev)}
+                              onPress={() => {
+                                setShowStartPicker(true);
+                                setShowEndPicker(false);
+                              }}
                               style={{
                                 backgroundColor: '#fafafa',
                                 borderRadius: 12,
@@ -1435,7 +1442,10 @@ const CalendarScreen: React.FC = () => {
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
                             <TouchableOpacity
-                              onPress={() => setShowEndPicker(prev => !prev)}
+                              onPress={() => {
+                                setShowEndPicker(true);
+                                setShowStartPicker(false);
+                              }}
                               style={{
                                 backgroundColor: '#fafafa',
                                 borderRadius: 12,
@@ -1464,15 +1474,18 @@ const CalendarScreen: React.FC = () => {
                                   hour12: true 
                                 }).replace(',', ' ·')}
                               </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
 
-                              {showStartPicker && (
+                        {/* Date/Time Picker Container */}
+                        {(showStartPicker || showEndPicker) && (
                           <Animated.View style={[styles.dateTimePickerContainer, {
                             backgroundColor: '#fafafa',
                             borderRadius: 16,
                             paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            marginRight: 175,
-                            marginTop: 9,
+                            paddingHorizontal: 16,
+                            marginTop: 1,
                             marginBottom: 4,
                             shadowColor: '#000',
                             shadowOffset: { width: 0, height: 1 },
@@ -1483,76 +1496,36 @@ const CalendarScreen: React.FC = () => {
                             justifyContent: 'center',
                           }]}>
                             <DateTimePicker
-                              value={startDateTime}
+                              value={showStartPicker ? startDateTime : endDateTime}
                               mode="datetime"
                               display="spinner"
                               onChange={(event, selectedDate) => {
                                 if (selectedDate) {
-                                  setStartDateTime(selectedDate);
-                                  if (!userChangedEndTime) {
-                                    setEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
+                                  if (showStartPicker) {
+                                    setStartDateTime(selectedDate);
+                                    if (!userChangedEndTime) {
+                                      setEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
+                                    }
+                                    setTimeout(() => {
+                                      setShowStartPicker(false);
+                                    }, 2000);
+                                  } else {
+                                    setEndDateTime(selectedDate);
+                                    setUserChangedEndTime(true);
+                                    setTimeout(() => {
+                                      setShowEndPicker(false);
+                                    }, 2000);
                                   }
-                                  // Add delay before closing
-                                  setTimeout(() => {
-                                    setShowStartPicker(false);
-                                  }, 2000);
                                 }
                               }}
                               style={{
                                 height: 180,
                                 width: '100%',
-                                marginLeft: 10,
                               }}
-                              textColor="#3a3a3a"
+                              textColor="#333"
                             />
                           </Animated.View>
                         )}
-
-                        {showEndPicker && (
-                          <Animated.View style={[styles.dateTimePickerContainer, {
-                            backgroundColor: '#fafafa',
-                            borderRadius: 16,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            marginRight: 175,
-                            marginTop: 9,
-                            marginBottom: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.03,
-                            shadowRadius: 3,
-                            elevation: 1,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }]}>
-                            <DateTimePicker
-                              value={endDateTime}
-                              mode="datetime"
-                              display="spinner"
-                              onChange={(event, selectedDate) => {
-                                if (selectedDate) {
-                                  setEndDateTime(selectedDate);
-                                  setUserChangedEndTime(true);
-                                  // Add delay before closing
-                                  setTimeout(() => {
-                                    setShowEndPicker(false);
-                                  }, 2000);
-                                } 
-                              }}
-                              style={{
-                                height: 180,
-                                width: '100%',
-                                marginLeft: 10,
-                              }}
-                              textColor="#3a3a3a"
-                            />
-                          </Animated.View>
-                        )}
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-
-                        
                       </View>
 
                       {/* 🕑 Set Reminder, Repeat, and End Date in one row */}
@@ -1868,6 +1841,14 @@ const CalendarScreen: React.FC = () => {
                         placeholder="Title"
                         value={newEventTitle}
                         onChangeText={setNewEventTitle}
+                      />
+
+                      <TextInput
+                        style={styles.inputDescription}
+                        placeholder="Description (optional)"
+                        value={newEventDescription}
+                        onChangeText={setNewEventDescription}
+                        multiline
                       />
 
                       {/* Category Selection - MATCHES set-date modal */}
