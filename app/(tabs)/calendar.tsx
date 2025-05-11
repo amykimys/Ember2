@@ -2014,6 +2014,9 @@ const CalendarScreen: React.FC = () => {
               padding: 20,
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
+              maxHeight: '80%',
+              minHeight: selectedDateForCustomTime ? '60%' : '35%',
+              marginBottom: 0,
             }}>
               <RNCalendar
                 onDayPress={(day: DateData) => {

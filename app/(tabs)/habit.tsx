@@ -2769,8 +2769,8 @@ const formatDate = (date: Date): string => {
                   padding: 20, 
                   borderTopLeftRadius: 20, 
                   borderTopRightRadius: 20,
-                  maxHeight: '60%',
-                  minHeight: selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] ? '35%' : '35%',
+                  maxHeight: '70%',
+                  minHeight: isNoteEditMode ? '40%' : (selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] ? '60%' : '35%'),
                   marginBottom: 0,
                 }}>
                   <ScrollView 
@@ -2871,7 +2871,7 @@ const formatDate = (date: Date): string => {
                           style={{
                             fontSize: 16,
                             color: '#3A3A3A',
-                            minHeight: 120,
+                            minHeight: 150,
                             textAlignVertical: 'top',
                             fontFamily: 'Onest'
                           }}
