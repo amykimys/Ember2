@@ -32,17 +32,19 @@ interface CalendarEvent {
   id: string;
   title: string;
   description?: string;
-  date: string;
-  startDateTime?: Date;
-  endDateTime?: Date;
+  date: string; // 'YYYY-MM-DD'
+  startTime: string; // 'HH:mm'
+  endTime: string;   // 'HH:mm'
   categoryName?: string;
   categoryColor?: string;
-  reminderTime?: Date | null;
+  reminderTime?: string | null; // optional time string
   repeatOption?: 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
-  repeatEndDate?: Date | null;
-  customDates?: string[];
+  repeatEndDate?: string | null; // also a date string now
   isContinued?: boolean;
+  customDates?: string[]; // ✅ Add this line
+
 }
+
 
 interface WeeklyCalendarViewProps {
   events: { [date: string]: CalendarEvent[] };
@@ -375,6 +377,15 @@ const styles = StyleSheet.create({
   },
 });
 
+// Add these utility functions at the top of the file, after imports
+const convertToUTC = (date: Date): Date => {
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+};
+
+const convertFromUTC = (date: Date): Date => {
+  return new Date(date.getTime() + date.getTimezoneOffset() * 60000);
+};
+
 const CalendarScreen: React.FC = () => {
   const today = new Date();
   const currentMonthIndex = 12; // center month in 25-month buffer
@@ -479,6 +490,13 @@ const CalendarScreen: React.FC = () => {
   const [visibleWeekMonth, setVisibleWeekMonth] = useState<Date>(new Date());
   const [visibleWeekMonthText, setVisibleWeekMonthText] = useState('');
 
+  const formatTime = (date: Date): string => {
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  };
+  
+
   useEffect(() => {
     const fetchUser = async () => {
       const { data, error } = await supabase.auth.getUser();
@@ -505,8 +523,11 @@ const CalendarScreen: React.FC = () => {
         const eventsMap: { [date: string]: CalendarEvent[] } = {};
   
         data.forEach((event) => {
-          const start = new Date(event.start_datetime);
-          const end = new Date(event.end_datetime);
+          // Convert UTC dates from Supabase to local timezone
+          const start = convertFromUTC(new Date(event.start_datetime));
+          const end = convertFromUTC(new Date(event.end_datetime));
+          const reminder = event.reminder_time ? convertFromUTC(new Date(event.reminder_time)) : null;
+          const repeatEnd = event.repeat_end_date ? convertFromUTC(new Date(event.repeat_end_date)) : null;
         
           // If it's a custom repeat event, only create events on the custom dates
           if (event.repeat_option === 'Custom' && event.custom_dates && event.custom_dates.length > 0) {
@@ -518,14 +539,14 @@ const CalendarScreen: React.FC = () => {
                 title: event.title,              
                 description: event.description,
                 date: dateStr,
-                startDateTime: event.start_datetime,
-                endDateTime: event.end_datetime,
+                startTime: typeof start === 'string' ? start : formatTime(start),
+                endTime: typeof end === 'string' ? end : formatTime(end),
                 categoryName: event.category_name,
                 categoryColor: event.category_color,
-                reminderTime: event.reminder_time,
-                repeatOption: event.repeat_option,
-                repeatEndDate: event.repeat_end_date,
-                customDates: event.custom_dates,
+                reminderTime: reminder ? reminder.toISOString().split('T')[1].slice(0, 5) : null, // e.g., "14:00"
+                repeatEndDate: repeatEnd ? repeatEnd.toISOString().split('T')[0] : null, // e.g., "2025-05-15"
+                                repeatOption: event.repeat_option,
+                customDates: event.custom_dates ?? [], // ✅ FIXED LINE
                 isContinued: false,
               });
             });
@@ -544,13 +565,13 @@ const CalendarScreen: React.FC = () => {
                 title: event.title,              
                 description: event.description,
                 date: dateKey,
-                startDateTime: event.start_datetime,
-                endDateTime: event.end_datetime,
+                startTime: typeof start === 'string' ? start : formatTime(start),
+                endTime: typeof end === 'string' ? end : formatTime(end),
                 categoryName: event.category_name,
                 categoryColor: event.category_color,
-                reminderTime: event.reminder_time,
+                reminderTime: reminder ? reminder.toISOString().split('T')[1].slice(0, 5) : null, // e.g., "14:00"
+                repeatEndDate: repeatEnd ? repeatEnd.toISOString().split('T')[0] : null, // e.g., "2025-05-15"
                 repeatOption: event.repeat_option,
-                repeatEndDate: event.repeat_end_date,
                 customDates: event.custom_dates,
                 isContinued: !isFirstDay,
               });
@@ -601,38 +622,50 @@ const CalendarScreen: React.FC = () => {
   };
   
   
-  const saveEventToSupabase = async (newEvent: CalendarEvent) => {
-    if (!newEvent.startDateTime || !newEvent.endDateTime) {
-      console.error('Start or End date missing');
+  const saveEventToSupabase = async (newEvent: CalendarEvent, user: { id: string }) => {
+    if (!newEvent.startTime || !newEvent.endTime) {
+      console.error('Start or end time missing');
       return;
     }
   
+    // Combine date + time strings into ISO format strings
+    const toISOString = (date: string, time: string) => {
+      return new Date(`${date}T${time}`).toISOString(); // returns "2025-05-14T14:00:00.000Z"
+    };
+  
+    const startISO = toISOString(newEvent.date, newEvent.startTime);
+    const endISO = toISOString(newEvent.date, newEvent.endTime);
+    const reminderISO = newEvent.reminderTime ? toISOString(newEvent.date, newEvent.reminderTime) : null;
+    const repeatEndISO = newEvent.repeatEndDate ? new Date(newEvent.repeatEndDate).toISOString() : null;
+  
     const { data, error } = await supabase
-  .from('events')
-  .insert([
-    {
-      title: newEvent.title,
-      description: newEvent.description,
-      date: newEvent.date,
-      start_datetime: newEvent.startDateTime?.toISOString(),
-      end_datetime: newEvent.endDateTime?.toISOString(),
-      category_name: newEvent.categoryName,
-      category_color: newEvent.categoryColor,
-      reminder_time: newEvent.reminderTime?.toISOString(),
-      repeat_option: newEvent.repeatOption,
-      repeat_end_date: newEvent.repeatEndDate?.toISOString(),
-      custom_dates: newEvent.customDates,
-      user_id: user?.id,
-    }
-  ])
-  .select()
-  .returns<CalendarEvent[]>(); // ✅
-    if (error) {
-      console.error('Error saving event:', error);
+      .from('events')
+      .insert([
+        {
+          title: newEvent.title,
+          description: newEvent.description,
+          date: newEvent.date,
+          start_datetime: startISO,
+          end_datetime: endISO,
+          category_name: newEvent.categoryName,
+          category_color: newEvent.categoryColor,
+          reminder_time: reminderISO,
+          repeat_option: newEvent.repeatOption,
+          repeat_end_date: repeatEndISO,
+          custom_dates: newEvent.customDates ?? [],
+          user_id: user?.id,
+        }
+      ])
+      .select()
+      .returns<CalendarEvent[]>();
+  
+      if (error) {
+        console.error('Error saving event:', error.message, error.details, error.hint);
     } else {
       console.log('Event saved successfully');
     }
   };
+  
   
     
   const getMonthData = (baseDate: Date, offset: number) => {
@@ -749,7 +782,7 @@ const CalendarScreen: React.FC = () => {
       Alert.alert('Error', 'Please enter a title for the event.');
       return;
     }
-
+  
     if (!startDateTime || !endDateTime) {
       Alert.alert('Error', 'Please set start and end times for the event.');
       return;
@@ -757,20 +790,28 @@ const CalendarScreen: React.FC = () => {
   
     setIsSaving(true);
   
+    // Extract formatted strings
+    const dateStr = getLocalDateString(startDateTime);
+    const startTimeStr = formatTime(startDateTime); // e.g. "14:00"
+    const endTimeStr = formatTime(endDateTime);     // e.g. "15:30"
+    const reminderTimeStr = reminderTime ? formatTime(reminderTime) : null;
+    const repeatEndDateStr = repeatEndDate ? getLocalDateString(repeatEndDate) : null;
+  
+    // Save to Supabase
     const { data, error } = await supabase
       .from('events')
       .insert([
         {
           title: newEventTitle,
           description: newEventDescription,
-          date: getLocalDateString(startDateTime),
-          start_datetime: startDateTime.toISOString(),
-          end_datetime: endDateTime.toISOString(),
+          date: dateStr,
+          start_time: startTimeStr,
+          end_time: endTimeStr,
           category_name: selectedCategory?.name || 'No Category',
-          category_color: selectedCategory?.color || '#FF9A8B', // Default pink coral color
-          reminder_time: reminderTime ? reminderTime.toISOString() : null,
+          category_color: selectedCategory?.color || '#FF9A8B',
+          reminder_time: reminderTimeStr,
           repeat_option: repeatOption || 'None',
-          repeat_end_date: repeatEndDate ? repeatEndDate.toISOString() : null,
+          repeat_end_date: repeatEndDateStr,
           custom_dates: repeatOption === 'Custom' ? customSelectedDates : null,
           user_id: user?.id || null,
         },
@@ -786,64 +827,57 @@ const CalendarScreen: React.FC = () => {
   
     console.log('Event saved!', data);
   
-    // ✅ Build event blocks across multiple days
+    // ✅ Create new local event objects
     const updatedEvents = { ...events };
-  
     const eventId = data?.[0]?.id || Date.now().toString();
-    const start = new Date(startDateTime);
-    const end = new Date(endDateTime);
   
     if (repeatOption === 'Custom' && customSelectedDates.length > 0) {
-      // For custom repeat, only create events on selected dates
-      customSelectedDates.forEach(dateStr => {
-        const dateKey = dateStr;
+      customSelectedDates.forEach(dateKey => {
         if (!updatedEvents[dateKey]) updatedEvents[dateKey] = [];
-
+  
         updatedEvents[dateKey].push({
           id: eventId,
           title: newEventTitle,
           description: newEventDescription,
           date: dateKey,
-          startDateTime: startDateTime,
-          endDateTime: endDateTime,
+          startTime: startTimeStr,
+          endTime: endTimeStr,
           categoryName: selectedCategory?.name,
           categoryColor: selectedCategory?.color,
-          reminderTime,
+          reminderTime: reminderTimeStr,
           repeatOption,
-          repeatEndDate,
+          repeatEndDate: repeatEndDateStr,
           customDates: customSelectedDates,
           isContinued: false,
         });
       });
     } else {
-      // For other repeat options, create events across the date range
-      let currentDate = new Date(start);
-      while (currentDate <= end) {
+      let currentDate = new Date(startDateTime);
+      const endDateOnly = new Date(endDateTime);
+      while (currentDate <= endDateOnly) {
         const dateKey = getLocalDateString(currentDate);
-
         if (!updatedEvents[dateKey]) updatedEvents[dateKey] = [];
-
+  
         updatedEvents[dateKey].push({
           id: eventId,
           title: newEventTitle,
           description: newEventDescription,
           date: dateKey,
-          startDateTime: startDateTime,
-          endDateTime: endDateTime,
+          startTime: startTimeStr,
+          endTime: endTimeStr,
           categoryName: selectedCategory?.name,
           categoryColor: selectedCategory?.color,
-          reminderTime,
+          reminderTime: reminderTimeStr,
           repeatOption,
-          repeatEndDate,
-          isContinued: currentDate.toDateString() !== start.toDateString(),
+          repeatEndDate: repeatEndDateStr,
+          isContinued: dateKey !== dateStr,
         });
-
+  
         currentDate.setDate(currentDate.getDate() + 1);
       }
     }
   
     setEvents(updatedEvents);
-  
     resetEventForm();
     setShowModal(false);
     setIsSaving(false);
@@ -991,27 +1025,40 @@ const CalendarScreen: React.FC = () => {
                             flex: 1,
                             gap: 2
                           }}>
-                            {dayEvents.slice(0, 3).map((event, eventIndex) => (
-                              <TouchableOpacity
-                                key={`${event.id}-${eventIndex}`}
-                                onLongPress={() => {
-                                  setSelectedEvent({ event, dateKey: event.date, index: eventIndex });
-                                  setEditedEventTitle(event.title);
-                                  setEditedEventDescription(event.description ?? '');
-                                  setEditedStartDateTime(new Date(event.startDateTime!));
-                                  setEditedEndDateTime(new Date(event.endDateTime!));
-                                  setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                                  setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                                  setEditedRepeatOption(event.repeatOption || 'None');
-                                  setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                                  setCustomSelectedDates(event.customDates || []);
-                                  if (event.repeatOption === 'Custom') {
-                                    setIsEditingEvent(true);
-                                    setShowCustomDatesPicker(true);
-                                  } else {
-                                    setShowEditEventModal(true);
-                                  }
-                                }}
+                           {dayEvents.slice(0, 3).map((event, eventIndex) => (
+  <TouchableOpacity
+    key={`${event.id}-${eventIndex}`}
+    onLongPress={() => {
+      setSelectedEvent({ event, dateKey: event.date, index: eventIndex });
+      setEditedEventTitle(event.title);
+      setEditedEventDescription(event.description ?? '');
+
+      // Convert date + time strings to Date objects for the modal
+      setEditedStartDateTime(new Date(`${event.date}T${event.startTime}`));
+      setEditedEndDateTime(new Date(`${event.date}T${event.endTime}`));
+
+      setEditedSelectedCategory(
+        event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null
+      );
+
+      setEditedReminderTime(
+        event.reminderTime ? new Date(`${event.date}T${event.reminderTime}`) : null
+      );
+
+      setEditedRepeatOption(event.repeatOption || 'None');
+      setEditedRepeatEndDate(
+        event.repeatEndDate ? new Date(event.repeatEndDate) : null
+      );
+
+      setCustomSelectedDates(event.customDates || []);
+
+      if (event.repeatOption === 'Custom') {
+        setIsEditingEvent(true);
+        setShowCustomDatesPicker(true);
+      } else {
+        setShowEditEventModal(true);
+      }
+    }}
                                 style={{
                                   flexDirection: 'row',
                                   alignItems: 'center',
@@ -1125,15 +1172,31 @@ const CalendarScreen: React.FC = () => {
                           setSelectedEvent({ event, dateKey: event.date, index });
                           setEditedEventTitle(event.title);
                           setEditedEventDescription(event.description ?? '');
-                          setEditedStartDateTime(new Date(event.startDateTime!));
-                          setEditedEndDateTime(new Date(event.endDateTime!));
-                          setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                          setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                        
+                          // Combine date + time strings to build Date objects
+                          setEditedStartDateTime(new Date(`${event.date}T${event.startTime}`));
+                          setEditedEndDateTime(new Date(`${event.date}T${event.endTime}`));
+                        
+                          setEditedSelectedCategory(
+                            event.categoryName
+                              ? { name: event.categoryName, color: event.categoryColor! }
+                              : null
+                          );
+                        
+                          setEditedReminderTime(
+                            event.reminderTime ? new Date(`${event.date}T${event.reminderTime}`) : null
+                          );
+                        
                           setEditedRepeatOption(event.repeatOption || 'None');
-                          setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                        
+                          setEditedRepeatEndDate(
+                            event.repeatEndDate ? new Date(event.repeatEndDate) : null
+                          );
+                        
                           setCustomSelectedDates(event.customDates || []);
                           setShowEditEventModal(true);
                         }}
+                        
                       >
                         <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 6, color: '#333' }}>
                           {event.title}
@@ -1144,10 +1207,19 @@ const CalendarScreen: React.FC = () => {
                           </Text>
                         )}
                         <Text style={{ fontSize: 10, color: '#999' }}>
-                          {new Date(event.startDateTime!).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          {' '}–{' '}
-                          {new Date(event.endDateTime!).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
+  {new Date(`${event.date}T${event.startTime}`).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })}
+  {' '}–{' '}
+  {new Date(`${event.date}T${event.endTime}`).toLocaleString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  })}
+</Text>
+
                       </TouchableOpacity>
                     ))
                   ) : (
@@ -1176,6 +1248,8 @@ const CalendarScreen: React.FC = () => {
                     const today = new Date();
                     setSelectedDate(today);
                     setVisibleWeekMonth(today);
+                    // Update the month text to show current month
+                    setVisibleWeekMonthText(today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
                     weeklyCalendarRef.current?.scrollToWeek?.(today);
                   }}
                   style={{ paddingVertical: 8 }}
@@ -2942,22 +3016,24 @@ const CalendarScreen: React.FC = () => {
                             // Add the updated event to the custom dates
                             customSelectedDates.forEach(dateStr => {
                               if (!updatedEvents[dateStr]) updatedEvents[dateStr] = [];
+                            
                               updatedEvents[dateStr].push({
                                 id: selectedEvent.event.id,
                                 title: editedEventTitle,
                                 description: editedEventDescription,
                                 date: dateStr,
-                                startDateTime: editedStartDateTime,
-                                endDateTime: editedEndDateTime,
+                                startTime: formatTime(editedStartDateTime),
+                                endTime: formatTime(editedEndDateTime),
                                 categoryName: editedSelectedCategory?.name,
                                 categoryColor: editedSelectedCategory?.color,
-                                reminderTime: reminderTime,
+                                reminderTime: reminderTime ? formatTime(reminderTime) : null,
                                 repeatOption: repeatOption,
-                                repeatEndDate: repeatEndDate,
+                                repeatEndDate: repeatEndDate ? getLocalDateString(repeatEndDate) : null,
                                 customDates: customSelectedDates,
                                 isContinued: false,
                               });
                             });
+                            
 
                             setEvents(updatedEvents);
                             setIsEditingEvent(false);
@@ -3795,13 +3871,13 @@ const CalendarScreen: React.FC = () => {
                                   title: editedEventTitle,
                                   description: editedEventDescription,
                                   date: dateStr,
-                                  startDateTime: editedStartDateTime,
-                                  endDateTime: editedEndDateTime,
+                                  startTime: formatTime(start),
+                                  endTime: formatTime(end),
                                   categoryName: editedSelectedCategory?.name,
                                   categoryColor: editedSelectedCategory?.color,
-                                  reminderTime: editedReminderTime,
+                                  reminderTime: editedReminderTime ? formatTime(editedReminderTime) : null,
                                   repeatOption: editedRepeatOption,
-                                  repeatEndDate: editedRepeatEndDate,
+                                  repeatEndDate: editedRepeatEndDate ? getLocalDateString(editedRepeatEndDate) : null,
                                   customDates: customSelectedDates,
                                   isContinued: false,
                                 });
@@ -3817,15 +3893,15 @@ const CalendarScreen: React.FC = () => {
                                   title: editedEventTitle,
                                   description: editedEventDescription,
                                   date: dateKey,
-                                  startDateTime: editedStartDateTime,
-                                  endDateTime: editedEndDateTime,
+                                  startTime: formatTime(start),
+                                  endTime: formatTime(end),
                                   categoryName: editedSelectedCategory?.name,
                                   categoryColor: editedSelectedCategory?.color,
-                                  reminderTime: editedReminderTime,
+                                  reminderTime: editedReminderTime ? formatTime(editedReminderTime) : null,
                                   repeatOption: editedRepeatOption,
-                                  repeatEndDate: editedRepeatEndDate,
-                                  customDates: editedRepeatOption === 'Custom' ? customSelectedDates : undefined,
-                                  isContinued: currentDate.toDateString() !== start.toDateString(),
+                                  repeatEndDate: editedRepeatEndDate ? getLocalDateString(editedRepeatEndDate) : null,
+                                  customDates: customSelectedDates,
+                                  isContinued: false,
                                 });
                                 currentDate.setDate(currentDate.getDate() + 1);
                               }
