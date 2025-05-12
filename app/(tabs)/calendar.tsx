@@ -37,13 +37,13 @@ interface CalendarEvent {
   endTime: string;   // 'HH:mm'
   categoryName?: string;
   categoryColor?: string;
-  reminderTime?: string | null; // optional time string
+  reminderTime?: string | null; // e.g., '09:00'
   repeatOption?: 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
-  repeatEndDate?: string | null; // also a date string now
+  repeatEndDate?: string | null; // 'YYYY-MM-DD'
   isContinued?: boolean;
-  customDates?: string[]; // ✅ Add this line
-
+  customDates?: string[]; // e.g., ['2025-05-16', '2025-05-18']
 }
+
 
 
 interface WeeklyCalendarViewProps {
@@ -443,9 +443,7 @@ const CalendarScreen: React.FC = () => {
       repeat: RepeatOption;
     } 
   }>({});
-  const getLocalDateString = (date: Date) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
+ 
   // Title & Description
   const [editedEventTitle, setEditedEventTitle] = useState('');
   const [editedEventDescription, setEditedEventDescription] = useState('');
@@ -496,7 +494,20 @@ const CalendarScreen: React.FC = () => {
     return `${hours}:${minutes}`;
   };
   
-
+  const toLocalDateAndTime = (utcString: string) => {
+    const local = new Date(utcString);
+    const date = local.toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const time = local.toTimeString().slice(0, 5);   // "HH:mm"
+    return { date, time };
+  };
+  
+  const getLocalDateString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  
   useEffect(() => {
     const fetchUser = async () => {
       const { data, error } = await supabase.auth.getUser();
@@ -510,7 +521,6 @@ const CalendarScreen: React.FC = () => {
     fetchUser();
   }, []);
   
-
   useEffect(() => {
     const fetchEvents = async () => {
       const { data, error } = await supabase
@@ -519,74 +529,91 @@ const CalendarScreen: React.FC = () => {
   
       if (error) {
         console.error('Error fetching events:', error);
-      } else if (data) {
-        const eventsMap: { [date: string]: CalendarEvent[] } = {};
-  
-        data.forEach((event) => {
-          // Convert UTC dates from Supabase to local timezone
-          const start = convertFromUTC(new Date(event.start_datetime));
-          const end = convertFromUTC(new Date(event.end_datetime));
-          const reminder = event.reminder_time ? convertFromUTC(new Date(event.reminder_time)) : null;
-          const repeatEnd = event.repeat_end_date ? convertFromUTC(new Date(event.repeat_end_date)) : null;
-        
-          // If it's a custom repeat event, only create events on the custom dates
-          if (event.repeat_option === 'Custom' && event.custom_dates && event.custom_dates.length > 0) {
-            event.custom_dates.forEach((dateStr: string) => {
-              if (!eventsMap[dateStr]) eventsMap[dateStr] = [];
-              
-              eventsMap[dateStr].push({
-                id: event.id,
-                title: event.title,              
-                description: event.description,
-                date: dateStr,
-                startTime: typeof start === 'string' ? start : formatTime(start),
-                endTime: typeof end === 'string' ? end : formatTime(end),
-                categoryName: event.category_name,
-                categoryColor: event.category_color,
-                reminderTime: reminder ? reminder.toISOString().split('T')[1].slice(0, 5) : null, // e.g., "14:00"
-                repeatEndDate: repeatEnd ? repeatEnd.toISOString().split('T')[0] : null, // e.g., "2025-05-15"
-                                repeatOption: event.repeat_option,
-                customDates: event.custom_dates ?? [], // ✅ FIXED LINE
-                isContinued: false,
-              });
-            });
-          } else {
-            // For non-custom events, create events across the date range
-            let currentDate = new Date(start);
-            let isFirstDay = true;
-        
-            while (currentDate <= end) {
-              const dateKey = getLocalDateString(currentDate);
-        
-              if (!eventsMap[dateKey]) eventsMap[dateKey] = [];
-        
-              eventsMap[dateKey].push({
-                id: event.id,
-                title: event.title,              
-                description: event.description,
-                date: dateKey,
-                startTime: typeof start === 'string' ? start : formatTime(start),
-                endTime: typeof end === 'string' ? end : formatTime(end),
-                categoryName: event.category_name,
-                categoryColor: event.category_color,
-                reminderTime: reminder ? reminder.toISOString().split('T')[1].slice(0, 5) : null, // e.g., "14:00"
-                repeatEndDate: repeatEnd ? repeatEnd.toISOString().split('T')[0] : null, // e.g., "2025-05-15"
-                repeatOption: event.repeat_option,
-                customDates: event.custom_dates,
-                isContinued: !isFirstDay,
-              });
-        
-              isFirstDay = false;
-              currentDate.setDate(currentDate.getDate() + 1);
-            }
-          }
-        });
-        setEvents(eventsMap);
+        return;
       }
+  
+      const eventsMap: { [date: string]: CalendarEvent[] } = {};
+  
+      data.forEach((event) => {
+        const reminderTime = event.reminder_time
+          ? toLocalDateAndTime(event.reminder_time).time
+          : null;
+  
+        const repeatEndDate = event.repeat_end_date
+          ? new Date(event.repeat_end_date).toISOString().split('T')[0]
+          : null;
+  
+        if (event.repeat_option === 'Custom' && event.custom_dates?.length > 0) {
+          event.custom_dates.forEach((dateStr: string) => {
+            const start = toLocalDateAndTime(`${dateStr}T${event.start_datetime.split('T')[1]}`);
+            const end = toLocalDateAndTime(`${dateStr}T${event.end_datetime.split('T')[1]}`);
+  
+            if (!eventsMap[dateStr]) eventsMap[dateStr] = [];
+  
+            eventsMap[dateStr].push({
+              id: event.id,
+              title: event.title,
+              description: event.description,
+              date: dateStr,
+              startTime: start.time,
+              endTime: end.time,
+              categoryName: event.category_name,
+              categoryColor: event.category_color,
+              reminderTime,
+              repeatOption: event.repeat_option,
+              repeatEndDate,
+              customDates: event.custom_dates ?? [],
+              isContinued: false,
+            });
+          });
+        } else {
+          const startUTC = new Date(event.start_datetime);
+          const endUTC = new Date(event.end_datetime);
+  
+          let currentDate = new Date(startUTC);
+          let isFirst = true;
+  
+          while (currentDate <= endUTC) {
+            const localDate = getLocalDateString(currentDate);
+  
+            const startLocal = toLocalDateAndTime(
+              new Date(currentDate.toDateString() + 'T' + event.start_datetime.split('T')[1]).toISOString()
+            );
+            const endLocal = toLocalDateAndTime(
+              new Date(currentDate.toDateString() + 'T' + event.end_datetime.split('T')[1]).toISOString()
+            );
+  
+            if (!eventsMap[localDate]) eventsMap[localDate] = [];
+  
+            eventsMap[localDate].push({
+              id: event.id,
+              title: event.title,
+              description: event.description,
+              date: localDate,
+              startTime: startLocal.time,
+              endTime: endLocal.time,
+              categoryName: event.category_name,
+              categoryColor: event.category_color,
+              reminderTime,
+              repeatOption: event.repeat_option,
+              repeatEndDate,
+              customDates: event.custom_dates ?? [],
+              isContinued: !isFirst,
+            });
+  
+            isFirst = false;
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        }
+      });
+      console.log('Parsed eventsMap:', eventsMap);
+      setEvents(eventsMap);
     };
+  
     fetchEvents();
   }, []);
-
+  
+  
   useEffect(() => {
     const fetchCategories = async () => {
       const { data, error } = await supabase
@@ -629,33 +656,32 @@ const CalendarScreen: React.FC = () => {
     }
   
     // Combine date + time strings into ISO format strings
-    const toISOString = (date: string, time: string) => {
-      return new Date(`${date}T${time}`).toISOString(); // returns "2025-05-14T14:00:00.000Z"
+    const toUTCISOString = (date: string, time: string) => {
+      const local = new Date(`${date}T${time}`);
+      return local.toISOString(); // Always outputs UTC-compliant ISO string
     };
-  
-    const startISO = toISOString(newEvent.date, newEvent.startTime);
-    const endISO = toISOString(newEvent.date, newEvent.endTime);
-    const reminderISO = newEvent.reminderTime ? toISOString(newEvent.date, newEvent.reminderTime) : null;
+    
+    const startISO = toUTCISOString(newEvent.date, newEvent.startTime);
+    const endISO = toUTCISOString(newEvent.date, newEvent.endTime);
+    const reminderISO = newEvent.reminderTime ? toUTCISOString(newEvent.date, newEvent.reminderTime) : null;
     const repeatEndISO = newEvent.repeatEndDate ? new Date(newEvent.repeatEndDate).toISOString() : null;
-  
-    const { data, error } = await supabase
-      .from('events')
-      .insert([
-        {
-          title: newEvent.title,
-          description: newEvent.description,
-          date: newEvent.date,
-          start_datetime: startISO,
-          end_datetime: endISO,
-          category_name: newEvent.categoryName,
-          category_color: newEvent.categoryColor,
-          reminder_time: reminderISO,
-          repeat_option: newEvent.repeatOption,
-          repeat_end_date: repeatEndISO,
-          custom_dates: newEvent.customDates ?? [],
-          user_id: user?.id,
-        }
-      ])
+
+    const { data, error } = await supabase.from('events').insert([
+      {
+        title: newEvent.title,
+        description: newEvent.description,
+        date: newEvent.date, // optional if you always derive from datetime
+        start_datetime: startISO,
+        end_datetime: endISO,
+        category_name: newEvent.categoryName,
+        category_color: newEvent.categoryColor,
+        reminder_time: reminderISO,
+        repeat_option: newEvent.repeatOption,
+        repeat_end_date: repeatEndISO,
+        custom_dates: newEvent.customDates ?? [],
+        user_id: user?.id,
+      }
+    ])
       .select()
       .returns<CalendarEvent[]>();
   

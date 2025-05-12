@@ -1,9 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button, Alert } from 'react-native';
-import EventModal from '../components/EventModal';
 import { Swipeable } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Feather } from '@expo/vector-icons'; 
 import { supabase } from '../supabase'; 
 
 
@@ -81,6 +79,14 @@ const fromUTC = (utcDate: Date): Date => {
   const localTime = date.getTime() - (offset * 60000);
   return new Date(localTime);
 };
+
+const toLocalDateAndTime = (utcString: string) => {
+    const local = new Date(utcString);
+    const date = local.toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const time = local.toTimeString().slice(0, 5);   // "HH:mm"
+    return { date, time };
+  };
+  
 
 const getLocalDateString = (date: Date): string => {
   // Use the original date directly without UTC conversion
