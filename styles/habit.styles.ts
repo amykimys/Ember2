@@ -23,6 +23,7 @@ const styles = StyleSheet.create({
     habitList: {
       flex: 1,
       paddingHorizontal: 18,
+      marginTop: -8,
     },
     emptyState: {
       flex: 1,
@@ -172,7 +173,6 @@ const styles = StyleSheet.create({
       fontSize: 24,
       fontWeight: 'bold',
       color: '#1a1a1a',
-      fontFamily: 'Manrope',
     },
     input: {
       fontSize: 14,
@@ -181,7 +181,6 @@ const styles = StyleSheet.create({
       backgroundColor: '#F5F5F5',
       borderRadius: 8,
       marginBottom: 16,
-      fontFamily: 'Manrope',
     },
     descriptionInput: {
       minHeight: 100,

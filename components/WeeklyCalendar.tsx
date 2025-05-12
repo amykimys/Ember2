@@ -1,12 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button, Alert } from 'react-native';
 import EventModal from '../components/EventModal';
 import { Swipeable } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Feather } from '@expo/vector-icons'; 
 import { supabase } from '../supabase'; 
-
-
 
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -34,6 +32,10 @@ interface CalendarEvent {
   isContinued?: boolean;
 }
 
+export interface WeeklyCalendarViewRef {
+  scrollToWeek: (date: Date) => void;
+}
+
 interface WeeklyCalendarViewProps {
     events: { [date: string]: CalendarEvent[] };
     setEvents: React.Dispatch<React.SetStateAction<{ [date: string]: CalendarEvent[] }>>;
@@ -42,8 +44,6 @@ interface WeeklyCalendarViewProps {
     setShowModal: (show: boolean) => void;
     setStartDateTime: (date: Date) => void;
     setEndDateTime: (date: Date) => void;
-  
-    // 🛠 ADD THESE 9 LINES:
     setSelectedEvent: React.Dispatch<React.SetStateAction<{ event: CalendarEvent; dateKey: string; index: number } | null>>;
     setEditedEventTitle: React.Dispatch<React.SetStateAction<string>>;
     setEditedEventDescription: React.Dispatch<React.SetStateAction<string>>;
@@ -55,9 +55,12 @@ interface WeeklyCalendarViewProps {
     setEditedRepeatEndDate: React.Dispatch<React.SetStateAction<Date | null>>;
     setShowEditEventModal: (show: boolean) => void;
     hideHeader?: boolean;
-  }
+    setVisibleWeekMonth: (date: Date) => void;
+    setVisibleWeekMonthText: React.Dispatch<React.SetStateAction<string>>;
+    visibleWeekMonthText: string;
+}
 
-  const WeeklyCalendarView: React.FC<WeeklyCalendarViewProps> = ({
+const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalendarViewProps>(({
     events,
     setEvents,
     selectedDate,
@@ -65,8 +68,6 @@ interface WeeklyCalendarViewProps {
     setShowModal,
     setStartDateTime,
     setEndDateTime,
-  
-    // 🛠 ADD THESE (edit-related):
     setSelectedEvent,
     setEditedEventTitle,
     setEditedEventDescription,
@@ -78,18 +79,67 @@ interface WeeklyCalendarViewProps {
     setEditedRepeatEndDate,
     setShowEditEventModal,
     hideHeader = false,
-  }) => {
-  
+    setVisibleWeekMonth,
+    setVisibleWeekMonthText,
+    visibleWeekMonthText,
+}, ref) => {
     const baseDate = new Date(selectedDate);
     const flatListRef = useRef<FlatList>(null);
-    const [eventModalVisible, setEventModalVisible] = useState(false);
-    const [eventModalData, setEventModalData] = useState<Partial<CalendarEvent>>({});
-    const [newEventStart, setNewEventStart] = useState<Date | null>(null);
-    const [newEventEnd, setNewEventEnd] = useState<Date | null>(null);
-    const [newEventTitle, setNewEventTitle] = useState('');
-    const [showTimePicker, setShowTimePicker] = useState(false);
-    const [isStartTime, setIsStartTime] = useState(true);
-    const [tempHour, setTempHour] = useState('');
+
+    // Regenerate weeks array whenever selectedDate changes
+    const weeks = useMemo(() => {
+        const date = new Date(selectedDate);
+        return Array.from({ length: 100 }, (_, i) => {
+            const weekStart = new Date(date);
+            weekStart.setDate(date.getDate() - date.getDay() + (i - 50) * 7);
+            return weekStart;
+        });
+    }, [selectedDate]);
+
+    // Initialize month text immediately
+    useEffect(() => {
+        const weekStart = new Date(baseDate);
+        const weekEnd = new Date(baseDate);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+
+        let initialMonthText;
+        if (weekStart.getMonth() !== weekEnd.getMonth()) {
+            const startMonth = weekStart.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+            const endMonth = weekEnd.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+            const year = weekStart.getFullYear();
+            initialMonthText = `${startMonth}/${endMonth} ${year}`;
+        } else {
+            const month = weekStart.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+            const year = weekStart.getFullYear();
+            initialMonthText = `${month} ${year}`;
+        }
+        setVisibleWeekMonthText(initialMonthText);
+    }, []); // Only run once on mount
+
+    const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
+        if (viewableItems.length > 0) {
+            const visibleWeek = viewableItems[0].item;
+            const weekStart = new Date(visibleWeek);
+            const weekEnd = new Date(visibleWeek);
+            weekEnd.setDate(weekEnd.getDate() + 6);
+
+            let newMonthText;
+            if (weekStart.getMonth() !== weekEnd.getMonth()) {
+                const startMonth = weekStart.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+                const endMonth = weekEnd.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+                const year = weekStart.getFullYear();
+                newMonthText = `${startMonth}/${endMonth} ${year}`;
+            } else {
+                const month = weekStart.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+                const year = weekStart.getFullYear();
+                newMonthText = `${month} ${year}`;
+            }
+            
+            // Update both the text and the date immediately
+            setVisibleWeekMonthText(newMonthText);
+            setVisibleWeekMonth(weekStart);
+        }
+    }, [setVisibleWeekMonth, setVisibleWeekMonthText]);
 
     const isToday = (date: Date) => {
         const today = new Date();
@@ -107,8 +157,6 @@ interface WeeklyCalendarViewProps {
       date.setDate(date.getDate() - date.getDay() + offsetWeeks * 7);
       return date;
     };
-
-    const weeks = Array.from({ length: 100 }, (_, i) => getWeekStartDate(i - 50)); // 50 weeks past, 50 weeks future
 
     const handleSaveNewEvent = (dayDate: Date, hour: number) => {
       const start = new Date(dayDate);
@@ -217,7 +265,8 @@ interface WeeklyCalendarViewProps {
             >
               <Text style={{ 
                 fontSize: 12, 
-                color: '#666',
+                color: isToday(date) ? '#A0C3B2' : '#3a3a3a',
+                fontWeight: isToday(date) ? '700' : '400',
                 fontFamily: 'Onest',
                 marginBottom: 2,
               }}>
@@ -225,7 +274,7 @@ interface WeeklyCalendarViewProps {
               </Text>
               <Text style={{ 
                 fontSize: 13, 
-                color: isToday(date) ? '#A0C3B2' : '#333',
+                color: isToday(date) ? '#A0C3B2' : '#3a3a3a',
                 fontWeight: isToday(date) ? '700' : '400',
                 fontFamily: 'Onest',
               }}>
@@ -258,74 +307,79 @@ interface WeeklyCalendarViewProps {
 
               return (
                 <View key={dayIndex} style={styles.dayColumn}>
-                  {HOURS.map((hour, hourIndex) => {
-                    const cellStartTime = new Date(date);
-                    cellStartTime.setHours(hour, 0, 0, 0);
-                    const cellEndTime = new Date(date);
-                    cellEndTime.setHours(hour + 1, 0, 0, 0);
+                  {/* Grid Background Layer */}
+                  <View style={styles.gridBackground}>
+                    {HOURS.map((hour, hourIndex) => (
+                      <View key={`grid-${hourIndex}`} style={styles.cell} />
+                    ))}
+                  </View>
+                  
+                  {/* Events Foreground Layer */}
+                  <View style={styles.eventsLayer}>
+                    {HOURS.map((hour, hourIndex) => {
+                      const cellStartTime = new Date(date);
+                      cellStartTime.setHours(hour, 0, 0, 0);
+                      const cellEndTime = new Date(date);
+                      cellEndTime.setHours(hour + 1, 0, 0, 0);
 
-                    // Find events that overlap with this time slot
-                    const overlappingEvents = dayEvents.filter(event => {
-                      if (!event.startDateTime || !event.endDateTime) return false;
-                      const eventStart = new Date(event.startDateTime);
-                      const eventEnd = new Date(event.endDateTime);
-                      return eventStart < cellEndTime && eventEnd > cellStartTime;
-                    });
+                      const overlappingEvents = dayEvents.filter(event => {
+                        if (!event.startDateTime || !event.endDateTime) return false;
+                        const eventStart = new Date(event.startDateTime);
+                        const eventEnd = new Date(event.endDateTime);
+                        return eventStart < cellEndTime && eventEnd > cellStartTime;
+                      });
 
-                    return (
-                      <TouchableOpacity
-                        key={`${dayIndex}-${hourIndex}`}
-                        style={styles.cell}
-                        onPress={() => handleAddEvent(date, hour)}
-                      >
-                        {overlappingEvents.map((event, eventIndex) => {
-                          const position = calculateEventPosition(event, date);
-                          if (!position) return null;
+                      return (
+                        <TouchableOpacity
+                          key={`events-${hourIndex}`}
+                          style={styles.eventCell}
+                          onPress={() => handleAddEvent(date, hour)}
+                        >
+                          {overlappingEvents.map((event, eventIndex) => {
+                            const position = calculateEventPosition(event, date);
+                            if (!position) return null;
 
-                          // Only render the event in the first cell it appears in
-                          const eventStart = new Date(event.startDateTime!);
-                          const isFirstCell = eventStart.getHours() === hour;
+                            const eventStart = new Date(event.startDateTime!);
+                            const isFirstCell = eventStart.getHours() === hour;
 
-                          if (!isFirstCell) return null;
+                            if (!isFirstCell) return null;
 
-                          const numberOfLines = calculateNumberOfLines(position.height);
-
-                          return (
-                            <TouchableOpacity
-                              key={`${event.id}-${dayIndex}-${hourIndex}-${eventIndex}`}
-                              onLongPress={() => {
-                                setSelectedEvent({ event, dateKey, index: eventIndex });
-                                setEditedEventTitle(event.title);
-                                setEditedEventDescription(event.description ?? '');
-                                setEditedStartDateTime(new Date(event.startDateTime!));
-                                setEditedEndDateTime(new Date(event.endDateTime!));
-                                setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                                setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                                setEditedRepeatOption(event.repeatOption || 'None');
-                                setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                                setShowEditEventModal(true);
-                              }}
-                              style={[
-                                styles.eventBox,
-                                {
-                                  top: position.top,
-                                  height: position.height,
-                                  backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
-                                }
-                              ]}
-                            >
-                              <Text
-                                numberOfLines={numberOfLines}
-                                style={styles.eventText}
+                            return (
+                              <TouchableOpacity
+                                key={`${event.id}-${eventIndex}`}
+                                onLongPress={() => {
+                                  setSelectedEvent({ event, dateKey, index: eventIndex });
+                                  setEditedEventTitle(event.title);
+                                  setEditedEventDescription(event.description ?? '');
+                                  setEditedStartDateTime(new Date(event.startDateTime!));
+                                  setEditedEndDateTime(new Date(event.endDateTime!));
+                                  setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+                                  setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                                  setEditedRepeatOption(event.repeatOption || 'None');
+                                  setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                                  setShowEditEventModal(true);
+                                }}
+                                style={[
+                                  styles.eventBox,
+                                  {
+                                    top: position.top,
+                                    height: position.height,
+                                    backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
+                                  }
+                                ]}
                               >
-                                {event.title}
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </TouchableOpacity>
-                    );
-                  })}
+                                <View style={styles.eventTextContainer}>
+                                  <Text style={styles.eventText}>
+                                    {event.title}
+                                  </Text>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
               );
             })}
@@ -343,28 +397,78 @@ interface WeeklyCalendarViewProps {
     return `${year}-${month}-${day}`;
   };
 
+  // Update scrollToWeek to handle any target date
+  const scrollToWeek = useCallback((targetDate: Date) => {
+    const weekStart = new Date(targetDate);
+    weekStart.setDate(targetDate.getDate() - targetDate.getDay());
+    
+    // Find the closest week in our array
+    const weekIndex = weeks.findIndex(date => {
+        const diff = Math.abs(date.getTime() - weekStart.getTime());
+        return diff < 7 * 24 * 60 * 60 * 1000; // Within 7 days
+    });
+
+    if (weekIndex !== -1) {
+        flatListRef.current?.scrollToIndex({
+            index: weekIndex,
+            animated: true
+        });
+    } else {
+        // If we can't find a close week, update selectedDate to trigger weeks array regeneration
+        setSelectedDate(weekStart);
+    }
+  }, [weeks, setSelectedDate]);
+
+  // Add this function to scroll to today's week
+  const scrollToToday = useCallback(() => {
+    const today = new Date();
+    scrollToWeek(today);
+  }, [scrollToWeek]);
+
+  // Expose the scrollToWeek function to the parent component
+  React.useImperativeHandle(ref, () => ({
+    scrollToWeek
+  }));
+
   return (
     <View style={{ flex: 1 }}>
-
+      {!hideHeader && (
+        <View style={styles.weekStrip}>
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <Text style={[styles.monthLabel, { textTransform: 'capitalize' }]}>
+              {visibleWeekMonthText}
+            </Text>
+          </View>
+        </View>
+      )}
       <FlatList
       ref={flatListRef} 
         data={weeks}
         horizontal
         pagingEnabled
-        renderItem={renderWeek}
-        keyExtractor={(_, index) => index.toString()}
+        showsHorizontalScrollIndicator={false}
         initialScrollIndex={50}
         getItemLayout={(_, index) => ({
           length: SCREEN_WIDTH,
           offset: SCREEN_WIDTH * index,
           index,
         })}
-        showsHorizontalScrollIndicator={false}
+        renderItem={renderWeek}
+        keyExtractor={(item) => item.toISOString()}
+        onViewableItemsChanged={onViewableItemsChanged}
+        viewabilityConfig={{
+          itemVisiblePercentThreshold: 80,
+          minimumViewTime: 0,
+        }}
+        decelerationRate="fast"
+        snapToInterval={SCREEN_WIDTH}
+        snapToAlignment="center"
       />
-
     </View>
   );
-};
+});
+
+WeeklyCalendarView.displayName = 'WeeklyCalendarView';
 
 const styles = StyleSheet.create({
   weekStrip: {
@@ -416,25 +520,58 @@ const styles = StyleSheet.create({
   },
   dayColumn: {
     width: DAY_COLUMN_WIDTH,
+    position: 'relative',
+    backgroundColor: 'white',
+  },
+  gridBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 0,
     borderRightWidth: 1,
     borderColor: '#EEEEEE',
-    backgroundColor: 'white',
+  },
+  eventsLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 2,
   },
   cell: {
     height: 55,
     borderBottomWidth: 1,
     borderColor: '#EEEEEE',
+  },
+  eventCell: {
+    height: 55,
     position: 'relative',
+    zIndex: 2,
   },
   eventBox: {
     position: 'absolute',
-    left: 2,
-    right: 2,
+    left: 0,
+    right: 0,
     backgroundColor: '#FF9A8B20',
-    borderRadius: 4,
-    padding: 4,
-    zIndex: 1,
-    minHeight: 20, // Add minimum height
+    borderRadius: 1,
+    padding: 2,
+    minHeight: 20,
+    zIndex: 2,
+  },
+  eventTextContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  eventText: {
+    fontSize: 11,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    textAlign: 'center',
   },
   modalBackground: {
     flex: 1,
@@ -499,11 +636,11 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: '#BF9264',
   },
-  eventText: {
-    fontSize: 11,
-    color: '#333',
+  monthLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
     fontFamily: 'Onest',
-    lineHeight: 16, // Add line height for better text spacing
   },
 });
 

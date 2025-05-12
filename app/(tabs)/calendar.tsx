@@ -24,7 +24,7 @@ import { supabase } from '../../supabase';
 import { Swipeable } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import CustomToast from '../../components/CustomToast';
-import WeeklyCalendarView from '../../components/WeeklyCalendar'; 
+import WeeklyCalendarView, { WeeklyCalendarViewRef } from '../../components/WeeklyCalendar'; 
 import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
 
 
@@ -333,12 +333,54 @@ const styles = StyleSheet.create({
     right: 2,
     zIndex: 1000,
   },
+  monthHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  monthButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#A0C3B2',
+    alignItems: 'center',
+  },
+  monthText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+    fontFamily: 'Onest',
+  },
+  viewToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  viewToggleButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#fafafa',
+    alignItems: 'center',
+  },
+  viewToggleText: {
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'Onest',
+  },
 });
 
 const CalendarScreen: React.FC = () => {
   const today = new Date();
   const currentMonthIndex = 12; // center month in 25-month buffer
   const flatListRef = useRef<FlatList>(null);
+  const weeklyCalendarRef = useRef<WeeklyCalendarViewRef>(null);
+  const monthFlatListRef = useRef<FlatList>(null);
 
   const [selectedDate, setSelectedDate] = useState(today);
   const [user, setUser] = useState<any>(null);
@@ -433,6 +475,9 @@ const CalendarScreen: React.FC = () => {
   const [showCustomTimeReminderPicker, setShowCustomTimeReminderPicker] = useState(false);
   const [showCustomTimeRepeatPicker, setShowCustomTimeRepeatPicker] = useState(false);
   const [showCustomTimeInline, setShowCustomTimeInline] = useState(false);
+
+  const [visibleWeekMonth, setVisibleWeekMonth] = useState<Date>(new Date());
+  const [visibleWeekMonthText, setVisibleWeekMonthText] = useState('');
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -807,7 +852,8 @@ const CalendarScreen: React.FC = () => {
   
   const renderMonth = ({ item }: { item: ReturnType<typeof getMonthData> }) => {
     const { year, month, days } = item;
-    const label = new Date(year, month).toLocaleDateString('en-US', {
+    const monthDate = new Date(year, month);
+    const label = monthDate.toLocaleDateString('en-US', {
       month: 'long',
       year: 'numeric'
     });
@@ -823,11 +869,11 @@ const CalendarScreen: React.FC = () => {
       <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 30, paddingHorizontal: 8 }}>
           <TouchableOpacity
-            onPress={() => setCalendarMode((prev: 'month' | 'week') => prev === 'month' ? 'week' : 'month')}
+            onPress={() => setCalendarMode('week')}
             style={{ paddingVertical: 6, paddingHorizontal: 10 }}
           >
             <MaterialIcons 
-              name={(calendarMode as 'month' | 'week') === 'month' ? 'calendar-view-week' : 'calendar-view-month'}
+              name="calendar-view-week"
               size={20} 
               color="#333"
             />
@@ -835,9 +881,24 @@ const CalendarScreen: React.FC = () => {
           <View style={{ flex: 1, alignItems: 'center' }}>
             <TouchableOpacity
               onPress={() => {
-                const todayIndex = findMonthIndex(today);
-                if (todayIndex !== -1) {
-                  flatListRef.current?.scrollToIndex({ index: todayIndex, animated: true });
+                if (calendarMode === 'month') {
+                  // In month view, scroll to current month
+                  const today = new Date();
+                  const monthIndex = months.findIndex(m => 
+                    m.year === today.getFullYear() && m.month === today.getMonth()
+                  );
+                  if (monthIndex !== -1) {
+                    flatListRef.current?.scrollToIndex({
+                      index: monthIndex,
+                      animated: true
+                    });
+                  }
+                } else {
+                  // In week view, scroll to current week
+                  const today = new Date();
+                  setSelectedDate(today);
+                  setVisibleWeekMonth(today);
+                  weeklyCalendarRef.current?.scrollToWeek?.(today);
                 }
               }}
             >
@@ -959,16 +1020,16 @@ const CalendarScreen: React.FC = () => {
                                   borderRadius: 4,
                                   paddingVertical: 2,
                                   paddingHorizontal: 4,
-                    }}
-                  >
-                    <Text
+                                }}
+                              >
+                                <Text
                                   numberOfLines={1}
                                   style={{
                                     fontSize: 11,
                                     color: '#3A3A3A',
                                     flex: 1,
                                     fontFamily: 'Onest',
-                                    textAlign: 'left'
+                                    textAlign: 'center'
                                   }}
                                 >
                                   {event.title}
@@ -998,10 +1059,10 @@ const CalendarScreen: React.FC = () => {
                                   +{dayEvents.length - 3} more
                                 </Text>
                               </View>
-                )}
-              </View>
+                              )}
+                            </View>
                         )}
-          </View>
+                      </View>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1100,29 +1161,40 @@ const CalendarScreen: React.FC = () => {
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: -3, paddingHorizontal: 12 }}>
               <TouchableOpacity
-                onPress={() => setCalendarMode((prev: 'month' | 'week') => prev === 'month' ? 'week' : 'month')}
+                onPress={() => setCalendarMode('month')}
                 style={{ paddingVertical: 6, paddingHorizontal: 6 }}
               >
                 <MaterialIcons 
-                  name={(calendarMode as 'month' | 'week') === 'month' ? 'calendar-view-week' : 'calendar-view-month'}
+                  name="calendar-view-month"
                   size={20} 
                   color="#333"
                 />
               </TouchableOpacity>
               <View style={{ flex: 1, alignItems: 'center' }}>
-                <Text style={[styles.monthLabel, { marginBottom: 0 }]}>
-                  {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                </Text>
+                <TouchableOpacity 
+                  onPress={() => {
+                    const today = new Date();
+                    setSelectedDate(today);
+                    setVisibleWeekMonth(today);
+                    weeklyCalendarRef.current?.scrollToWeek?.(today);
+                  }}
+                  style={{ paddingVertical: 8 }}
+                >
+                  <Text style={[styles.monthLabel, { marginBottom: 0, textTransform: 'capitalize' }]}> 
+                    {visibleWeekMonthText}
+                  </Text>
+                </TouchableOpacity>
               </View>
               <View style={{ width: 40 }}>
                 <Text style={{ color: 'transparent' }}>Spacer</Text>
               </View>
             </View>
             <WeeklyCalendarView
-              selectedDate={selectedDate}
-              setSelectedDate={setSelectedDate}
+              ref={weeklyCalendarRef}
               events={events}
               setEvents={setEvents}
+              selectedDate={selectedDate}
+              setSelectedDate={setSelectedDate}
               setShowModal={setShowModal}
               setStartDateTime={setStartDateTime}
               setEndDateTime={setEndDateTime}
@@ -1137,11 +1209,14 @@ const CalendarScreen: React.FC = () => {
               setEditedRepeatEndDate={setEditedRepeatEndDate}
               setShowEditEventModal={setShowEditEventModal}
               hideHeader={true}
+              setVisibleWeekMonth={setVisibleWeekMonth}
+              setVisibleWeekMonthText={setVisibleWeekMonthText}
+              visibleWeekMonthText={visibleWeekMonthText}
             />
           </View>
         )}
 
-<TouchableOpacity
+          <TouchableOpacity
             style={styles.addButton}
             onPress={() => {
               resetEventForm();
@@ -1150,8 +1225,6 @@ const CalendarScreen: React.FC = () => {
           >
             <MaterialIcons name="add" size={22} color="#3a3a3a" />
           </TouchableOpacity>
-
-        
       </SafeAreaView>
 
       <Modal
@@ -1427,9 +1500,9 @@ const CalendarScreen: React.FC = () => {
                                           fontWeight: '600',
                                         }}>
                                           Add
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
+                                        </Text>
+                                      </TouchableOpacity>
+                                    </View>
                                   </View>
                                 )}
                               </View>
@@ -2039,8 +2112,8 @@ const CalendarScreen: React.FC = () => {
                                     onChangeText={setNewCategoryName}
                                   />
                                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <TouchableOpacity
-                          onPress={() => {
+                                  <TouchableOpacity
+                                    onPress={() => {
                                         setShowAddCategoryForm(false);
                                         setNewCategoryName('');
                                       }}
@@ -2596,13 +2669,14 @@ const CalendarScreen: React.FC = () => {
                           </Swipeable>
                         </View>
                         <View style={{ flex: 1, marginRight: repeatOption !== 'None' ? 12 : 0 }}>
-                          <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
+                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
                           <Swipeable
                             ref={repeatSwipeableRef}
                             onSwipeableOpen={() => {
                               setRepeatOption('None');
                               setRepeatEndDate(null);
                               setShowRepeatPicker(false);
+                              // Close the swipeable after resetting
                               setTimeout(() => {
                                 repeatSwipeableRef.current?.close();
                               }, 100);
@@ -2650,12 +2724,13 @@ const CalendarScreen: React.FC = () => {
                         </View>
                         {repeatOption !== 'None' && (
                           <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
+                            <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
                             <Swipeable
                               ref={endDateSwipeableRef}
                               onSwipeableOpen={() => {
                                 setRepeatEndDate(null);
                                 setShowEndDatePicker(false);
+                                // Close the swipeable after resetting
                                 setTimeout(() => {
                                   endDateSwipeableRef.current?.close();
                                 }, 100);

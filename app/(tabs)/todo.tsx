@@ -286,23 +286,6 @@ export default function TodoScreen() {
     }
   }
 
-  const toggleWeekDay = (day: WeekDay) => {
-    setSelectedWeekDays((prev) =>
-      prev.includes(day)
-        ? prev.filter((d) => d !== day)
-        : [...prev, day]
-    );
-  };
-  
-  
-  async function requestPermissions() {
-    const { status } = await Notifications.requestPermissionsAsync();
-    console.log('Notification permission status:', status); 
-    if (status !== 'granted') {
-      alert('Permission for notifications not granted!');
-    }
-  }
-
   const checkCategories = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -1006,7 +989,7 @@ export default function TodoScreen() {
       >
 
       <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>{category.label}</Text>
+          <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>{category?.label || 'TODO'}</Text>
           <Ionicons
             name={isCollapsed ? 'chevron-up' : 'chevron-down'}
             size={15}
@@ -1416,35 +1399,30 @@ export default function TodoScreen() {
               </TouchableOpacity>
             </View>
             
-            {/* Add this after the header and before the task list */}
-            <View style={{ paddingHorizontal: -10, marginHorizontal: -18, marginBottom: 2 }}>
-              {isMonthView ? (
-                <View style={{ flex: 1, height: '100%', backgroundColor: 'white' }}>
-                  <MonthlyCalendar
-                    selectedDate={currentDate.toISOString().split('T')[0]}
-                    onDayPress={(day: DateData) => {
-                      setCurrentDate(new Date(day.timestamp));
-                    }}
-                  />
-                </View>
-                    
-              ) : (
-                <>
-                  <TouchableOpacity onPress={() => {
-                    const now = moment();
-                    setCurrentDate(now.toDate());
-                    calendarStripRef.current?.scrollToDate(now);
-                  }} onLongPress={() => {
-                    const now = moment();
-                    setCurrentDate(now.toDate());
-                    calendarStripRef.current?.scrollToDate(now);
-                  }} delayLongPress={300}>
-                    <TouchableOpacity onPress={goToToday}>
-                      <Text style={{ color: '#3A3A3A', fontSize: 19, fontWeight: 'bold', marginBottom: 0, textAlign: 'center', fontFamily: 'Onest' }}>
-                        {moment(currentDate).format('MMMM YYYY')}
-                      </Text>
-                    </TouchableOpacity>
-                  </TouchableOpacity>
+            {/* Add Calendar Strip Header */}
+          <View style={{ paddingHorizontal: 12, marginHorizontal: -18, marginBottom: -10 }}>
+            <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              paddingHorizontal: 0,
+              position: 'relative'
+            }}>
+            
+              <TouchableOpacity onPress={goToToday}>
+                <Text style={{ 
+                  color: '#3A3A3A', 
+                  fontSize: 19, 
+                  fontWeight: 'bold', 
+                  marginBottom: 0, 
+                  textAlign: 'center', 
+                  fontFamily: 'Onest' 
+                }}>
+                  {moment(currentDate).format('MMMM YYYY')}
+                </Text>
+              </TouchableOpacity>
+              <View style={{ width: 20, position: 'absolute', right: 24 }} />
+            </View>
                   <CalendarStrip
                     scrollable
                     startingDate={moment().subtract(3, 'days')}
@@ -1456,26 +1434,23 @@ export default function TodoScreen() {
                     calendarHeaderStyle={{
                       display: 'none'
                     }}
-                    dateNumberStyle={{ color: '#888888', fontSize: 19, fontFamily: 'Onest', marginTop: 0 }}
-                    dateNameStyle={{ color: '#888888', fontFamily: 'Onest', marginBottom: -1 }}
+                    dateNumberStyle={{ color: '#888888', fontSize: 17, fontFamily: 'Onest', marginTop: 0 }}
+                    dateNameStyle={{ color: '#888888', fontFamily: 'Onest', marginBottom: 0 }}
                     highlightDateNumberStyle={{
                       color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
                       fontSize: 34,
                       fontFamily: 'Onest',
-                      marginTop: -1
                     }}
                     highlightDateNameStyle={{
                       color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
-                      fontSize: 15,
+                      fontSize: 13,
                       fontFamily: 'Onest',
-                      marginBottom: -1
                     }}
                     customDatesStyles={customDatesStyles}
                     selectedDate={moment(currentDate)}
                     onDateSelected={(date) => setCurrentDate(date.toDate())}
                   />
-                </>
-              )}
+                
             </View>
 
             {/* TASK LIST */}
@@ -1486,7 +1461,7 @@ export default function TodoScreen() {
                   justifyContent: 'center', 
                   alignItems: 'center',
                   paddingHorizontal: 20,
-                  marginTop: 50
+                  marginTop: 125
                 }]}>
                   <Text style={[styles.emptyStateTitle, { 
                     textAlign: 'center',

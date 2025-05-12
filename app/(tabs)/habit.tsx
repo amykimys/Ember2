@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -328,14 +328,14 @@ export default function HabitScreen() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.email);
       
-      if (event === 'SIGNED_IN' && session?.user) {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         try {
           // Fetch user's categories first
-          console.log('Fetching categories for user:', session.user.id);
+          console.log('Fetching categories for user:', session?.user?.id);
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', session.user.id);
+            .eq('user_id', session?.user?.id);
 
           if (categoriesError) {
             console.error('Error fetching categories:', categoriesError);
@@ -351,7 +351,7 @@ export default function HabitScreen() {
             const { data: preferencesData, error: preferencesError } = await supabase
               .from('user_preferences')
               .select('expanded_categories')
-              .eq('user_id', session.user.id) as { data: { expanded_categories: { [key: string]: boolean } }[] | null, error: any };
+              .eq('user_id', session?.user?.id);
 
             if (preferencesError) {
               console.error('Error fetching preferences:', preferencesError);
@@ -375,11 +375,11 @@ export default function HabitScreen() {
           }
 
           // Then fetch user's habits
-          console.log('Fetching habits for user:', session.user.id);
+          console.log('Fetching habits for user:', session?.user?.id);
           const { data: habitsData, error: habitsError } = await supabase
             .from('habits')
             .select('*')
-            .eq('user_id', session.user.id);
+            .eq('user_id', session?.user?.id);
           
           if (habitsError) {
             console.error('Error fetching habits:', habitsError);
@@ -420,21 +420,25 @@ export default function HabitScreen() {
       }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    // Set up session refresh listener
+    const refreshSubscription = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'TOKEN_REFRESHED') {
+        console.log('Session refreshed:', session?.user?.email);
+      }
+    });
 
-  useEffect(() => {
+    // Initial data fetch
     const fetchInitialData = async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          console.log('Fetching initial data for user:', user.id);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          console.log('Fetching initial data for user:', session.user.id);
           
           // Fetch categories first
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', user.id);
+            .eq('user_id', session.user.id);
 
           if (categoriesError) {
             console.error('Error fetching initial categories:', categoriesError);
@@ -449,7 +453,7 @@ export default function HabitScreen() {
             const { data: preferencesData, error: preferencesError } = await supabase
               .from('user_preferences')
               .select('expanded_categories')
-              .eq('user_id', user.id);
+              .eq('user_id', session.user.id);
 
             if (preferencesError) {
               console.error('Error fetching preferences:', preferencesError);
@@ -476,7 +480,7 @@ export default function HabitScreen() {
           const { data: habitsData, error: habitsError } = await supabase
             .from('habits')
             .select('*')
-            .eq('user_id', user.id);
+            .eq('user_id', session.user.id);
           
           if (habitsError) {
             console.error('Error fetching initial habits:', habitsError);
@@ -522,31 +526,62 @@ export default function HabitScreen() {
     };
 
     fetchInitialData();
+
+    return () => {
+      subscription.unsubscribe();
+      refreshSubscription.data.subscription.unsubscribe();
+    };
   }, []);
 
-  // Update the useEffect for progress animations
+  // Add a periodic data refresh
   useEffect(() => {
-    // Initialize animations for all habits
-    const newAnimations = new Map();
-    habits.forEach(habit => {
-      newAnimations.set(habit.id, new Animated.Value(getWeeklyProgressPercentage(habit)));
-    });
-    setProgressAnimations(newAnimations);
-  }, [habits.length]); // Only reinitialize when number of habits changes
+    const refreshInterval = setInterval(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        try {
+          // Fetch latest habits
+          const { data: habitsData, error: habitsError } = await supabase
+            .from('habits')
+            .select('*')
+            .eq('user_id', session.user.id);
+          
+          if (!habitsError && habitsData) {
+            const mappedHabits = habitsData.map(habit => ({
+              ...habit,
+              completedDays: habit.completed_days || [],
+              photoProofs: habit.photo_proofs || {},
+              reminderTime: habit.reminder_time,
+              user_id: habit.user_id,
+              streak: habit.streak || 0,
+              completedToday: false,
+              targetPerWeek: habit.target_per_week || 1,
+              requirePhoto: habit.require_photo || false,
+              repeat_type: habit.repeat_type || 'none',
+              repeat_end_date: habit.repeat_end_date || null,
+              notes: habit.notes || {},
+              photos: habit.photos || {},
+              category_id: habit.category_id,
+            }));
+            setHabits(mappedHabits);
+          }
 
-  // Add a new useEffect to update animations when habits change
-  useEffect(() => {
-    habits.forEach(habit => {
-      const animation = progressAnimations.get(habit.id);
-      if (animation) {
-        Animated.timing(animation, {
-          toValue: getWeeklyProgressPercentage(habit),
-          duration: 300,
-          useNativeDriver: false
-        }).start();
+          // Fetch latest categories
+          const { data: categoriesData, error: categoriesError } = await supabase
+            .from('categories')
+            .select('*')
+            .eq('user_id', session.user.id);
+
+          if (!categoriesError && categoriesData) {
+            setCategories(categoriesData);
+          }
+        } catch (error) {
+          console.error('Error in periodic refresh:', error);
+        }
       }
-    });
-  }, [habits]); // Update whenever habits change
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, []);
 
   async function requestCameraPermissions() {
     if (Platform.OS !== 'web') {
@@ -2873,7 +2908,7 @@ const formatDate = (date: Date): string => {
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  // View note mode (existing code)
+                  // View note mode
                   <View style={{ 
                     backgroundColor: 'white', 
                     padding: 20, 
@@ -2883,7 +2918,93 @@ const formatDate = (date: Date): string => {
                     minHeight: selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] ? '60%' : '35%',
                     marginBottom: 0,
                   }}>
-                    {/* ... rest of the view note mode code ... */}
+                    {/* Header */}
+                    <View style={{ 
+                      flexDirection: 'row', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      marginBottom: 8 
+                    }}>
+                      <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>
+                        Note
+                      </Text>
+                      <TouchableOpacity onPress={() => {
+                        setSelectedNoteDate(null);
+                        setIsNoteEditMode(false);
+                        setNoteText('');
+                      }}>
+                        <Ionicons name="close" size={24} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Date */}
+                    {selectedNoteDate && (
+                      <Text style={{ 
+                        fontSize: 14, 
+                        color: '#666',
+                        marginBottom: 20,
+                        fontFamily: 'Onest'
+                      }}>
+                        {new Date(selectedNoteDate.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                      </Text>
+                    )}
+
+                    {/* Note Content */}
+                    <ScrollView style={{ flex: 1 }}>
+                      {selectedNoteDate && (
+                        <>
+                          {/* Photo if exists */}
+                          {habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] && (
+                            <View style={{ marginBottom: 20 }}>
+                              <Image
+                                source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] }}
+                                style={{
+                                  width: '100%',
+                                  aspectRatio: 4/3,
+                                  borderRadius: 12,
+                                }}
+                                resizeMode="contain"
+                              />
+                            </View>
+                          )}
+
+                          {/* Note text */}
+                          <View style={{
+                            padding: 16,
+                            marginBottom: 8,
+                          }}>
+                            <Text style={{
+                              fontSize: 16,
+                              color: '#3A3A3A',
+                              lineHeight: 24,
+                              fontFamily: 'Onest'
+                            }}>
+                              {habits.find(h => h.id === selectedNoteDate.habitId)?.notes?.[selectedNoteDate.date] || 'No note for this day.'}
+                            </Text>
+                          </View>
+                        </>
+                      )}
+                    </ScrollView>
+
+                    {/* Edit Button */}
+                    {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.notes?.[selectedNoteDate.date] && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setIsNoteEditMode(true);
+                          setNoteText(habits.find(h => h.id === selectedNoteDate.habitId)?.notes?.[selectedNoteDate.date] || '');
+                        }}
+                        style={{
+                          backgroundColor: '#FF9A8B',
+                          padding: 14,
+                          borderRadius: 12,
+                          alignItems: 'center',
+                          marginTop: 'auto',
+                          marginBottom: 0,
+                        }}
+                      >
+                        <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Edit Note</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 )}
               </View>

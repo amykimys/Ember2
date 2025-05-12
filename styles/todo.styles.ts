@@ -4,26 +4,21 @@ const styles = StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: '#fff',
-      paddingTop: 5,
-      paddingHorizontal: 14,
-      paddingBottom: 30,
+      paddingTop: 15,
     },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 15,
-      marginBottom: 0,
+      gap: 12,
+      marginBottom: 42,
     },
     menuButton: {
-      padding: 0,
-      marginBottom: 40,
-      marginTop: 20,
+      padding: 4,
+      
     },
-
     todoList: {
       flex: 1,
-      paddingTop: 0, 
-      marginTop: -13,
+      paddingHorizontal: 12,
     },
     emptyState: {
       flex: 1,
@@ -33,16 +28,14 @@ const styles = StyleSheet.create({
     },
     emptyStateTitle: {
       fontSize: 20,
-      fontWeight: 'bold',
-      color: '#1a1a1a',
-      marginBottom: 8,
-      marginTop: 150,
-      fontFamily: 'Onest',
+      fontWeight: '700',
+      color: '#3A3A3A',
+      textAlign: 'center',
     },
     emptyStateSubtitle: {
-      fontSize: 17,
+      fontSize: 18,
       color: '#666',
-      fontFamily: 'Onest',
+      textAlign: 'center',
     },
     categoryContainer: {
       marginBottom: 20,
@@ -56,7 +49,7 @@ const styles = StyleSheet.create({
     categoryTitle: {
       fontSize: 13,
       fontWeight: '600',
-      color: 'black',
+      color: '#3a3a3a',
       textTransform: 'uppercase',
       letterSpacing: 0.3,
       marginHorizontal: 10,
@@ -113,8 +106,8 @@ const styles = StyleSheet.create({
     },
     addButton: {
       position: 'absolute',
-      right: 10,
-      bottom: 50,
+      right: 24,
+      bottom: 80,
       width: 50,
       height: 50,
       borderRadius: 25,
@@ -135,27 +128,26 @@ const styles = StyleSheet.create({
       flex: 1,
       backgroundColor: 'rgba(0, 0, 0, 0.5)',
       justifyContent: 'flex-end',
-      paddingBottom: 0,
     },
     
     modalContent: {
       backgroundColor: 'white',
-      padding: 0,
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
+      padding: 20,
+      maxHeight: '90%',
     },
     
     modalHeader: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginBottom: 20,
+      marginBottom: 15,
     },
     modalTitle: {
-      fontSize: 20,
+      fontSize: 24,
       fontWeight: 'bold',
       color: '#1a1a1a',
-      fontFamily: 'Onest',
     },
    
     rightAction: {
