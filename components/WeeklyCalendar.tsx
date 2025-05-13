@@ -9,12 +9,48 @@ import { supabase } from '../supabase';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// 🛠 ADD THIS LINE:
-const TIME_COLUMN_WIDTH = 40;
-
-// 🛠 ADD THIS LINE TOO:
+// Update time column width to match Google Calendar
+const TIME_COLUMN_WIDTH = 50;
 const DAY_COLUMN_WIDTH = (SCREEN_WIDTH - TIME_COLUMN_WIDTH) / 7;
-const HOURS = Array.from({ length: 24 }, (_, i) => (i + 6) % 24); // Start from 6am, 24 hours total to include 6am to 5am next day
+const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for hour labels
+const GRID_ROWS = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for grid rows
+const CELL_HEIGHT = 55; // Height of each hour cell
+
+// Add current time line component
+const CurrentTimeLine = () => {
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [position, setPosition] = useState(0);
+
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setCurrentTime(now);
+      
+      // Calculate position based on current time
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const totalMinutes = hours * 60 + minutes;
+      const cellHeight = 55; // Height of each hour cell
+      const position = (totalMinutes / 60) * cellHeight; // No offset, 12 AM at the top
+      setPosition(position);
+    };
+
+    updateTime();
+    const interval = setInterval(updateTime, 60000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  // Only show the line if we're viewing today
+  const isToday = currentTime.toDateString() === new Date().toDateString();
+  if (!isToday) return null;
+
+  return (
+    <View style={[styles.currentTimeLine, { top: position }]}>
+      <View style={styles.currentTimeDot} />
+      <View style={styles.currentTimeLineContent} />
+    </View>
+  );
+};
 
 // Add your CalendarEvent here ✅
 interface CalendarEvent {
@@ -30,6 +66,7 @@ interface CalendarEvent {
   repeatOption?: 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
   repeatEndDate?: Date | null;
   isContinued?: boolean;
+  isAllDay?: boolean;
 }
 
 export interface WeeklyCalendarViewRef {
@@ -178,6 +215,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         repeatOption: 'None',
         repeatEndDate: null,
         isContinued: false,
+        isAllDay: false,
       };
     
       setEvents(prev => {
@@ -233,149 +271,178 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       return date;
     });
 
-    const handleAddEvent = (dayDate: Date, hour: number) => {
-      const start = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour, 0, 0);
-      const end = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), hour + 1, 0, 0);
-
-      setStartDateTime(start);
-      setEndDateTime(end);
-      setShowModal(true);
-    };
+    // Sticky all-day row
+    const allDayRow = (
+      <View style={{ flexDirection: 'row', backgroundColor: 'white', borderBottomWidth: 1, borderColor: '#eee', minHeight: 36, alignItems: 'center', zIndex: 10 }}>
+        {/* Time column spacer for alignment */}
+        <View style={{ width: TIME_COLUMN_WIDTH, backgroundColor: 'white' }} />
+        {weekDates.map((date, idx) => {
+          const dateKey = getLocalDateString(date);
+          const allDayEvents = (events[dateKey] || []).filter(e => e.isAllDay);
+          return (
+            <View
+              key={idx}
+              style={{
+                width: DAY_COLUMN_WIDTH,
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                minHeight: allDayEvents.length > 0 ? allDayEvents.length * 28 : 45, // Adjust height based on number of events
+                borderRightWidth: idx < weekDates.length - 1 ? 1 : 0,
+                borderLeftWidth: idx === 0 ? 1 : 0,
+                borderColor: '#eee',
+                backgroundColor: 'white',
+                paddingVertical: 4,
+              }}
+            >
+              {allDayEvents.map((event, i) => (
+                <TouchableOpacity
+                  key={event.id + '-' + i}
+                  onPress={() => {
+                    setSelectedEvent({ event, dateKey, index: i });
+                    setEditedEventTitle(event.title);
+                    setEditedEventDescription(event.description ?? '');
+                    setEditedStartDateTime(new Date(event.startDateTime!));
+                    setEditedEndDateTime(new Date(event.endDateTime!));
+                    setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+                    setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                    setEditedRepeatOption(event.repeatOption || 'None');
+                    setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                    setShowEditEventModal(true);
+                  }}
+                  style={[
+                    styles.allDayEventBox,
+                    {
+                      backgroundColor: event.categoryColor || '#A0C3B2',
+                      marginVertical: 2,
+                    }
+                  ]}
+                >
+                  <Text style={styles.allDayEventText} numberOfLines={1}>{event.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          );
+        })}
+      </View>
+    );
 
     return (
       <View style={{ flex: 1 }}>
         {/* Date Headers */}
-        <View style={{ 
-          flexDirection: 'row', 
-          borderBottomWidth: 1, 
-          borderColor: '#EEEEEE',
-          backgroundColor: 'white',
-          paddingTop: 8,
-          paddingBottom: 8,
-        }}>
-          <View style={{ width: TIME_COLUMN_WIDTH }} />
+        <View style={styles.headerContainer}>
+          <View style={styles.timeColumnHeader} />
           {weekDates.map((date, idx) => (
-            <View 
-              key={idx} 
-              style={{ 
-                width: DAY_COLUMN_WIDTH, 
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Text style={{ 
-                fontSize: 12, 
-                color: isToday(date) ? '#A0C3B2' : '#3a3a3a',
-                fontWeight: isToday(date) ? '700' : '400',
-                fontFamily: 'Onest',
-                marginBottom: 2,
-              }}>
+            <View key={idx} style={styles.dateHeader}>
+              <Text style={[styles.weekdayText, isToday(date) && styles.todayText]}>
                 {date.toLocaleDateString('en-US', { weekday: 'short' })}
               </Text>
-              <Text style={{ 
-                fontSize: 13, 
-                color: isToday(date) ? '#A0C3B2' : '#3a3a3a',
-                fontWeight: isToday(date) ? '700' : '400',
-                fontFamily: 'Onest',
-              }}>
+              <Text style={[styles.dateText, isToday(date) && styles.todayText]}>
                 {date.getDate()}
               </Text>
             </View>
           ))}
         </View>
-
+        {/* Sticky All-Day Row */}
+        {allDayRow}
         {/* Time Grid */}
         <ScrollView style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row' }}>
             {/* Time Column */}
             <View style={styles.timeColumn}>
-              {HOURS.map((hour, hourIndex) => (
-                <View key={`time-${hourIndex}`} style={styles.timeRow}>
-                  <Text style={styles.timeText}>
-                    {hour === 0 ? '12a' : 
-                     hour === 12 ? '12p' : 
-                     hour < 12 ? `${hour}a` : `${hour - 12}p`}
+              {/* Absolutely position hour labels at the top of each cell */}
+              <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }} pointerEvents="none">
+                {HOURS.map((hour, hourIndex) => (
+                  <Text
+                    key={`time-${hour}`}
+                    style={[
+                      styles.timeText,
+                      {
+                        position: 'absolute',
+                        top: hourIndex * CELL_HEIGHT - 7, // 12 AM at the very top
+                        left: 0,
+                        right: 0,
+                        zIndex: 10,
+                      },
+                    ]}
+                  >
+                    {hour === 0 ? '12 AM' :
+                     hour === 12 ? '12 PM' :
+                     hour < 12 ? `${hour} AM` : `${hour - 12} PM`}
                   </Text>
-                </View>
-              ))}
+                ))}
+              </View>
+              {/* Render the grid cells for background height only (25 rows) */}
+              <View>
+                {GRID_ROWS.map((row) => (
+                  <View key={`grid-bg-${row}`} style={{ height: CELL_HEIGHT }} />
+                ))}
+              </View>
             </View>
 
             {/* Day Columns */}
             {weekDates.map((date, dayIndex) => {
               const dateKey = getLocalDateString(date);
-              const dayEvents = events[dateKey] || [];
+              const dayEvents = (events[dateKey] || []).filter(event => !event.isAllDay); // Filter out all-day events
+              const isCurrentDay = isToday(date);
 
               return (
                 <View key={dayIndex} style={styles.dayColumn}>
                   {/* Grid Background Layer */}
                   <View style={styles.gridBackground}>
-                    {HOURS.map((hour, hourIndex) => (
-                      <View key={`grid-${hourIndex}`} style={styles.cell} />
+                    {GRID_ROWS.map((row) => (
+                      <View key={`grid-${row}`} style={styles.cell} />
                     ))}
                   </View>
                   
+                  {/* Current Time Line */}
+                  {isCurrentDay && <CurrentTimeLine />}
+
                   {/* Events Foreground Layer */}
                   <View style={styles.eventsLayer}>
-                    {HOURS.map((hour, hourIndex) => {
-                      const cellStartTime = new Date(date);
-                      cellStartTime.setHours(hour, 0, 0, 0);
-                      const cellEndTime = new Date(date);
-                      cellEndTime.setHours(hour + 1, 0, 0, 0);
-
-                      const overlappingEvents = dayEvents.filter(event => {
-                        if (!event.startDateTime || !event.endDateTime) return false;
-                        const eventStart = new Date(event.startDateTime);
-                        const eventEnd = new Date(event.endDateTime);
-                        return eventStart < cellEndTime && eventEnd > cellStartTime;
-                      });
+                    {dayEvents.map((event, eventIndex) => {
+                      const position = calculateEventPosition(event, date);
+                      if (!position) return null;
 
                       return (
                         <TouchableOpacity
-                          key={`events-${hourIndex}`}
+                          key={`${event.id}-${eventIndex}`}
                           style={styles.eventCell}
-                          onPress={() => handleAddEvent(date, hour)}
+                          onPress={() => {
+                            const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), event.startDateTime!.getHours(), 0, 0);
+                            const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), event.endDateTime!.getHours(), 0, 0);
+                            setStartDateTime(start);
+                            setEndDateTime(end);
+                            setShowModal(true);
+                          }}
                         >
-                          {overlappingEvents.map((event, eventIndex) => {
-                            const position = calculateEventPosition(event, date);
-                            if (!position) return null;
-
-                            const eventStart = new Date(event.startDateTime!);
-                            const isFirstCell = eventStart.getHours() === hour;
-
-                            if (!isFirstCell) return null;
-
-                            return (
-                              <TouchableOpacity
-                                key={`${event.id}-${eventIndex}`}
-                                onLongPress={() => {
-                                  setSelectedEvent({ event, dateKey, index: eventIndex });
-                                  setEditedEventTitle(event.title);
-                                  setEditedEventDescription(event.description ?? '');
-                                  setEditedStartDateTime(new Date(event.startDateTime!));
-                                  setEditedEndDateTime(new Date(event.endDateTime!));
-                                  setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                                  setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                                  setEditedRepeatOption(event.repeatOption || 'None');
-                                  setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                                  setShowEditEventModal(true);
-                                }}
-                                style={[
-                                  styles.eventBox,
-                                  {
-                                    top: position.top,
-                                    height: position.height,
-                                    backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
-                                  }
-                                ]}
-                              >
-                                <View style={styles.eventTextContainer}>
-                                  <Text style={styles.eventText}>
-                                    {event.title}
-                                  </Text>
-                                </View>
-                              </TouchableOpacity>
-                            );
-                          })}
+                          <TouchableOpacity
+                            onLongPress={() => {
+                              setSelectedEvent({ event, dateKey, index: eventIndex });
+                              setEditedEventTitle(event.title);
+                              setEditedEventDescription(event.description ?? '');
+                              setEditedStartDateTime(new Date(event.startDateTime!));
+                              setEditedEndDateTime(new Date(event.endDateTime!));
+                              setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+                              setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                              setEditedRepeatOption(event.repeatOption || 'None');
+                              setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                              setShowEditEventModal(true);
+                            }}
+                            style={[
+                              styles.eventBox,
+                              {
+                                top: position.top,
+                                height: position.height,
+                                backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
+                              }
+                            ]}
+                          >
+                            <View style={styles.eventTextContainer}>
+                              <Text style={styles.eventText} numberOfLines={2}>
+                                {event.title}
+                              </Text>
+                            </View>
+                          </TouchableOpacity>
                         </TouchableOpacity>
                       );
                     })}
@@ -500,23 +567,49 @@ const styles = StyleSheet.create({
     color: '#333',
     fontFamily: 'Onest',
   },
+  headerContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderColor: '#EEEEEE',
+    backgroundColor: 'white',
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  timeColumnHeader: {
+    width: TIME_COLUMN_WIDTH,
+  },
+  dateHeader: {
+    width: DAY_COLUMN_WIDTH,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  weekdayText: {
+    fontSize: 12,
+    color: '#3a3a3a',
+    fontWeight: '400',
+    fontFamily: 'Onest',
+    marginBottom: 2,
+  },
+  todayText: {
+    color: '#A0C3B2',
+    fontWeight: '700',
+  },
   timeColumn: {
     width: TIME_COLUMN_WIDTH,
     backgroundColor: 'white',
     borderRightWidth: 1,
     borderColor: '#EEEEEE',
-  },
-  timeRow: {
-    height: 55,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderColor: '#EEEEEE',
+    paddingRight: 4,
   },
   timeText: {
     fontSize: 11,
     color: '#666',
     fontFamily: 'Onest',
+    textAlign: 'right',
+    marginBottom: -7,
+    marginTop: 0,
+    backgroundColor: 'transparent',
+    paddingRight: 8,
   },
   dayColumn: {
     width: DAY_COLUMN_WIDTH,
@@ -641,6 +734,45 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#666',
     fontFamily: 'Onest',
+  },
+  currentTimeLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#EA4335',
+    zIndex: 3,
+  },
+  currentTimeDot: {
+    position: 'absolute',
+    left: -4,
+    top: -3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EA4335',
+  },
+  currentTimeLineContent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#EA4335',
+  },
+  allDayEventBox: {
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minWidth: 40,
+    maxWidth: '90%',
+    alignSelf: 'center',
+  },
+  allDayEventText: {
+    color: '#fff',
+    fontSize: 12,
+    fontFamily: 'Onest',
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });
 
