@@ -1490,8 +1490,7 @@ const CalendarScreen: React.FC = () => {
                                             height: 24,
                                             borderRadius: 12,
                                             backgroundColor: color,
-                                            borderWidth: 2,
-                                            borderColor: newCategoryColor === color ? '#333' : 'transparent',
+                                            opacity: newCategoryColor === color ? 1 : 0,
                                             shadowColor: '#000',
                                             shadowOffset: { width: 0, height: 1 },
                                             shadowOpacity: 0.2,
@@ -1587,128 +1586,131 @@ const CalendarScreen: React.FC = () => {
 </View>
                       
                       {/* 🕓 Starts & Ends in one row */}
-                      {!isAllDay && (
-  <View style={{ flex: 1, marginBottom: 20 }}>
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-      <View style={{ flex: 1, marginRight: 12 }}>
-        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
-        <TouchableOpacity
-          onPress={() => {
-            setShowStartPicker(true);
-            setShowEndPicker(false);
-          }}
-          style={{
-            backgroundColor: '#fafafa',
-            borderRadius: 12,
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            marginTop: 2,
-            alignItems: 'center',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 2,
-            elevation: 1,
-          }}
-        >
-          <Text style={{
-            fontSize: 13,
-            color: '#3a3a3a',
-            fontFamily: 'Onest',
-            fontWeight: '500'
-          }}>
-            {startDateTime.toLocaleString([], {
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            }).replace(',', ' ·')}
-          </Text>
-        </TouchableOpacity>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
-        <TouchableOpacity
-          onPress={() => {
-            setShowEndPicker(true);
-            setShowStartPicker(false);
-          }}
-          style={{
-            backgroundColor: '#fafafa',
-            borderRadius: 12,
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            marginTop: 2,
-            alignItems: 'center',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 2,
-            elevation: 1,
-          }}
-        >
-          <Text style={{
-            fontSize: 13,
-            color: '#3a3a3a',
-            fontFamily: 'Onest',
-            fontWeight: '500'
-          }}>
-            {endDateTime.toLocaleString([], {
-              month: 'short',
-              day: 'numeric',
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            }).replace(',', ' ·')}
-          </Text>
-        </TouchableOpacity>
-      </View>
+                      <View style={{ flex: 1, marginBottom: 20 }}>
+  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+    <View style={{ flex: 1, marginRight: 12 }}>
+      <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
+      <TouchableOpacity
+        onPress={() => {
+          // Toggle start picker
+          setShowStartPicker(prev => !prev);
+          // Close end picker if it's open
+          if (showEndPicker) setShowEndPicker(false);
+        }}
+        style={{
+          backgroundColor: '#fafafa',
+          borderRadius: 12,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          marginTop: 2,
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+        }}
+      >
+        <Text style={{
+          fontSize: 13,
+          color: '#3a3a3a',
+          fontFamily: 'Onest',
+          fontWeight: '500'
+        }}>
+          {startDateTime.toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            ...(isAllDay ? {} : { hour: 'numeric', minute: '2-digit', hour12: true })
+          }).replace(',', ' ·')}
+        </Text>
+      </TouchableOpacity>
     </View>
 
-    {/* Date/Time Picker */}
-    {(showStartPicker || showEndPicker) && (
-      <Animated.View style={[styles.dateTimePickerContainer, {
-        backgroundColor: '#fafafa',
-        borderRadius: 16,
-        paddingVertical: 8,
-        paddingHorizontal: 16,
-        marginTop: 1,
-        marginBottom: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 3,
-        elevation: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-      }]}>
-        <DateTimePicker
-          value={showStartPicker ? startDateTime : endDateTime}
-          mode="time"
-          display="spinner"
-          onChange={(event, selectedTime) => {
-            if (selectedTime) {
-              if (showStartPicker) {
-                setStartDateTime(selectedTime);
-                if (!userChangedEndTime) {
-                  setEndDateTime(new Date(selectedTime.getTime() + 60 * 60 * 1000));
-                }
-                setTimeout(() => setShowStartPicker(false), 2000);
-              } else {
-                setEndDateTime(selectedTime);
-                setUserChangedEndTime(true);
-                setTimeout(() => setShowEndPicker(false), 2000);
-              }
-            }
-          }}
-          style={{ height: 180, width: '100%' }}
-          textColor="#333"
-        />
-      </Animated.View>
-    )}
+    <View style={{ flex: 1 }}>
+      <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
+      <TouchableOpacity
+        onPress={() => {
+          // Toggle end picker
+          setShowEndPicker(prev => !prev);
+          // Close start picker if it's open
+          if (showStartPicker) setShowStartPicker(false);
+        }}
+        style={{
+          backgroundColor: '#fafafa',
+          borderRadius: 12,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          marginTop: 2,
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+        }}
+      >
+        <Text style={{
+          fontSize: 13,
+          color: '#3a3a3a',
+          fontFamily: 'Onest',
+          fontWeight: '500'
+        }}>
+          {endDateTime.toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            ...(isAllDay ? {} : { hour: 'numeric', minute: '2-digit', hour12: true })
+          }).replace(',', ' ·')}
+        </Text>
+      </TouchableOpacity>
+    </View>
   </View>
-)}
+
+  {/* Date/Time Picker */}
+  {(showStartPicker || showEndPicker) && (
+    <Animated.View style={[styles.dateTimePickerContainer, {
+      backgroundColor: '#fafafa',
+      borderRadius: 16,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      marginTop: 1,
+      marginBottom: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.03,
+      shadowRadius: 3,
+      elevation: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    }]}>
+      <DateTimePicker
+        value={showStartPicker ? startDateTime : endDateTime}
+        mode={isAllDay ? "date" : "datetime"}
+        display="spinner"
+        onChange={(event, selectedTime) => {
+          if (selectedTime) {
+            const newDate = new Date(selectedTime);
+            if (isAllDay) {
+              newDate.setHours(showStartPicker ? 0 : 23, showStartPicker ? 0 : 59, showStartPicker ? 0 : 59, 0);
+            }
+            if (showStartPicker) {
+              setStartDateTime(newDate);
+              if (!userChangedEndTime) {
+                const autoEnd = new Date(newDate);
+                autoEnd.setHours(isAllDay ? 23 : newDate.getHours() + 1, isAllDay ? 59 : newDate.getMinutes());
+                setEndDateTime(autoEnd);
+              }
+            } else {
+              setEndDateTime(newDate);
+              setUserChangedEndTime(true);
+            }
+          }
+        }}
+        style={{ height: isAllDay ? 180 : 240, width: '100%' }}
+        textColor="#333"
+      />
+    </Animated.View>
+  )}
+</View>
 
 
                       {/* 🕑 Set Reminder, Repeat, and End Date in one row */}
@@ -1716,188 +1718,106 @@ const CalendarScreen: React.FC = () => {
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
                           <View style={{ flex: 1, marginRight: 12 }}>
                             <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
-                            <Swipeable
-                              ref={reminderSwipeableRef}
-                              onSwipeableOpen={() => {
-                                setReminderTime(null);
-                                setShowReminderPicker(false);
-                                // Close the swipeable after resetting
-                                setTimeout(() => {
-                                  reminderSwipeableRef.current?.close();
-                                }, 100);
+                            <TouchableOpacity
+                              onPress={() => {
+                                // Toggle reminder picker
+                                setShowReminderPicker(prev => !prev);
+                                // Close other pickers if they're open
+                                if (showRepeatPicker) setShowRepeatPicker(false);
+                                if (showEndDatePicker) setShowEndDatePicker(false);
                               }}
-                              renderLeftActions={() => null}
-                              renderRightActions={() => (
-                                <View style={{ 
-                                  width: 80,
-                                  backgroundColor: 'transparent',
-                                  justifyContent: 'center',
-                                  alignItems: 'flex-end',
-                                  paddingRight: 20,
-                                  borderTopLeftRadius: 12,
-                                  borderBottomLeftRadius: 12,
-                             
-                                }}>
-                                </View>
-                              )}
-                              friction={1}
-                              rightThreshold={20}
-                              overshootLeft={false}
-                              overshootRight={false}
-                              enableTrackpadTwoFingerGesture
+                              style={{
+                                backgroundColor: '#fafafa',
+                                borderRadius: 12,
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                marginTop: 2,
+                                alignItems: 'center',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 1 },
+                                shadowOpacity: 0.05,
+                                shadowRadius: 2,
+                                elevation: 1,
+                              }}
                             >
-                              <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
-                                <TouchableOpacity
-                                  onPress={() => setShowReminderPicker(prev => !prev)}
-                                  style={{
-                                    paddingVertical: 10,
-                                    paddingHorizontal: 12,
-                                    marginTop: 2,
-                                    alignItems: 'center',
-                                    shadowColor: '#000',
-                                    shadowOffset: { width: 0, height: 1 },
-                                    shadowOpacity: 0.05,
-                                    shadowRadius: 2,
-                                    elevation: 1,
-                                  }}
-                                >
-                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                    <Text style={{ 
-                                      fontSize: (reminderTime || repeatOption !== 'None') ? 11 : 13, 
-                                      color: '#3a3a3a',
-                                      fontFamily: 'Onest',
-                                      fontWeight: '500'
-                                    }}>
-                                      {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
-                                    </Text>
-                                  </View>
-                                </TouchableOpacity>
-                              </View>
-                            </Swipeable>
+                              <Text style={{ 
+                                fontSize: 13, 
+                                color: '#3a3a3a',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
+                              </Text>
+                            </TouchableOpacity>
                           </View>
                           <View style={{ flex: 1, marginRight: repeatOption !== 'None' ? 12 : 0 }}>
                             <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
-                            <Swipeable
-                              ref={repeatSwipeableRef}
-                              onSwipeableOpen={() => {
-                                setRepeatOption('None');
-                                setRepeatEndDate(null);
-                                setShowRepeatPicker(false);
-                                // Close the swipeable after resetting
-                                setTimeout(() => {
-                                  repeatSwipeableRef.current?.close();
-                                }, 100);
+                            <TouchableOpacity
+                              onPress={() => {
+                                // Toggle repeat picker
+                                setShowRepeatPicker(prev => !prev);
+                                // Close other pickers if they're open
+                                if (showReminderPicker) setShowReminderPicker(false);
+                                if (showEndDatePicker) setShowEndDatePicker(false);
                               }}
-                              renderLeftActions={() => null}
-                              renderRightActions={() => (
-                                <View style={{ 
-                                  width: 80,
-                                  backgroundColor: 'transparent',
-                                  justifyContent: 'center',
-                                  alignItems: 'flex-end',
-                                  paddingRight: 20,
-                                  borderTopLeftRadius: 12,
-                                  borderBottomLeftRadius: 12,
-                             
-                                }}>
-                                </View>
-                              )}
-                              friction={1}
-                              rightThreshold={20}
-                              overshootLeft={false}
-                              overshootRight={false}
-                              enableTrackpadTwoFingerGesture
+                              style={{
+                                backgroundColor: '#fafafa',
+                                borderRadius: 12,
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                marginTop: 2,
+                                alignItems: 'center',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 1 },
+                                shadowOpacity: 0.05,
+                                shadowRadius: 2,
+                                elevation: 1,
+                              }}
                             >
-                              <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
-                                <TouchableOpacity
-                                  onPress={() => setShowRepeatPicker(prev => !prev)}
-                                  style={{
-                                    paddingVertical: 10,
-                                    paddingHorizontal: 12,
-                                    marginTop: 2,
-                                    alignItems: 'center',
-                                    shadowColor: '#000',
-                                    shadowOffset: { width: 0, height: 1 },
-                                    shadowOpacity: 0.05,
-                                    shadowRadius: 2,
-                                    elevation: 1,
-                                  }}
-                                >
-                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                    <Text style={{ 
-                                      fontSize: repeatOption !== 'None' ? 11 : 13, 
-                                      color: '#3a3a3a',
-                                      fontFamily: 'Onest',
-                                      fontWeight: '500'
-                                    }}>
-                                      {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
-                                    </Text>
-                                  </View>
-                                </TouchableOpacity>
-                              </View>
-                            </Swipeable>
+                              <Text style={{ 
+                                fontSize: 13, 
+                                color: '#3a3a3a',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
+                              </Text>
+                            </TouchableOpacity>
                           </View>
                           {repeatOption !== 'None' && (
                             <View style={{ flex: 1 }}>
                               <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
-                              <Swipeable
-                                ref={endDateSwipeableRef}
-                                onSwipeableOpen={() => {
-                                  setRepeatEndDate(null);
-                                  setShowEndDatePicker(false);
-                                  // Close the swipeable after resetting
-                                  setTimeout(() => {
-                                    endDateSwipeableRef.current?.close();
-                                  }, 100);
+                              <TouchableOpacity
+                                onPress={() => {
+                                  // Toggle end date picker
+                                  setShowEndDatePicker(prev => !prev);
+                                  // Close other pickers if they're open
+                                  if (showReminderPicker) setShowReminderPicker(false);
+                                  if (showRepeatPicker) setShowRepeatPicker(false);
                                 }}
-                                renderLeftActions={() => null}
-                                renderRightActions={() => (
-                                  <View style={{ 
-                                    width: 80,
-                                  backgroundColor: 'transparent',
-                                  justifyContent: 'center',
-                                  alignItems: 'flex-end',
-                                  paddingRight: 20,
-                                  borderTopLeftRadius: 12,
-                                  borderBottomLeftRadius: 12,
-                             
-                                  }}>
-                                  </View>
-                                )}
-                                friction={1}
-                                rightThreshold={20}
-                                overshootLeft={false}
-                                overshootRight={false}
-                                enableTrackpadTwoFingerGesture
+                                style={{
+                                  backgroundColor: '#fafafa',
+                                  borderRadius: 12,
+                                  paddingVertical: 10,
+                                  paddingHorizontal: 12,
+                                  marginTop: 2,
+                                  alignItems: 'center',
+                                  shadowColor: '#000',
+                                  shadowOffset: { width: 0, height: 1 },
+                                  shadowOpacity: 0.05,
+                                  shadowRadius: 2,
+                                  elevation: 1,
+                                }}
                               >
-                                <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
-                                  <TouchableOpacity
-                                    onPress={() => setShowEndDatePicker(prev => !prev)}
-                                    style={{
-                                      paddingVertical: 10,
-                                      paddingHorizontal: 12,
-                                      marginTop: 2,
-                                      alignItems: 'center',
-                                      shadowColor: '#000',
-                                      shadowOffset: { width: 0, height: 1 },
-                                      shadowOpacity: 0.05,
-                                      shadowRadius: 2,
-                                      elevation: 1,
-                                    }}
-                                  >
-                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                      <Text style={{ 
-                                        fontSize: repeatEndDate ? 11 : 11, 
-                                        color: '#3a3a3a',
-                                        fontFamily: 'Onest',
-                                        fontWeight: '500'
-                                      }}>
-                                        {repeatEndDate ? repeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Set End Date'}
-                                      </Text>
-                                    </View>
-                                  </TouchableOpacity>
-                                </View>
-                              </Swipeable>
+                                <Text style={{ 
+                                  fontSize: 13, 
+                                  color: '#3a3a3a',
+                                  fontFamily: 'Onest',
+                                  fontWeight: '500'
+                                }}>
+                                  {repeatEndDate ? repeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Set End Date'}
+                                </Text>
+                              </TouchableOpacity>
                             </View>
                           )}
                         </View>
@@ -1925,15 +1845,9 @@ const CalendarScreen: React.FC = () => {
                               onChange={(event, selectedTime) => {
                                 if (selectedTime) {
                                   setReminderTime(selectedTime);
-                                  setTimeout(() => {
-                                    setShowReminderPicker(false);
-                                  }, 2000);
                                 }
                               }}
-                              style={{
-                                height: 180,
-                                width: '100%',
-                              }}
+                              style={{ height: 180, width: '100%' }}
                               textColor="#333"
                             />
                           </Animated.View>
@@ -1962,15 +1876,9 @@ const CalendarScreen: React.FC = () => {
                               onChange={(event, selectedDate) => {
                                 if (selectedDate) {
                                   setRepeatEndDate(selectedDate);
-                                  setTimeout(() => {
-                                    setShowEndDatePicker(false);
-                                  }, 2000);
                                 }
                               }}
-                              style={{
-                                height: 180,
-                                width: '100%',
-                              }}
+                              style={{ height: 180, width: '100%' }}
                               textColor="#333"
                             />
                           </Animated.View>
@@ -2208,8 +2116,7 @@ const CalendarScreen: React.FC = () => {
                                           height: 24,
                                           borderRadius: 12,
                                           backgroundColor: color,
-                                          borderWidth: 2,
-                                          borderColor: newCategoryColor === color ? '#333' : 'transparent',
+                                          opacity: newCategoryColor === color ? 1 : 0,
                                           shadowColor: '#000',
                                           shadowOffset: { width: 0, height: 1 },
                                           shadowOpacity: 0.2,
@@ -2254,10 +2161,10 @@ const CalendarScreen: React.FC = () => {
                                             ])
                                             .select();
 
-                        if (error) {
-                                            console.error('Error creating category:', error);
-                          return;
-                        }
+                                            if (error) {
+                                              console.error('Error creating category:', error);
+                                              return;
+                                            }
 
                                           if (data) {
                                             const newCategory = {
@@ -2694,20 +2601,37 @@ const CalendarScreen: React.FC = () => {
                       }]}>
                     <DateTimePicker
                           value={showStartPicker ? startDateTime : endDateTime}
-                      mode="time"
+                      mode={isAllDay ? "date" : "datetime"}
                       display="spinner"
                       onChange={(event, selectedTime) => {
                         if (selectedTime) {
                               if (showStartPicker) {
-                          setStartDateTime(selectedTime);
-                          if (!userChangedEndTime) {
-                            setEndDateTime(new Date(selectedTime.getTime() + 60 * 60 * 1000));
+                          // If it's an all-day event, set the time to start of day (00:00)
+                          const newDate = new Date(selectedTime);
+                          if (isAllDay) {
+                            newDate.setHours(0, 0, 0, 0);
                           }
+                          setStartDateTime(newDate);
+                                if (!userChangedEndTime) {
+                                  // If it's an all-day event, set end to end of day (23:59)
+                                  const endDate = new Date(newDate);
+                                  if (isAllDay) {
+                                    endDate.setHours(23, 59, 59, 999);
+                                  } else {
+                                    endDate.setTime(newDate.getTime() + 60 * 60 * 1000);
+                                  }
+                                  setEndDateTime(endDate);
+                                }
                                 setTimeout(() => {
-                        setShowStartPicker(false);
+                                  setShowStartPicker(false);
                                 }, 2000);
                               } else {
-                                setEndDateTime(selectedTime);
+                                // If it's an all-day event, set the time to end of day (23:59)
+                                const newDate = new Date(selectedTime);
+                                if (isAllDay) {
+                                  newDate.setHours(23, 59, 59, 999);
+                                }
+                                setEndDateTime(newDate);
                                 setUserChangedEndTime(true);
                                 setTimeout(() => {
                                   setShowEndPicker(false);
@@ -2715,10 +2639,7 @@ const CalendarScreen: React.FC = () => {
                               }
                             }
                           }}
-                          style={{
-                            height: 180,
-                            width: '100%',
-                          }}
+                          style={{ height: isAllDay ? 180 : 240, width: '100%' }}
                           textColor="#333"
                     />
                   </Animated.View>
@@ -2729,168 +2650,111 @@ const CalendarScreen: React.FC = () => {
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
-                          <Swipeable
-                            ref={reminderSwipeableRef}
-                            onSwipeableOpen={() => {
-                              setReminderTime(null);
-                              setShowReminderPicker(false);
-                              setTimeout(() => {
-                                reminderSwipeableRef.current?.close();
-                              }, 100);
+                          <TouchableOpacity
+                            onPress={() => {
+                              // Toggle reminder picker
+                              setShowReminderPicker(prev => !prev);
+                              // Close other pickers if they're open
+                              if (showRepeatPicker) setShowRepeatPicker(false);
+                              if (showEndDatePicker) setShowEndDatePicker(false);
                             }}
-                            renderLeftActions={() => null}
-                            renderRightActions={() => (
-                              <View style={{ 
-                                width: 80,
-                                backgroundColor: 'transparent',
-                                justifyContent: 'center',
-                                alignItems: 'flex-end',
-                                paddingRight: 20,
-                                borderTopLeftRadius: 12,
-                                borderBottomLeftRadius: 12,
-                              }}>
-                              </View>
-                            )}
-                            friction={1}
-                            rightThreshold={20}
-                            overshootLeft={false}
-                            overshootRight={false}
-                            enableTrackpadTwoFingerGesture
+                            style={{
+                              backgroundColor: '#fafafa',
+                              borderRadius: 12,
+                              paddingVertical: 10,
+                              paddingHorizontal: 12,
+                              marginTop: 2,
+                              alignItems: 'center',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 1 },
+                              shadowOpacity: 0.05,
+                              shadowRadius: 2,
+                              elevation: 1,
+                            }}
                           >
-                            <View style={{ backgroundColor: '#fff', borderRadius: 8 }}>
-                              <TouchableOpacity
-                                onPress={() => setShowReminderPicker(prev => !prev)}
-                                style={{
-                                  padding: 12,
-                                  alignItems: 'center',
-                                  borderWidth: 0,
-                                  borderColor: '#eee'
-                                }}
-                              >
-                                <Text style={{ 
-                                  fontSize: 14,
-                                  color: '#333',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
-                                  {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
-                          </Swipeable>
+                            <Text style={{ 
+                              fontSize: 13, 
+                              color: '#3a3a3a',
+                              fontFamily: 'Onest',
+                              fontWeight: '500'
+                            }}>
+                              {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
+                            </Text>
+                          </TouchableOpacity>
                         </View>
                         <View style={{ flex: 1, marginRight: repeatOption !== 'None' ? 12 : 0 }}>
                           <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
-                          <Swipeable
-                            ref={repeatSwipeableRef}
-                            onSwipeableOpen={() => {
-                              setRepeatOption('None');
-                              setRepeatEndDate(null);
-                              setShowRepeatPicker(false);
-                              // Close the swipeable after resetting
-                              setTimeout(() => {
-                                repeatSwipeableRef.current?.close();
-                              }, 100);
+                          <TouchableOpacity
+                            onPress={() => {
+                              // Toggle repeat picker
+                              setShowRepeatPicker(prev => !prev);
+                              // Close other pickers if they're open
+                              if (showReminderPicker) setShowReminderPicker(false);
+                              if (showEndDatePicker) setShowEndDatePicker(false);
                             }}
-                            renderLeftActions={() => null}
-                            renderRightActions={() => (
-                              <View style={{ 
-                                width: 80,
-                                backgroundColor: 'transparent',
-                                justifyContent: 'center',
-                                alignItems: 'flex-end',
-                                paddingRight: 20,
-                                borderTopLeftRadius: 12,
-                                borderBottomLeftRadius: 12,
-                              }}>
-                              </View>
-                            )}
-                            friction={1}
-                            rightThreshold={20}
-                            overshootLeft={false}
-                            overshootRight={false}
-                            enableTrackpadTwoFingerGesture
+                            style={{
+                              backgroundColor: '#fafafa',
+                              borderRadius: 12,
+                              paddingVertical: 10,
+                              paddingHorizontal: 12,
+                              marginTop: 2,
+                              alignItems: 'center',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 1 },
+                              shadowOpacity: 0.05,
+                              shadowRadius: 2,
+                              elevation: 1,
+                            }}
                           >
-                            <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
-                              <TouchableOpacity
-                                onPress={() => setShowRepeatPicker(prev => !prev)}
-                                style={{
-                                  padding: 12,
-                                  alignItems: 'center',
-                                  borderWidth: 0,
-                                  borderColor: '#eee'
-                                }}
-                              >
-                                <Text style={{ 
-                                  fontSize: repeatOption !== 'None' ? 11 : 14,
-                                  color: '#333',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
-                                  {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
-                          </Swipeable>
+                            <Text style={{ 
+                              fontSize: 13, 
+                              color: '#3a3a3a',
+                              fontFamily: 'Onest',
+                              fontWeight: '500'
+                            }}>
+                              {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
+                            </Text>
+                          </TouchableOpacity>
                         </View>
                         {repeatOption !== 'None' && (
                           <View style={{ flex: 1 }}>
                             <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
-                            <Swipeable
-                              ref={endDateSwipeableRef}
-                              onSwipeableOpen={() => {
-                                setRepeatEndDate(null);
-                                setShowEndDatePicker(false);
-                                // Close the swipeable after resetting
-                                setTimeout(() => {
-                                  endDateSwipeableRef.current?.close();
-                                }, 100);
+                            <TouchableOpacity
+                              onPress={() => {
+                                // Toggle end date picker
+                                setShowEndDatePicker(prev => !prev);
+                                // Close other pickers if they're open
+                                if (showReminderPicker) setShowReminderPicker(false);
+                                if (showRepeatPicker) setShowRepeatPicker(false);
                               }}
-                              renderLeftActions={() => null}
-                              renderRightActions={() => (
-                                <View style={{ 
-                                  width: 80,
-                                  backgroundColor: 'transparent',
-                                  justifyContent: 'center',
-                                  alignItems: 'flex-end',
-                                  paddingRight: 20,
-                                  borderTopLeftRadius: 12,
-                                  borderBottomLeftRadius: 12,
-                                }}>
-                                </View>
-                              )}
-                              friction={1}
-                              rightThreshold={20}
-                              overshootLeft={false}
-                              overshootRight={false}
-                              enableTrackpadTwoFingerGesture
+                              style={{
+                                backgroundColor: '#fafafa',
+                                borderRadius: 12,
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                marginTop: 2,
+                                alignItems: 'center',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 1 },
+                                shadowOpacity: 0.05,
+                                shadowRadius: 2,
+                                elevation: 1,
+                              }}
                             >
-                              <View style={{ backgroundColor: '#fafafa', borderRadius: 12 }}>
-                                <TouchableOpacity
-                                  onPress={() => setShowEndDatePicker(prev => !prev)}
-                                  style={{
-                                    padding: 12,
-                                    alignItems: 'center',
-                                    borderWidth: 0,
-                                    borderColor: '#eee'
-                                  }}
-                                >
-                                  <Text style={{ 
-                                    fontSize: repeatEndDate ? 11 : 11,
-                                    color: '#333',
-                                    fontFamily: 'Onest',
-                                    fontWeight: '500'
-                                  }}>
-                                    {repeatEndDate ? repeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Set End Date'}
-                                  </Text>
-                                </TouchableOpacity>
-                              </View>
-                            </Swipeable>
+                              <Text style={{ 
+                                fontSize: 13, 
+                                color: '#3a3a3a',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {repeatEndDate ? repeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) : 'Set End Date'}
+                              </Text>
+                            </TouchableOpacity>
                           </View>
                         )}
                       </View>
 
-                      {/* Reminder Picker */}
+                      {/* Remove the auto-dismiss timeouts from the pickers */}
                       {showReminderPicker && (
                         <Animated.View style={[styles.dateTimePickerContainer, {
                           backgroundColor: '#fafafa',
@@ -2907,28 +2771,21 @@ const CalendarScreen: React.FC = () => {
                           alignItems: 'center',
                           justifyContent: 'center',
                         }]}>
-                    <DateTimePicker
+                          <DateTimePicker
                             value={reminderTime || new Date()}
-                      mode="time"
-                      display="spinner"
-                      onChange={(event, selectedTime) => {
-                        if (selectedTime) {
+                            mode="time"
+                            display="spinner"
+                            onChange={(event, selectedTime) => {
+                              if (selectedTime) {
                                 setReminderTime(selectedTime);
-                                setTimeout(() => {
-                                  setShowReminderPicker(false);
-                                }, 2000);
                               }
                             }}
-                            style={{
-                              height: 180,
-                              width: '100%',
-                            }}
+                            style={{ height: 180, width: '100%' }}
                             textColor="#333"
-                    />
-                  </Animated.View>
-                )}
+                          />
+                        </Animated.View>
+                      )}
 
-                      {/* End Date Picker */}
                       {showEndDatePicker && (
                         <Animated.View style={[styles.dateTimePickerContainer, {
                           backgroundColor: '#fafafa',
@@ -2952,15 +2809,9 @@ const CalendarScreen: React.FC = () => {
                             onChange={(event, selectedDate) => {
                               if (selectedDate) {
                                 setRepeatEndDate(selectedDate);
-                                setTimeout(() => {
-                                  setShowEndDatePicker(false);
-                                }, 2000);
                               }
                             }}
-                            style={{
-                              height: 180,
-                              width: '100%',
-                            }}
+                            style={{ height: 180, width: '100%' }}
                             textColor="#333"
                           />
                         </Animated.View>
@@ -3616,8 +3467,7 @@ const CalendarScreen: React.FC = () => {
                                         height: 24,
                                         borderRadius: 12,
                                         backgroundColor: color,
-                                        borderWidth: 2,
-                                        borderColor: newCategoryColor === color ? '#333' : 'transparent',
+                                        opacity: newCategoryColor === color ? 1 : 0,
                                         shadowColor: '#000',
                                         shadowOffset: { width: 0, height: 1 },
                                         shadowOpacity: 0.2,
@@ -3713,135 +3563,149 @@ const CalendarScreen: React.FC = () => {
                   </View>
 
                     {/* Start & End Time - Only show when not all-day event */}
-                    {!isEditedAllDay && (
-                      <View style={{ flex: 1, marginBottom: 20 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                          <View style={{ flex: 1, marginRight: 12 }}>
-                            <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
-                            <TouchableOpacity 
-                              onPress={() => {
-                                setShowStartPicker(true);
-                                setShowEndPicker(false);
-                              }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
-                              }}
-                            >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
-                                {editedStartDateTime.toLocaleString([], { 
-                                  month: 'short', 
-                                  day: 'numeric',
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true 
-                                }).replace(',', ' ·')}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setShowEndPicker(true);
-                                setShowStartPicker(false);
-                              }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
-                              }}
-                            >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
-                                {editedEndDateTime.toLocaleString([], { 
-                                  month: 'short', 
-                                  day: 'numeric',
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true 
-                                }).replace(',', ' ·')}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
+                    <View style={{ flex: 1, marginBottom: 20 }}>
+  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+    <View style={{ flex: 1, marginRight: 12 }}>
+      <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>
+        {isEditedAllDay ? 'Start' : 'Start'}
+      </Text>
+      <TouchableOpacity 
+        onPress={() => {
+          // Toggle start picker
+          setShowStartPicker(prev => !prev);
+          // Close end picker if it's open
+          if (showEndPicker) setShowEndPicker(false);
+        }}
+        style={{
+          backgroundColor: '#fafafa',
+          borderRadius: 12,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          marginTop: 2,
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+        }}
+      >
+        <Text style={{ 
+          fontSize: 13, 
+          color: '#3a3a3a',
+          fontFamily: 'Onest',
+          fontWeight: '500'
+        }}>
+          {editedStartDateTime.toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            ...(isEditedAllDay ? {} : {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })
+          }).replace(',', ' ·')}
+        </Text>
+      </TouchableOpacity>
+    </View>
 
-                        {/* Date/Time Picker Container */}
-                        {(showStartPicker || showEndPicker) && (
-                          <Animated.View style={[styles.dateTimePickerContainer, {
-                            backgroundColor: '#fafafa',
-                            borderRadius: 16,
-                            paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 12,
-                            marginBottom: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.03,
-                            shadowRadius: 3,
-                            elevation: 1,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }]}>
-                            <DateTimePicker
-                              value={showStartPicker ? editedStartDateTime : editedEndDateTime}
-                              mode="datetime"
-                              display="spinner"
-                              onChange={(event, selectedDate) => {
-                                if (selectedDate) {
-                                  if (showStartPicker) {
-                                    setEditedStartDateTime(selectedDate);
-                                    if (!userChangedEditedEndTime) {
-                                      setEditedEndDateTime(new Date(selectedDate.getTime() + 60 * 60 * 1000));
-                                    }
-                                    setTimeout(() => {
-                                      setShowStartPicker(false);
-                                    }, 2000);
-                                  } else {
-                                    setEditedEndDateTime(selectedDate);
-                                    setUserChangedEditedEndTime(true);
-                                    setTimeout(() => {
-                                      setShowEndPicker(false);
-                                    }, 2000);
-                                  }
-                                }
-                              }}
-                              style={{
-                                height: 180,
-                                width: '100%',
-                              }}
-                              textColor="#333"
-                            />
-                          </Animated.View>
-                        )}
-                      </View>
-                    )}
+    <View style={{ flex: 1 }}>
+      <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>
+        {isEditedAllDay ? 'End' : 'End'}
+      </Text>
+      <TouchableOpacity
+        onPress={() => {
+          // Toggle end picker
+          setShowEndPicker(prev => !prev);
+          // Close start picker if it's open
+          if (showStartPicker) setShowStartPicker(false);
+        }}
+        style={{
+          backgroundColor: '#fafafa',
+          borderRadius: 12,
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          marginTop: 2,
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.05,
+          shadowRadius: 2,
+          elevation: 1,
+        }}
+      >
+        <Text style={{ 
+          fontSize: 13, 
+          color: '#3a3a3a',
+          fontFamily: 'Onest',
+          fontWeight: '500'
+        }}>
+          {editedEndDateTime.toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            ...(isEditedAllDay ? {} : {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true
+            })
+          }).replace(',', ' ·')}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  </View>
+
+  {(showStartPicker || showEndPicker) && (
+    <Animated.View style={[styles.dateTimePickerContainer, {
+      backgroundColor: '#fafafa',
+      borderRadius: 16,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      marginTop: 12,
+      marginBottom: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.03,
+      shadowRadius: 3,
+      elevation: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    }]}>
+      <DateTimePicker
+        value={showStartPicker ? editedStartDateTime : editedEndDateTime}
+        mode={isEditedAllDay ? 'date' : 'datetime'}
+        display="spinner"
+        onChange={(event, selectedDate) => {
+          if (selectedDate) {
+            const newDate = new Date(selectedDate);
+            if (showStartPicker) {
+              if (isEditedAllDay) newDate.setHours(0, 0, 0, 0);
+              setEditedStartDateTime(newDate);
+
+              if (!userChangedEditedEndTime) {
+                const endDate = new Date(newDate);
+                if (isEditedAllDay) {
+                  endDate.setHours(23, 59, 59, 999);
+                } else {
+                  endDate.setTime(newDate.getTime() + 60 * 60 * 1000);
+                }
+                setEditedEndDateTime(endDate);
+              }
+            } else {
+              if (isEditedAllDay) newDate.setHours(23, 59, 59, 999);
+              setEditedEndDateTime(newDate);
+              setUserChangedEditedEndTime(true);
+            }
+          }
+        }}
+        style={{
+          height: isEditedAllDay ? 180 : 240,
+          width: '100%',
+        }}
+        textColor="#333"
+      />
+    </Animated.View>
+  )}
+</View>
 
                     {/* Reminder & Repeat */}
                     <View style={{ flex: 1, marginBottom: 12 }}>
