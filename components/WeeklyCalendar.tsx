@@ -273,9 +273,21 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 
     // Sticky all-day row
     const allDayRow = (
-      <View style={{ flexDirection: 'row', backgroundColor: 'white', borderBottomWidth: 1, borderColor: '#eee', minHeight: 36, alignItems: 'center', zIndex: 10 }}>
+      <View style={{ 
+        flexDirection: 'row', 
+        backgroundColor: 'white', 
+        borderBottomWidth: 1, 
+        borderColor: '#eee', 
+        minHeight: 36, 
+        zIndex: 10 
+      }}>
         {/* Time column spacer for alignment */}
-        <View style={{ width: TIME_COLUMN_WIDTH, backgroundColor: 'white' }} />
+        <View style={{ 
+          width: TIME_COLUMN_WIDTH, 
+          backgroundColor: 'white',
+          borderRightWidth: 1,
+          borderColor: '#eee'
+        }} />
         {weekDates.map((date, idx) => {
           const dateKey = getLocalDateString(date);
           const allDayEvents = (events[dateKey] || []).filter(e => e.isAllDay);
@@ -286,12 +298,12 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 width: DAY_COLUMN_WIDTH,
                 alignItems: 'center',
                 justifyContent: 'flex-start',
-                minHeight: allDayEvents.length > 0 ? allDayEvents.length * 28 : 45, // Adjust height based on number of events
-                borderRightWidth: idx < weekDates.length - 1 ? 1 : 0,
-                borderLeftWidth: idx === 0 ? 1 : 0,
+                minHeight: allDayEvents.length > 0 ? allDayEvents.length * 28 : 45,
+                borderRightWidth: 1,
                 borderColor: '#eee',
                 backgroundColor: 'white',
-                paddingVertical: 4,
+                paddingVertical:0,
+                marginRight: 0,
               }}
             >
               {allDayEvents.map((event, i) => (
@@ -312,8 +324,12 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                   style={[
                     styles.allDayEventBox,
                     {
-                      backgroundColor: event.categoryColor || '#A0C3B2',
-                      marginVertical: 2,
+                      backgroundColor: `${event.categoryColor || '#FF9A8B'}70`,
+                      marginVertical: 0,
+                      width: DAY_COLUMN_WIDTH,
+                      marginHorizontal: 0,
+                      marginTop: 0,
+                      paddingTop: 0,
                     }
                   ]}
                 >
@@ -760,18 +776,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#EA4335',
   },
   allDayEventBox: {
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderRadius: 1,
+    paddingHorizontal: 0,
+    paddingVertical: 2,
     minWidth: 40,
-    maxWidth: '90%',
+    maxWidth: '100%',
     alignSelf: 'center',
+    backgroundColor: '#FF9A8B20',
   },
   allDayEventText: {
-    color: '#fff',
-    fontSize: 12,
+    color: '#3a3a3a',
+    fontSize: 11,
     fontFamily: 'Onest',
-    fontWeight: '600',
     textAlign: 'center',
   },
 });
