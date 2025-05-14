@@ -1262,11 +1262,18 @@ const formatDate = (date: Date): string => {
   const onHandlerStateChange = (event: any) => {
     if (event.nativeEvent.state === State.END) {
       const { translationX } = event.nativeEvent;
-      if (Math.abs(translationX) > 50) {
+      if (Math.abs(translationX) > 100) { // Using 100px threshold like todo screen
+        const newDate = new Date(currentDate);
         if (translationX > 0) {
-          navigateWeek('prev');
+          // Swipe right - go to previous day
+          newDate.setDate(newDate.getDate() - 1);
         } else {
-          navigateWeek('next');
+          // Swipe left - go to next day
+          newDate.setDate(newDate.getDate() + 1);
+        }
+        setCurrentDate(newDate);
+        if (calendarStripRef.current) {
+          calendarStripRef.current.setSelectedDate(moment(newDate));
         }
       }
     }
@@ -1702,18 +1709,30 @@ const formatDate = (date: Date): string => {
               dateNumberStyle={{ color: '#888888', fontSize: 17, fontFamily: 'Onest' }}
               dateNameStyle={{ color: '#888888', fontFamily: 'Onest' }}
               highlightDateNumberStyle={{
-                color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
+                color: moment().isSame(moment(currentDate), 'day') ? '#A0C3B2' : '#3A3A3A',
                 fontSize: 34,
                 fontFamily: 'Onest'
               }}
               highlightDateNameStyle={{
-                color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
+                color: moment().isSame(moment(currentDate), 'day') ? '#A0C3B2' : '#3A3A3A',
                 fontSize: 13,
                 fontFamily: 'Onest'
               }}
               selectedDate={moment(currentDate)}
               onDateSelected={(date) => setCurrentDate(date.toDate())}
-              customDatesStyles={customDatesStyles}
+              customDatesStyles={[
+                {
+                  date: moment().format('YYYY-MM-DD'),
+                  dateNameStyle: {
+                    color: '#A0C3B2',
+                    fontWeight: '400',
+                  },
+                  dateNumberStyle: {
+                    color: '#A0C3B2',
+                    fontWeight: 'bold',
+                  },
+                }
+              ]}
               scrollToOnSetSelectedDate={true}
               useNativeDriver={true}
             />

@@ -14,7 +14,7 @@ const TIME_COLUMN_WIDTH = 50;
 const DAY_COLUMN_WIDTH = (SCREEN_WIDTH - TIME_COLUMN_WIDTH) / 7;
 const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for hour labels
 const GRID_ROWS = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for grid rows
-const CELL_HEIGHT = 55; // Height of each hour cell
+const CELL_HEIGHT = 45; // Height of each hour cell (reduced from 55)
 
 // Add current time line component
 const CurrentTimeLine = () => {
@@ -30,13 +30,13 @@ const CurrentTimeLine = () => {
       const hours = now.getHours();
       const minutes = now.getMinutes();
       const totalMinutes = hours * 60 + minutes;
-      const cellHeight = 55; // Height of each hour cell
-      const position = (totalMinutes / 60) * cellHeight; // No offset, 12 AM at the top
+      const cellHeight = 45; // Updated from 55
+      const position = (totalMinutes / 60) * cellHeight;
       setPosition(position);
     };
 
     updateTime();
-    const interval = setInterval(updateTime, 60000); // Update every minute
+    const interval = setInterval(updateTime, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -235,7 +235,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 
       const startTime = new Date(event.startDateTime);
       const endTime = new Date(event.endDateTime);
-      const cellHeight = 55; // Height of each time slot cell
+      const cellHeight = 45; // Updated from 55
 
       // Get the start of the current day at 7am
       const dayStart = new Date(date);
@@ -247,11 +247,11 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 
       // If the event starts before 7am, adjust it to start at 7am
       const adjustedStartMinutes = Math.max(0, startMinutes);
-      const adjustedEndMinutes = Math.max(adjustedStartMinutes + 30, endMinutes); // Ensure minimum 30 min duration
+      const adjustedEndMinutes = Math.max(adjustedStartMinutes + 30, endMinutes);
 
       // Calculate position and height
       const top = (adjustedStartMinutes / 60) * cellHeight;
-      const height = Math.max(((adjustedEndMinutes - adjustedStartMinutes) / 60) * cellHeight, 20); // Minimum height of 20
+      const height = Math.max(((adjustedEndMinutes - adjustedStartMinutes) / 60) * cellHeight, 20);
 
       return { top, height };
     };
@@ -651,12 +651,12 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   cell: {
-    height: 55,
+    height: 45, // Updated from 55
     borderBottomWidth: 1,
     borderColor: '#EEEEEE',
   },
   eventCell: {
-    height: 55,
+    height: 45, // Updated from 55
     position: 'relative',
     zIndex: 2,
   },

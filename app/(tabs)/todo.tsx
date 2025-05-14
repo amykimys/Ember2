@@ -1342,11 +1342,33 @@ export default function TodoScreen() {
     return week;
   };
 
-  const onHandlerStateChange = (event: any) => {
-    if (event.nativeEvent.translationY > 50) {
-      setIsMonthView(true);
+  const onGestureEvent = (event: any) => {
+    const { translationX } = event.nativeEvent;
+    // Only handle horizontal swipes
+    if (Math.abs(translationX) > 200) { // Increased threshold from 50 to 100 pixels
+      const newDate = new Date(currentDate);
+      if (translationX > 0) {
+        // Swipe right - go to previous day
+        newDate.setDate(currentDate.getDate() - 1);
+      } else {
+        // Swipe left - go to next day
+        newDate.setDate(currentDate.getDate() + 1);
+      }
+      setCurrentDate(newDate);
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
     }
   };
+
+  const onHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.state === State.END) {
+      // Reset the gesture handler state
+      event.nativeEvent.translationX = 0;
+    }
+  };
+
   const showModal = () => {
     setShowCategoryBox(false); // 👈 Reset folder toggle state
     setIsNewTaskModalVisible(true);
@@ -1386,562 +1408,596 @@ export default function TodoScreen() {
   
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <View style={styles.container}>
-        <PanGestureHandler
-          onHandlerStateChange={onHandlerStateChange}
-          minDist={10}
-        >
-          <View style={{ flex: 1 }}>
-            {/* HEADER */}
-            <View style={styles.header}>
-              <TouchableOpacity 
-                style={styles.menuButton}>              
-              </TouchableOpacity>
-            </View>
-            
-            {/* Add Calendar Strip Header */}
-          <View style={{ paddingHorizontal: 12, marginHorizontal: -18, marginBottom: -10 }}>
-            <View style={{ 
-              flexDirection: 'row', 
-              alignItems: 'center', 
-              justifyContent: 'center', 
-              paddingHorizontal: 0,
-              position: 'relative'
-            }}>
-            
-              <TouchableOpacity onPress={goToToday}>
-                <Text style={{ 
-                  color: '#3A3A3A', 
-                  fontSize: 19, 
-                  fontWeight: 'bold', 
-                  marginBottom: 0, 
-                  textAlign: 'center', 
-                  fontFamily: 'Onest' 
-                }}>
-                  {moment(currentDate).format('MMMM YYYY')}
-                </Text>
-              </TouchableOpacity>
-              <View style={{ width: 20, position: 'absolute', right: 24 }} />
-            </View>
-                  <CalendarStrip
-                    scrollable
-                    startingDate={moment().subtract(3, 'days')}
-                    showMonth
-                    leftSelector={<View />}
-                    rightSelector={<View />}
-                    style={{ height: 100, paddingTop: 0, paddingBottom: 3, paddingHorizontal: 12 }}
-                    calendarColor={'#fff'}
-                    calendarHeaderStyle={{
-                      display: 'none'
-                    }}
-                    dateNumberStyle={{ color: '#888888', fontSize: 17, fontFamily: 'Onest', marginTop: 0 }}
-                    dateNameStyle={{ color: '#888888', fontFamily: 'Onest', marginBottom: 0 }}
-                    highlightDateNumberStyle={{
-                      color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
-                      fontSize: 34,
-                      fontFamily: 'Onest',
-                    }}
-                    highlightDateNameStyle={{
-                      color: isTodaySelected ? '#A0C3B2' : '#3A3A3A',
-                      fontSize: 13,
-                      fontFamily: 'Onest',
-                    }}
-                    customDatesStyles={customDatesStyles}
-                    selectedDate={moment(currentDate)}
-                    onDateSelected={(date) => setCurrentDate(date.toDate())}
-                  />
-                
-            </View>
-
-            {/* TASK LIST */}
-            <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
-              {todayTodos.length === 0 ? (
-                <View style={[styles.emptyState, { 
-                  flex: 1, 
-                  justifyContent: 'center', 
-                  alignItems: 'center',
-                  paddingHorizontal: 20,
-                  marginTop: 125
-                }]}>
-                  <Text style={[styles.emptyStateTitle, { 
-                    textAlign: 'center',
-                    width: '100%',
-                    fontWeight: '700'
-                  }]}>no tasks!</Text>
-                  <Text style={[styles.emptyStateSubtitle, { 
-                    textAlign: 'center',
-                    width: '100%'
-                  }]}>Take a breather :)</Text>
-                </View>
-              ) : (
-                <>
-                  {categories.map(category => renderCategory(category, todayTodos))}
-                  {renderUncategorizedTodos(todayTodos)}
-                  {renderCompletedTodos(todayTodos)}
-                </>
-              )}
-            </ScrollView>
-  
-            {/* ADD TASK BUTTON */}
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={handleAddButtonPress}
-            >
-              <Ionicons name="add" size={22} color="white" />
+      <PanGestureHandler
+        onGestureEvent={onGestureEvent}
+        onHandlerStateChange={onHandlerStateChange}
+        activeOffsetX={[-20, 20]}
+      >
+        <View style={styles.container}>
+          {/* Rest of your existing JSX */}
+          {/* HEADER */}
+          <View style={styles.header}>
+            <TouchableOpacity 
+              style={styles.menuButton}>              
             </TouchableOpacity>
           </View>
-        </PanGestureHandler>
-
-        {/* New Task Modal */}
-        <Modal
-          animationType="none"
-          transparent={true}
-          visible={isNewTaskModalVisible}
-          onRequestClose={handleCloseNewTaskModal}
-        >
-          <KeyboardAvoidingView 
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={{ flex: 1 }}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-          >
-            <TouchableWithoutFeedback
-              onPress={(e) => {
-                if (e.target === e.currentTarget) {
-                  Keyboard.dismiss();
-                  hideModal();
-                }
-              }}
-            >
-              <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-                <Animated.View 
-                  style={{
-                    backgroundColor: 'white',
-                    position: 'relative',
-                    borderTopLeftRadius: 20,
-                    borderTopRightRadius: 20,
-                    padding: 10,
-                    height: showCategoryBox ? '45%' : '35%',
-                    width: '100%',
-                    transform: [{
-                      translateY: modalAnimation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [600, 0]
-                      })
-                    }],
-                  }}
-                >
-                  <View style={{ flexGrow: 1 }}>
-                    <ScrollView
-                      style={{ flex: 1 }}
-                      keyboardShouldPersistTaps="always"
-                      contentContainerStyle={{ paddingBottom: 160 }}
-                    >
-                      {/* Title Input */}
-                      <TextInput
-                        ref={newTodoInputRef}
-                        style={{
-                          fontSize: 18,
-                          color: '#1a1a1a',
-                          padding: 10,
-                          backgroundColor: 'white',
-                          borderRadius: 12,
-                          marginBottom: -10,
-                          fontFamily: 'Onest',
-                        }}
-                        value={newTodo}
-                        onChangeText={setNewTodo}
-                        placeholder={editingTodo ? "Edit task..." : "What needs to be done?"}
-                        placeholderTextColor="#999"
-                        returnKeyType="next"
-                        onSubmitEditing={() => newDescriptionInputRef.current?.focus()}
-                      />
-
-                      <TextInput
-                        ref={newDescriptionInputRef}
-                        style={{
-                          fontSize: 15,
-                          color: '#1a1a1a',
-                          padding: 10,
-                          backgroundColor: 'white',
-                          borderRadius: 12,
-                          minHeight: 75,
-                          marginTop: 6,
-                          textAlignVertical: 'top',
-                          marginBottom: 20,
-                          fontFamily: 'Onest',
-                        }}
-                        value={newDescription}
-                        onChangeText={setNewDescription}
-                        placeholder="Add description (optional)"
-                        placeholderTextColor="#999"
-                        multiline
-                        returnKeyType="done"
-                        onSubmitEditing={() => Keyboard.dismiss()}
-                      />
-                    </ScrollView>
-
-                    {showCategoryBox && (
-                      <View
-                        style={{
-                          marginLeft: 8,
-                          marginBottom: 28,
-                          position: 'relative',
-                          zIndex: 2,
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                        <ScrollView 
-                          horizontal 
-                          showsHorizontalScrollIndicator={false}
-                          keyboardShouldPersistTaps="always"
-                          contentContainerStyle={{ paddingRight: 4 }}
-                          style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
-                        >
-                          {categories.filter(cat => cat.label.toLowerCase() !== 'todo').map((cat) => (
-                            <Pressable
-                              key={cat.id}
-                              onPress={() => {
-                                setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
-                                setShowCategoryBox(false);
-                              }}
-                              onLongPress={() => {
-                                Alert.alert(
-                                  "Delete Category",
-                                  `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
-                                  [
-                                    { text: "Cancel", style: "cancel" },
-                                    {
-                                      text: "Delete",
-                                      style: "destructive",
-                                      onPress: async () => {
-                                        try {
-                                          const { data: { user } } = await supabase.auth.getUser();
-                                          if (!user) {
-                                            Alert.alert('Error', 'You must be logged in to delete categories.');
-                                            return;
-                                          }
-
-                                          // First, delete all tasks in this category
-                                          const { error: tasksError } = await supabase
-                                            .from('todos')
-                                            .delete()
-                                            .eq('category_id', cat.id)
-                                            .eq('user_id', user.id);
-
-                                          if (tasksError) {
-                                            console.error('Error deleting tasks:', tasksError);
-                                            Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
-                                            return;
-                                          }
-
-                                          // Then delete the category
-                                          const { error: categoryError } = await supabase
-                                            .from('categories')
-                                            .delete()
-                                            .eq('id', cat.id)
-                                            .eq('user_id', user.id);
-
-                                          if (categoryError) {
-                                            console.error('Error deleting category:', categoryError);
-                                            Alert.alert('Error', 'Failed to delete category. Please try again.');
-                                            return;
-                                          }
-
-                                          // Update local state
-                                          setCategories(prev => prev.filter(category => category.id !== cat.id));
-                                          
-                                          // If the deleted category was selected, clear the selection
-                                          if (selectedCategoryId === cat.id) {
-                                            setSelectedCategoryId('');
-                                          }
-
-                                          // Provide haptic feedback
-                                          if (Platform.OS !== 'web') {
-                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                          }
-                                        } catch (error) {
-                                          console.error('Error in category deletion:', error);
-                                          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                                        }
-                                      },
-                                    },
-                                  ]
-                                );
-                              }}
-                              delayLongPress={500}
-                              style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 12,
-                                borderRadius: 20,
-                                backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
-                                marginRight: 8,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                             <Text
-                              style={{
-                                color: cat.id === selectedCategoryId ? '#fff' : '#333',
-                                fontWeight: '500',
-                                fontSize: 12.5, // 👈 smaller size than default
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              {cat.label}
-                            </Text>
-                            </Pressable>
-                          ))}
-                        </ScrollView>
-
-                        {/* ➕ Plus Button */}
-                        <TouchableOpacity
-                          onPress={() => {
-                            console.log('➕ Pressed: open category modal from task modal');
-                            setIsNewTaskModalVisible(false);
-                            setTimeout(() => {
-                              setIsNewCategoryModalVisible(true);
-                            }, 300);
-                          }}
-                          style={{
-                            paddingVertical: 4,
-                            paddingHorizontal: 4,
-                            borderRadius: 16,
-                            backgroundColor: '#F0F0F0',
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            marginLeft: -5
-                          }}
-                        >
-                          <Ionicons name="add" size={16} color="#333" />
-                        </TouchableOpacity>
-
-                        </View>
-                          </View>
-                        )}
-                        </View>
-
-                  {/* Quick Action Row - Fixed at bottom */}
-                  <View
-                    style={{
-                      position: 'absolute',
-                      bottom: 10,
-                      left: 0,
-                      right: 0,
-                      paddingHorizontal: 10,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      backgroundColor: 'white',
-                      zIndex: 1,
-                    }}
-                  >
-                   {/* Left Section: Folder + Calendar */}
-  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-    {/* Folder Button */}
-    <TouchableOpacity
-  onPress={() => {
-    console.log('📁 Bucket icon toggled');
-    setShowCategoryBox(prev => !prev);
-  }}
-  style={{
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-    marginLeft: 8, // 👈 shifts the entire folder icon + label to the right
-  }}
->
-<View
-  style={{
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    paddingVertical: 6,
-  }}
->
-  <Ionicons
-    name="folder-outline"
-    size={20}
-    color={
-      selectedCategoryId
-        ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666'
-        : '#666'
-    }
-  />
-
-{selectedCategoryId && (
-  <>
-    <Text
-      numberOfLines={1}
-      style={{
-        marginLeft: 8,
-        fontSize: 14,
-        fontWeight: '600',
-        color: categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666',
-        maxWidth: 100,
-      }}
-    >
-      {categories.find((cat) => cat.id === selectedCategoryId)?.label.toUpperCase()}
-    </Text>
-
-    {showCategoryBox && (
-      <TouchableOpacity
-        onPress={() => {
-          console.log('🗑️ Category cleared');
-          setSelectedCategoryId('');
-        }}
-        style={{ marginLeft: 6 }}
-      >
-        <Ionicons
-          name="close"
-          size={14}
-          color={categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666'}
-        />
-      </TouchableOpacity>
-    )}
-  </>
-)}
-
-</View>
-
-</TouchableOpacity>
-
-
-
-    {/* Calendar Button */}
-    <TouchableOpacity 
-      onPress={handleCalendarPress}
-      style={{ marginLeft: selectedCategoryId ? -8 : 0 }}
-    >
-      <Ionicons name="calendar-outline" size={20} color="#666" />
-    </TouchableOpacity>
-  </View>
-
-  {/* Right Section: Send Button */}
-  <TouchableOpacity
-    onPress={editingTodo ? handleEditSave : handleSave}
-    disabled={!newTodo.trim()}
-    style={{
-      width: 28,
-      height: 28,
-      borderRadius: 15,
-      backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ECE7E1',
-      alignItems: 'center',
-      justifyContent: 'center',
-    }}
-  >
-    <Ionicons name="arrow-up" size={18} color="#fff" />
-  </TouchableOpacity>
-</View>
-                </Animated.View>
-              </View>
-            </TouchableWithoutFeedback>
-          </KeyboardAvoidingView>
           
-        </Modal>
+          {/* Add Calendar Strip Header */}
+        <View style={{ paddingHorizontal: 12, marginHorizontal: -18, marginBottom: -10 }}>
+          <View style={{ 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            paddingHorizontal: 0,
+            position: 'relative'
+          }}>
+          
+            <TouchableOpacity onPress={goToToday}>
+              <Text style={{ 
+                color: '#3A3A3A', 
+                fontSize: 19, 
+                fontWeight: 'bold', 
+                marginBottom: 0, 
+                textAlign: 'center', 
+                fontFamily: 'Onest' 
+              }}>
+                {moment(currentDate).format('MMMM YYYY')}
+              </Text>
+            </TouchableOpacity>
+            <View style={{ width: 20, position: 'absolute', right: 24 }} />
+          </View>
+                <CalendarStrip
+                  scrollable
+                  startingDate={moment().subtract(3, 'days')}
+                  showMonth
+                  leftSelector={<View />}
+                  rightSelector={<View />}
+                  style={{ height: 100, paddingTop: 0, paddingBottom: 3, paddingHorizontal: 12 }}
+                  calendarColor={'#fff'}
+                  calendarHeaderStyle={{
+                    display: 'none'
+                  }}
+                  dateNumberStyle={{ color: '#888888', fontSize: 17, fontFamily: 'Onest', marginTop: 0 }}
+                  dateNameStyle={{ color: '#888888', fontFamily: 'Onest', marginBottom: 0 }}
+                  highlightDateNumberStyle={{
+                    color: moment().isSame(moment(currentDate), 'day') ? '#A0C3B2' : '#3A3A3A',
+                    fontSize: 34,
+                    fontFamily: 'Onest',
+                  }}
+                  highlightDateNameStyle={{
+                    color: moment().isSame(moment(currentDate), 'day') ? '#A0C3B2' : '#3A3A3A',
+                    fontSize: 13,
+                    fontFamily: 'Onest',
+                  }}
+                  selectedDate={moment(currentDate)}
+                  onDateSelected={(date) => setCurrentDate(date.toDate())}
+                  customDatesStyles={[
+                    {
+                      date: moment().format('YYYY-MM-DD'),
+                      dateNameStyle: {
+                        color: '#A0C3B2',
+                        fontWeight: '400',
+                      },
+                      dateNumberStyle: {
+                        color: '#A0C3B2',
+                        fontWeight: 'bold',
+                      },
+                    }
+                  ]}
+                />
+              
+          </View>
 
-        {/* Settings Modal */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={isSettingsModalVisible}
-          onRequestClose={handleCloseSettingsModal}
+          {/* TASK LIST */}
+          <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
+            {todayTodos.length === 0 ? (
+              <View style={[styles.emptyState, { 
+                flex: 1, 
+                justifyContent: 'center', 
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                marginTop: 125
+              }]}>
+                <Text style={[styles.emptyStateTitle, { 
+                  textAlign: 'center',
+                  width: '100%',
+                  fontWeight: '700'
+                }]}>no tasks!</Text>
+                <Text style={[styles.emptyStateSubtitle, { 
+                  textAlign: 'center',
+                  width: '100%'
+                }]}>Take a breather :)</Text>
+              </View>
+            ) : (
+              <>
+                {categories.map(category => renderCategory(category, todayTodos))}
+                {renderUncategorizedTodos(todayTodos)}
+                {renderCompletedTodos(todayTodos)}
+              </>
+            )}
+          </ScrollView>
+
+          {/* ADD TASK BUTTON */}
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={handleAddButtonPress}
+          >
+            <Ionicons name="add" size={22} color="white" />
+          </TouchableOpacity>
+        </View>
+      </PanGestureHandler>
+
+      {/* New Task Modal */}
+      <Modal
+        animationType="none"
+        transparent={true}
+        visible={isNewTaskModalVisible}
+        onRequestClose={handleCloseNewTaskModal}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
-          <View style={[styles.modalOverlay, { 
-            flex: 1,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            justifyContent: 'flex-end'
-          }]}>
-            <View style={[styles.modalContent, { 
-              backgroundColor: 'white',
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              paddingHorizontal: 20,
-              height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '75%' : '68%',
-              width: '100%'
-            }]}>
-
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-              <TouchableOpacity
-                onPress={handleCancelFromSettings}
+          <TouchableWithoutFeedback
+            onPress={(e) => {
+              if (e.target === e.currentTarget) {
+                Keyboard.dismiss();
+                hideModal();
+              }
+            }}
+          >
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+              <Animated.View 
                 style={{
-                  position: 'absolute',
-                  top: 10,
-                  right: -10,
-                  zIndex: 10, // ensures it stays above other elements
-                  backgroundColor: '#transparent',
-                  borderRadius: 16,
-                  padding: 6,
+                  backgroundColor: 'white',
+                  position: 'relative',
+                  borderTopLeftRadius: 20,
+                  borderTopRightRadius: 20,
+                  padding: 10,
+                  height: showCategoryBox ? '45%' : '35%',
+                  width: '100%',
+                  transform: [{
+                    translateY: modalAnimation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [600, 0]
+                    })
+                  }],
                 }}
               >
-                <Ionicons name="close" size={18} color="#666" />
-              </TouchableOpacity>
-            </View>
-              <ScrollView
-                style={{ flex: 1 }}
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ flexGrow: 1, paddingBottom: 0, paddingTop: 20 }}
-              >
-                {/* Calendar View */}
-                <View style={{ 
-                  flex: 1,
-                  width: '100%',
-                  backgroundColor: 'white',
-                  paddingTop: 10,
-                  marginBottom: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? 40 : 0,
-                }}>
-                  <MonthlyCalendar
-                    selectedDate={taskDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0]}
-                    onDayPress={(day: DateData) => {
-                      setTaskDate(new Date(day.timestamp));
-                    }}
-                  />
-                </View>
-
-                {/* Reminder Picker */}
-                <View
-                  ref={reminderButtonRef}
-                  onLayout={(e) => setReminderButtonLayout(e.nativeEvent.layout)}
-                  style={{
-                    marginTop: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? -20 : 0,
-                  }}
-                >
-                  <View style={{
-                    backgroundColor: '#F5F5F5',
-                    borderRadius: 12,
-                    overflow: 'hidden',
-                    marginBottom: 110,
-                  }}>
-                    {/* Set Reminder Button */}
-                    <TouchableOpacity
+                <View style={{ flexGrow: 1 }}>
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    keyboardShouldPersistTaps="always"
+                    contentContainerStyle={{ paddingBottom: 160 }}
+                  >
+                    {/* Title Input */}
+                    <TextInput
+                      ref={newTodoInputRef}
                       style={{
+                        fontSize: 18,
+                        color: '#1a1a1a',
+                        padding: 10,
+                        backgroundColor: 'white',
+                        borderRadius: 12,
+                        marginBottom: -10,
+                        fontFamily: 'Onest',
+                      }}
+                      value={newTodo}
+                      onChangeText={setNewTodo}
+                      placeholder={editingTodo ? "Edit task..." : "What needs to be done?"}
+                      placeholderTextColor="#999"
+                      returnKeyType="next"
+                      onSubmitEditing={() => newDescriptionInputRef.current?.focus()}
+                    />
+
+                    <TextInput
+                      ref={newDescriptionInputRef}
+                      style={{
+                        fontSize: 15,
+                        color: '#1a1a1a',
+                        padding: 10,
+                        backgroundColor: 'white',
+                        borderRadius: 12,
+                        minHeight: 75,
+                        marginTop: 6,
+                        textAlignVertical: 'top',
+                        marginBottom: 20,
+                        fontFamily: 'Onest',
+                      }}
+                      value={newDescription}
+                      onChangeText={setNewDescription}
+                      placeholder="Add description (optional)"
+                      placeholderTextColor="#999"
+                      multiline
+                      returnKeyType="done"
+                      onSubmitEditing={() => Keyboard.dismiss()}
+                    />
+                  </ScrollView>
+
+                  {showCategoryBox && (
+                    <View
+                      style={{
+                        marginLeft: 8,
+                        marginBottom: 28,
+                        position: 'relative',
+                        zIndex: 2,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                      <ScrollView 
+                        horizontal 
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="always"
+                        contentContainerStyle={{ paddingRight: 4 }}
+                        style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
+                      >
+                        {categories.filter(cat => cat.label.toLowerCase() !== 'todo').map((cat) => (
+                          <Pressable
+                            key={cat.id}
+                            onPress={() => {
+                              setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
+                              setShowCategoryBox(false);
+                            }}
+                            onLongPress={() => {
+                              Alert.alert(
+                                "Delete Category",
+                                `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
+                                [
+                                  { text: "Cancel", style: "cancel" },
+                                  {
+                                    text: "Delete",
+                                    style: "destructive",
+                                    onPress: async () => {
+                                      try {
+                                        const { data: { user } } = await supabase.auth.getUser();
+                                        if (!user) {
+                                          Alert.alert('Error', 'You must be logged in to delete categories.');
+                                          return;
+                                        }
+
+                                        // First, delete all tasks in this category
+                                        const { error: tasksError } = await supabase
+                                          .from('todos')
+                                          .delete()
+                                          .eq('category_id', cat.id)
+                                          .eq('user_id', user.id);
+
+                                        if (tasksError) {
+                                          console.error('Error deleting tasks:', tasksError);
+                                          Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
+                                          return;
+                                        }
+
+                                        // Then delete the category
+                                        const { error: categoryError } = await supabase
+                                          .from('categories')
+                                          .delete()
+                                          .eq('id', cat.id)
+                                          .eq('user_id', user.id);
+
+                                        if (categoryError) {
+                                          console.error('Error deleting category:', categoryError);
+                                          Alert.alert('Error', 'Failed to delete category. Please try again.');
+                                          return;
+                                        }
+
+                                        // Update local state
+                                        setCategories(prev => prev.filter(category => category.id !== cat.id));
+                                        
+                                        // If the deleted category was selected, clear the selection
+                                        if (selectedCategoryId === cat.id) {
+                                          setSelectedCategoryId('');
+                                        }
+
+                                        // Provide haptic feedback
+                                        if (Platform.OS !== 'web') {
+                                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                        }
+                                      } catch (error) {
+                                        console.error('Error in category deletion:', error);
+                                        Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                                      }
+                                    },
+                                  },
+                                ]
+                              );
+                            }}
+                            delayLongPress={500}
+                            style={{
+                              paddingVertical: 6,
+                              paddingHorizontal: 12,
+                              borderRadius: 20,
+                              backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
+                              marginRight: 8,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                            }}
+                          >
+                           <Text
+                            style={{
+                              color: cat.id === selectedCategoryId ? '#fff' : '#333',
+                              fontWeight: '500',
+                              fontSize: 12.5, // 👈 smaller size than default
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {cat.label}
+                          </Text>
+                          </Pressable>
+                        ))}
+                      </ScrollView>
+
+                      {/* ➕ Plus Button */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          console.log('➕ Pressed: open category modal from task modal');
+                          setIsNewTaskModalVisible(false);
+                          setTimeout(() => {
+                            setIsNewCategoryModalVisible(true);
+                          }, 300);
+                        }}
+                        style={{
+                          paddingVertical: 4,
+                          paddingHorizontal: 4,
+                          borderRadius: 16,
+                          backgroundColor: '#F0F0F0',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          marginLeft: -5
+                        }}
+                      >
+                        <Ionicons name="add" size={16} color="#333" />
+                      </TouchableOpacity>
+
+                      </View>
+                        </View>
+                      )}
+                      </View>
+
+                    {/* Quick Action Row - Fixed at bottom */}
+                    <View
+                      style={{
+                        position: 'absolute',
+                        bottom: 10,
+                        left: 0,
+                        right: 0,
+                        paddingHorizontal: 10,
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        padding: 16,
+                        backgroundColor: 'white',
+                        zIndex: 1,
                       }}
-                      onPress={handleReminderPress}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="time-outline" size={20} color="#666" />
-                        <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                          {reminderTime
-                            ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                            : 'Set reminder'}
-                        </Text>
-                      </View>
+                     {/* Left Section: Folder + Calendar */}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            {/* Folder Button */}
+            <TouchableOpacity
+          onPress={() => {
+            console.log('📁 Bucket icon toggled');
+            setShowCategoryBox(prev => !prev);
+          }}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginRight: 16,
+            marginLeft: 8, // 👈 shifts the entire folder icon + label to the right
+          }}
+        >
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            paddingHorizontal: 4,
+            paddingVertical: 6,
+          }}
+        >
+          <Ionicons
+            name="folder-outline"
+            size={20}
+            color={
+              selectedCategoryId
+                ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666'
+                : '#666'
+            }
+          />
 
-                      {reminderTime ? (
-                      <TouchableOpacity onPress={() => setReminderTime(null)}>
-                        <Ionicons name="close" size={16} color="#999" />
-                      </TouchableOpacity>
-                    ) : (
-                      <Ionicons name="chevron-forward" size={18} color="#666" />
-                    )}
+        {selectedCategoryId && (
+          <>
+            <Text
+              numberOfLines={1}
+              style={{
+                marginLeft: 8,
+                fontSize: 14,
+                fontWeight: '600',
+                color: categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666',
+                maxWidth: 100,
+              }}
+            >
+              {categories.find((cat) => cat.id === selectedCategoryId)?.label.toUpperCase()}
+            </Text>
 
+            {showCategoryBox && (
+              <TouchableOpacity
+                onPress={() => {
+                  console.log('🗑️ Category cleared');
+                  setSelectedCategoryId('');
+                }}
+                style={{ marginLeft: 6 }}
+              >
+                <Ionicons
+                  name="close"
+                  size={14}
+                  color={categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666'}
+                />
+              </TouchableOpacity>
+            )}
+          </>
+        )}
+
+        </View>
+
+        </TouchableOpacity>
+
+
+
+          {/* Calendar Button */}
+          <TouchableOpacity 
+            onPress={handleCalendarPress}
+            style={{ marginLeft: selectedCategoryId ? -8 : 0 }}
+          >
+            <Ionicons name="calendar-outline" size={20} color="#666" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Right Section: Send Button */}
+        <TouchableOpacity
+          onPress={editingTodo ? handleEditSave : handleSave}
+          disabled={!newTodo.trim()}
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 15,
+            backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ECE7E1',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Ionicons name="arrow-up" size={18} color="#fff" />
+        </TouchableOpacity>
+      </View>
+            </Animated.View>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+      
+    </Modal>
+
+    {/* Settings Modal */}
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={isSettingsModalVisible}
+      onRequestClose={handleCloseSettingsModal}
+    >
+      <View style={[styles.modalOverlay, { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }]}>
+        <View style={[styles.modalContent, { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '75%' : '68%', width: '100%' }]}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+            <TouchableOpacity
+              onPress={handleCancelFromSettings}
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: -10,
+                zIndex: 10, // ensures it stays above other elements
+                backgroundColor: '#transparent',
+                borderRadius: 16,
+                padding: 6,
+              }}
+            >
+              <Ionicons name="close" size={18} color="#666" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingBottom: 0, paddingTop: 20 }}>
+            {/* Calendar View */}
+            <View style={{ 
+              flex: 1,
+              width: '100%',
+              backgroundColor: 'white',
+              paddingTop: 10,
+              marginBottom: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? 40 : 0,
+            }}>
+              <MonthlyCalendar
+                selectedDate={taskDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0]}
+                onDayPress={(day: DateData) => {
+                  setTaskDate(new Date(day.timestamp));
+                }}
+              />
+            </View>
+
+            {/* Reminder Picker */}
+            <View
+              ref={reminderButtonRef}
+              onLayout={(e) => setReminderButtonLayout(e.nativeEvent.layout)}
+              style={{
+                marginTop: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? -20 : 0,
+              }}
+            >
+              <View style={{
+                backgroundColor: '#F5F5F5',
+                borderRadius: 12,
+                overflow: 'hidden',
+                marginBottom: 110,
+              }}>
+                {/* Set Reminder Button */}
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 16,
+                  }}
+                  onPress={handleReminderPress}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="time-outline" size={20} color="#666" />
+                    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
+                      {reminderTime
+                        ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                        : 'Set reminder'}
+                    </Text>
+                  </View>
+
+                  {reminderTime ? (
+                  <TouchableOpacity onPress={() => setReminderTime(null)}>
+                    <Ionicons name="close" size={16} color="#999" />
+                  </TouchableOpacity>
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color="#666" />
+                )}
+
+                </TouchableOpacity>
+
+                {/* Repeat Button */}
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 16,
+                  }}
+                  onPress={() => {
+                    if (selectedRepeat) {
+                      setShowRepeatPicker(true);
+                    }
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="repeat" size={20} color="#666" />
+                    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
+                      {selectedRepeat && selectedRepeat !== 'none'
+                        ? REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label
+                        : 'Set repeat'}
+                    </Text>
+                  </View>
+
+                  {selectedRepeat && selectedRepeat !== 'none' ? (
+                    <TouchableOpacity onPress={() => setSelectedRepeat('none')}>
+                      <Ionicons name="close" size={16} color="#999" />
                     </TouchableOpacity>
+                  ) : (
+                    <Ionicons name="chevron-forward" size={18} color="#666" />
+                  )}
+                </TouchableOpacity>
 
-                    {/* Repeat Button */}
-                    <TouchableOpacity
+                {/* Set End Date – Only show if repeat is not 'none' */}
+                {selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
+                    <>
+                      {(() => {
+                        return null;
+                      })()}
+                     <TouchableOpacity
                       style={{
                         flexDirection: 'row',
                         alignItems: 'center',
@@ -1949,738 +2005,528 @@ export default function TodoScreen() {
                         padding: 16,
                       }}
                       onPress={() => {
-                        if (selectedRepeat) {
-                          setShowRepeatPicker(true);
-                        }
+                        setShowRepeatEndDatePicker(true);
                       }}
                     >
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="repeat" size={20} color="#666" />
+                        <Ionicons name="calendar-outline" size={20} color="#666" />
                         <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                          {selectedRepeat && selectedRepeat !== 'none'
-                            ? REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label
-                            : 'Set repeat'}
+                          {repeatEndDate
+                            ? `Ends on ${repeatEndDate.toLocaleDateString()}`
+                            : 'Set end date'}
                         </Text>
                       </View>
 
-                      {selectedRepeat && selectedRepeat !== 'none' ? (
-                        <TouchableOpacity onPress={() => setSelectedRepeat('none')}>
+                      {repeatEndDate ? (
+                        <TouchableOpacity onPress={() => setRepeatEndDate(null)}>
                           <Ionicons name="close" size={16} color="#999" />
                         </TouchableOpacity>
                       ) : (
                         <Ionicons name="chevron-forward" size={18} color="#666" />
                       )}
                     </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </View>
 
-                    {/* Set End Date – Only show if repeat is not 'none' */}
-                    {selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
-                        <>
-                          {(() => {
-                            return null;
-                          })()}
-                         <TouchableOpacity
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: 16,
-                          }}
-                          onPress={() => {
-                            setShowRepeatEndDatePicker(true);
-                          }}
-                        >
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Ionicons name="calendar-outline" size={20} color="#666" />
-                            <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                              {repeatEndDate
-                                ? `Ends on ${repeatEndDate.toLocaleDateString()}`
-                                : 'Set end date'}
-                            </Text>
-                          </View>
+            {/* Simple Time Picker */}
+            <Modal
+            visible={showReminderPicker}
+            transparent
+            animationType="fade"
+            onRequestClose={handleReminderCancel}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => {
+                handleReminderConfirm(); // Save time
+                setShowReminderPicker(false); // Dismiss
+              }}
+              style={{
+                flex: 1,
+                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <TouchableOpacity
+                activeOpacity={1}
+                style={{
+                  backgroundColor: '#fff',
+                  paddingTop: 16,
+                  paddingBottom: 28,
+                  borderTopLeftRadius: 20,
+                  borderTopRightRadius: 20,
+                  shadowColor: '#3A3A3A',
+                  shadowOffset: { width: 0, height: -2 },
+                  shadowOpacity: 0.1,
+                  shadowRadius: 10,
+                  elevation: 10,
+                }}
+                onPress={() => {}} // Prevent closing when tapping inside
+              >
+                <Text style={{ 
+                  fontSize: 20, 
+                  fontWeight: '700', 
+                  color: '#1a1a1a', 
+                  marginBottom: 10,
+                  marginLeft: 22,
+                  fontFamily: 'Onest'
+                }}>
+                  Reminder Time
+                </Text>
+         
+                <View style={{ 
+                  flexDirection: 'row', 
+                  justifyContent: 'space-around',
+                  paddingHorizontal: 20,
+                  marginBottom: 8
+                }}>
+                  {/* Hour Picker */}
+                  <Picker
+                    selectedValue={selectedHour}
+                    style={{ 
+                      flex: 1,
+                      height: 120,
+                    }}
+                    itemStyle={{
+                      height: 120,
+                      fontSize: 24,
+                      fontFamily: 'Onest',
+                      color: '#1a1a1a'
+                    }}
+                    onValueChange={(val) => setSelectedHour(val)}
+                  >
+                    {Array.from({ length: 12 }, (_, i) => {
+                      const val = (i + 1).toString().padStart(2, '0');
+                      return <Picker.Item key={val} label={val} value={val} />;
+                    })}
+                  </Picker>
 
-                          {repeatEndDate ? (
-                            <TouchableOpacity onPress={() => setRepeatEndDate(null)}>
-                              <Ionicons name="close" size={16} color="#999" />
-                            </TouchableOpacity>
-                          ) : (
-                            <Ionicons name="chevron-forward" size={18} color="#666" />
-                          )}
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
+                  <Text style={{
+                    fontSize: 35,
+                    color: '#1a1a1a',
+                    fontFamily: 'Onest',
+                    marginHorizontal: 10,
+                    marginTop: 34
+                  }}>:</Text>
+
+                  {/* Minute Picker */}
+                  <Picker
+                    selectedValue={selectedMinute}
+                    style={{ 
+                      flex: 1,
+                      height: 120,
+                    }}
+                    itemStyle={{
+                      height: 120,
+                      fontSize: 24,
+                      fontFamily: 'Onest',
+                      color: '#1a1a1a'
+                    }}
+                    onValueChange={(val) => setSelectedMinute(val)}
+                  >
+                    {Array.from({ length: 60 }, (_, i) => {
+                      const val = i.toString().padStart(2, '0');
+                      return <Picker.Item key={val} label={val} value={val} />;
+                    })}
+                  </Picker>
+
+                  {/* AM/PM Picker */}
+                  <Picker
+                    selectedValue={selectedAmPm}
+                    style={{ 
+                      flex: 1,
+                      height: 120,
+                    }}
+                    itemStyle={{
+                      height: 120,
+                      fontSize: 24,
+                      fontFamily: 'Onest',
+                      color: '#1a1a1a'
+                    }}
+                    onValueChange={(val) => setSelectedAmPm(val)}
+                  >
+                    <Picker.Item label="AM" value="AM" />
+                    <Picker.Item label="PM" value="PM" />
+                  </Picker>
                 </View>
 
-                {/* Simple Time Picker */}
-                <Modal
-                visible={showReminderPicker}
-                transparent
-                animationType="fade"
-                onRequestClose={handleReminderCancel}
+                <TouchableOpacity
+                  onPress={() => {
+                    handleReminderConfirm();
+                    setShowReminderPicker(false);
+                  }}
+                  style={{
+                    backgroundColor: '#FF9A8B',
+                    marginHorizontal: 20,
+                    paddingVertical: 12,
+                    borderRadius: 12,
+                    alignItems: 'center',
+                    marginTop: 4,
+                  }}
+                >
+                  <Text style={{ 
+                    color: 'white', 
+                    fontSize: 16, 
+                    fontWeight: '600',
+                    fontFamily: 'Onest',
+                  }}>
+                    Set Time
+                  </Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
+
+
+            {/* Simple Repeat Options */}
+            <Modal
+              visible={showRepeatPicker}
+              animationType="slide"
+              transparent
+              onRequestClose={() => setShowRepeatPicker(false)}
+            >
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => setShowRepeatPicker(false)}
+                style={{
+                  flex: 1,
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                  justifyContent: 'flex-end',
+                }}
+              >
+                <View
+                  style={{
+                    backgroundColor: '#fff',
+                    paddingTop: 16,
+                    paddingBottom: 28,
+                    borderTopLeftRadius: 20,
+                    borderTopRightRadius: 20,
+                    shadowColor: '#3A3A3A',
+                    shadowOffset: { width: 0, height: -2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 10,
+                    elevation: 10,
+                  }}
+                >
+                  <Text style={{ 
+                    fontSize: 20, 
+                    fontWeight: '700', 
+                    color: '#1a1a1a', 
+                    marginBottom: 10,
+                    marginLeft: 22,
+                    fontFamily: 'Onest'
+                  }}>
+                    Repeat
+                  </Text>
+
+                  {REPEAT_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.value}
+                      onPress={() => {
+                        setSelectedRepeat(opt.value as RepeatOption);
+                        setShowRepeatPicker(false);
+
+                        if (opt.value === 'custom') {
+                          setTimeout(() => {
+                            setShowCustomDatesPicker(true);
+                          }, 300);
+                        }
+                      }}
+                      style={{
+                        paddingVertical: 16,
+                        paddingHorizontal: 24,
+                      }}
+                    >
+                      <Text style={{ 
+                        fontSize: 16, 
+                        color: '#1a1a1a',
+                        fontFamily: 'Onest'
+                      }}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </TouchableOpacity>
+            </Modal>
+
+            <Modal
+    visible={showCustomDatesPicker}
+    transparent
+    animationType="fade"
+    onRequestClose={() => setShowCustomDatesPicker(false)}
+  >
+    <TouchableOpacity
+      activeOpacity={1}
+      onPressOut={() => setShowCustomDatesPicker(false)}
+      style={{
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.3)',
+        justifyContent: 'flex-end',
+      }}
+    >
+      <View style={{
+        backgroundColor: '#fff',
+        padding: 20,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
+      }}>
+        <RNCalendar
+          onDayPress={(day: DateData) => {
+            const dateStr = day.dateString;
+            setCustomSelectedDates((prev) =>
+              prev.includes(dateStr)
+                ? prev.filter((d) => d !== dateStr)
+                : [...prev, dateStr]
+            );
+          }}
+          markedDates={Object.fromEntries(
+            customSelectedDates.map((date) => [
+              date,
+              { selected: true, selectedColor: '#FF9A8B' },
+            ])
+          )}
+          style={{
+            width: '100%',
+          }}
+          theme={{
+            backgroundColor: 'white',
+            calendarBackground: 'white',
+            textSectionTitleColor: '#666',
+            todayTextColor: '#FF9A8B',
+            dayTextColor: '#1a1a1a',
+            textDisabledColor: '#DCD7C9',
+            dotColor: '#007AFF',
+            selectedDotColor: '#ffffff',
+            arrowColor: '#FF9A8B',
+            monthTextColor: '#1a1a1a',
+            indicatorColor: '#007AFF',
+            textDayFontSize: 14,
+            textMonthFontSize: 17,
+            textDayHeaderFontSize: 12,
+            textDayFontFamily: 'Onest',
+            textMonthFontFamily: 'Onest',
+            textDayHeaderFontFamily: 'Onest',
+            'stylesheet.calendar.header': {
+              monthText: {
+                fontSize: 17,
+                fontWeight: '500',
+                color: '#1a1a1a',
+                marginBottom: 15,
+                fontFamily: 'Onest',
+              },
+              arrow: {
+                color: '#FF9A8B',
+                marginHorizontal: 60,
+                marginBottom: 15,
+              },
+            },
+            'stylesheet.day.basic': {
+              base: {
+                width: 33,
+                height: 33,
+                alignItems: 'center',
+                justifyContent: 'center',
+              },
+              text: {
+                fontSize: 14,
+                color: '#1a1a1a',
+                backgroundColor: 'transparent',
+                textAlign: 'center',
+                marginTop: 5,
+                fontFamily: 'Onest',
+              },
+              today: {
+                backgroundColor: '#FAF9F6',
+                borderRadius: 18,
+              },
+              selected: {
+                backgroundColor: '#FF9A8B',
+                borderRadius: 18,
+              },
+              selectedText: {
+                color: '#ffffff',
+                fontFamily: 'Onest',
+              },
+            }
+          }}
+        />
+
+        <TouchableOpacity
+          onPress={() => setShowCustomDatesPicker(false)}
+          style={{
+            backgroundColor: '#FFB6B9',
+            padding: 16,
+            borderRadius: 12,
+            alignItems: 'center',
+            marginTop: 15,
+            marginBottom: 14, 
+          }}
+        >
+          <Text style={{ color: 'white', fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  </Modal>
+
+
+            <Modal
+              visible={showRepeatEndDatePicker}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowRepeatEndDatePicker(false)}
+            >
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => {
+                  handleEndDateConfirm();
+                  setShowRepeatEndDatePicker(false);
+                }}
+                style={{
+                  flex: 1,
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                  justifyContent: 'flex-end',
+                }}
               >
                 <TouchableOpacity
                   activeOpacity={1}
-                  onPress={() => {
-                    handleReminderConfirm(); // Save time
-                    setShowReminderPicker(false); // Dismiss
-                  }}
                   style={{
-                    flex: 1,
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                    justifyContent: 'flex-end',
+                    backgroundColor: '#fff',
+                    paddingTop: 16,
+                    paddingBottom: 28,
+                    borderTopLeftRadius: 20,
+                    borderTopRightRadius: 20,
+                    shadowColor: '#3A3A3A',
+                    shadowOffset: { width: 0, height: -2 },
+                    shadowOpacity: 0.1,
+                    shadowRadius: 10,
+                    elevation: 10,
                   }}
+                  onPress={() => {}} // Prevent closing when tapping inside
                 >
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    style={{
-                      backgroundColor: '#fff',
-                      paddingTop: 16,
-                      paddingBottom: 28,
-                      borderTopLeftRadius: 20,
-                      borderTopRightRadius: 20,
-                      shadowColor: '#3A3A3A',
-                      shadowOffset: { width: 0, height: -2 },
-                      shadowOpacity: 0.1,
-                      shadowRadius: 10,
-                      elevation: 10,
-                    }}
-                    onPress={() => {}} // Prevent closing when tapping inside
-                  >
-                    <Text style={{ 
-                      fontSize: 20, 
-                      fontWeight: '700', 
-                      color: '#1a1a1a', 
-                      marginBottom: 10,
-                      marginLeft: 22,
-                      fontFamily: 'Onest'
-                    }}>
-                      Reminder Time
-                    </Text>
-             
-                    <View style={{ 
-                      flexDirection: 'row', 
-                      justifyContent: 'space-around',
-                      paddingHorizontal: 20,
-                      marginBottom: 8
-                    }}>
-                      {/* Hour Picker */}
-                      <Picker
-                        selectedValue={selectedHour}
-                        style={{ 
-                          flex: 1,
-                          height: 120,
-                        }}
-                        itemStyle={{
-                          height: 120,
-                          fontSize: 24,
-                          fontFamily: 'Onest',
-                          color: '#1a1a1a'
-                        }}
-                        onValueChange={(val) => setSelectedHour(val)}
-                      >
-                        {Array.from({ length: 12 }, (_, i) => {
-                          const val = (i + 1).toString().padStart(2, '0');
-                          return <Picker.Item key={val} label={val} value={val} />;
-                        })}
-                      </Picker>
+                  <Text style={{ 
+                    fontSize: 20, 
+                    fontWeight: '700', 
+                    color: '#1a1a1a', 
+                    marginBottom: 10,
+                    marginLeft: 22,
+                    fontFamily: 'Onest'
+                  }}>
+                    Pick End Date
+                  </Text>
 
-                      <Text style={{
-                        fontSize: 35,
-                        color: '#1a1a1a',
+                  <View style={{ 
+                    flexDirection: 'row', 
+                    justifyContent: 'space-around',
+                    paddingHorizontal: 20,
+                    marginBottom: 8
+                  }}>
+                    <Picker selectedValue={selectedYear} 
+                      style={{ 
+                        flex: 1,
+                        height: 120,
+                      }}
+                      itemStyle={{
+                        height: 120,
+                        fontSize: 24,
                         fontFamily: 'Onest',
-                        marginHorizontal: 10,
-                        marginTop: 34
-                      }}>:</Text>
-
-                      {/* Minute Picker */}
-                      <Picker
-                        selectedValue={selectedMinute}
-                        style={{ 
-                          flex: 1,
-                          height: 120,
-                        }}
-                        itemStyle={{
-                          height: 120,
-                          fontSize: 24,
-                          fontFamily: 'Onest',
-                          color: '#1a1a1a'
-                        }}
-                        onValueChange={(val) => setSelectedMinute(val)}
-                      >
-                        {Array.from({ length: 60 }, (_, i) => {
-                          const val = i.toString().padStart(2, '0');
-                          return <Picker.Item key={val} label={val} value={val} />;
-                        })}
-                      </Picker>
-
-                      {/* AM/PM Picker */}
-                      <Picker
-                        selectedValue={selectedAmPm}
-                        style={{ 
-                          flex: 1,
-                          height: 120,
-                        }}
-                        itemStyle={{
-                          height: 120,
-                          fontSize: 24,
-                          fontFamily: 'Onest',
-                          color: '#1a1a1a'
-                        }}
-                        onValueChange={(val) => setSelectedAmPm(val)}
-                      >
-                        <Picker.Item label="AM" value="AM" />
-                        <Picker.Item label="PM" value="PM" />
-                      </Picker>
-                    </View>
-
-                    <TouchableOpacity
-                      onPress={() => {
-                        handleReminderConfirm();
-                        setShowReminderPicker(false);
+                        color: '#1a1a1a'
                       }}
-                      style={{
-                        backgroundColor: '#FF9A8B',
-                        marginHorizontal: 20,
-                        paddingVertical: 12,
-                        borderRadius: 12,
-                        alignItems: 'center',
-                        marginTop: 4,
-                      }}
-                    >
-                      <Text style={{ 
-                        color: 'white', 
-                        fontSize: 16, 
-                        fontWeight: '600',
-                        fontFamily: 'Onest',
-                      }}>
-                        Set Time
-                      </Text>
-                    </TouchableOpacity>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              </Modal>
-
-
-                {/* Simple Repeat Options */}
-                <Modal
-                  visible={showRepeatPicker}
-                  animationType="slide"
-                  transparent
-                  onRequestClose={() => setShowRepeatPicker(false)}
-                >
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    onPress={() => setShowRepeatPicker(false)}
-                    style={{
-                      flex: 1,
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                      justifyContent: 'flex-end',
-                    }}
-                  >
-                    <View
-                      style={{
-                        backgroundColor: '#fff',
-                        paddingTop: 16,
-                        paddingBottom: 28,
-                        borderTopLeftRadius: 20,
-                        borderTopRightRadius: 20,
-                        shadowColor: '#3A3A3A',
-                        shadowOffset: { width: 0, height: -2 },
-                        shadowOpacity: 0.1,
-                        shadowRadius: 10,
-                        elevation: 10,
-                      }}
-                    >
-                      <Text style={{ 
-                        fontSize: 20, 
-                        fontWeight: '700', 
-                        color: '#1a1a1a', 
-                        marginBottom: 10,
-                        marginLeft: 22,
-                        fontFamily: 'Onest'
-                      }}>
-                        Repeat
-                      </Text>
-
-                      {REPEAT_OPTIONS.map((opt) => (
-                        <TouchableOpacity
-                          key={opt.value}
-                          onPress={() => {
-                            setSelectedRepeat(opt.value as RepeatOption);
-                            setShowRepeatPicker(false);
-
-                            if (opt.value === 'custom') {
-                              setTimeout(() => {
-                                setShowCustomDatesPicker(true);
-                              }, 300);
-                            }
-                          }}
-                          style={{
-                            paddingVertical: 16,
-                            paddingHorizontal: 24,
-                          }}
-                        >
-                          <Text style={{ 
-                            fontSize: 16, 
-                            color: '#1a1a1a',
-                            fontFamily: 'Onest'
-                          }}>
-                            {opt.label}
-                          </Text>
-                        </TouchableOpacity>
+                      onValueChange={setSelectedYear}>
+                      {years.map((y) => (
+                        <Picker.Item 
+                          key={y} 
+                          label={y.slice(-2)} 
+                          value={y} 
+                        />
                       ))}
-                    </View>
-                  </TouchableOpacity>
-                </Modal>
+                    </Picker>
 
-                <Modal
-  visible={showCustomDatesPicker}
-  transparent
-  animationType="fade"
-  onRequestClose={() => setShowCustomDatesPicker(false)}
->
-  <TouchableOpacity
-    activeOpacity={1}
-    onPressOut={() => setShowCustomDatesPicker(false)}
-    style={{
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.3)',
-      justifyContent: 'flex-end',
-    }}
-  >
-    <View style={{
-      backgroundColor: '#fff',
-      padding: 20,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-    }}>
-      <RNCalendar
-        onDayPress={(day: DateData) => {
-          const dateStr = day.dateString;
-          setCustomSelectedDates((prev) =>
-            prev.includes(dateStr)
-              ? prev.filter((d) => d !== dateStr)
-              : [...prev, dateStr]
-          );
-        }}
-        markedDates={Object.fromEntries(
-          customSelectedDates.map((date) => [
-            date,
-            { selected: true, selectedColor: '#FF9A8B' },
-          ])
-        )}
-        style={{
-          width: '100%',
-        }}
-        theme={{
-          backgroundColor: 'white',
-          calendarBackground: 'white',
-          textSectionTitleColor: '#666',
-          todayTextColor: '#FF9A8B',
-          dayTextColor: '#1a1a1a',
-          textDisabledColor: '#DCD7C9',
-          dotColor: '#007AFF',
-          selectedDotColor: '#ffffff',
-          arrowColor: '#FF9A8B',
-          monthTextColor: '#1a1a1a',
-          indicatorColor: '#007AFF',
-          textDayFontSize: 14,
-          textMonthFontSize: 17,
-          textDayHeaderFontSize: 12,
-          textDayFontFamily: 'Onest',
-          textMonthFontFamily: 'Onest',
-          textDayHeaderFontFamily: 'Onest',
-          'stylesheet.calendar.header': {
-            monthText: {
-              fontSize: 17,
-              fontWeight: '500',
-              color: '#1a1a1a',
-              marginBottom: 15,
-              fontFamily: 'Onest',
-            },
-            arrow: {
-              color: '#FF9A8B',
-              marginHorizontal: 60,
-              marginBottom: 15,
-            },
-          },
-          'stylesheet.day.basic': {
-            base: {
-              width: 33,
-              height: 33,
-              alignItems: 'center',
-              justifyContent: 'center',
-            },
-            text: {
-              fontSize: 14,
-              color: '#1a1a1a',
-              backgroundColor: 'transparent',
-              textAlign: 'center',
-              marginTop: 5,
-              fontFamily: 'Onest',
-            },
-            today: {
-              backgroundColor: '#FAF9F6',
-              borderRadius: 18,
-            },
-            selected: {
-              backgroundColor: '#FF9A8B',
-              borderRadius: 18,
-            },
-            selectedText: {
-              color: '#ffffff',
-              fontFamily: 'Onest',
-            },
-          }
-        }}
-      />
+                    <Text style={{
+                      fontSize: 35,
+                      color: '#1a1a1a',
+                      fontFamily: 'Onest',
+                      marginHorizontal: 10,
+                      marginTop: 34
+                    }}>/</Text>
 
-      <TouchableOpacity
-        onPress={() => setShowCustomDatesPicker(false)}
-        style={{
-          backgroundColor: '#FFB6B9',
-          padding: 16,
-          borderRadius: 12,
-          alignItems: 'center',
-          marginTop: 15,
-          marginBottom: 14, 
-        }}
-      >
-        <Text style={{ color: 'white', fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
-      </TouchableOpacity>
-    </View>
-  </TouchableOpacity>
-</Modal>
+                    <Picker selectedValue={selectedMonth} 
+                      style={{ 
+                        flex: 1,
+                        height: 120,
+                      }}
+                      itemStyle={{
+                        height: 120,
+                        fontSize: 24,
+                        fontFamily: 'Onest',
+                        color: '#1a1a1a'
+                      }}
+                      onValueChange={setSelectedMonth}>
+                      {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
+                    </Picker>
 
+                    <Text style={{
+                      fontSize: 35,
+                      color: '#1a1a1a',
+                      fontFamily: 'Onest',
+                      marginHorizontal: 10,
+                      marginTop: 34
+                    }}>/</Text>
 
-                <Modal
-                  visible={showRepeatEndDatePicker}
-                  transparent
-                  animationType="fade"
-                  onRequestClose={() => setShowRepeatEndDatePicker(false)}
-                >
+                    <Picker selectedValue={selectedDay} 
+                      style={{ 
+                        flex: 1,
+                        height: 120,
+                      }}
+                      itemStyle={{
+                        height: 120,
+                        fontSize: 24,
+                        fontFamily: 'Onest',
+                        color: '#1a1a1a'
+                      }}
+                      onValueChange={setSelectedDay}>
+                      {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
+                    </Picker>
+                  </View>
+
                   <TouchableOpacity
-                    activeOpacity={1}
                     onPress={() => {
                       handleEndDateConfirm();
                       setShowRepeatEndDatePicker(false);
                     }}
                     style={{
-                      flex: 1,
-                      backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                      justifyContent: 'flex-end',
+                      backgroundColor: '#FF9A8B',
+                      marginHorizontal: 20,
+                      paddingVertical: 12,
+                      borderRadius: 12,
+                      alignItems: 'center',
+                      marginTop: 4,
                     }}
                   >
-                    <TouchableOpacity
-                      activeOpacity={1}
-                      style={{
-                        backgroundColor: '#fff',
-                        paddingTop: 16,
-                        paddingBottom: 28,
-                        borderTopLeftRadius: 20,
-                        borderTopRightRadius: 20,
-                        shadowColor: '#3A3A3A',
-                        shadowOffset: { width: 0, height: -2 },
-                        shadowOpacity: 0.1,
-                        shadowRadius: 10,
-                        elevation: 10,
-                      }}
-                      onPress={() => {}} // Prevent closing when tapping inside
-                    >
-                      <Text style={{ 
-                        fontSize: 20, 
-                        fontWeight: '700', 
-                        color: '#1a1a1a', 
-                        marginBottom: 10,
-                        marginLeft: 22,
-                        fontFamily: 'Onest'
-                      }}>
-                        Pick End Date
-                      </Text>
-
-                      <View style={{ 
-                        flexDirection: 'row', 
-                        justifyContent: 'space-around',
-                        paddingHorizontal: 20,
-                        marginBottom: 8
-                      }}>
-                        <Picker selectedValue={selectedYear} 
-                          style={{ 
-                            flex: 1,
-                            height: 120,
-                          }}
-                          itemStyle={{
-                            height: 120,
-                            fontSize: 24,
-                            fontFamily: 'Onest',
-                            color: '#1a1a1a'
-                          }}
-                          onValueChange={setSelectedYear}>
-                          {years.map((y) => (
-                            <Picker.Item 
-                              key={y} 
-                              label={y.slice(-2)} 
-                              value={y} 
-                            />
-                          ))}
-                        </Picker>
-
-                        <Text style={{
-                          fontSize: 35,
-                          color: '#1a1a1a',
-                          fontFamily: 'Onest',
-                          marginHorizontal: 10,
-                          marginTop: 34
-                        }}>/</Text>
-
-                        <Picker selectedValue={selectedMonth} 
-                          style={{ 
-                            flex: 1,
-                            height: 120,
-                          }}
-                          itemStyle={{
-                            height: 120,
-                            fontSize: 24,
-                            fontFamily: 'Onest',
-                            color: '#1a1a1a'
-                          }}
-                          onValueChange={setSelectedMonth}>
-                          {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
-                        </Picker>
-
-                        <Text style={{
-                          fontSize: 35,
-                          color: '#1a1a1a',
-                          fontFamily: 'Onest',
-                          marginHorizontal: 10,
-                          marginTop: 34
-                        }}>/</Text>
-
-                        <Picker selectedValue={selectedDay} 
-                          style={{ 
-                            flex: 1,
-                            height: 120,
-                          }}
-                          itemStyle={{
-                            height: 120,
-                            fontSize: 24,
-                            fontFamily: 'Onest',
-                            color: '#1a1a1a'
-                          }}
-                          onValueChange={setSelectedDay}>
-                          {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
-                        </Picker>
-                      </View>
-
-                      <TouchableOpacity
-                        onPress={() => {
-                          handleEndDateConfirm();
-                          setShowRepeatEndDatePicker(false);
-                        }}
-                        style={{
-                          backgroundColor: '#FF9A8B',
-                          marginHorizontal: 20,
-                          paddingVertical: 12,
-                          borderRadius: 12,
-                          alignItems: 'center',
-                          marginTop: 4,
-                        }}
-                      >
-                        <Text style={{ 
-                          color: 'white', 
-                          fontSize: 16, 
-                          fontWeight: '600',
-                          fontFamily: 'Onest',
-                        }}>
-                          Set Date
-                        </Text>
-                      </TouchableOpacity>
-                    </TouchableOpacity>
+                    <Text style={{ 
+                      color: 'white', 
+                      fontSize: 16, 
+                      fontWeight: '600',
+                      fontFamily: 'Onest',
+                    }}>
+                      Set Date
+                    </Text>
                   </TouchableOpacity>
-                </Modal>
-              </ScrollView>
-              
-              <View style={styles.stickyFooter}>
-                <TouchableOpacity 
-                  style={[styles.doneButton, { backgroundColor: '#FF9A8B' }]} 
-                  onPress={handleCloseSettingsModal}
-                >
-                  <Text style={[styles.doneText, { color: 'white' }]}>Done</Text>
                 </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </View>
-
-      {/* New Category Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isNewCategoryModalVisible}
-        onRequestClose={() => {
-          setIsNewCategoryModalVisible(false);
-        }}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-        >
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <View style={{ flex: 1 }} />
-            <View style={{ 
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              backgroundColor: 'white',
-              padding: 20,
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              shadowColor: '#000',
-              shadowOffset: {
-                width: 0,
-                height: -2,
-              },
-              shadowOpacity: 0.25,
-              shadowRadius: 3.84,
-              elevation: 5,
-            }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>New Category</Text>
-                <TouchableOpacity onPress={() => {
-                  setIsNewCategoryModalVisible(false);
-                  setTimeout(() => {
-                    setIsNewTaskModalVisible(true);
-                  }, 300);
-                }}>
-                  <Ionicons name="close" size={20} color="#666" style={{ marginTop: -8, marginRight: -5 }} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView keyboardShouldPersistTaps="always">
-                <TextInput
-                  ref={categoryInputRef}
-                  style={{
-                    fontSize: 16,
-                    color: '#1a1a1a',
-                    padding: 12,
-                    backgroundColor: '#F5F5F5',
-                    borderRadius: 12,
-                    marginBottom: 20,
-                    fontFamily: 'Onest',
-                  }}
-                  value={newCategoryName}
-                  onChangeText={setNewCategoryName}
-                  placeholder="Category name"
-                  placeholderTextColor="#999"
-                  autoFocus
-                />
-
-                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
-                
-                <View 
-                  onStartShouldSetResponder={() => true}
-                  onMoveShouldSetResponder={() => true}
-                  onResponderTerminationRequest={() => false}
-                >
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingBottom: 20 }}
-                    keyboardShouldPersistTaps="always"
-                  >
-                    {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
-                      const isSelected = newCategoryColor === color;
-                      return (
-                        <TouchableOpacity
-                          key={color}
-                          onPress={() => setNewCategoryColor(color)}
-                          style={{
-                            width: 30,
-                            height: 30,
-                            borderRadius: 15,
-                            backgroundColor: color,
-                            marginRight: 8,
-                            marginLeft: 2,
-                            opacity: isSelected ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
-                          }}
-                        />
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              </ScrollView>
-
-              <TouchableOpacity
-                onPress={async () => {
-                  if (!newCategoryName.trim()) return;
-                
-                  try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (!user) {
-                      Alert.alert('Error', 'You must be logged in to create categories.');
-                      return;
-                    }
-                
-                    const newCategory = {
-                      id: uuidv4(),
-                      label: newCategoryName.trim(),
-                      color: newCategoryColor,
-                    };
-                
-                    const { data: savedCategory, error: categoryError } = await supabase
-                      .from('categories')
-                      .insert({
-                        id: newCategory.id,
-                        label: newCategory.label,
-                        color: newCategory.color,
-                        user_id: user.id
-                      })
-                      .select()
-                      .single();
-                
-                    if (categoryError || !savedCategory) {
-                      console.error('Error saving category:', categoryError);
-                      Alert.alert('Error', 'Failed to save category. Please try again.');
-                      return;
-                    }
-                
-                    // Update state in the correct order
-                    setCategories(prev => [...prev, savedCategory]);
-                    setSelectedCategoryId(savedCategory.id);
-                    setNewCategoryName('');
-                    
-                    // Close category modal and show task modal
-                    Keyboard.dismiss();
-                    setIsNewCategoryModalVisible(false);
-                    requestAnimationFrame(() => {
-                      setIsNewTaskModalVisible(true);
-                    });
-                
-                  } catch (error) {
-                    console.error('Error creating category:', error);
-                    Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                  }
-                }}
-                style={{
-                  backgroundColor:'#FF9A8B',
-                  padding: 12,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  marginTop: 'auto',
-                  marginBottom: 8,
-                }}
-              >
-                <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
               </TouchableOpacity>
-            </View>
+            </Modal>
+          </ScrollView>
+          
+          <View style={styles.stickyFooter}>
+            <TouchableOpacity style={[styles.doneButton, { backgroundColor: '#FF9A8B' }]} onPress={handleCloseSettingsModal}>
+              <Text style={[styles.doneText, { color: 'white' }]}>Done</Text>
+            </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-
-    </GestureHandlerRootView>
-  );
+        </View>
+      </View>
+    </Modal>
+  </GestureHandlerRootView>
+);
 }

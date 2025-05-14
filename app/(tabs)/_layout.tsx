@@ -33,10 +33,10 @@ export default function TabLayout() {
           ...Platform.select({
             ios: {
               position: 'absolute',
-              bottom: 6,
+              bottom: 12,
             },
             default: {
-              bottom: 6,
+              bottom: 12,
             },
           }),
         },

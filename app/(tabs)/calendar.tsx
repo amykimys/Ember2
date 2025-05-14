@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     marginTop: 0,
-    marginBottom: 28,
+    marginBottom: 0,
     color: '#333',
     fontFamily: 'Onest',
   },
@@ -374,6 +374,193 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     fontFamily: 'Onest',
+  },
+  categoryPickerButton: {
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 2,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    marginBottom: 15,
+  },
+  categoryPickerContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 8,
+    width: '100%',
+  },
+  categoryOption: {
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 9,
+    marginBottom: 4,
+  },
+  categoryDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  categoryText: {
+    fontSize: 12,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    fontWeight: '500',
+  },
+  addCategoryButton: {
+    backgroundColor: '#fafafa',
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 9,
+    borderWidth: 0,
+    borderColor: '#eee',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  allDayContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  allDayText: {
+    fontSize: 13,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    marginRight: 20,
+  },
+  dateTimeContainer: {
+    marginBottom: 20,
+  },
+  dateTimeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  dateTimeColumn: {
+    flex: 1,
+  },
+  dateTimeLabel: {
+    fontSize: 13,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    marginBottom: 6,
+  },
+  dateTimeButton: {
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 2,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  dateTimeText: {
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'Onest',
+  },
+  pickerContainer: {
+    marginTop: 12,
+  },
+  reminderRepeatContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  reminderRepeatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  reminderRepeatColumn: {
+    flex: 1,
+  },
+  reminderRepeatLabel: {
+    fontSize: 13,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    marginBottom: 6,
+  },
+  reminderRepeatButton: {
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 2,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  reminderRepeatText: {
+    fontSize: 13,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    fontWeight: '500',
+  },
+  timePicker: {
+    height: 180,
+    width: '100%',
+  },
+  repeatPickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  repeatOption: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    marginBottom: 4,
+  },
+  repeatOptionText: {
+    fontSize: 13,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    fontWeight: '500',
+  },
+  deleteButton: {
+    backgroundColor: '#FF9A8B',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    width: '48%',
+    marginRight: 4,
+  },
+  deleteButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontFamily: 'Onest',
+    fontWeight: '600',
+  },
+  saveButton: {
+    backgroundColor: '#A0C3B2',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    width: '48%',
+  },
+  saveButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontFamily: 'Onest',
+    fontWeight: '600',
   },
 });
 
@@ -895,10 +1082,18 @@ const CalendarScreen: React.FC = () => {
 
     return (
       <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 30, paddingHorizontal: 8 }}>
+        <View style={{ 
+          flexDirection: 'row', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          marginBottom: 55, 
+          paddingHorizontal: 18,
+          marginLeft: 50,
+          position: 'relative'
+        }}>
           <TouchableOpacity
             onPress={() => setCalendarMode('week')}
-            style={{ paddingVertical: 6, paddingHorizontal: 10 }}
+            style={{ position: 'absolute', left: -25, top:0, paddingVertical: 6, paddingHorizontal: 0}}
           >
             <MaterialIcons 
               name="calendar-view-week"
@@ -906,36 +1101,51 @@ const CalendarScreen: React.FC = () => {
               color="#333"
             />
           </TouchableOpacity>
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <TouchableOpacity
-              onPress={() => {
-                if (calendarMode === 'month') {
-                  // In month view, scroll to current month
-                  const today = new Date();
-                  const monthIndex = months.findIndex(m => 
-                    m.year === today.getFullYear() && m.month === today.getMonth()
-                  );
-                  if (monthIndex !== -1) {
-                    flatListRef.current?.scrollToIndex({
-                      index: monthIndex,
-                      animated: true
-                    });
-                  }
-                } else {
-                  // In week view, scroll to current week
-                  const today = new Date();
-                  setSelectedDate(today);
-                  setVisibleWeekMonth(today);
-                  weeklyCalendarRef.current?.scrollToWeek?.(today);
+
+          {/* Month Text - Absolute and centered */}
+          <TouchableOpacity
+            onPress={() => {
+              if (calendarMode === 'month') {
+                // In month view, scroll to current month
+                const today = new Date();
+                const monthIndex = months.findIndex(m => 
+                  m.year === today.getFullYear() && m.month === today.getMonth()
+                );
+                if (monthIndex !== -1) {
+                  flatListRef.current?.scrollToIndex({
+                    index: monthIndex,
+                    animated: true
+                  });
                 }
-              }}
-            >
-              <Text style={[styles.monthLabel, { marginBottom: 3 }]}>{label}</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={{ width: 40 }}>
-            <Text style={{ color: 'transparent' }}>Spacer</Text>
-          </View>
+              } else {
+                // In week view, scroll to current week
+                const today = new Date();
+                setSelectedDate(today);
+                setVisibleWeekMonth(today);
+                weeklyCalendarRef.current?.scrollToWeek?.(today);
+              }
+            }}
+            style={{
+              position: 'absolute',
+              left: '50%',
+              transform: [{ translateX: -50 }],
+              top: 0,
+              padding: 8,
+            }}
+          >
+            <Text style={[styles.monthLabel, { marginBottom: 0 }]}>{label}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              resetEventForm();
+              setShowModal(true);
+            }}
+            style={{  position: 'absolute',
+              right: 0,
+              paddingVertical: 0,
+              paddingHorizontal: 0 }}
+          >
+          </TouchableOpacity>
         </View>
         <View style={{ paddingHorizontal: SIDE_PADDING }}>
           <View style={styles.weekRow}>
@@ -996,7 +1206,7 @@ const CalendarScreen: React.FC = () => {
                           }}>
                             <Text style={{ 
                               fontSize: 15,
-                              color: isSelected(date) ? '#FFFFFF' : (isToday(date) ? '#A0C3B2' : '#3A3A3A'),
+                              color: isSelected(date) ? '#FFFFFF' : (isToday(date) ? '#A0C3B2' : (isCurrentMonth(date) ? '#3A3A3A' : '#CCCCCC')),
                               fontWeight: isSelected(date) || isToday(date) ? '400' : '400',
                               fontFamily: 'Onest',
                               textAlign: 'center'
@@ -1188,12 +1398,21 @@ const CalendarScreen: React.FC = () => {
             )}
           </View>
         ) : (
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: -3, paddingHorizontal: 12 }}>
-              <TouchableOpacity
-                onPress={() => setCalendarMode('month')}
-                style={{ paddingVertical: 6, paddingHorizontal: 6 }}
-              >
+          <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
+        <View style={{ 
+          flexDirection: 'row', 
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          marginBottom: 0, 
+          paddingHorizontal: 18,
+          marginLeft: 50,
+          position: 'relative'
+        }}>
+          <TouchableOpacity
+            onPress={() => setCalendarMode('month')}
+            style={{ position: 'absolute', left: -25, top:0, paddingVertical: 6, paddingHorizontal: 0}}
+          >
+                
                 <MaterialIcons 
                   name="calendar-view-month"
                   size={20} 
@@ -1210,7 +1429,7 @@ const CalendarScreen: React.FC = () => {
                   }}
                   style={{ paddingVertical: 8 }}
                 >
-                  <Text style={[styles.monthLabel, { marginBottom: 0, textTransform: 'capitalize' }]}> 
+                  <Text style={[styles.monthLabel, { marginBottom: 0, textTransform: 'capitalize', marginLeft: -5 }]}> 
                     {visibleWeekMonthText}
                   </Text>
                 </TouchableOpacity>
@@ -1253,7 +1472,7 @@ const CalendarScreen: React.FC = () => {
               setShowModal(true);
             }}
           >
-            <MaterialIcons name="add" size={22} color="#3a3a3a" />
+            <MaterialIcons name="add" size={22} color="#3a3a3a" style={{ marginLeft: -4, marginTop: 6 }} />
           </TouchableOpacity>
       </SafeAreaView>
 
@@ -3277,14 +3496,12 @@ const CalendarScreen: React.FC = () => {
                         <Ionicons name="close" size={20} color="#666" />
                       </TouchableOpacity>
                     </View>
-
                     <TextInput
                       style={styles.inputTitle}
                       placeholder="Title"
                       value={editedEventTitle}
                       onChangeText={setEditedEventTitle}
                     />
-
                     <TextInput
                       style={styles.inputDescription}
                       placeholder="Description (optional)"
@@ -3292,73 +3509,33 @@ const CalendarScreen: React.FC = () => {
                       onChangeText={setEditedEventDescription}
                       multiline
                     />
-
                     {/* Category Selection */}
                     <View style={{ marginBottom: 12 }}>
                       <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Category</Text>
-                    <TouchableOpacity 
-                      onPress={() => {
+                      <TouchableOpacity 
+                        onPress={() => {
                           setShowCategoryPicker(prev => !prev);
                           if (showCategoryPicker) {
                             setShowAddCategoryForm(false);
                             setNewCategoryName('');
                             setNewCategoryColor('#FADADD');
                           }
-                      }}
-                      style={{
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                          paddingVertical: 10,
-                        paddingHorizontal: 12,
-                          marginTop: 2,
-                          alignItems: 'center',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
-                          marginBottom: 15,
                         }}
+                        style={styles.categoryPickerButton}
                       >
                         {!showCategoryPicker ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             {editedSelectedCategory ? (
                               <>
-                                <View style={{ 
-                                  width: 8, 
-                                  height: 8, 
-                                  borderRadius: 4, 
-                                  backgroundColor: editedSelectedCategory.color,
-                                  marginRight: 8
-                                }} />
-                                <Text style={{ 
-                                  fontSize: 13, 
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
-                                  {editedSelectedCategory.name}
-                        </Text>
+                                <View style={[styles.categoryDot, { backgroundColor: editedSelectedCategory.color }]} />
+                                <Text style={styles.categoryText}>{editedSelectedCategory.name}</Text>
                               </>
                             ) : (
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
-                                Set Category
-                        </Text>
+                              <Text style={styles.categoryText}>Set Category</Text>
                             )}
                           </View>
                         ) : (
-                          <View style={{ 
-                            flexDirection: 'row', 
-                            flexWrap: 'wrap', 
-                            justifyContent: 'center',
-                            gap: 8,
-                            width: '100%',
-                          }}>
+                          <View style={styles.categoryPickerContainer}>
                             {categories.map((cat, idx) => (
                               <Pressable
                                 key={idx}
@@ -3367,460 +3544,171 @@ const CalendarScreen: React.FC = () => {
                                   setShowCategoryPicker(false);
                                   setShowAddCategoryForm(false);
                                 }}
-                                style={({ pressed }) => ({
-                                  backgroundColor: '#fafafa',
-                                  paddingVertical: 5,
-                                  paddingHorizontal: 8,
-                                  borderRadius: 9,
-                                  borderWidth: (pressed || editedSelectedCategory?.name === cat.name) ? 1 : 0,
-                                  borderColor: cat.color,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 6,
-                                })}
+                                style={({ pressed }) => [
+                                  styles.categoryOption,
+                                  { borderWidth: (pressed || editedSelectedCategory?.name === cat.name) ? 1 : 0,
+                                    borderColor: cat.color }
+                                ]}
                               >
-                                <View style={{ 
-                                  width: 6, 
-                                  height: 6, 
-                                  borderRadius: 3, 
-                                  backgroundColor: cat.color,
-                                }} />
-                                <Text style={{ 
-                                  color: '#3a3a3a', 
-                                  fontSize: 12, 
-                                  fontFamily: 'Onest',
-                                  fontWeight: editedSelectedCategory?.name === cat.name ? '600' : '500'
-                                }}>
+                                <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
+                                <Text style={[
+                                  styles.categoryText,
+                                  { fontWeight: editedSelectedCategory?.name === cat.name ? '600' : '500' }
+                                ]}>
                                   {cat.name}
                                 </Text>
                               </Pressable>
                             ))}
                             <TouchableOpacity
                               onPress={() => setShowAddCategoryForm(true)}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                paddingVertical: 5,
-                                paddingHorizontal: 8,
-                                borderRadius: 9,
-                                borderWidth: 0,
-                                borderColor: '#eee',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 6,
-                              }}
+                              style={styles.addCategoryButton}
                             >
                               <Ionicons name="add" size={14} color="#666" />
                             </TouchableOpacity>
-
-                            {showAddCategoryForm && (
-                              <View style={{
-                                backgroundColor: '#fafafa',
-                                padding: 2,
-                                borderRadius: 12,
-                                marginTop: 8,
-                                width: '100%',
-                              }}>
-                                <Text style={{
-                                  fontSize: 13,
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  marginBottom: 8,
-                                }}>
-                                  New Category
-                                </Text>
-                                <TextInput
-                                  style={{
-                                    backgroundColor: 'white',
-                                    padding: 10,
-                                    borderRadius: 8,
-                                    marginBottom: 12,
-                                    fontSize: 13,
-                                    marginTop: 4,
-                                    fontFamily: 'Onest',
-                                  }}
-                                  placeholder="Category name"
-                                  value={newCategoryName}
-                                  onChangeText={setNewCategoryName}
-                                />
-                                
-                                {/* Add Color Picker */}
-                                <Text style={{
-                                  fontSize: 13,
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  marginBottom: 8,
-                                }}>
-                                  Color
-                                </Text>
-                                <View style={{
-                                  flexDirection: 'row',
-                                  flexWrap: 'wrap',
-                                  gap: 8,
-                                  marginBottom: 12,
-                                }}>
-                                  {CATEGORY_COLORS.map((color) => (
-                                    <TouchableOpacity
-                                      key={color}
-                                      onPress={() => setNewCategoryColor(color)}
-                                      style={{
-                                        width: 24,
-                                        height: 24,
-                                        borderRadius: 12,
-                                        backgroundColor: color,
-                                        opacity: newCategoryColor === color ? 1 : 0,
-                                        shadowColor: '#000',
-                                        shadowOffset: { width: 0, height: 1 },
-                                        shadowOpacity: 0.2,
-                                        shadowRadius: 1,
-                                        elevation: 2,
-                                      }}
-                                    />
-                                  ))}
-                                </View>
-
-                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <TouchableOpacity
-                                    onPress={() => {
-                                      setShowAddCategoryForm(false);
-                                      setNewCategoryName('');
-                                      setNewCategoryColor('#FADADD'); // Reset to default color
-                                    }}
-                                    style={{
-                                      paddingVertical: 8,
-                                      paddingHorizontal: 6,
-                                    }}
-                                  >
-                                    <Text style={{
-                                      color: '#666',
-                                      fontSize: 12,
-                                      fontFamily: 'Onest',
-                                    }}>
-                                      Cancel
-                                    </Text>
-                                  </TouchableOpacity>
-                                  <TouchableOpacity
-                                    onPress={async () => {
-                                      if (newCategoryName.trim()) {
-                                        const { data, error } = await supabase
-                                          .from('categories')
-                                          .insert([
-                                            {
-                                              label: newCategoryName.trim(),
-                                              color: newCategoryColor,
-                                              user_id: user?.id,
-                                            }
-                                          ])
-                                          .select();
-
-                                        if (error) {
-                                          console.error('Error creating category:', error);
-                                          return;
-                                        }
-
-                                        if (data) {
-                                          const newCategory = {
-                                            id: data[0].id,
-                                            name: data[0].label,
-                                            color: data[0].color,
-                                          };
-                                          setCategories(prev => [...prev, newCategory]);
-                                          setEditedSelectedCategory(newCategory);
-                                          setShowAddCategoryForm(false);
-                                          setNewCategoryName('');
-                                          setNewCategoryColor('#FADADD'); // Reset to default color
-                                        }
-                                      }
-                                    }}
-                                    style={{
-                                      backgroundColor: '#FF9A8B',
-                                      paddingVertical: 6,
-                                      paddingHorizontal: 12,
-                                      borderRadius: 8,
-                                    }}
-                                  >
-                                    <Text style={{
-                                      color: 'white',
-                                      fontSize: 12,
-                                      fontFamily: 'Onest',
-                                      fontWeight: '600',
-                                    }}>
-                                      Add
-                                    </Text>
-                                  </TouchableOpacity>
-                                </View>
-                              </View>
-                            )}
                           </View>
                         )}
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
-                    <Text style={{ fontSize: 13, color: '#3a3a3a', fontFamily: 'Onest', marginRight: 20 }}>All-day event</Text>
-                    <View style={{ transform: [{ scale: 0.75 }] }}>
-                      <Switch value={isEditedAllDay} onValueChange={setIsEditedAllDay} />
+                      </TouchableOpacity>
                     </View>
-                  </View>
-
-                    {/* Start & End Time - Only show when not all-day event */}
-                    <View style={{ flex: 1, marginBottom: 20 }}>
-  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-    <View style={{ flex: 1, marginRight: 12 }}>
-      <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>
-        {isEditedAllDay ? 'Start' : 'Start'}
-      </Text>
-      <TouchableOpacity 
-        onPress={() => {
-          // Toggle start picker
-          setShowStartPicker(prev => !prev);
-          // Close end picker if it's open
-          if (showEndPicker) setShowEndPicker(false);
-        }}
-        style={{
-          backgroundColor: '#fafafa',
-          borderRadius: 12,
-          paddingVertical: 10,
-          paddingHorizontal: 12,
-          marginTop: 2,
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
-          elevation: 1,
-        }}
-      >
-        <Text style={{ 
-          fontSize: 13, 
-          color: '#3a3a3a',
-          fontFamily: 'Onest',
-          fontWeight: '500'
-        }}>
-          {editedStartDateTime.toLocaleString([], {
-            month: 'short',
-            day: 'numeric',
-            ...(isEditedAllDay ? {} : {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            })
-          }).replace(',', ' ·')}
-        </Text>
-      </TouchableOpacity>
-    </View>
-
-    <View style={{ flex: 1 }}>
-      <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>
-        {isEditedAllDay ? 'End' : 'End'}
-      </Text>
-      <TouchableOpacity
-        onPress={() => {
-          // Toggle end picker
-          setShowEndPicker(prev => !prev);
-          // Close start picker if it's open
-          if (showStartPicker) setShowStartPicker(false);
-        }}
-        style={{
-          backgroundColor: '#fafafa',
-          borderRadius: 12,
-          paddingVertical: 10,
-          paddingHorizontal: 12,
-          marginTop: 2,
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
-          elevation: 1,
-        }}
-      >
-        <Text style={{ 
-          fontSize: 13, 
-          color: '#3a3a3a',
-          fontFamily: 'Onest',
-          fontWeight: '500'
-        }}>
-          {editedEndDateTime.toLocaleString([], {
-            month: 'short',
-            day: 'numeric',
-            ...(isEditedAllDay ? {} : {
-              hour: 'numeric',
-              minute: '2-digit',
-              hour12: true
-            })
-          }).replace(',', ' ·')}
-        </Text>
-      </TouchableOpacity>
-    </View>
-  </View>
-
-  {(showStartPicker || showEndPicker) && (
-    <Animated.View style={[styles.dateTimePickerContainer, {
-      backgroundColor: '#fafafa',
-      borderRadius: 16,
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      marginTop: 12,
-      marginBottom: 4,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.03,
-      shadowRadius: 3,
-      elevation: 1,
-      alignItems: 'center',
-      justifyContent: 'center',
-    }]}>
-      <DateTimePicker
-        value={showStartPicker ? editedStartDateTime : editedEndDateTime}
-        mode={isEditedAllDay ? 'date' : 'datetime'}
-        display="spinner"
-        onChange={(event, selectedDate) => {
-          if (selectedDate) {
-            const newDate = new Date(selectedDate);
-            if (showStartPicker) {
-              if (isEditedAllDay) newDate.setHours(0, 0, 0, 0);
-              setEditedStartDateTime(newDate);
-
-              if (!userChangedEditedEndTime) {
-                const endDate = new Date(newDate);
-                if (isEditedAllDay) {
-                  endDate.setHours(23, 59, 59, 999);
-                } else {
-                  endDate.setTime(newDate.getTime() + 60 * 60 * 1000);
-                }
-                setEditedEndDateTime(endDate);
-              }
-            } else {
-              if (isEditedAllDay) newDate.setHours(23, 59, 59, 999);
-              setEditedEndDateTime(newDate);
-              setUserChangedEditedEndTime(true);
-            }
-          }
-        }}
-        style={{
-          height: isEditedAllDay ? 180 : 240,
-          width: '100%',
-        }}
-        textColor="#333"
-      />
-    </Animated.View>
-  )}
-</View>
-
-                    {/* Reminder & Repeat */}
-                    <View style={{ flex: 1, marginBottom: 12 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                        <View style={{ flex: 1, marginRight: 12 }}>
-                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
-              <TouchableOpacity
-                            onPress={() => setShowReminderPicker(prev => !prev)}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
+                    {/* All-day event toggle */}
+                    <View style={styles.allDayContainer}>
+                      <Text style={styles.allDayText}>All-day event</Text>
+                      <View style={{ transform: [{ scale: 0.75 }] }}>
+                        <Switch value={isEditedAllDay} onValueChange={setIsEditedAllDay} />
+                      </View>
+                    </View>
+                    {/* Start & End Time */}
+                    <View style={styles.dateTimeContainer}>
+                      <View style={styles.dateTimeRow}>
+                        <View style={styles.dateTimeColumn}>
+                          <Text style={styles.dateTimeLabel}>Start</Text>
+                          <TouchableOpacity 
+                            onPress={() => {
+                              setShowStartPicker(prev => !prev);
+                              if (showEndPicker) setShowEndPicker(false);
                             }}
+                            style={styles.dateTimeButton}
                           >
-                            <Text style={{ 
-                              fontSize: 13, 
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.dateTimeText}>
+                              {editedStartDateTime.toLocaleString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                ...(isEditedAllDay ? {} : {
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  hour12: true
+                                })
+                              }).replace(',', ' ·')}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                        <View style={styles.dateTimeColumn}>
+                          <Text style={styles.dateTimeLabel}>End</Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setShowEndPicker(prev => !prev);
+                              if (showStartPicker) setShowStartPicker(false);
+                            }}
+                            style={styles.dateTimeButton}
+                          >
+                            <Text style={styles.dateTimeText}>
+                              {editedEndDateTime.toLocaleString([], {
+                                month: 'short',
+                                day: 'numeric',
+                                ...(isEditedAllDay ? {} : {
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                  hour12: true
+                                })
+                              }).replace(',', ' ·')}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      {(showStartPicker || showEndPicker) && (
+                        <Animated.View style={styles.pickerContainer}>
+                          <DateTimePicker
+                            value={showStartPicker ? editedStartDateTime : editedEndDateTime}
+                            mode={isEditedAllDay ? 'date' : 'datetime'}
+                            display="spinner"
+                            onChange={(event, selectedDate) => {
+                              if (selectedDate) {
+                                const newDate = new Date(selectedDate);
+                                if (showStartPicker) {
+                                  if (isEditedAllDay) newDate.setHours(0, 0, 0, 0);
+                                  setEditedStartDateTime(newDate);
+                                  if (!userChangedEditedEndTime) {
+                                    const endDate = new Date(newDate);
+                                    if (isEditedAllDay) {
+                                      endDate.setHours(23, 59, 59, 999);
+                                    } else {
+                                      endDate.setTime(newDate.getTime() + 60 * 60 * 1000);
+                                    }
+                                    setEditedEndDateTime(endDate);
+                                  }
+                                } else {
+                                  if (isEditedAllDay) newDate.setHours(23, 59, 59, 999);
+                                  setEditedEndDateTime(newDate);
+                                  setUserChangedEditedEndTime(true);
+                                }
+                              }
+                            }}
+                            style={styles.dateTimePicker}
+                            textColor="#333"
+                          />
+                        </Animated.View>
+                      )}
+                    </View>
+                    {/* Reminder & Repeat */}
+                    <View style={styles.reminderRepeatContainer}>
+                      <View style={styles.reminderRepeatRow}>
+                        <View style={styles.reminderRepeatColumn}>
+                          <Text style={styles.reminderRepeatLabel}>Reminder</Text>
+                          <TouchableOpacity
+                            onPress={() => setShowReminderPicker(prev => !prev)}
+                            style={styles.reminderRepeatButton}
+                          >
+                            <Text style={styles.reminderRepeatText}>
                               {editedReminderTime ? editedReminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
                             </Text>
                           </TouchableOpacity>
                         </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
+                        <View style={styles.reminderRepeatColumn}>
+                          <Text style={styles.reminderRepeatLabel}>Repeat</Text>
                           <TouchableOpacity
                             onPress={() => setShowRepeatPicker(prev => !prev)}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
+                            style={styles.reminderRepeatButton}
                           >
-                            <Text style={{ 
-                              fontSize: 13, 
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.reminderRepeatText}>
                               {editedRepeatOption === 'None' ? 'Do Not Repeat' : editedRepeatOption}
                             </Text>
                           </TouchableOpacity>
                         </View>
                       </View>
-
                       {showReminderPicker && (
-                        <Animated.View style={[styles.dateTimePickerContainer, {
-                          backgroundColor: '#fafafa',
-                          borderRadius: 16,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                          marginTop: 12,
-                          marginBottom: 4,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.03,
-                          shadowRadius: 3,
-                          elevation: 1,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }]}>
-                      <DateTimePicker
+                        <Animated.View style={styles.pickerContainer}>
+                          <DateTimePicker
                             value={editedReminderTime || new Date()}
-                        mode="time"
-                        display="spinner"
-                        onChange={(event, selectedTime) => {
-                          if (selectedTime) {
+                            mode="time"
+                            display="spinner"
+                            onChange={(event, selectedTime) => {
+                              if (selectedTime) {
                                 setEditedReminderTime(selectedTime);
-                  setTimeout(() => {
+                                setTimeout(() => {
                                   setShowReminderPicker(false);
                                 }, 2000);
                               }
-                }}
-                style={{
-                              height: 180,
-                              width: '100%',
                             }}
+                            style={styles.timePicker}
                             textColor="#333"
-                      />
-                    </Animated.View>
+                          />
+                        </Animated.View>
                       )}
-
                       {showRepeatPicker && (
-                        <Animated.View style={{ 
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                  padding: 12,
-                          marginTop: 12,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
-                        }}>
+                        <Animated.View style={styles.repeatPickerContainer}>
                           {['Do Not Repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
-                        <TouchableOpacity 
+                            <TouchableOpacity 
                               key={option}
-                          onPress={() => {
+                              onPress={() => {
                                 const newRepeatOption = option === 'Do Not Repeat' ? 'None' : option as RepeatOption;
                                 setEditedRepeatOption(newRepeatOption);
                                 if (newRepeatOption === 'Custom') {
@@ -3831,191 +3719,50 @@ const CalendarScreen: React.FC = () => {
                                   setShowRepeatPicker(false);
                                 }
                               }}
-                              style={{
-                                paddingVertical: 10,
-                                paddingHorizontal: 8,
-                  borderRadius: 8,
-                                backgroundColor: (option === 'Do Not Repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '#f0f0f0' : 'transparent',
-                              }}
+                              style={[
+                                styles.repeatOption,
+                                { backgroundColor: (option === 'Do Not Repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '#f0f0f0' : 'transparent' }
+                              ]}
                             >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: (option === 'Do Not Repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '600' : '400'
-                              }}>
+                              <Text style={[
+                                styles.repeatOptionText,
+                                { fontWeight: (option === 'Do Not Repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '600' : '400' }
+                              ]}>
                                 {option}
                               </Text>
-              </TouchableOpacity>
-                  ))}
+                            </TouchableOpacity>
+                          ))}
                         </Animated.View>
-              )}
-            </View>
-
-                    <View style={[styles.modalActions, { justifyContent: 'space-between' }]}>
-              <TouchableOpacity
-                onPress={() => {
+                      )}
+                    </View>
+                    {/* Action Buttons */}
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        onPress={() => {
                           if (selectedEvent) {
                             handleDeleteEvent(selectedEvent.dateKey, selectedEvent.index);
                             setShowEditEventModal(false);
                           }
                         }}
-                        style={{
-                          paddingVertical: 12,
-                          paddingHorizontal: 24,
-                          borderRadius: 12,
-                          alignItems: 'center',
-                          backgroundColor: '#ffebee',
-                        }}
+                        style={styles.deleteButton}
                       >
-                        <Text style={{ 
-                          color: '#d32f2f', 
-                          fontSize: 16, 
-                          fontFamily: 'Onest',
-                          fontWeight: '600' 
-                        }}>
-                          Delete
-                        </Text>
-          </TouchableOpacity>
-
+                        <Text style={styles.deleteButtonText}>Delete</Text>
+                      </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={async () => {
-                          if (!editedEventTitle.trim()) {
-                            Alert.alert('Error', 'Please enter a title for the event.');
-                            return;
-                          }
-
-                          if (!selectedEvent) return;
-
-                          try {
-                            // First update the database
-                            const { error } = await supabase
-                              .from('events')
-                              .update({
-                                title: editedEventTitle,
-                                description: editedEventDescription,
-                                start_datetime: editedStartDateTime.toISOString(),
-                                end_datetime: editedEndDateTime.toISOString(),
-                                category_name: editedSelectedCategory?.name || 'No Category',
-                                category_color: editedSelectedCategory?.color || '#FF9A8B',
-                                reminder_time: editedReminderTime ? editedReminderTime.toISOString() : null,
-                                repeat_option: editedRepeatOption,
-                                repeat_end_date: editedRepeatEndDate ? editedRepeatEndDate.toISOString() : null,
-                                custom_dates: editedRepeatOption === 'Custom' ? customSelectedDates : null,
-                                is_all_day: isEditedAllDay,
-                              })
-                              .eq('id', selectedEvent.event.id);
-
-                            if (error) {
-                              console.error('Error updating event:', error);
-                              Alert.alert('Error', 'Failed to update event.');
-                              return;
-                            }
-
-                            // Then update the local state
-                            const updatedEvents = { ...events };
-                            
-                            // Remove the old event from all dates it might appear on
-                            Object.keys(updatedEvents).forEach(dateKey => {
-                              updatedEvents[dateKey] = updatedEvents[dateKey].filter(
-                                event => event.id !== selectedEvent.event.id
-                              );
-                              if (updatedEvents[dateKey].length === 0) {
-                                delete updatedEvents[dateKey];
-                              }
-                            });
-
-                            // Add the updated event to the appropriate dates
-                            const start = new Date(editedStartDateTime);
-                            const end = new Date(editedEndDateTime);
-
-                            if (editedRepeatOption === 'Custom' && customSelectedDates.length > 0) {
-                              // For custom repeat, only create events on selected dates
-                              customSelectedDates.forEach(dateStr => {
-                                if (!updatedEvents[dateStr]) updatedEvents[dateStr] = [];
-                                updatedEvents[dateStr].push({
-                                  id: selectedEvent.event.id,
-                                  title: editedEventTitle,
-                                  description: editedEventDescription,
-                                  date: dateStr,
-                                  startDateTime: editedStartDateTime,
-                                  endDateTime: editedEndDateTime,
-                                  categoryName: editedSelectedCategory?.name,
-                                  categoryColor: editedSelectedCategory?.color,
-                                  reminderTime: editedReminderTime,
-                                  repeatOption: editedRepeatOption,
-                                  repeatEndDate: editedRepeatEndDate,
-                                  customDates: customSelectedDates,
-                                  isContinued: false,
-                                  isAllDay: isEditedAllDay,
-                                });
-                              });
-                    } else {
-                              // For other repeat options, create events across the date range
-                              let currentDate = new Date(start);
-                              while (currentDate <= end) {
-                                const dateKey = getLocalDateString(currentDate);
-                                if (!updatedEvents[dateKey]) updatedEvents[dateKey] = [];
-                                updatedEvents[dateKey].push({
-                                  id: selectedEvent.event.id,
-                                  title: editedEventTitle,
-                                  description: editedEventDescription,
-                                  date: dateKey,
-                                  startDateTime: editedStartDateTime,
-                                  endDateTime: editedEndDateTime,
-                                  categoryName: editedSelectedCategory?.name,
-                                  categoryColor: editedSelectedCategory?.color,
-                                  reminderTime: editedReminderTime,
-                                  repeatOption: editedRepeatOption,
-                                  repeatEndDate: editedRepeatEndDate,
-                                  customDates: editedRepeatOption === 'Custom' ? customSelectedDates : undefined,
-                                  isContinued: currentDate.toDateString() !== start.toDateString(),
-                                  isAllDay: isEditedAllDay,
-                                });
-                                currentDate.setDate(currentDate.getDate() + 1);
-                              }
-                            }
-
-                            setEvents(updatedEvents);
-                            setShowEditEventModal(false);
-                            
-                            // Show success toast
-                            Toast.show({
-                              type: 'success',
-                              text1: 'Event updated successfully',
-                              position: 'bottom',
-                            });
-                          } catch (err) {
-                            console.error('Error updating event:', err);
-                            Alert.alert('Error', 'Failed to update event. Please try again.');
-                          }
-                }}
-                style={{
-                          backgroundColor: '#FF9A8B',
-                          paddingVertical: 12,
-                  paddingHorizontal: 24,
-                          borderRadius: 12,
-                  alignItems: 'center',
-                }}
-              >
-                        <Text style={{ 
-                          color: 'white', 
-                          fontSize: 16, 
-                          fontFamily: 'Onest',
-                          fontWeight: '600' 
-                        }}>
-                          Save
-                        </Text>
-              </TouchableOpacity>
-            </View>
+                        onPress={handleSaveEvent}
+                        style={styles.saveButton}
+                      >
+                        <Text style={styles.saveButtonText}>Save</Text>
+                      </TouchableOpacity>
+                    </View>
                   </ScrollView>
                 </View>
               </View>
             </TouchableWithoutFeedback>
           </KeyboardAvoidingView>
         </Modal>
-    </>
-  );
-};
-
-export default CalendarScreen;
+      </>
+    );
+  };
+  
+  export default CalendarScreen;
