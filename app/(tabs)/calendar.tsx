@@ -323,7 +323,32 @@ const styles = StyleSheet.create({
   dateTimePickerContainer: {
     height: 100, // Reduced height to cut off more
     overflow: 'hidden',
-    marginTop: 15,
+    marginTop: 16,
+    backgroundColor: '#fafafa',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginBottom: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 3,
+    elevation: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+},
+  addCategoryForm: {
+    backgroundColor: '#fafafa',
+    padding: 2,
+    borderRadius: 12,
+    marginTop: 8,
+    width: '100%',
+  },
+  addCategoryInput: {
+    fontSize: 13,
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    marginBottom: 8,
   },
   dateTimePicker: {
     marginTop: -55, // Increased negative margin to cut off more of the top
@@ -400,20 +425,34 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingHorizontal: 8,
     borderRadius: 9,
-    marginBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   categoryDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
+    width: 6, 
+    height: 6, 
+    borderRadius: 3, 
   },
   categoryText: {
-    fontSize: 12,
+    fontSize: 12, 
     color: '#3a3a3a',
     fontFamily: 'Onest',
-    fontWeight: '500',
+    fontWeight: '500'
   },
+  selectedCategoryDot: {
+    width: 8, 
+    height: 8, 
+    borderRadius: 4, 
+    marginRight: 8
+  },
+  selectedCategoryText: {
+    fontSize: 13, 
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    fontWeight: '500'
+  },
+
   addCategoryButton: {
     backgroundColor: '#fafafa',
     paddingVertical: 5,
@@ -437,6 +476,7 @@ const styles = StyleSheet.create({
     marginRight: 20,
   },
   dateTimeContainer: {
+    flex:1,
     marginBottom: 20,
   },
   dateTimeRow: {
@@ -446,6 +486,7 @@ const styles = StyleSheet.create({
   },
   dateTimeColumn: {
     flex: 1,
+    marginRight: 12,
   },
   dateTimeLabel: {
     fontSize: 13,
@@ -467,9 +508,10 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   dateTimeText: {
-    fontSize: 14,
-    color: '#333',
+    fontSize: 13,
+    color: '#3a3a3a',
     fontFamily: 'Onest',
+    fontWeight: '500'
   },
   pickerContainer: {
     marginTop: 12,
@@ -759,7 +801,7 @@ const CalendarScreen: React.FC = () => {
           setShowEndDatePicker(false);
           break;
       }
-    }, 2000); // 2 second delay
+    }, 1500); // 2 second delay
   };
 
   const debounceCustomTimePickerClose = (pickerType: 'start' | 'end') => {
@@ -772,7 +814,7 @@ const CalendarScreen: React.FC = () => {
   
     timeoutRef.current = setTimeout(() => {
       setShow(false);
-    }, 2000);
+    }, 1500);
   };
 
   const debounceCustomTimeReminderClose = () => {
@@ -782,7 +824,7 @@ const CalendarScreen: React.FC = () => {
   
     customTimeReminderTimeoutRef.current = setTimeout(() => {
       setShowCustomTimeReminderPicker(false);
-    }, 2000);
+    }, 1500);
   };
 
   useEffect(() => {
@@ -2048,21 +2090,7 @@ const CalendarScreen: React.FC = () => {
 
                         {/* Date/Time Picker */}
                         {(showStartPicker || showEndPicker) && (
-                          <Animated.View style={[styles.dateTimePickerContainer, {
-                            backgroundColor: '#fafafa',
-                            borderRadius: 16,
-                            paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 1,
-                            marginBottom: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.03,
-                            shadowRadius: 3,
-                            elevation: 1,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }]}>
+                          <Animated.View style={styles.dateTimePickerContainer}>
                             <DateTimePicker
                               value={showStartPicker ? startDateTime : endDateTime}
                               mode={isAllDay ? "date" : "datetime"}
@@ -2211,21 +2239,7 @@ const CalendarScreen: React.FC = () => {
                         </View>
 
                         {showReminderPicker && (
-                          <Animated.View style={[styles.dateTimePickerContainer, {
-                            backgroundColor: '#fafafa',
-                            borderRadius: 16,
-                            paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 12,
-                            marginBottom: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.03,
-                            shadowRadius: 3,
-                            elevation: 1,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }]}>
+                          <Animated.View style={styles.dateTimePickerContainer}>
                             <DateTimePicker
                               value={reminderTime || new Date()}
                               mode="time"
@@ -2243,21 +2257,7 @@ const CalendarScreen: React.FC = () => {
                         )}
 
                         {showEndDatePicker && (
-                          <Animated.View style={[styles.dateTimePickerContainer, {
-                            backgroundColor: '#fafafa',
-                            borderRadius: 16,
-                            paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 12,
-                            marginBottom: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.03,
-                            shadowRadius: 3,
-                            elevation: 1,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }]}>
+                          <Animated.View style={styles.dateTimePickerContainer}>
                             <DateTimePicker
                               value={repeatEndDate || new Date()}
                               mode="date"
@@ -2438,7 +2438,7 @@ const CalendarScreen: React.FC = () => {
                               onPress={() => setShowAddCategoryForm(true)}
                               style={{
                                   backgroundColor: '#fafafa',
-                                paddingVertical: 5,
+                                  paddingVertical: 5,
                                   paddingHorizontal: 8,
                                   borderRadius: 9,
                                   borderWidth: 0,
@@ -2976,21 +2976,7 @@ const CalendarScreen: React.FC = () => {
 
                     {/* Time Picker Container */}
                     {(showStartPicker || showEndPicker) && (
-                      <Animated.View style={[styles.dateTimePickerContainer, {
-                        backgroundColor: '#fafafa',
-                        borderRadius: 16,
-                        paddingVertical: 8,
-                        paddingHorizontal: 16,
-                        marginTop: 1,
-                        marginBottom: 4,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 1 },
-                        shadowOpacity: 0.03,
-                        shadowRadius: 3,
-                        elevation: 1,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }]}>
+                      <Animated.View style={styles.dateTimePickerContainer}>
                     <DateTimePicker
   value={showStartPicker ? startDateTime : endDateTime}
   mode={isAllDay ? "date" : "datetime"}
@@ -3037,9 +3023,9 @@ const CalendarScreen: React.FC = () => {
                 )}
 
                     {/* Reminder & Repeat Section */}
-                    <View style={{ marginTop: 16 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-                        <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, marginBottom: 12 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                        <View style={{ flex: 1, marginRight: 12  }}>
                           <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
                           <TouchableOpacity
                             onPress={() => {
@@ -3156,21 +3142,7 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {showReminderPicker && (
-                        <Animated.View style={[styles.dateTimePickerContainer, {
-                          backgroundColor: '#fafafa',
-                          borderRadius: 16,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                          marginTop: 12,
-                          marginBottom: 4,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.03,
-                          shadowRadius: 3,
-                          elevation: 1,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }]}>
+                        <Animated.View style={styles.dateTimePickerContainer}>
                           <DateTimePicker
                             value={reminderTime || new Date()}
                             mode="time"
@@ -3188,21 +3160,7 @@ const CalendarScreen: React.FC = () => {
                       )}
 
                       {showEndDatePicker && (
-                        <Animated.View style={[styles.dateTimePickerContainer, {
-                          backgroundColor: '#fafafa',
-                          borderRadius: 16,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                          marginTop: 12,
-                          marginBottom: 4,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.03,
-                          shadowRadius: 3,
-                          elevation: 1,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }]}>
+                        <Animated.View style={styles.dateTimePickerContainer}>
                           <DateTimePicker
                             value={repeatEndDate || new Date()}
                             mode="date"
@@ -3524,9 +3482,9 @@ const CalendarScreen: React.FC = () => {
                 </View>
 
                 {/* Reminder & Repeat */}
-                <View style={{ marginBottom: 20 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-                    <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, marginBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <View style={{ flex: 1, marginRight: 12 }}>
                       <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
                       <TouchableOpacity
                         onPress={() => {
@@ -3761,8 +3719,8 @@ const CalendarScreen: React.FC = () => {
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             {editedSelectedCategory ? (
                               <>
-                                <View style={[styles.categoryDot, { backgroundColor: editedSelectedCategory.color }]} />
-                                <Text style={styles.categoryText}>{editedSelectedCategory.name}</Text>
+                                <View style={[styles.selectedCategoryDot, { backgroundColor: editedSelectedCategory.color }]} />
+                                <Text style={styles.selectedCategoryText}>{editedSelectedCategory.name}</Text>
                               </>
                             ) : (
                               <Text style={styles.categoryText}>Set Category</Text>
@@ -3799,10 +3757,127 @@ const CalendarScreen: React.FC = () => {
                             >
                               <Ionicons name="add" size={14} color="#666" />
                             </TouchableOpacity>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    </View>
+
+                            {/* Add Category Form */}
+                            {showAddCategoryForm && (
+                              <View style={styles.addCategoryForm}>
+                                <TextInput
+                                  style={styles.addCategoryInput}
+                                  placeholder="Category Name"
+                                  value={newCategoryName}
+                                      onChangeText={setNewCategoryName}
+                                    />
+                               {/* Add Color Picker */}
+                               <Text style={{
+                                      fontSize: 13,
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      marginBottom: 8,
+                                    }}>
+                                      Color
+                                    </Text>
+                                    <View style={{
+                                      flexDirection: 'row',
+                                      flexWrap: 'wrap',
+                                      gap: 8,
+                                      marginBottom: 12,
+                                    }}>
+                                      {CATEGORY_COLORS.map((color) => (
+                                        <TouchableOpacity
+                                          key={color}
+                                          onPress={() => setNewCategoryColor(color)}
+                                          style={{
+                                            width: 24,
+                                            height: 24,
+                                            borderRadius: 12,
+                                            backgroundColor: color,
+                                            opacity: newCategoryColor === color ? 1 : 0,
+                                            shadowColor: '#000',
+                                            shadowOffset: { width: 0, height: 1 },
+                                            shadowOpacity: 0.2,
+                                            shadowRadius: 1,
+                                            elevation: 2,
+                                          }}
+                                        />
+                                      ))}
+                                    </View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <TouchableOpacity
+                                        onPress={() => {
+                                          setShowAddCategoryForm(false);
+                                          setNewCategoryName('');
+                                          setNewCategoryColor('#FADADD'); // Reset to default color
+                                        }}
+                                        style={{
+                                          paddingVertical: 8,
+                                          paddingHorizontal: 6,
+                                        }}
+                                      >
+                                        <Text style={{
+                                          color: '#666',
+                                          fontSize: 12,
+                                          fontFamily: 'Onest',
+                                        }}>
+                                          Cancel
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        onPress={async () => {
+                                          if (newCategoryName.trim()) {
+                                            const { data, error } = await supabase
+                                              .from('categories')
+                                              .insert([
+                                                {
+                                                  label: newCategoryName.trim(),
+                                                  color: newCategoryColor,
+                                                  user_id: user?.id,
+                                                }
+                                              ])
+                                              .select();
+
+                                            if (error) {
+                                              console.error('Error creating category:', error);
+                                              return;
+                                            }
+
+                                            if (data) {
+                                              const newCategory = {
+                                                id: data[0].id,
+                                                name: data[0].label,
+                                                color: data[0].color,
+                                              };
+                                              setCategories(prev => [...prev, newCategory]);
+                                              setSelectedCategory(newCategory);
+                                              setShowAddCategoryForm(false);
+                                              setNewCategoryName('');
+                                              setNewCategoryColor('#FADADD'); // Reset to default color
+                                            }
+                                          }
+                                        }}
+                                        style={{
+                                          backgroundColor: '#FF9A8B',
+                                          paddingVertical: 6,
+                                          paddingHorizontal: 12,
+                                          borderRadius: 8,
+                                        }}
+                                      >
+                                        <Text style={{
+                                          color: 'white',
+                                          fontSize: 12,
+                                          fontFamily: 'Onest',
+                                          fontWeight: '600',
+                                        }}>
+                                          Add
+                                        </Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+            
                     {/* All-day event toggle */}
                     <View style={styles.allDayContainer}>
                       <Text style={styles.allDayText}>All-day event</Text>
@@ -3810,6 +3885,7 @@ const CalendarScreen: React.FC = () => {
                         <Switch value={isEditedAllDay} onValueChange={setIsEditedAllDay} />
                       </View>
                     </View>
+
                     {/* Start & End Time */}
                     <View style={styles.dateTimeContainer}>
                       <View style={styles.dateTimeRow}>
@@ -3823,26 +3899,8 @@ const CalendarScreen: React.FC = () => {
                               setShowEndPicker(false);
                             }
                           }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
-                          >
-                            <Text style={{
-                              fontSize: 13,
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            style={styles.dateTimeButton}>
+                            <Text style={styles.dateTimeText}>
                               {editedStartDateTime.toLocaleString([], {
                                 month: 'short',
                                 day: 'numeric',
@@ -3855,6 +3913,8 @@ const CalendarScreen: React.FC = () => {
                             </Text>
                           </TouchableOpacity>
                         </View>
+
+
                         <View style={styles.dateTimeColumn}>
                           <Text style={styles.dateTimeLabel}>End</Text>
                           <TouchableOpacity
@@ -3866,26 +3926,9 @@ const CalendarScreen: React.FC = () => {
                               }
                             }}
                             
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
+                            style={styles.dateTimeButton}
                           >
-                            <Text style={{
-                              fontSize: 13,
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.dateTimeText}>
                               {editedEndDateTime.toLocaleString([], {
                                 month: 'short',
                                 day: 'numeric',
@@ -3899,22 +3942,10 @@ const CalendarScreen: React.FC = () => {
                           </TouchableOpacity>
                         </View>
                       </View>
+
+                      {/* Date/Time Picker */}
                       {(showStartPicker || showEndPicker) && (
-                        <Animated.View style={[styles.dateTimePickerContainer, {
-                          backgroundColor: '#fafafa',
-                          borderRadius: 16,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                          marginTop: 12,
-                          marginBottom: 4,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.03,
-                          shadowRadius: 3,
-                          elevation: 1,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }]}>
+                        <Animated.View style={styles.dateTimePickerContainer}>
                           <DateTimePicker
                             value={showStartPicker ? editedStartDateTime : editedEndDateTime}
                             mode={isEditedAllDay ? "date" : "datetime"}
@@ -3961,7 +3992,7 @@ const CalendarScreen: React.FC = () => {
 
                       {/* Reminder & Repeat */}
                       <View style={styles.dateTimeRow}>
-                        <View style={{ flex: 1, marginRight: editedRepeatOption !== 'None' ? 12 : 0 }}>
+                        <View style={styles.dateTimeColumn}>
                           <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
                           <TouchableOpacity
                            onPress={() => {
@@ -3996,7 +4027,7 @@ const CalendarScreen: React.FC = () => {
                             </Text>
                           </TouchableOpacity>
                         </View>
-                        <View style={{ flex: 1, marginRight: editedRepeatOption !== 'None' ? 12 : 0 }}>
+                        <View style={styles.dateTimeColumn}>
                           <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
                           <TouchableOpacity
                              onPress={() => {
@@ -4075,21 +4106,7 @@ const CalendarScreen: React.FC = () => {
                       </View>
 
                       {showReminderPicker && (
-                        <Animated.View style={[styles.dateTimePickerContainer, {
-                          backgroundColor: '#fafafa',
-                          borderRadius: 16,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                          marginTop: 12,
-                          marginBottom: 4,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.03,
-                          shadowRadius: 3,
-                          elevation: 1,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }]}>
+                        <Animated.View style={styles.dateTimePickerContainer}>
                           <DateTimePicker
                             value={editedReminderTime || new Date()}
                             mode="time"
@@ -4107,21 +4124,7 @@ const CalendarScreen: React.FC = () => {
                       )}
 
                       {showEndDatePicker && (
-                        <Animated.View style={[styles.dateTimePickerContainer, {
-                          backgroundColor: '#fafafa',
-                          borderRadius: 16,
-                          paddingVertical: 8,
-                          paddingHorizontal: 16,
-                          marginTop: 12,
-                          marginBottom: 4,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.03,
-                          shadowRadius: 3,
-                          elevation: 1,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }]}>
+                        <Animated.View style={styles.dateTimePickerContainer}>
                           <DateTimePicker
                             value={editedRepeatEndDate || new Date()}
                             mode="date"
