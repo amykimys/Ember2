@@ -712,23 +712,29 @@ const CalendarScreen: React.FC = () => {
   const repeatPickerTimeoutRef = useRef<NodeJS.Timeout>();
   const endDatePickerTimeoutRef = useRef<NodeJS.Timeout>();
 
+  const editedStartPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const editedEndPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const editedReminderPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const editedRepeatPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const editedEndDatePickerTimeoutRef = useRef<NodeJS.Timeout>();
+
+  const customTimeStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const customTimeEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const customTimeReminderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const customTimeRepeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const customTimeInlineTimeoutRef = useRef<NodeJS.Timeout | null>(null); 
+
+  // Add timeout refs for debouncing picker closes
+  const timeoutRefs = {
+    start: useRef<NodeJS.Timeout>(),
+    end: useRef<NodeJS.Timeout>(),
+    reminder: useRef<NodeJS.Timeout>(),
+    repeat: useRef<NodeJS.Timeout>(),
+    endDate: useRef<NodeJS.Timeout>(),
+  };
+
   // Add debounce function
   const debouncePickerClose = (pickerType: 'start' | 'end' | 'reminder' | 'repeat' | 'endDate') => {
-    const timeoutRefs = {
-      start: startPickerTimeoutRef,
-      end: endPickerTimeoutRef,
-      reminder: reminderPickerTimeoutRef,
-      repeat: repeatPickerTimeoutRef,
-      endDate: endDatePickerTimeoutRef
-    };
-    const setterFunctions = {
-      start: setShowStartPicker,
-      end: setShowEndPicker,
-      reminder: setShowReminderPicker,
-      repeat: setShowRepeatPicker,
-      endDate: setShowEndDatePicker
-    };
-
     // Clear any existing timeout
     if (timeoutRefs[pickerType].current) {
       clearTimeout(timeoutRefs[pickerType].current);
@@ -736,9 +742,66 @@ const CalendarScreen: React.FC = () => {
 
     // Set new timeout
     timeoutRefs[pickerType].current = setTimeout(() => {
-      setterFunctions[pickerType](false);
+      switch (pickerType) {
+        case 'start':
+          setShowStartPicker(false);
+          break;
+        case 'end':
+          setShowEndPicker(false);
+          break;
+        case 'reminder':
+          setShowReminderPicker(false);
+          break;
+        case 'repeat':
+          setShowRepeatPicker(false);
+          break;
+        case 'endDate':
+          setShowEndDatePicker(false);
+          break;
+      }
     }, 2000); // 2 second delay
   };
+
+  const debounceCustomTimePickerClose = (pickerType: 'start' | 'end') => {
+    const timeoutRef =
+      pickerType === 'start' ? customTimeStartTimeoutRef : customTimeEndTimeoutRef;
+    const setShow =
+      pickerType === 'start' ? setShowCustomTimeStartPicker : setShowCustomTimeEndPicker;
+  
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  
+    timeoutRef.current = setTimeout(() => {
+      setShow(false);
+    }, 2000);
+  };
+
+  const debounceCustomTimeReminderClose = () => {
+    if (customTimeReminderTimeoutRef.current) {
+      clearTimeout(customTimeReminderTimeoutRef.current);
+    }
+  
+    customTimeReminderTimeoutRef.current = setTimeout(() => {
+      setShowCustomTimeReminderPicker(false);
+    }, 2000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (customTimeReminderTimeoutRef.current) {
+        clearTimeout(customTimeReminderTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+
+  useEffect(() => {
+    return () => {
+      if (customTimeStartTimeoutRef.current) clearTimeout(customTimeStartTimeoutRef.current);
+      if (customTimeEndTimeoutRef.current) clearTimeout(customTimeEndTimeoutRef.current);
+    };
+  }, []);
+  
+
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -758,9 +821,6 @@ const CalendarScreen: React.FC = () => {
       }
     };
   }, []);
-
-
-
 
 
   useEffect(() => {
@@ -982,6 +1042,13 @@ const CalendarScreen: React.FC = () => {
     setShowEndDatePicker(false);
     setShowCategoryPicker(false);
     setShowAddCategoryForm(false);
+    setShowCustomDatesPicker(false);
+    setShowCustomStartPicker(false);
+    setShowCustomEndPicker(false);
+    setShowCustomTimeStartPicker(false);
+    setShowCustomTimeEndPicker(false);
+    setShowCustomTimeReminderPicker(false);
+    setShowCustomTimeRepeatPicker(false);
   };
 
   
@@ -2925,48 +2992,47 @@ const CalendarScreen: React.FC = () => {
                         justifyContent: 'center',
                       }]}>
                     <DateTimePicker
-                          value={showStartPicker ? startDateTime : endDateTime}
-                      mode={isAllDay ? "date" : "datetime"}
-                      display="spinner"
-                      onChange={(event, selectedDate) => {
-                        if (selectedDate) {
-                              if (showStartPicker) {
-                          // If it's an all-day event, set the time to start of day (00:00)
-                          const newDate = new Date(selectedDate);
-                          if (isAllDay) {
-                            newDate.setHours(0, 0, 0, 0);
-                          }
-                          setStartDateTime(newDate);
-                                if (!userChangedEndTime) {
-                                  // If it's an all-day event, set end to end of day (23:59)
-                                  const endDate = new Date(newDate);
-                                  if (isAllDay) {
-                                    endDate.setHours(23, 59, 59, 999);
-                                  } else {
-                                    endDate.setTime(newDate.getTime() + 60 * 60 * 1000);
-                                  }
-                                  setEndDateTime(endDate);
-                                }
-                                setTimeout(() => {
-                                  setShowStartPicker(false);
-                                }, 3000);
-                              } else {
-                                // If it's an all-day event, set the time to end of day (23:59)
-                                const newDate = new Date(selectedDate);
-                                if (isAllDay) {
-                                  newDate.setHours(23, 59, 59, 999);
-                                }
-                                setEndDateTime(newDate);
-                                setUserChangedEndTime(true);
-                                setTimeout(() => {
-                                  setShowEndPicker(false);
-                                }, 3000);
-                              }
-                            }
-                          }}
-                          style={{ height: isAllDay ? 180 : 240, width: '100%' }}
-                          textColor="#333"
-                    />
+  value={showStartPicker ? startDateTime : endDateTime}
+  mode={isAllDay ? "date" : "datetime"}
+  display="spinner"
+  onChange={(event, selectedDate) => {
+    if (!selectedDate) return;
+
+    const newDate = new Date(selectedDate);
+
+    if (showStartPicker) {
+      if (isAllDay) newDate.setHours(0, 0, 0, 0);
+      setStartDateTime(newDate);
+
+      if (!userChangedEndTime) {
+        const end = new Date(newDate);
+        if (isAllDay) {
+          end.setHours(23, 59, 59, 999);
+        } else {
+          end.setTime(newDate.getTime() + 60 * 60 * 1000);
+        }
+        setEndDateTime(end);
+      }
+
+      // Only call debouncePickerClose if the value actually changed
+      if (newDate.getTime() !== editedStartDateTime.getTime()) {
+        debouncePickerClose('start');
+      }
+    } else {
+      if (isAllDay) newDate.setHours(23, 59, 59, 999);
+      setEndDateTime(newDate);
+      setUserChangedEndTime(true);
+
+      // Only call debouncePickerClose if the value actually changed
+      if (newDate.getTime() !== editedEndDateTime.getTime()) {
+        debouncePickerClose('end');
+      }
+    }
+  }}
+  style={{ height: isAllDay ? 180 : 240, width: '100%' }}
+  textColor="#333"
+/>
+
                   </Animated.View>
                 )}
 
@@ -3369,13 +3435,25 @@ const CalendarScreen: React.FC = () => {
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
                       <TouchableOpacity
-                        onPress={() => setShowCustomTimeStartPicker(true)}
+                        onPress={() => {
+                          const newStartPickerState = !showStartPicker;
+                          setShowStartPicker(newStartPickerState);
+                          if (newStartPickerState) {
+                            setShowEndPicker(false);
+                          }
+                        }}
                         style={{
-                          backgroundColor: '#fff',
-                          borderRadius: 8,
-                          padding: 12,
+                          backgroundColor: '#fafafa',
+                          borderRadius: 12,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          marginTop: 2,
                           alignItems: 'center',
-                          borderWidth: 0,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 2,
+                          elevation: 1,
                         }}
                       >
                         <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
@@ -3386,13 +3464,25 @@ const CalendarScreen: React.FC = () => {
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
                       <TouchableOpacity
-                        onPress={() => setShowCustomTimeEndPicker(true)}
+                        onPress={() => {
+                          const newEndPickerState = !showEndPicker;
+                          setShowEndPicker(newEndPickerState);
+                          if (newEndPickerState) {
+                            setShowStartPicker(false);
+                          }
+                        }}
                         style={{
-                          backgroundColor: '#fff',
-                          borderRadius: 8,
-                          padding: 12,
+                          backgroundColor: '#fafafa',
+                          borderRadius: 12,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          marginTop: 2,
                           alignItems: 'center',
-                          borderWidth: 0,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 2,
+                          elevation: 1,
                         }}
                       >
                         <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
@@ -3411,23 +3501,24 @@ const CalendarScreen: React.FC = () => {
                       marginBottom: 12,
                     }}>
                       <DateTimePicker
-                        value={showCustomTimeStartPicker ? customTimeStart : customTimeEnd}
-                        mode="time"
-                        display="spinner"
-                        onChange={(event, selectedTime) => {
-                          if (selectedTime) {
-                            if (showCustomTimeStartPicker) {
-                              setCustomTimeStart(selectedTime);
-                              setTimeout(() => setShowCustomTimeStartPicker(false), 2000);
-                            } else {
-                              setCustomTimeEnd(selectedTime);
-                              setTimeout(() => setShowCustomTimeEndPicker(false), 2000);
-                            }
-                          }
-                        }}
-                        style={{ height: 180, width: '100%' }}
-                        textColor="#333"
-                      />
+  value={showCustomTimeStartPicker ? customTimeStart : customTimeEnd}
+  mode="time"
+  display="spinner"
+  onChange={(event, selectedTime) => {
+    if (!selectedTime) return;
+
+    if (showCustomTimeStartPicker) {
+      setCustomTimeStart(selectedTime);
+      debounceCustomTimePickerClose('start'); // ✅ replaced setTimeout
+    } else {
+      setCustomTimeEnd(selectedTime);
+      debounceCustomTimePickerClose('end'); // ✅ replaced setTimeout
+    }
+  }}
+  style={{ height: 180, width: '100%' }}
+  textColor="#333"
+/>
+
                     </View>
                   )}
                 </View>
@@ -3438,13 +3529,26 @@ const CalendarScreen: React.FC = () => {
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
                       <TouchableOpacity
-                        onPress={() => setShowCustomTimeReminderPicker(true)}
+                        onPress={() => {
+                          const newReminderPickerState = !showReminderPicker;
+                          setShowReminderPicker(newReminderPickerState);
+                          if (newReminderPickerState) {
+                            setShowRepeatPicker(false);
+                            setShowEndDatePicker(false);
+                          }
+                        }}
                         style={{
-                          backgroundColor: '#fff',
-                          borderRadius: 8,
-                          padding: 12,
+                          backgroundColor: '#fafafa',
+                          borderRadius: 12,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          marginTop: 2,
                           alignItems: 'center',
-                          borderWidth: 0,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 2,
+                          elevation: 1,
                         }}
                       >
                         <Text style={{ 
@@ -3460,13 +3564,26 @@ const CalendarScreen: React.FC = () => {
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
                       <TouchableOpacity
-                        onPress={() => setShowCustomTimeRepeatPicker(true)}
+                        onPress={() => {
+                          const newRepeatPickerState = !showRepeatPicker;
+                          setShowRepeatPicker(newRepeatPickerState);
+                          if (newRepeatPickerState) {
+                            setShowReminderPicker(false);
+                            setShowEndDatePicker(false);
+                          }
+                        }}
                         style={{
-                          backgroundColor: '#fff',
-                          borderRadius: 8,
-                          padding: 12,
+                          backgroundColor: '#fafafa',
+                          borderRadius: 12,
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          marginTop: 2,
                           alignItems: 'center',
-                          borderWidth: 0,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 2,
+                          elevation: 1,
                         }}
                       >
                         <Text style={{ 
@@ -3497,13 +3614,13 @@ const CalendarScreen: React.FC = () => {
                         onChange={(event, selectedTime) => {
                           if (selectedTime) {
                             setCustomTimeReminder(selectedTime);
-                            setTimeout(() => setShowCustomTimeReminderPicker(false), 2000);
-                        }
-                      }}
+                            debounceCustomTimeReminderClose(); // ✅ Debounced close
+                          }
+                        }}
                         style={{ height: 180, width: '100%' }}
                         textColor="#333"
-                    />
-              </View>
+                      />
+                    </View>
                   )}
 
                   {/* Repeat Picker */}
@@ -3699,16 +3816,13 @@ const CalendarScreen: React.FC = () => {
                         <View style={styles.dateTimeColumn}>
                           <Text style={styles.dateTimeLabel}>Start</Text>
                           <TouchableOpacity 
-                            onPress={() => {
-                              setShowStartPicker(prev => !prev);
-                              if (showEndPicker) setShowEndPicker(false);
-                              // Auto close after 3 seconds if opening
-                              if (!showStartPicker) {
-                                setTimeout(() => {
-                                  setShowStartPicker(false);
-                                }, 3000);
-                              }
-                            }}
+                           onPress={() => {
+                            const newStartPickerState = !showStartPicker;
+                            setShowStartPicker(newStartPickerState);
+                            if (newStartPickerState) {
+                              setShowEndPicker(false);
+                            }
+                          }}
                             style={{
                               backgroundColor: '#fafafa',
                               borderRadius: 12,
@@ -3745,15 +3859,13 @@ const CalendarScreen: React.FC = () => {
                           <Text style={styles.dateTimeLabel}>End</Text>
                           <TouchableOpacity
                             onPress={() => {
-                              setShowEndPicker(prev => !prev);
-                              if (showStartPicker) setShowStartPicker(false);
-                              // Auto close after 3 seconds if opening
-                              if (!showEndPicker) {
-                                setTimeout(() => {
-                                  setShowEndPicker(false);
-                                }, 3000);
+                              const newEndPickerState = !showEndPicker;
+                              setShowEndPicker(newEndPickerState);
+                              if (newEndPickerState) {
+                                setShowStartPicker(false);
                               }
                             }}
+                            
                             style={{
                               backgroundColor: '#fafafa',
                               borderRadius: 12,
@@ -3805,27 +3917,39 @@ const CalendarScreen: React.FC = () => {
                         }]}>
                           <DateTimePicker
                             value={showStartPicker ? editedStartDateTime : editedEndDateTime}
-                            mode={isEditedAllDay ? 'date' : 'datetime'}
+                            mode={isEditedAllDay ? "date" : "datetime"}
                             display="spinner"
                             onChange={(event, selectedDate) => {
-                              if (selectedDate) {
-                                const newDate = new Date(selectedDate);
-                                if (showStartPicker) {
-                                  if (isEditedAllDay) newDate.setHours(0, 0, 0, 0);
-                                  setEditedStartDateTime(newDate);
-                                  if (!userChangedEditedEndTime) {
-                                    const endDate = new Date(newDate);
-                                    if (isEditedAllDay) {
-                                      endDate.setHours(23, 59, 59, 999);
-                                    } else {
-                                      endDate.setTime(newDate.getTime() + 60 * 60 * 1000);
-                                    }
-                                    setEditedEndDateTime(endDate);
+                              if (!selectedDate) return;
+
+                              const newDate = new Date(selectedDate);
+
+                              if (showStartPicker) {
+                                if (isEditedAllDay) newDate.setHours(0, 0, 0, 0);
+                                setEditedStartDateTime(newDate);
+
+                                if (!userChangedEditedEndTime) {
+                                  const end = new Date(newDate);
+                                  if (isEditedAllDay) {
+                                    end.setHours(23, 59, 59, 999);
+                                  } else {
+                                    end.setTime(newDate.getTime() + 60 * 60 * 1000);
                                   }
-                                } else {
-                                  if (isEditedAllDay) newDate.setHours(23, 59, 59, 999);
-                                  setEditedEndDateTime(newDate);
-                                  setUserChangedEditedEndTime(true);
+                                  setEditedEndDateTime(end);
+                                }
+
+                                // Only call debouncePickerClose if the value actually changed
+                                if (newDate.getTime() !== editedStartDateTime.getTime()) {
+                                  debouncePickerClose('start');
+                                }
+                              } else {
+                                if (isEditedAllDay) newDate.setHours(23, 59, 59, 999);
+                                setEditedEndDateTime(newDate);
+                                setUserChangedEditedEndTime(true);
+
+                                // Only call debouncePickerClose if the value actually changed
+                                if (newDate.getTime() !== editedEndDateTime.getTime()) {
+                                  debouncePickerClose('end');
                                 }
                               }
                             }}
@@ -3834,64 +3958,53 @@ const CalendarScreen: React.FC = () => {
                           />
                         </Animated.View>
                       )}
-                    </View>
-                    {/* Reminder & Repeat */}
-                    <View style={{ flex: 1, marginBottom: 12 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                          <View style={{ flex: 1, marginRight: 12 }}>
-                            <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
-                            <TouchableOpacity
-                              onPress={() => {
-                                // Toggle reminder picker
-                                setShowReminderPicker(prev => !prev);
-                                // Close other pickers if they're open
-                                if (showRepeatPicker) setShowRepeatPicker(false);
-                                if (showEndDatePicker) setShowEndDatePicker(false);
-                                // Auto close after 2 seconds if opening
-                                if (!showReminderPicker) {
-                                  setTimeout(() => {
-                                    setShowReminderPicker(false);
-                                  }, 2000);
-                                }
-                              }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
-                              }}
-                            >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
+
+                      {/* Reminder & Repeat */}
+                      <View style={styles.dateTimeRow}>
+                        <View style={{ flex: 1, marginRight: editedRepeatOption !== 'None' ? 12 : 0 }}>
+                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
+                          <TouchableOpacity
+                           onPress={() => {
+                            const newReminderPickerState = !showReminderPicker;
+                            setShowReminderPicker(newReminderPickerState);
+                            if (newReminderPickerState) {
+                              setShowRepeatPicker(false);
+                              setShowEndDatePicker(false);
+                            }
+                          }}
+                            style={{
+                              backgroundColor: '#fafafa',
+                              borderRadius: 12,
+                              paddingVertical: 10,
+                              paddingHorizontal: 12,
+                              marginTop: 2,
+                              alignItems: 'center',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 1 },
+                              shadowOpacity: 0.05,
+                              shadowRadius: 2,
+                              elevation: 1,
+                            }}
+                          >
+                            <Text style={{ 
+                              fontSize: 13, 
+                              color: '#3a3a3a',
+                              fontFamily: 'Onest',
+                              fontWeight: '500'
+                            }}>
                               {editedReminderTime ? editedReminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
                             </Text>
                           </TouchableOpacity>
                         </View>
-                        <View style={{ flex: 1, marginRight: repeatOption !== 'None' ? 12 : 0 }}>
-                        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>                          
-                            <TouchableOpacity
-                            onPress={() => {
-                              // Toggle repeat picker
-                              setShowRepeatPicker(prev => !prev);
-                              // Close other pickers if they're open
-                              if (showReminderPicker) setShowReminderPicker(false);
-                              if (showEndDatePicker) setShowEndDatePicker(false);
-                              // Auto close after 2 seconds if opening
-                              if (!showRepeatPicker) {
-                                setTimeout(() => {
-                                  setShowRepeatPicker(false);
-                                }, 2000);
+                        <View style={{ flex: 1, marginRight: editedRepeatOption !== 'None' ? 12 : 0 }}>
+                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
+                          <TouchableOpacity
+                             onPress={() => {
+                              const newRepeatPickerState = !showRepeatPicker;
+                              setShowRepeatPicker(newRepeatPickerState);
+                              if (newRepeatPickerState) {
+                                setShowReminderPicker(false);
+                                setShowEndDatePicker(false);
                               }
                             }}
                             style={{
@@ -3919,69 +4032,64 @@ const CalendarScreen: React.FC = () => {
                           </TouchableOpacity>
                         </View>
                         {editedRepeatOption !== 'None' && (
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
-                              <TouchableOpacity
-                                onPress={() => {
-                                  // Toggle end date picker
-                                  setShowEndDatePicker(prev => !prev);
-                                  // Close other pickers if they're open
-                                  if (showReminderPicker) setShowReminderPicker(false);
-                                  if (showRepeatPicker) setShowRepeatPicker(false);
-                                  // Auto close after 2 seconds if opening
-                                  if (!showEndDatePicker) {
-                                    setTimeout(() => {
-                                      setShowEndDatePicker(false);
-                                    }, 3000);
-                                  }
-                                }}
-                                style={{
-                                  backgroundColor: '#fafafa',
-                                  borderRadius: 12,
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 12,
-                                  marginTop: 2,
-                                  alignItems: 'center',
-                                  shadowColor: '#000',
-                                  shadowOffset: { width: 0, height: 1 },
-                                  shadowOpacity: 0.05,
-                                  shadowRadius: 2,
-                                  elevation: 1,
-                                }}
-                              >
-                                <Text style={{ 
-                                  fontSize: 13, 
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
-                                  {editedRepeatEndDate ? editedRepeatEndDate.toLocaleDateString([], { 
-                                    month: 'short', 
-                                    day: 'numeric', 
-                                    year: '2-digit' 
-                                  }) : 'Set End Date'}
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-                        </View>
-          
-                        {showReminderPicker && (
-                          <Animated.View style={[styles.dateTimePickerContainer, {
-                            backgroundColor: '#fafafa',
-                            borderRadius: 16,
-                            paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 12,
-                            marginBottom: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.03,
-                            shadowRadius: 3,
-                            elevation: 1,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }]}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
+                            <TouchableOpacity
+                             onPress={() => {
+                              const newEndDatePickerState = !showEndDatePicker;
+                              setShowEndDatePicker(newEndDatePickerState);
+                              if (newEndDatePickerState) {
+                                setShowReminderPicker(false);
+                                setShowRepeatPicker(false);
+                              }
+                            }}
+                              style={{
+                                backgroundColor: '#fafafa',
+                                borderRadius: 12,
+                                paddingVertical: 10,
+                                paddingHorizontal: 12,
+                                marginTop: 2,
+                                alignItems: 'center',
+                                shadowColor: '#000',
+                                shadowOffset: { width: 0, height: 1 },
+                                shadowOpacity: 0.05,
+                                shadowRadius: 2,
+                                elevation: 1,
+                              }}
+                            >
+                              <Text style={{ 
+                                fontSize: 13, 
+                                color: '#3a3a3a',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {editedRepeatEndDate ? editedRepeatEndDate.toLocaleDateString([], { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  year: '2-digit' 
+                                }) : 'Set End Date'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                      </View>
+
+                      {showReminderPicker && (
+                        <Animated.View style={[styles.dateTimePickerContainer, {
+                          backgroundColor: '#fafafa',
+                          borderRadius: 16,
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                          marginTop: 12,
+                          marginBottom: 4,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.03,
+                          shadowRadius: 3,
+                          elevation: 1,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }]}>
                           <DateTimePicker
                             value={editedReminderTime || new Date()}
                             mode="time"
@@ -3999,56 +4107,54 @@ const CalendarScreen: React.FC = () => {
                       )}
 
                       {showEndDatePicker && (
-                          <Animated.View style={[styles.dateTimePickerContainer, {
-                            backgroundColor: '#fafafa',
-                            borderRadius: 16,
-                            paddingVertical: 8,
-                            paddingHorizontal: 16,
-                            marginTop: 12,
-                            marginBottom: 4,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.03,
-                            shadowRadius: 3,
-                            elevation: 1,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }]}>
-                            <DateTimePicker
-                              value={repeatEndDate || new Date()}
-                              mode="date"
-                              display="spinner"
-                              onChange={(event, selectedDate) => {
-                                if (selectedDate) {
-                                  setEditedRepeatEndDate(selectedDate);
-                                  debouncePickerClose('endDate');
-                                }
-                              }}
-                              style={{ height: 180, width: '100%' }}
-                              textColor="#333"
-                            />
-                          </Animated.View>
-                        )}
+                        <Animated.View style={[styles.dateTimePickerContainer, {
+                          backgroundColor: '#fafafa',
+                          borderRadius: 16,
+                          paddingVertical: 8,
+                          paddingHorizontal: 16,
+                          marginTop: 12,
+                          marginBottom: 4,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.03,
+                          shadowRadius: 3,
+                          elevation: 1,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }]}>
+                          <DateTimePicker
+                            value={editedRepeatEndDate || new Date()}
+                            mode="date"
+                            display="spinner"
+                            onChange={(event, selectedDate) => {
+                              if (selectedDate) {
+                                setEditedRepeatEndDate(selectedDate);
+                                debouncePickerClose('endDate');
+                              }
+                            }}
+                            style={{ height: 180, width: '100%' }}
+                            textColor="#333"
+                          />
+                        </Animated.View>
+                      )}
 
-
-                        {showRepeatPicker && (
-                          <Animated.View style={{ 
-                            backgroundColor: '#fafafa',
-                            borderRadius: 12,
-                            padding: 12,
-                            marginTop: 12,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.05,
-                            shadowRadius: 2,
-                            elevation: 1,
-                          }}>
+                      {showRepeatPicker && (
+                        <Animated.View style={{ 
+                          backgroundColor: '#fafafa',
+                          borderRadius: 12,
+                          padding: 12,
+                          marginTop: 12,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 2,
+                          elevation: 1,
+                        }}>
                           {['Do Not Repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
                             <TouchableOpacity 
                               key={option}
                               onPress={() => {
                                 setEditedRepeatOption(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
-                                debouncePickerClose('repeat');
                               }}
                               style={{
                                 paddingVertical: 10,
