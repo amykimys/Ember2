@@ -122,6 +122,9 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 }, ref) => {
     const baseDate = new Date(selectedDate);
     const flatListRef = useRef<FlatList>(null);
+    const [clickedCell, setClickedCell] = useState<{ dayIndex: number; hourIndex: number } | null>(null);
+    const clickTimeoutRef = useRef<NodeJS.Timeout>();
+    
 
     // Regenerate weeks array whenever selectedDate changes
     const weeks = useMemo(() => {
@@ -235,23 +238,19 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 
       const startTime = new Date(event.startDateTime);
       const endTime = new Date(event.endDateTime);
-      const cellHeight = 45; // Updated from 55
+      const cellHeight = 45; // Height of each hour cell
 
-      // Get the start of the current day at 7am
+      // Get the start of the current day
       const dayStart = new Date(date);
-      dayStart.setHours(7, 0, 0, 0);
+      dayStart.setHours(0, 0, 0, 0);
 
-      // Calculate minutes from 7am
+      // Calculate minutes from start of day
       const startMinutes = (startTime.getTime() - dayStart.getTime()) / (1000 * 60);
       const endMinutes = (endTime.getTime() - dayStart.getTime()) / (1000 * 60);
 
-      // If the event starts before 7am, adjust it to start at 7am
-      const adjustedStartMinutes = Math.max(0, startMinutes);
-      const adjustedEndMinutes = Math.max(adjustedStartMinutes + 30, endMinutes);
-
       // Calculate position and height
-      const top = (adjustedStartMinutes / 60) * cellHeight;
-      const height = Math.max(((adjustedEndMinutes - adjustedStartMinutes) / 60) * cellHeight, 20);
+      const top = (startMinutes / 60) * cellHeight;
+      const height = Math.max(((endMinutes - startMinutes) / 60) * cellHeight, 20); // Minimum height of 20
 
       return { top, height };
     };
@@ -262,6 +261,31 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       const availableHeight = height - padding;
       const lines = Math.floor(availableHeight / lineHeight);
       return Math.max(1, Math.min(lines, 5)); // Between 1 and 5 lines
+    };
+
+    const handleCellClick = (dayIndex: number, hourIndex: number, date: Date, cellHour: number) => {
+        // Set the clicked cell
+        setClickedCell({ dayIndex, hourIndex });
+        
+        // Clear any existing timeout
+        if (clickTimeoutRef.current) {
+            clearTimeout(clickTimeoutRef.current);
+        }
+
+        // Set timeout to clear the clicked cell state after animation
+        clickTimeoutRef.current = setTimeout(() => {
+            setClickedCell(null);
+        }, 200); // 200ms animation duration
+
+        // Original click handler logic
+        const clickedDate = new Date(date);
+        clickedDate.setHours(cellHour, 0, 0, 0);
+
+        setStartDateTime(new Date(clickedDate));
+        const end = new Date(clickedDate);
+        end.setHours(end.getHours() + 1);
+        setEndDateTime(end);
+        setShowModal(true);
     };
 
     const renderWeek = ({ item: weekStart }: { item: Date }) => {
@@ -398,23 +422,68 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
             {/* Day Columns */}
             {weekDates.map((date, dayIndex) => {
               const dateKey = getLocalDateString(date);
-              const dayEvents = (events[dateKey] || []).filter(event => !event.isAllDay); // Filter out all-day events
+              const dayEvents = (events[dateKey] || []).filter(event => !event.isAllDay);
               const isCurrentDay = isToday(date);
 
               return (
                 <View key={dayIndex} style={styles.dayColumn}>
                   {/* Grid Background Layer */}
                   <View style={styles.gridBackground}>
-                    {GRID_ROWS.map((row) => (
-                      <View key={`grid-${row}`} style={styles.cell} />
-                    ))}
+                    {GRID_ROWS.map((row) => {
+                      const cellHour = row;
+                      const isClicked = clickedCell?.dayIndex === dayIndex && clickedCell?.hourIndex === row;
+                      
+                      // Create a unique key for each cell
+                      const cellKey = `cell-${dayIndex}-${row}`;
+                      
+                      return (
+                        <View 
+                          key={cellKey}
+                          style={[
+                            styles.cellContainer,
+                            isClicked && styles.clickedCell
+                          ]}
+                        >
+                          <TouchableOpacity
+                            style={styles.cellTouchable}
+                            activeOpacity={0.6}
+                            onPress={() => {
+                              console.log('Cell pressed:', { dayIndex, row, date: date.toISOString(), cellHour });
+                              try {
+                                const clickedDate = new Date(date);
+                                clickedDate.setHours(cellHour, 0, 0, 0);
+                                
+                                setStartDateTime(new Date(clickedDate));
+                                const end = new Date(clickedDate);
+                                end.setHours(end.getHours() + 1);
+                                setEndDateTime(end);
+                                
+                                console.log('Setting modal to true');
+                                setShowModal(true);
+                                
+                                // Visual feedback
+                                setClickedCell({ dayIndex, hourIndex: row });
+                                if (clickTimeoutRef.current) {
+                                  clearTimeout(clickTimeoutRef.current);
+                                }
+                                clickTimeoutRef.current = setTimeout(() => {
+                                  setClickedCell(null);
+                                }, 200);
+                              } catch (error) {
+                                console.error('Error in cell press handler:', error);
+                              }
+                            }}
+                          />
+                        </View>
+                      );
+                    })}
                   </View>
-                  
+
                   {/* Current Time Line */}
                   {isCurrentDay && <CurrentTimeLine />}
 
-                  {/* Events Foreground Layer */}
-                  <View style={styles.eventsLayer}>
+                  {/* Events Layer */}
+                  <View style={[styles.eventsLayer, { pointerEvents: 'box-none' }]}>
                     {dayEvents.map((event, eventIndex) => {
                       const position = calculateEventPosition(event, date);
                       if (!position) return null;
@@ -512,6 +581,15 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
   React.useImperativeHandle(ref, () => ({
     scrollToWeek
   }));
+
+  // Add useEffect to clear the clicked cell state after animation
+  useEffect(() => {
+    return () => {
+        if (clickTimeoutRef.current) {
+            clearTimeout(clickTimeoutRef.current);
+        }
+    };
+  }, []);
 
   return (
     <View style={{ flex: 1 }}>
@@ -650,13 +728,27 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 2,
   },
-  cell: {
-    height: 45, // Updated from 55
+  cellContainer: {
+    height: CELL_HEIGHT,
     borderBottomWidth: 1,
     borderColor: '#EEEEEE',
+    position: 'relative',
+    backgroundColor: 'transparent',
+  },
+  cellTouchable: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+    zIndex: 1,
+  },
+  clickedCell: {
+    backgroundColor: '#A0C3B220',
   },
   eventCell: {
-    height: 45, // Updated from 55
+    height: 45,
     position: 'relative',
     zIndex: 2,
   },
