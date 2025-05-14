@@ -534,22 +534,22 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   deleteButton: {
-    backgroundColor: '#FF9A8B',
+    backgroundColor: '#FAF9F6',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
     alignItems: 'center',
     width: '48%',
-    marginRight: 4,
+    marginRight: 12,
   },
   deleteButtonText: {
-    color: 'white',
+    color: '#FF6B6B',
     fontSize: 16,
     fontFamily: 'Onest',
     fontWeight: '600',
   },
   saveButton: {
-    backgroundColor: '#A0C3B2',
+    backgroundColor: '#FF6B6B',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
@@ -704,6 +704,52 @@ const CalendarScreen: React.FC = () => {
   const [isEditedAllDay, setIsEditedAllDay] = useState(false);
   const [valueChanged, setValueChanged] = useState(false);
   const autoCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Add these refs for debouncing
+  const startPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const endPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const reminderPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const repeatPickerTimeoutRef = useRef<NodeJS.Timeout>();
+  const endDatePickerTimeoutRef = useRef<NodeJS.Timeout>();
+
+  // Add debounce function
+  const debouncePickerClose = (pickerType: 'start' | 'end' | 'reminder' | 'repeat' | 'endDate') => {
+    const timeoutRefs = {
+      start: startPickerTimeoutRef,
+      end: endPickerTimeoutRef,
+      reminder: reminderPickerTimeoutRef,
+      repeat: repeatPickerTimeoutRef,
+      endDate: endDatePickerTimeoutRef
+    };
+    const setterFunctions = {
+      start: setShowStartPicker,
+      end: setShowEndPicker,
+      reminder: setShowReminderPicker,
+      repeat: setShowRepeatPicker,
+      endDate: setShowEndDatePicker
+    };
+
+    // Clear any existing timeout
+    if (timeoutRefs[pickerType].current) {
+      clearTimeout(timeoutRefs[pickerType].current);
+    }
+
+    // Set new timeout
+    timeoutRefs[pickerType].current = setTimeout(() => {
+      setterFunctions[pickerType](false);
+    }, 2000); // 2 second delay
+  };
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (startPickerTimeoutRef.current) clearTimeout(startPickerTimeoutRef.current);
+      if (endPickerTimeoutRef.current) clearTimeout(endPickerTimeoutRef.current);
+      if (reminderPickerTimeoutRef.current) clearTimeout(reminderPickerTimeoutRef.current);
+      if (repeatPickerTimeoutRef.current) clearTimeout(repeatPickerTimeoutRef.current);
+      if (endDatePickerTimeoutRef.current) clearTimeout(endDatePickerTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -1864,12 +1910,6 @@ const CalendarScreen: React.FC = () => {
                                 setShowStartPicker(prev => !prev);
                                 // Close end picker if it's open
                                 if (showEndPicker) setShowEndPicker(false);
-                                // Auto close after 2 seconds if opening
-                                if (!showStartPicker) {
-                                  setTimeout(() => {
-                                    setShowStartPicker(false);
-                                  }, 3000);
-                                }
                               }}
                               style={{
                                 backgroundColor: '#fafafa',
@@ -1908,12 +1948,6 @@ const CalendarScreen: React.FC = () => {
                                 setShowEndPicker(prev => !prev);
                                 // Close start picker if it's open
                                 if (showStartPicker) setShowStartPicker(false);
-                                // Auto close after 2 seconds if opening
-                                if (!showEndPicker) {
-                                  setTimeout(() => {
-                                    setShowEndPicker(false);
-                                  }, 3000);
-                                }
                               }}
                               style={{
                                 backgroundColor: '#fafafa',
@@ -1966,22 +2000,20 @@ const CalendarScreen: React.FC = () => {
                               value={showStartPicker ? startDateTime : endDateTime}
                               mode={isAllDay ? "date" : "datetime"}
                               display="spinner"
-                              onChange={(event, selectedTime) => {
-                                if (selectedTime) {
-                                  const newDate = new Date(selectedTime);
-                                  if (isAllDay) {
-                                    newDate.setHours(showStartPicker ? 0 : 23, showStartPicker ? 0 : 59, showStartPicker ? 0 : 59, 0);
-                                  }
+                              onChange={(event, selectedDate) => {
+                                if (selectedDate) {
                                   if (showStartPicker) {
-                                    setStartDateTime(newDate);
-                                    if (!userChangedEndTime) {
-                                      const autoEnd = new Date(newDate);
-                                      autoEnd.setHours(isAllDay ? 23 : newDate.getHours() + 1, isAllDay ? 59 : newDate.getMinutes());
-                                      setEndDateTime(autoEnd);
+                                    setStartDateTime(selectedDate);
+                                    // Update end time if it's before start time
+                                    if (endDateTime < selectedDate) {
+                                      const newEnd = new Date(selectedDate);
+                                      newEnd.setHours(newEnd.getHours() + 1);
+                                      setEndDateTime(newEnd);
                                     }
+                                    debouncePickerClose('start');
                                   } else {
-                                    setEndDateTime(newDate);
-                                    setUserChangedEndTime(true);
+                                    setEndDateTime(selectedDate);
+                                    debouncePickerClose('end');
                                   }
                                 }
                               }}
@@ -2134,7 +2166,7 @@ const CalendarScreen: React.FC = () => {
                               onChange={(event, selectedTime) => {
                                 if (selectedTime) {
                                   setReminderTime(selectedTime);
-                                  setShowReminderPicker(false); // Close picker after selection
+                                  debouncePickerClose('reminder');
                                 }
                               }}
                               style={{ height: 180, width: '100%' }}
@@ -2166,7 +2198,7 @@ const CalendarScreen: React.FC = () => {
                               onChange={(event, selectedDate) => {
                                 if (selectedDate) {
                                   setRepeatEndDate(selectedDate);
-                                  setShowEndDatePicker(false); // Close picker after selection
+                                  debouncePickerClose('endDate');
                                 }
                               }}
                               style={{ height: 180, width: '100%' }}
@@ -2192,7 +2224,7 @@ const CalendarScreen: React.FC = () => {
                                 key={option}
                                 onPress={() => {
                                   setRepeatOption(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
-                                  setShowRepeatPicker(false); // Close picker after selection
+                                  debouncePickerClose('repeat');
                                 }}
                                 style={{
                                   paddingVertical: 10,
@@ -2896,11 +2928,11 @@ const CalendarScreen: React.FC = () => {
                           value={showStartPicker ? startDateTime : endDateTime}
                       mode={isAllDay ? "date" : "datetime"}
                       display="spinner"
-                      onChange={(event, selectedTime) => {
-                        if (selectedTime) {
+                      onChange={(event, selectedDate) => {
+                        if (selectedDate) {
                               if (showStartPicker) {
                           // If it's an all-day event, set the time to start of day (00:00)
-                          const newDate = new Date(selectedTime);
+                          const newDate = new Date(selectedDate);
                           if (isAllDay) {
                             newDate.setHours(0, 0, 0, 0);
                           }
@@ -2920,7 +2952,7 @@ const CalendarScreen: React.FC = () => {
                                 }, 3000);
                               } else {
                                 // If it's an all-day event, set the time to end of day (23:59)
-                                const newDate = new Date(selectedTime);
+                                const newDate = new Date(selectedDate);
                                 if (isAllDay) {
                                   newDate.setHours(23, 59, 59, 999);
                                 }
@@ -3080,7 +3112,7 @@ const CalendarScreen: React.FC = () => {
                             onChange={(event, selectedTime) => {
                               if (selectedTime) {
                                 setReminderTime(selectedTime);
-                                setShowReminderPicker(false); // Close picker after selection
+                                debouncePickerClose('reminder');
                               }
                             }}
                             style={{ height: 180, width: '100%' }}
@@ -3112,7 +3144,7 @@ const CalendarScreen: React.FC = () => {
                             onChange={(event, selectedDate) => {
                               if (selectedDate) {
                                 setRepeatEndDate(selectedDate);
-                                setShowEndDatePicker(false); // Close picker after selection
+                                debouncePickerClose('endDate');
                               }
                             }}
                             style={{ height: 180, width: '100%' }}
@@ -3138,7 +3170,7 @@ const CalendarScreen: React.FC = () => {
                               key={option}
                               onPress={() => {
                                 setRepeatOption(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
-                                setShowRepeatPicker(false); // Close picker after selection
+                                debouncePickerClose('repeat');
                               }}
                               style={{
                                 paddingVertical: 10,
@@ -3957,7 +3989,7 @@ const CalendarScreen: React.FC = () => {
                             onChange={(event, selectedTime) => {
                               if (selectedTime) {
                                 setEditedReminderTime(selectedTime);
-                                setShowReminderPicker(false); // Close picker after selection
+                                debouncePickerClose('reminder');
                               }
                             }}
                             style={{ height: 180, width: '100%' }}
@@ -3989,7 +4021,7 @@ const CalendarScreen: React.FC = () => {
                               onChange={(event, selectedDate) => {
                                 if (selectedDate) {
                                   setEditedRepeatEndDate(selectedDate);
-                                  setShowEndDatePicker(false); // Close picker after selection
+                                  debouncePickerClose('endDate');
                                 }
                               }}
                               style={{ height: 180, width: '100%' }}
@@ -4016,7 +4048,7 @@ const CalendarScreen: React.FC = () => {
                               key={option}
                               onPress={() => {
                                 setEditedRepeatOption(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
-                                setShowRepeatPicker(false); // Close picker after selection
+                                debouncePickerClose('repeat');
                               }}
                               style={{
                                 paddingVertical: 10,
