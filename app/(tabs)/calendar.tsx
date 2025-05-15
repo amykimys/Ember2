@@ -95,18 +95,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
-    marginTop: 0,
-    marginBottom: 0,
     color: '#333',
     fontFamily: 'Onest',
+  },
+  headerRow: { 
+      flexDirection: 'row', 
+      alignItems: 'center', 
+      justifyContent: 'space-between', 
+      paddingHorizontal: 22,
+      marginVertical: 1,
+      backgroundColor: 'white',
+      zIndex: 1,
+      marginTop: 5,
+      marginBottom: 18
   },
   weekRow: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderColor: '#eee',
     backgroundColor: 'white',
-    marginTop: 8,
-    paddingVertical: 2,
   },
   weekday: {
     width: CELL_WIDTH,
@@ -133,6 +140,28 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'visible',
     rowGap: 35,
+  },
+  eventBox: {
+    flexDirection: 'column', 
+    justifyContent: 'flex-start', 
+    alignItems: 'center',
+    marginTop: 3,
+    width: '100%',
+    paddingHorizontal: 1,
+    minHeight: 0,
+    flex: 1,
+    gap: 2
+  },
+  eventBoxText: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    borderRadius: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 0.5,
+    // borderLeftWidth: 2,
+    // borderLeftColor: event.categoryColor || '#FF9A8B',
+    //opacity: event.isContinued ? 0.7 : 1,
   },
   cell: {
     width: CELL_WIDTH,
@@ -1297,7 +1326,7 @@ const CalendarScreen: React.FC = () => {
     };
 
     return (
-      <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
+      <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 4, backgroundColor: 'white' }}>
         <View style={{ paddingHorizontal: SIDE_PADDING }}>
           <View style={styles.weekRow}>
             {weekdays.map((day, idx) => (
@@ -1342,7 +1371,7 @@ const CalendarScreen: React.FC = () => {
                       <View style={{ flex: 1 }}>
                         {/* Date Section - Fixed Height */}
                         <View style={{ 
-                          height: 24,
+                          height: 22,
                       alignItems: 'center', 
                       justifyContent: 'center', 
                         }}>
@@ -1369,17 +1398,7 @@ const CalendarScreen: React.FC = () => {
 
                         {/* Events Section - Below Date */}
                         {hasEvents && (
-                          <View style={{ 
-                            flexDirection: 'column', 
-                            justifyContent: 'flex-start', 
-                            alignItems: 'center',
-                            marginTop: 2,
-                            width: '100%',
-                            paddingHorizontal: 2,
-                            minHeight: 0,
-                            flex: 1,
-                            gap: 2
-                          }}>
+                          <View style={styles.eventBox}>
                             {dayEvents.map((event, eventIndex) => (
                               <TouchableOpacity
                                 key={`${event.id}-${eventIndex}`}
@@ -1404,18 +1423,8 @@ const CalendarScreen: React.FC = () => {
                                   }
                                 }}
                                 style={[
-                                  {
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    width: '100%',
-                                    backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
-                                    borderRadius: 4,
-                                    paddingVertical: 2,
-                                    paddingHorizontal: 4,
-                                    borderLeftWidth: 2,
-                                    borderLeftColor: event.categoryColor || '#FF9A8B',
-                                    opacity: event.isContinued ? 0.7 : 1,
-                                  },
+                                  styles.eventBoxText,
+                                  {backgroundColor: `${event.categoryColor || '#FF9A8B'}40`},
                                   // Add left border radius for first day of multi-day event
                                   !event.isContinued && event.startDateTime && event.endDateTime && 
                                   new Date(event.startDateTime).toDateString() === date?.toDateString() && {
@@ -1449,30 +1458,7 @@ const CalendarScreen: React.FC = () => {
                                 </Text>
                               </TouchableOpacity>
                             ))}
-                            {dayEvents.length > 3 && (
-                              <View
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  width: '90%',
-                                  backgroundColor: '#F5F5F5',
-                                  borderRadius: 4,
-                                  paddingVertical: 2,
-                                  paddingHorizontal: 4,
-                                }}
-                              >
-                                <Text
-                                  style={{
-                                    fontSize: 11,
-                                    color: '#999',
-                                    fontFamily: 'Onest',
-                                    textAlign: 'left'
-                                  }}
-                                >
-                                  +{dayEvents.length - 3} more
-                                </Text>
-                              </View>
-                            )}
+                           
                           </View>
                         )}
                       </View>
@@ -1493,19 +1479,9 @@ const CalendarScreen: React.FC = () => {
         {calendarMode === 'month' ? (
           <View style={{ flex: 1, flexDirection: 'column' }}>
             {/* Fixed Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              alignItems: 'center', 
-              justifyContent: 'space-between', 
-              paddingHorizontal: 18,
-              marginVertical: 2,
-              backgroundColor: 'white',
-              zIndex: 1
-            }}>
+            <View style={styles.headerRow}>
               <TouchableOpacity
-                onPress={() => setCalendarMode('week')}
-                style={{ paddingVertical: 5 }}
-              >
+                onPress={() => setCalendarMode('week')}>
                 <MaterialIcons 
                   name="calendar-view-week"
                   size={20} 
@@ -1533,9 +1509,8 @@ const CalendarScreen: React.FC = () => {
                     weeklyCalendarRef.current?.scrollToWeek?.(today);
                   }
                 }}
-                style={{ padding: 8 }}
               >
-                <Text style={[styles.monthLabel, { marginBottom: 0 }]}>
+                <Text style={styles.monthLabel}>
                   {new Date(months[currentMonthIndex].year, months[currentMonthIndex].month).toLocaleString('en-US', {
                     month: 'long',
                     year: 'numeric'
@@ -1547,15 +1522,13 @@ const CalendarScreen: React.FC = () => {
                 onPress={() => {
                   resetEventForm();
                   setShowModal(true);
-                }}
-                style={{ paddingVertical: 6 }}
-              >
+                }}>
                 <MaterialIcons name="add" size={22} color="#3a3a3a" />
               </TouchableOpacity>
             </View>
 
             {/* Scrollable Calendar Grid */}
-            <View style={{ flex: isMonthCompact ? 0.9 : 1, marginTop: 8 }}>
+            <View style={{ flex: isMonthCompact ? 0.9 : 1 }}>
               <FlatList
                 ref={flatListRef}
                 data={months}
@@ -1641,21 +1614,11 @@ const CalendarScreen: React.FC = () => {
             )}
           </View>
         ) : (
-          <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
+          <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
             {/* Fixed Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              alignItems: 'center', 
-              justifyContent: 'space-between', 
-              paddingHorizontal: 18,
-              marginVertical: 2,
-              backgroundColor: 'white',
-              zIndex: 1
-            }}>
+            <View style={styles.headerRow}>
               <TouchableOpacity
-                onPress={() => setCalendarMode('month')}
-                style={{ paddingVertical: 5 }}
-              >
+                onPress={() => setCalendarMode('month')}>
                 <MaterialIcons 
                   name="calendar-view-month"
                   size={20} 
@@ -1669,10 +1632,8 @@ const CalendarScreen: React.FC = () => {
                   setSelectedDate(today);
                   setVisibleWeekMonth(today);
                   weeklyCalendarRef.current?.scrollToWeek?.(today);
-                }}
-                style={{ padding: 8 }}
-              >
-                <Text style={[styles.monthLabel, { marginBottom: 0, textTransform: 'capitalize' }]}> 
+                }}>
+                <Text style={styles.monthLabel}> 
                   {(() => {
                     const weekStart = new Date(visibleWeekMonth);
                     const weekEnd = new Date(visibleWeekMonth);
@@ -1702,10 +1663,8 @@ const CalendarScreen: React.FC = () => {
                 onPress={() => {
                   resetEventForm();
                   setShowModal(true);
-                }}
-                style={{ paddingVertical: 5 }}
-              >
-                <MaterialIcons name="add" size={22} color="#3a3a3a" style={{ marginTop: 6 }} />
+                }}>
+                <MaterialIcons name="add" size={22} color="#3a3a3a" />
               </TouchableOpacity>
             </View>
 
@@ -1741,9 +1700,7 @@ const CalendarScreen: React.FC = () => {
             onPress={() => {
               resetEventForm();
               setShowModal(true);
-            }}
-          >
-            <MaterialIcons name="add" size={22} color="#3a3a3a" style={{ marginLeft: 0, marginTop: 6 }} />
+            }}>
           </TouchableOpacity>
       </SafeAreaView>
 
@@ -1879,6 +1836,57 @@ const CalendarScreen: React.FC = () => {
                                     setSelectedCategory(cat);
                                     setShowCategoryPicker(false);
                                     setShowAddCategoryForm(false);
+                                  }}
+                                  onLongPress={() => {
+                                    Alert.alert(
+                                      'Delete Category',
+                                      `Are you sure you want to delete "${cat.name}"?`,
+                                      [
+                                        {
+                                          text: 'Cancel',
+                                          style: 'cancel'
+                                        },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              // Delete from database
+                                              const { error } = await supabase
+                                                .from('categories')
+                                                .delete()
+                                                .eq('id', cat.id);
+
+                                              if (error) {
+                                                console.error('Error deleting category:', error);
+                                                Alert.alert('Error', 'Failed to delete category');
+                                                return;
+                                              }
+
+                                              // Update local state
+                                              setCategories(prev => prev.filter(c => c.id !== cat.id));
+                                              
+                                              // If this was the selected category, clear it
+                                              if (selectedCategory?.id === cat.id) {
+                                                setSelectedCategory(null);
+                                              }
+                                              if (editedSelectedCategory?.id === cat.id) {
+                                                setEditedSelectedCategory(null);
+                                              }
+
+                                              Toast.show({
+                                                type: 'success',
+                                                text1: 'Category deleted successfully',
+                                                position: 'bottom',
+                                              });
+                                            } catch (error) {
+                                              console.error('Error deleting category:', error);
+                                              Alert.alert('Error', 'Failed to delete category');
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    );
                                   }}
                                     style={({ pressed }) => ({
                                       backgroundColor: '#fafafa',
@@ -2422,6 +2430,57 @@ const CalendarScreen: React.FC = () => {
                                   setShowCategoryPicker(false);
                                     setShowAddCategoryForm(false);
                                   }}
+                                onLongPress={() => {
+                                  Alert.alert(
+                                    'Delete Category',
+                                    `Are you sure you want to delete "${cat.name}"?`,
+                                    [
+                                      {
+                                        text: 'Cancel',
+                                        style: 'cancel'
+                                      },
+                                      {
+                                        text: 'Delete',
+                                        style: 'destructive',
+                                        onPress: async () => {
+                                          try {
+                                            // Delete from database
+                                            const { error } = await supabase
+                                              .from('categories')
+                                              .delete()
+                                              .eq('id', cat.id);
+
+                                            if (error) {
+                                              console.error('Error deleting category:', error);
+                                              Alert.alert('Error', 'Failed to delete category');
+                                              return;
+                                            }
+
+                                            // Update local state
+                                            setCategories(prev => prev.filter(c => c.id !== cat.id));
+                                            
+                                            // If this was the selected category, clear it
+                                            if (selectedCategory?.id === cat.id) {
+                                              setSelectedCategory(null);
+                                            }
+                                            if (editedSelectedCategory?.id === cat.id) {
+                                              setEditedSelectedCategory(null);
+                                            }
+
+                                            Toast.show({
+                                              type: 'success',
+                                              text1: 'Category deleted successfully',
+                                              position: 'bottom',
+                                            });
+                                          } catch (error) {
+                                            console.error('Error deleting category:', error);
+                                            Alert.alert('Error', 'Failed to delete category');
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  );
+                                }}
                                   style={({ pressed }) => ({
                                     backgroundColor: '#fafafa',
                                     paddingVertical: 5,
@@ -3667,10 +3726,63 @@ const CalendarScreen: React.FC = () => {
                                   setShowCategoryPicker(false);
                                   setShowAddCategoryForm(false);
                                 }}
+                                onLongPress={() => {
+                                  Alert.alert(
+                                    'Delete Category',
+                                    `Are you sure you want to delete "${cat.name}"?`,
+                                    [
+                                      {
+                                        text: 'Cancel',
+                                        style: 'cancel'
+                                      },
+                                      {
+                                        text: 'Delete',
+                                        style: 'destructive',
+                                        onPress: async () => {
+                                          try {
+                                            // Delete from database
+                                            const { error } = await supabase
+                                              .from('categories')
+                                              .delete()
+                                              .eq('id', cat.id);
+
+                                            if (error) {
+                                              console.error('Error deleting category:', error);
+                                              Alert.alert('Error', 'Failed to delete category');
+                                              return;
+                                            }
+
+                                            // Update local state
+                                            setCategories(prev => prev.filter(c => c.id !== cat.id));
+                                            
+                                            // If this was the selected category, clear it
+                                            if (selectedCategory?.id === cat.id) {
+                                              setSelectedCategory(null);
+                                            }
+                                            if (editedSelectedCategory?.id === cat.id) {
+                                              setEditedSelectedCategory(null);
+                                            }
+
+                                            Toast.show({
+                                              type: 'success',
+                                              text1: 'Category deleted successfully',
+                                              position: 'bottom',
+                                            });
+                                          } catch (error) {
+                                            console.error('Error deleting category:', error);
+                                            Alert.alert('Error', 'Failed to delete category');
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  );
+                                }}
                                 style={({ pressed }) => [
                                   styles.categoryOption,
-                                  { borderWidth: (pressed || editedSelectedCategory?.name === cat.name) ? 1 : 0,
-                                    borderColor: cat.color }
+                                  { 
+                                    borderWidth: (pressed || editedSelectedCategory?.name === cat.name) ? 1 : 0,
+                                    borderColor: cat.color 
+                                  }
                                 ]}
                               >
                                 <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />

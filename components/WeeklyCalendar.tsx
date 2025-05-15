@@ -189,8 +189,6 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
           date.getDate() === today.getDate()
         );
       };
-      
-
 
     const getWeekStartDate = (offsetWeeks = 0) => {
       const date = new Date(baseDate);
@@ -303,7 +301,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         borderBottomWidth: 1, 
         borderColor: '#eee', 
         minHeight: 36, 
-        zIndex: 10 
+        zIndex: 10, 
       }}>
         {/* Time column spacer for alignment */}
         <View style={{ 
@@ -326,8 +324,6 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 borderRightWidth: 1,
                 borderColor: '#eee',
                 backgroundColor: 'white',
-                paddingVertical:0,
-                marginRight: 0,
               }}
             >
               {allDayEvents.map((event, i) => (
@@ -349,11 +345,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                     styles.allDayEventBox,
                     {
                       backgroundColor: `${event.categoryColor || '#FF9A8B'}70`,
-                      marginVertical: 0,
                       width: DAY_COLUMN_WIDTH,
-                      marginHorizontal: 0,
-                      marginTop: 0,
-                      paddingTop: 0,
                     }
                   ]}
                 >
@@ -518,7 +510,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                               {
                                 top: position.top,
                                 height: position.height,
-                                backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
+                                backgroundColor: `${event.categoryColor || '#FF9A8B'}40`,
                               }
                             ]}
                           >
@@ -596,7 +588,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       {!hideHeader && (
         <View style={styles.weekStrip}>
           <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={[styles.monthLabel, { textTransform: 'capitalize' }]}>
+            <Text style={styles.monthLabel}>
               {visibleWeekMonthText}
             </Text>
           </View>
@@ -677,6 +669,7 @@ const styles = StyleSheet.create({
     width: DAY_COLUMN_WIDTH,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: -10,
   },
   weekdayText: {
     fontSize: 12,
