@@ -346,7 +346,6 @@ export default function HabitScreen() {
           }
 
           if (categoriesData) {
-            console.log('Categories fetched:', categoriesData);
             setCategories(categoriesData);
 
             // Fetch saved expanded state
@@ -377,7 +376,6 @@ export default function HabitScreen() {
           }
 
           // Then fetch user's habits
-          console.log('Fetching habits for user:', session?.user?.id);
           const { data: habitsData, error: habitsError } = await supabase
             .from('habits')
             .select('*')
@@ -390,7 +388,6 @@ export default function HabitScreen() {
           }
 
           if (habitsData) {
-            console.log('Habits fetched:', habitsData);
             const mappedHabits = habitsData.map(habit => ({
               ...habit,
               completedDays: habit.completed_days || [],
@@ -407,7 +404,6 @@ export default function HabitScreen() {
               photos: habit.photos || {},
               category_id: habit.category_id,
             }));
-            console.log('Mapped habits:', mappedHabits);
             setHabits(mappedHabits);
           }
         } catch (error) {
@@ -434,7 +430,6 @@ export default function HabitScreen() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          console.log('Fetching initial data for user:', session.user.id);
           
           // Fetch categories first
           const { data: categoriesData, error: categoriesError } = await supabase
@@ -448,7 +443,6 @@ export default function HabitScreen() {
           }
 
           if (categoriesData) {
-            console.log('Initial categories fetched:', categoriesData);
             setCategories(categoriesData);
 
             // Fetch saved expanded state
@@ -490,7 +484,6 @@ export default function HabitScreen() {
           }
 
           if (habitsData) {
-            console.log('Initial habits fetched:', habitsData);
             const mappedHabits = habitsData.map(habit => {
               // Ensure photos object exists and has valid URLs
               const photos = habit.photos || {};
@@ -518,7 +511,6 @@ export default function HabitScreen() {
                 category_id: habit.category_id,
               };
             });
-            console.log('Initial mapped habits:', mappedHabits);
             setHabits(mappedHabits);
           }
         }
@@ -617,14 +609,6 @@ export default function HabitScreen() {
       return dateStr >= startDateStr && dateStr <= endDateStr;
     }).length;
 
-    console.log('Weekly completion count:', {
-      habit: habit.text,
-      count,
-      completedDays: habit.completedDays,
-      startDate: startDateStr,
-      endDate: endDateStr
-    });
-
     return count;
   }
 
@@ -697,13 +681,6 @@ const formatDate = (date: Date): string => {
         break;
       }
     }
-
-    console.log('Streak calculation:', {
-      habit: habit.text,
-      streak,
-      targetPerWeek: habit.targetPerWeek,
-      completedDays: Array.from(completedSet)
-    });
 
     return streak;
   };
@@ -854,7 +831,6 @@ const formatDate = (date: Date): string => {
 
       if (!result.canceled && selectedHabitId) {
         const uri = result.assets[0].uri;
-        console.log('Selected image URI:', uri);
         
         const habit = habits.find(h => h.id === selectedHabitId);
         if (!habit) return;
@@ -866,17 +842,14 @@ const formatDate = (date: Date): string => {
         }
 
         const today = moment().format('YYYY-MM-DD');
-        console.log('Using today\'s date for completion:', today);
 
         // Create a unique filename with timestamp
         const timestamp = new Date().getTime();
         const filename = `${user.id}/${habit.id}/${today}_${timestamp}.jpg`;
-        console.log('Uploading file:', filename);
 
         // Get the file info
         const fileInfo = await FileSystem.getInfoAsync(uri);
         if (!fileInfo.exists) {
-          console.error('File does not exist:', uri);
           Alert.alert('Error', 'Failed to access the selected image. Please try again.');
           return;
         }
@@ -903,7 +876,6 @@ const formatDate = (date: Date): string => {
           });
 
         if (uploadError) {
-          console.error('Error uploading photo:', uploadError);
           Alert.alert('Error', 'Failed to upload photo. Please try again.');
           return;
         }
@@ -973,13 +945,11 @@ const formatDate = (date: Date): string => {
       }
 
       const today = moment().format('YYYY-MM-DD');
-      console.log('Habit press:', { habitId, date, today });
       
       const habit = habits.find(h => h.id === habitId);
       if (!habit) return;
 
       const isCompleted = habit.completedDays.includes(today);
-      console.log('Current completion status:', { isCompleted, completedDays: habit.completedDays });
 
       // Only show photo modal if the habit requires a photo AND it's not already completed
       if (habit.requirePhoto && !isCompleted && !habit.photos[today]) {
@@ -1017,13 +987,6 @@ const formatDate = (date: Date): string => {
         completedDays: newCompletedDays,
         streak: newStreak
       };
-
-      console.log('Updating habit with:', { 
-        habitId, 
-        newCompletedDays: updatedHabit.completedDays,
-        wasCompleted: isCompleted,
-        willBeCompleted: !isCompleted
-      });
 
       setHabits(prev => prev.map(h => h.id === habitId ? updatedHabit : h));
 
@@ -1261,35 +1224,24 @@ const formatDate = (date: Date): string => {
   };
 
   // Pan gesture handler
-  const onHandlerStateChange = (event: any) => {
-    if (event.nativeEvent.state === State.END) {
-      const { translationX } = event.nativeEvent;
-      // Only process swipe if we're not already in a swipe
-      if (!isSwiping && Math.abs(translationX) > 75) {
-        setIsSwiping(true); // Lock the swipe
-        const newDate = new Date(currentDate);
-        if (translationX > 0) {
-          // Swipe right - go to previous day
-          newDate.setDate(newDate.getDate() - 1);
-        } else {
-          // Swipe left - go to next day
-          newDate.setDate(newDate.getDate() + 1);
-        }
-        setCurrentDate(newDate);
-        if (calendarStripRef.current) {
-          calendarStripRef.current.setSelectedDate(moment(newDate));
-        }
-        // Provide haptic feedback
-        if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
-        // Add a small delay before allowing the next swipe
-        setTimeout(() => {
-          setIsSwiping(false);
-        }, 300); // 300ms delay before allowing next swipe
+  const onGestureEvent = (event: any) => {
+    const { translationX } = event.nativeEvent;
+    // Only process swipe if we're not already in a swipe
+    if (!isSwiping && Math.abs(translationX) > 75) {
+      setIsSwiping(true); // Lock the swipe
+      const newDate = new Date(currentDate);
+      if (translationX > 0) {
+        // Swipe right - go to previous day
+        newDate.setDate(currentDate.getDate() - 1);
+      } else {
+        // Swipe left - go to next day
+        newDate.setDate(currentDate.getDate() + 1);
       }
-      // Reset the gesture handler state
-      event.nativeEvent.translationX = 0;
+      setCurrentDate(newDate);
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
     }
   };
 
@@ -1356,26 +1308,20 @@ const formatDate = (date: Date): string => {
 
 
   const handleNotePress = (habitId: string, date: string) => {
-    console.log('Note pressed for habit:', habitId, 'date:', date);
     const today = moment().format('YYYY-MM-DD');
-    console.log('Today:', today);
-    console.log('Pressed date:', date);
+ 
     
     // Only show note modal for today's date
     if (date === today) {
-      console.log('Opening note modal for today');
       setSelectedNoteDate({ habitId, date });
       setIsNoteEditMode(true);
       const habit = habits.find(h => h.id === habitId);
       if (habit?.notes?.[date]) {
-        console.log('Found existing note:', habit.notes[date]);
         setNoteText(habit.notes[date]);
       } else {
-        console.log('No existing note, setting empty text');
         setNoteText('');
       }
     } else {
-      console.log('Not today, not showing note modal');
       // Don't show modal for other dates
       setSelectedNoteDate(null);
       setIsNoteEditMode(false);
@@ -1582,9 +1528,6 @@ const formatDate = (date: Date): string => {
           return;
         }
 
-        console.log('User authenticated:', session.user.email);
-        console.log('User role:', session.user.role);
-
         // Try to list contents of the bucket directly
         const { data: files, error: listError } = await supabase
           .storage
@@ -1607,6 +1550,17 @@ const formatDate = (date: Date): string => {
 
     verifyBucketSetup();
   }, []);
+
+  const onHandlerStateChange = (event: any) => {
+    if (event.nativeEvent.state === State.END) {
+      // Reset the gesture handler state
+      event.nativeEvent.translationX = 0;
+      // Add a small delay before allowing the next swipe
+      setTimeout(() => {
+        setIsSwiping(false);
+      }, 300); // 300ms delay before allowing next swipe
+    }
+  };
 
 
   // Add function to handle progress modal
@@ -1664,8 +1618,9 @@ const formatDate = (date: Date): string => {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
+        onGestureEvent={onGestureEvent}
         onHandlerStateChange={onHandlerStateChange}
-        minDist={10}
+        activeOffsetX={[-20, 20]}
       >
         <View style={styles.container}>
           <View style={styles.header}>
@@ -1952,14 +1907,6 @@ const formatDate = (date: Date): string => {
                                   const dateStr = date.format('YYYY-MM-DD');
                                   const isCompleted = habit.completedDays.includes(dateStr);
                                   const isToday = date.isSame(moment(), 'day');
-                                  
-                                  console.log('Weekday button:', {
-                                    day,
-                                    dateStr,
-                                    isCompleted,
-                                    isToday,
-                                    completedDays: habit.completedDays
-                                  });
                                   
                                   return (
                                     <TouchableOpacity
@@ -2661,7 +2608,6 @@ const formatDate = (date: Date): string => {
         transparent={true}
         visible={isNewCategoryModalVisible}
         onRequestClose={() => {
-          console.log('🔒 Modal close requested');
           setIsNewCategoryModalVisible(false);
         }}
       >

@@ -230,7 +230,6 @@ export default function TodoScreen() {
   };
 
   useEffect(() => {
-    console.log('📁 useEffect triggered — isCategoryModalVisible:', isCategoryModalVisible);
   }, [isCategoryModalVisible]);
   
   // Move the useEffect for input focus here
@@ -266,7 +265,6 @@ export default function TodoScreen() {
   async function scheduleReminderNotification(taskTitle: string, reminderTime: Date) {
     try {
       const secondsUntilReminder = Math.floor((reminderTime.getTime() - Date.now()) / 1000);
-      console.log('Scheduling notification in', secondsUntilReminder, 'seconds');
   
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -281,9 +279,7 @@ export default function TodoScreen() {
         } as Notifications.TimeIntervalTriggerInput,
       });
   
-      console.log('✅ Notification scheduled!');
     } catch (error) {
-      console.error('❌ Error scheduling notification:', error);
     }
   }
 
@@ -302,7 +298,6 @@ export default function TodoScreen() {
         return;
       }
 
-      console.log('Current categories in database:', categoriesData);
     } catch (error) {
       console.error('Error in checkCategories:', error);
     }
@@ -313,7 +308,6 @@ export default function TodoScreen() {
   
     console.log('Starting save process...');
     console.log('New todo:', newTodo);
-    console.log('Selected category:', selectedCategoryId);
   
     try {
       // Get the current user
@@ -329,18 +323,14 @@ export default function TodoScreen() {
 
       // First, handle new category creation if needed
       let finalCategoryId: string | null = selectedCategoryId;
-      console.log('Initial finalCategoryId:', finalCategoryId);
 
       if (showNewCategoryInput && newCategoryName.trim()) {
-        console.log('Creating new category...');
         const newCategory = {
           id: uuidv4(),
           label: newCategoryName.trim(),
           color: newCategoryColor,
         };
-        
-        console.log('Attempting to save category:', newCategory);
-        
+                
         // Save new category to Supabase
         const { data: savedCategory, error: categoryError } = await supabase
           .from('categories')
@@ -375,12 +365,10 @@ export default function TodoScreen() {
         });
         
         finalCategoryId = savedCategory.id;
-        console.log('Final categoryId after save:', finalCategoryId);
       }
 
       // If no category is selected, set it to null
       if (!finalCategoryId) {
-        console.log('🪫 No category selected — checking for default "todo" category...');
       
         const { data: existingTodoCategory, error: fetchError } = await supabase
           .from('categories')
@@ -396,10 +384,8 @@ export default function TodoScreen() {
         }
       
         if (existingTodoCategory) {
-          console.log('✅ Found existing "todo" category:', existingTodoCategory);
           finalCategoryId = existingTodoCategory.id;
         } else {
-          console.log('🆕 Creating new default "todo" category...');
           const defaultCategory = {
             id: uuidv4(),
             label: 'todo',
@@ -441,7 +427,6 @@ export default function TodoScreen() {
 
       // Verify category exists if one is selected
       if (finalCategoryId) {
-        console.log('Verifying category exists:', finalCategoryId);
         const { data: categoryData, error: categoryCheckError } = await supabase
           .from('categories')
           .select('id')
@@ -458,8 +443,6 @@ export default function TodoScreen() {
           Alert.alert('Error', 'Selected category does not exist. Please try again.');
           return;
         }
-
-        console.log('Category verified successfully:', categoryData);
       }
   
       // Then create the new task
@@ -510,7 +493,6 @@ export default function TodoScreen() {
       
       // Schedule reminder if set
       if (reminderTime) {
-        console.log('Scheduling reminder...');
         await scheduleReminderNotification(newTodo.trim(), reminderTime);
       }
 
@@ -521,7 +503,6 @@ export default function TodoScreen() {
       
       // Provide haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      console.log('Save process completed successfully');
     } catch (error) {
       console.error('Error in handleSave:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
@@ -608,8 +589,6 @@ export default function TodoScreen() {
   
   const toggleTodo = async (id: string) => {
     try {
-      console.log('Starting task completion toggle...');
-      console.log('Task ID to toggle:', id);
       
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
@@ -710,8 +689,6 @@ export default function TodoScreen() {
   const renderTodoItem = (todo: Todo) => {
     const handleDelete = async () => {
       try {
-        console.log('Starting task deletion...');
-        console.log('Task to delete:', todo);
         
         // Get the current user
         const { data: { user } } = await supabase.auth.getUser();
@@ -736,12 +713,9 @@ export default function TodoScreen() {
           return;
         }
 
-        console.log('Successfully deleted task from Supabase:', deletedTask);
-
         // Update local state
         setTodos(prev => {
           const newTodos = prev.filter(t => t.id !== todo.id);
-          console.log('Updated todos after deletion:', newTodos);
           return newTodos;
         });
 
@@ -870,9 +844,6 @@ export default function TodoScreen() {
   
   const handleDeleteCategory = async (categoryId: string) => {
     try {
-      console.log('Starting category deletion process...');
-      console.log('Category ID to delete:', categoryId);
-      console.log('Current categories:', categories);
       
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
@@ -883,7 +854,6 @@ export default function TodoScreen() {
       }
 
       // First, delete all tasks in this category
-      console.log('Deleting tasks in category...');
       const { error: tasksError } = await supabase
         .from('todos')
         .delete()
@@ -897,7 +867,6 @@ export default function TodoScreen() {
       }
 
       // Then delete the category
-      console.log('Deleting category...');
       const { error: categoryError } = await supabase
         .from('categories')
         .delete()
@@ -909,9 +878,6 @@ export default function TodoScreen() {
         Alert.alert('Error', 'Failed to delete category. Please try again.');
         return;
       }
-
-      // Update local state
-      console.log('Updating local state...');
       
       // Update todos first
       setTodos(prev => {
@@ -923,13 +889,11 @@ export default function TodoScreen() {
       // Then update categories
       setCategories(prev => {
         const newCategories = prev.filter(category => category.id !== categoryId);
-        console.log('Updated categories:', newCategories);
         return newCategories;
       });
       
       // If the deleted category was selected, clear the selection
       if (selectedCategoryId === categoryId) {
-        console.log('Clearing selected category');
         setSelectedCategoryId('');
       }
 
@@ -937,7 +901,6 @@ export default function TodoScreen() {
       setCollapsedCategories(prev => {
         const newCollapsed = { ...prev };
         delete newCollapsed[categoryId];
-        console.log('Updated collapsed state:', newCollapsed);
         return newCollapsed;
       });
 
@@ -972,7 +935,6 @@ export default function TodoScreen() {
         style={styles.categoryHeader}
         onPress={() => toggleCategoryCollapse(category.id)}
         onLongPress={() => {
-          console.log('🧨 Long pressed category');
           Alert.alert(
             "Delete Category",
             `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
@@ -1243,7 +1205,6 @@ export default function TodoScreen() {
   
   // Add reminder picker handlers
   const handleReminderPress = useCallback(() => {
-    console.log('Opening reminder picker');
     setShowReminderPicker(true);
   }, []);
 
@@ -1264,54 +1225,6 @@ export default function TodoScreen() {
     setShowReminderPicker(false);
   }, []);
 
-  // Add this function to handle sign out
-  const handleSignOut = async () => {
-    try {
-      console.log('Starting sign out process...');
-      
-      // Clear local state first
-      setTodos([]);
-      setCategories([]);
-      setNewTodo('');
-      setNewDescription('');
-      setSelectedCategoryId('');
-      setShowNewCategoryInput(false);
-      setNewCategoryName('');
-      setNewCategoryColor('#E3F2FD');
-      setEditingTodo(null);
-      setCollapsedCategories({});
-      setCurrentDate(new Date());
-      setTaskDate(null);
-      setReminderTime(null);
-      setSelectedRepeat('none');
-      setRepeatEndDate(null);
-
-      console.log('Local state cleared');
-
-      // Try to sign out with a timeout
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Sign out timeout')), 5000);
-      });
-
-      const signOutPromise = supabase.auth.signOut();
-
-      try {
-        await Promise.race([signOutPromise, timeoutPromise]);
-        console.log('Successfully signed out from Supabase');
-      } catch (error) {
-        console.error('Error during sign out:', error);
-        // Even if sign out fails, we've already cleared local state
-        // So we can consider the user signed out locally
-        console.log('Proceeding with local sign out despite network error');
-      }
-    } catch (error) {
-      console.error('Error in handleSignOut:', error);
-      Alert.alert(
-        'Error',
-        'An unexpected error occurred. Please try again.'
-      );
-    }
-  };
 
   // Add this useEffect to initialize the current week
   useEffect(() => {
@@ -1404,11 +1317,9 @@ export default function TodoScreen() {
   };
 
   useEffect(() => {
-    console.log('🧪 isNewCategoryModalVisible state changed:', isNewCategoryModalVisible);
   }, [isNewCategoryModalVisible]);
 
   useEffect(() => {
-    console.log('showRepeatEndDatePicker:', showRepeatEndDatePicker);
   }, [showRepeatEndDatePicker]);
   
   
@@ -1737,7 +1648,6 @@ export default function TodoScreen() {
                       {/* ➕ Plus Button */}
                       <TouchableOpacity
                         onPress={() => {
-                          console.log('➕ Pressed: open category modal from task modal');
                           setIsNewTaskModalVisible(false);
                           setTimeout(() => {
                             setIsNewCategoryModalVisible(true);
@@ -1781,7 +1691,6 @@ export default function TodoScreen() {
             {/* Folder Button */}
             <TouchableOpacity
           onPress={() => {
-            console.log('📁 Bucket icon toggled');
             setShowCategoryBox(prev => !prev);
           }}
           style={{
@@ -1827,7 +1736,6 @@ export default function TodoScreen() {
             {showCategoryBox && (
               <TouchableOpacity
                 onPress={() => {
-                  console.log('🗑️ Category cleared');
                   setSelectedCategoryId('');
                 }}
                 style={{ marginLeft: 6 }}
@@ -2540,7 +2448,6 @@ export default function TodoScreen() {
       transparent={true}
       visible={isNewCategoryModalVisible}
       onRequestClose={() => {
-        console.log('🔒 Modal close requested');
         setIsNewCategoryModalVisible(false);
       }}
     >
