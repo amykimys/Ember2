@@ -134,8 +134,8 @@ const styles = StyleSheet.create({
       backgroundColor: 'white',
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
-      padding: 20,
       maxHeight: '90%',
+      paddingTop: 8
     },
     
     modalHeader: {
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
       borderTopColor: '#eee',
     },
     doneButton: {
-      marginBottom: 30,
+      marginBottom: 35,
       backgroundColor: '#FFB6B9',
       paddingVertical: 14,
       borderRadius: 8,

@@ -191,6 +191,7 @@ export default function TodoScreen() {
   const [showCustomDatesPicker, setShowCustomDatesPicker] = useState(false);
   const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
   const [selectedDateStrings, setSelectedDateStrings] = useState<string[]>([]);
+  const [isSwiping, setIsSwiping] = useState(false);
 
 
 
@@ -1344,8 +1345,9 @@ export default function TodoScreen() {
 
   const onGestureEvent = (event: any) => {
     const { translationX } = event.nativeEvent;
-    // Only handle horizontal swipes
-    if (Math.abs(translationX) > 200) { // Increased threshold from 50 to 100 pixels
+    // Only process swipe if we're not already in a swipe
+    if (!isSwiping && Math.abs(translationX) > 75) {
+      setIsSwiping(true); // Lock the swipe
       const newDate = new Date(currentDate);
       if (translationX > 0) {
         // Swipe right - go to previous day
@@ -1366,6 +1368,10 @@ export default function TodoScreen() {
     if (event.nativeEvent.state === State.END) {
       // Reset the gesture handler state
       event.nativeEvent.translationX = 0;
+      // Add a small delay before allowing the next swipe
+      setTimeout(() => {
+        setIsSwiping(false);
+      }, 300); // 300ms delay before allowing next swipe
     }
   };
 
@@ -1882,7 +1888,7 @@ export default function TodoScreen() {
       onRequestClose={handleCloseSettingsModal}
     >
       <View style={[styles.modalOverlay, { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }]}>
-        <View style={[styles.modalContent, { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '75%' : '68%', width: '100%' }]}>
+        <View style={[styles.modalContent, { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '74%' : '67%', width: '100%' }]}>
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
             <TouchableOpacity
               onPress={handleCancelFromSettings}
@@ -1905,7 +1911,7 @@ export default function TodoScreen() {
               flex: 1,
               width: '100%',
               backgroundColor: 'white',
-              paddingTop: 10,
+              paddingTop: 1,
               marginBottom: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? 40 : 0,
             }}>
               <MonthlyCalendar
@@ -2526,6 +2532,167 @@ export default function TodoScreen() {
           </View>
         </View>
       </View>
+    </Modal>
+
+    {/* New Category Modal */}
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={isNewCategoryModalVisible}
+      onRequestClose={() => {
+        console.log('🔒 Modal close requested');
+        setIsNewCategoryModalVisible(false);
+      }}
+    >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: 'white',
+            padding: 20,
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: {
+              width: 0,
+              height: -2,
+            },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+          }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>New Category</Text>
+              <TouchableOpacity onPress={() => {
+                setIsNewCategoryModalVisible(false);
+                setTimeout(() => {
+                  setIsNewTaskModalVisible(true);
+                }, 300);
+              }}>
+                <Ionicons name="close" size={20} color="#666" style={{ marginTop: -8, marginRight: -5 }} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView keyboardShouldPersistTaps="always">
+              <TextInput
+                ref={categoryInputRef}
+                style={{
+                  fontSize: 16,
+                  color: '#1a1a1a',
+                  padding: 12,
+                  backgroundColor: '#F5F5F5',
+                  borderRadius: 12,
+                  marginBottom: 20,
+                  fontFamily: 'Onest',
+                }}
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                placeholder="Category name"
+                placeholderTextColor="#999"
+                autoFocus
+              />
+
+              <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
+              
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                keyboardShouldPersistTaps="always"
+              >
+                {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
+                  const isSelected = newCategoryColor === color;
+                  return (
+                    <TouchableOpacity
+                      key={color}
+                      onPress={() => setNewCategoryColor(color)}
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 15,
+                        backgroundColor: color,
+                        marginRight: 8,
+                        marginLeft: 2,
+                        opacity: isSelected ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
+                      }}
+                    />
+                  );
+                })}
+              </ScrollView>
+
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!newCategoryName.trim()) return;
+                
+                  try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) {
+                      Alert.alert('Error', 'You must be logged in to create categories.');
+                      return;
+                    }
+                
+                    const newCategory = {
+                      id: uuidv4(),
+                      label: newCategoryName.trim(),
+                      color: newCategoryColor,
+                    };
+                
+                    const { data: savedCategory, error: categoryError } = await supabase
+                      .from('categories')
+                      .insert({
+                        id: newCategory.id,
+                        label: newCategory.label,
+                        color: newCategory.color,
+                        user_id: user.id
+                      })
+                      .select()
+                      .single();
+                
+                    if (categoryError || !savedCategory) {
+                      console.error('Error saving category:', categoryError);
+                      Alert.alert('Error', 'Failed to save category. Please try again.');
+                      return;
+                    }
+                
+                    // Update state in the correct order
+                    setCategories(prev => [...prev, savedCategory]);
+                    setSelectedCategoryId(savedCategory.id);
+                    setNewCategoryName('');
+                    
+                    // Close category modal and show task modal
+                    setIsNewCategoryModalVisible(false);
+                    requestAnimationFrame(() => {
+                      setIsNewTaskModalVisible(true);
+                    });
+                
+                  } catch (error) {
+                    console.error('Error creating category:', error);
+                    Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                  }
+                }}
+                style={{
+                  backgroundColor: '#FF9A8B',
+                  padding: 12,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  marginTop: 'auto',
+                  marginBottom: 8,
+                }}
+              >
+                <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   </GestureHandlerRootView>
 );

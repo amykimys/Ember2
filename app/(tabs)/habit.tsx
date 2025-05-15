@@ -244,6 +244,8 @@ export default function HabitScreen() {
   const [scrollPosition, setScrollPosition] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
   const noteInputRef = useRef<TextInput>(null);
+  // Add this state near the other state declarations
+  const [isSwiping, setIsSwiping] = useState(false);
   
   // Update the useEffect for progress animations
   useEffect(() => {
@@ -1262,7 +1264,9 @@ const formatDate = (date: Date): string => {
   const onHandlerStateChange = (event: any) => {
     if (event.nativeEvent.state === State.END) {
       const { translationX } = event.nativeEvent;
-      if (Math.abs(translationX) > 100) { // Using 100px threshold like todo screen
+      // Only process swipe if we're not already in a swipe
+      if (!isSwiping && Math.abs(translationX) > 75) {
+        setIsSwiping(true); // Lock the swipe
         const newDate = new Date(currentDate);
         if (translationX > 0) {
           // Swipe right - go to previous day
@@ -1275,7 +1279,17 @@ const formatDate = (date: Date): string => {
         if (calendarStripRef.current) {
           calendarStripRef.current.setSelectedDate(moment(newDate));
         }
+        // Provide haptic feedback
+        if (Platform.OS !== 'web') {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }
+        // Add a small delay before allowing the next swipe
+        setTimeout(() => {
+          setIsSwiping(false);
+        }, 300); // 300ms delay before allowing next swipe
       }
+      // Reset the gesture handler state
+      event.nativeEvent.translationX = 0;
     }
   };
 

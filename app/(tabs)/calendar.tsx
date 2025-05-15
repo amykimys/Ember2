@@ -102,11 +102,11 @@ const styles = StyleSheet.create({
       flexDirection: 'row', 
       alignItems: 'center', 
       justifyContent: 'space-between', 
-      paddingHorizontal: 22,
+      paddingHorizontal: 23,
       marginVertical: 1,
       backgroundColor: 'white',
       zIndex: 1,
-      marginTop: 5,
+      marginTop: 15,
       marginBottom: 18
   },
   weekRow: {
