@@ -2974,14 +2974,7 @@ const CalendarScreen: React.FC = () => {
 
                     {/* Time Picker for Default Event Time */}
                     {(showStartPicker || showEndPicker) && (
-                      <View style={{ 
-                        backgroundColor: '#fff',
-                        borderRadius: 12,
-                        padding: 16,
-                        marginTop: 12,
-                        borderWidth: 1,
-                        borderColor: '#eee'
-                      }}>
+                      <Animated.View style={styles.dateTimePickerContainer}>
                         <DateTimePicker
                           value={showStartPicker ? startDateTime : endDateTime}
                           mode="time"
@@ -3006,7 +2999,7 @@ const CalendarScreen: React.FC = () => {
                           style={{ height: 180 }}
                           textColor="#333"
                         />
-                      </View>
+                      </Animated.View>
                     )}
 
                     {/* Reminder & Repeat Section */}
@@ -3020,17 +3013,9 @@ const CalendarScreen: React.FC = () => {
                               if (showRepeatPicker) setShowRepeatPicker(false);
                               if (showEndDatePicker) setShowEndDatePicker(false);
                             }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              alignItems: 'center',
-                              borderWidth: 1,
-                              borderColor: '#eee'
-                            }}
+                            style={styles.featureButton}
                           >
-                            <Text style={{ fontSize: 13, color: '#333', fontFamily: 'Onest' }}>
+                              <Text style={styles.featureButtonText}>
                               {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
                             </Text>
                           </TouchableOpacity>
@@ -3043,17 +3028,9 @@ const CalendarScreen: React.FC = () => {
                               if (showReminderPicker) setShowReminderPicker(false);
                               if (showEndDatePicker) setShowEndDatePicker(false);
                             }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              alignItems: 'center',
-                              borderWidth: 1,
-                              borderColor: '#eee'
-                            }}
+                            style={styles.featureButton}
                           >
-                            <Text style={{ fontSize: 13, color: '#333', fontFamily: 'Onest' }}>
+                              <Text style={styles.featureButtonText}>
                               {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
                             </Text>
                           </TouchableOpacity>
@@ -3067,17 +3044,8 @@ const CalendarScreen: React.FC = () => {
                                 if (showReminderPicker) setShowReminderPicker(false);
                                 if (showRepeatPicker) setShowRepeatPicker(false);
                               }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                alignItems: 'center',
-                                borderWidth: 1,
-                                borderColor: '#eee'
-                              }}
-                            >
-                              <Text style={{ fontSize: 13, color: '#333', fontFamily: 'Onest' }}>
+                              style={styles.featureButton}>
+                                <Text style={styles.featureButtonText}>
                                 {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
                                   month: 'short', 
                                   day: 'numeric', 
@@ -3091,14 +3059,7 @@ const CalendarScreen: React.FC = () => {
 
                       {/* Reminder Picker */}
                       {showReminderPicker && (
-                        <View style={{ 
-                          backgroundColor: '#fff',
-                          borderRadius: 12,
-                          padding: 16,
-                          marginTop: 12,
-                          borderWidth: 1,
-                          borderColor: '#eee'
-                        }}>
+                        <Animated.View style={styles.dateTimePickerContainer}>
                           <DateTimePicker
                             value={reminderTime || new Date()}
                             mode="time"
@@ -3112,18 +3073,21 @@ const CalendarScreen: React.FC = () => {
                             style={{ height: 180 }}
                             textColor="#333"
                           />
-                        </View>
+                        </Animated.View>
                       )}
 
                       {/* Repeat Picker */}
                       {showRepeatPicker && (
-                        <View style={{ 
+                        <Animated.View style={{ 
                           backgroundColor: '#fafafa',
                           borderRadius: 12,
                           padding: 12,
                           marginTop: 12,
-                          borderWidth: 1,
-                          borderColor: '#eee'
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 1 },
+                          shadowOpacity: 0.05,
+                          shadowRadius: 2,
+                          elevation: 1,
                         }}>
                           {['Do Not Repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
                             <TouchableOpacity 
@@ -3149,20 +3113,14 @@ const CalendarScreen: React.FC = () => {
                     </Text>
                             </TouchableOpacity>
                           ))}
-                </View>
+              </Animated.View>
               )}
                         </View>
 
                         {/* End Date Picker */}
                         {showEndDatePicker && (
-                          <View style={{ 
-                            backgroundColor: '#fff',
-                            borderRadius: 12,
-                            padding: 16,
-                            marginTop: 12,
-                            borderWidth: 1,
-                            borderColor: '#eee'
-                          }}>
+                          <Animated.View style={styles.dateTimePickerContainer}>
+
                             <DateTimePicker
                               value={repeatEndDate || new Date()}
                               mode="date"
@@ -3176,7 +3134,7 @@ const CalendarScreen: React.FC = () => {
                               style={{ height: 180 }}
                               textColor="#333"
                             />
-                          </View>
+                          </Animated.View>
                         )}
                       </View>
 
@@ -3324,14 +3282,8 @@ const CalendarScreen: React.FC = () => {
 
                       {/* Time Pickers */}
                       {(showCustomTimeStartPicker || showCustomTimeEndPicker) && (
-                        <View style={{ 
-                          backgroundColor: '#fff',
-                          borderRadius: 12,
-                          padding: 16,
-                          marginTop: 12,
-                          borderWidth: 1,
-                          borderColor: '#eee'
-                        }}>
+                        <Animated.View style={styles.dateTimePickerContainer}>
+
                           <DateTimePicker
                             value={showCustomTimeStartPicker ? customTimeStart : customTimeEnd}
                             mode="time"
@@ -3356,7 +3308,7 @@ const CalendarScreen: React.FC = () => {
                             style={{ height: 180 }}
                             textColor="#333"
                           />
-                        </View>
+                        </Animated.View>
                       )}
                     </View>
 
