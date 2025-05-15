@@ -105,7 +105,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: '#eee',
     backgroundColor: 'white',
-    marginTop: -8,
+    marginTop: 8,
     paddingVertical: 2,
   },
   weekday: {
@@ -604,6 +604,25 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
     fontWeight: '600',
   },
+  featureButton: {
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 2,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  featureButtonText: {
+    fontSize: 13, 
+    color: '#3a3a3a',
+    fontFamily: 'Onest',
+    fontWeight: '500'
+  },
 });
 
 // Add this array of predefined colors near the top of the file, after the imports
@@ -622,7 +641,7 @@ const CATEGORY_COLORS = [
 
 const CalendarScreen: React.FC = () => {
   const today = new Date();
-  const currentMonthIndex = 12; // center month in 25-month buffer
+  const [currentMonthIndex, setCurrentMonthIndex] = useState(12); // center month in 25-month buffer
   const flatListRef = useRef<FlatList>(null);
   const weeklyCalendarRef = useRef<WeeklyCalendarViewRef>(null);
   const monthFlatListRef = useRef<FlatList>(null);
@@ -1270,12 +1289,6 @@ const CalendarScreen: React.FC = () => {
   
   const renderMonth = ({ item }: { item: ReturnType<typeof getMonthData> }) => {
     const { year, month, days } = item;
-    const monthDate = new Date(year, month);
-    const label = monthDate.toLocaleDateString('en-US', {
-      month: 'long',
-      year: 'numeric'
-    });
-
     const needsSixRowsThisMonth = item.days.length > 35;
 
     // Helper function to check if a date belongs to the current month
@@ -1285,71 +1298,6 @@ const CalendarScreen: React.FC = () => {
 
     return (
       <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
-        <View style={{ 
-          flexDirection: 'row', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          marginBottom: 55, 
-          paddingHorizontal: 18,
-          marginLeft: 50,
-          position: 'relative'
-        }}>
-          <TouchableOpacity
-            onPress={() => setCalendarMode('week')}
-            style={{ position: 'absolute', left: -25, top:0, paddingVertical: 6, paddingHorizontal: 0}}
-          >
-            <MaterialIcons 
-              name="calendar-view-week"
-              size={20} 
-              color="#333"
-            />
-          </TouchableOpacity>
-
-          {/* Month Text - Absolute and centered */}
-          <TouchableOpacity
-            onPress={() => {
-              if (calendarMode === 'month') {
-                // In month view, scroll to current month
-                const today = new Date();
-                const monthIndex = months.findIndex(m => 
-                  m.year === today.getFullYear() && m.month === today.getMonth()
-                );
-                if (monthIndex !== -1) {
-                  flatListRef.current?.scrollToIndex({
-                    index: monthIndex,
-                    animated: true
-                  });
-                }
-              } else {
-                // In week view, scroll to current week
-                const today = new Date();
-                setSelectedDate(today);
-                setVisibleWeekMonth(today);
-                weeklyCalendarRef.current?.scrollToWeek?.(today);
-              }
-            }}
-            style={{
-              position: 'absolute',
-              left: '50%',
-              transform: [{ translateX: -50 }],
-              top: 0,
-              padding: 8,
-            }}
-          >
-            <Text style={[styles.monthLabel, { marginBottom: 0 }]}>{label}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              resetEventForm();
-              setShowModal(true);
-            }}
-            style={{  position: 'absolute',
-              right: 0,
-              paddingVertical: 0,
-              paddingHorizontal: 0 }}
-          >
-          </TouchableOpacity>
-        </View>
         <View style={{ paddingHorizontal: SIDE_PADDING }}>
           <View style={styles.weekRow}>
             {weekdays.map((day, idx) => (
@@ -1432,7 +1380,7 @@ const CalendarScreen: React.FC = () => {
                             flex: 1,
                             gap: 2
                           }}>
-                            {dayEvents.slice(0, 3).map((event, eventIndex) => (
+                            {dayEvents.map((event, eventIndex) => (
                               <TouchableOpacity
                                 key={`${event.id}-${eventIndex}`}
                                 onLongPress={() => {
@@ -1447,7 +1395,7 @@ const CalendarScreen: React.FC = () => {
                                   setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                                   setCustomSelectedDates(event.customDates || []);
                                   setIsEditedAllDay(event.isAllDay || false);
-                                  resetToggleStates(); // Add this line
+                                  resetToggleStates();
                                   if (event.repeatOption === 'Custom') {
                                     setIsEditingEvent(true);
                                     setShowCustomDatesPicker(true);
@@ -1455,15 +1403,37 @@ const CalendarScreen: React.FC = () => {
                                     setShowEditEventModal(true);
                                   }
                                 }}
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  width: '100%',
-                                  backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
-                                  borderRadius: 4,
-                                  paddingVertical: 2,
-                                  paddingHorizontal: 4,
-                                }}
+                                style={[
+                                  {
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    width: '100%',
+                                    backgroundColor: `${event.categoryColor || '#FF9A8B'}20`,
+                                    borderRadius: 4,
+                                    paddingVertical: 2,
+                                    paddingHorizontal: 4,
+                                    borderLeftWidth: 2,
+                                    borderLeftColor: event.categoryColor || '#FF9A8B',
+                                    opacity: event.isContinued ? 0.7 : 1,
+                                  },
+                                  // Add left border radius for first day of multi-day event
+                                  !event.isContinued && event.startDateTime && event.endDateTime && 
+                                  new Date(event.startDateTime).toDateString() === date?.toDateString() && {
+                                    borderTopLeftRadius: 4,
+                                    borderBottomLeftRadius: 4,
+                                  },
+                                  // Add right border radius for last day of multi-day event
+                                  event.startDateTime && event.endDateTime && 
+                                  new Date(event.endDateTime).toDateString() === date?.toDateString() && {
+                                    borderTopRightRadius: 4,
+                                    borderBottomRightRadius: 4,
+                                  },
+                                  // Add margin for continued events to show visual connection
+                                  event.isContinued && {
+                                    marginLeft: -2,
+                                    paddingLeft: 6,
+                                  }
+                                ]}
                               >
                                 <Text
                                   numberOfLines={1}
@@ -1472,12 +1442,12 @@ const CalendarScreen: React.FC = () => {
                                     color: '#3A3A3A',
                                     flex: 1,
                                     fontFamily: 'Onest',
-                                    textAlign: 'center'
+                                    textAlign: event.isContinued ? 'left' : 'center'
                                   }}
                                 >
-                                  {event.title}
-                    </Text>
-                  </TouchableOpacity>
+                                  {event.isContinued ? '' : event.title}
+                                </Text>
+                              </TouchableOpacity>
                             ))}
                             {dayEvents.length > 3 && (
                               <View
@@ -1502,8 +1472,8 @@ const CalendarScreen: React.FC = () => {
                                   +{dayEvents.length - 3} more
                                 </Text>
                               </View>
-                              )}
-                            </View>
+                            )}
+                          </View>
                         )}
                       </View>
                     </TouchableOpacity>
@@ -1522,7 +1492,70 @@ const CalendarScreen: React.FC = () => {
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
         {calendarMode === 'month' ? (
           <View style={{ flex: 1, flexDirection: 'column' }}>
-            <View style={{ flex: isMonthCompact ? 0.9 : 1 }}>
+            {/* Fixed Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              paddingHorizontal: 18,
+              marginVertical: 2,
+              backgroundColor: 'white',
+              zIndex: 1
+            }}>
+              <TouchableOpacity
+                onPress={() => setCalendarMode('week')}
+                style={{ paddingVertical: 5 }}
+              >
+                <MaterialIcons 
+                  name="calendar-view-week"
+                  size={20} 
+                  color="#333"
+                />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  if (calendarMode === 'month') {
+                    const today = new Date();
+                    const monthIndex = months.findIndex(m => 
+                      m.year === today.getFullYear() && m.month === today.getMonth()
+                    );
+                    if (monthIndex !== -1) {
+                      flatListRef.current?.scrollToIndex({
+                        index: monthIndex,
+                        animated: true
+                      });
+                    }
+                  } else {
+                    const today = new Date();
+                    setSelectedDate(today);
+                    setVisibleWeekMonth(today);
+                    weeklyCalendarRef.current?.scrollToWeek?.(today);
+                  }
+                }}
+                style={{ padding: 8 }}
+              >
+                <Text style={[styles.monthLabel, { marginBottom: 0 }]}>
+                  {new Date(months[currentMonthIndex].year, months[currentMonthIndex].month).toLocaleString('en-US', {
+                    month: 'long',
+                    year: 'numeric'
+                  })}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  resetEventForm();
+                  setShowModal(true);
+                }}
+                style={{ paddingVertical: 6 }}
+              >
+                <MaterialIcons name="add" size={22} color="#3a3a3a" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Scrollable Calendar Grid */}
+            <View style={{ flex: isMonthCompact ? 0.9 : 1, marginTop: 8 }}>
               <FlatList
                 ref={flatListRef}
                 data={months}
@@ -1538,7 +1571,13 @@ const CalendarScreen: React.FC = () => {
                   index,
                 })}
                 showsHorizontalScrollIndicator={false}
-                style={{ flex: 1}}
+                style={{ flex: 1 }}
+                onScroll={(event) => {
+                  const newIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+                  if (newIndex !== currentMonthIndex) {
+                    setCurrentMonthIndex(newIndex);
+                  }
+                }}
               />
             </View>
 
@@ -1603,45 +1642,73 @@ const CalendarScreen: React.FC = () => {
           </View>
         ) : (
           <View style={{ width: SCREEN_WIDTH, flex: 1, paddingTop: 0, backgroundColor: 'white' }}>
-        <View style={{ 
-          flexDirection: 'row', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          marginBottom: 0, 
-          paddingHorizontal: 18,
-          marginLeft: 50,
-          position: 'relative'
-        }}>
-          <TouchableOpacity
-            onPress={() => setCalendarMode('month')}
-            style={{ position: 'absolute', left: -25, top:0, paddingVertical: 6, paddingHorizontal: 0}}
-          >
-                
+            {/* Fixed Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              paddingHorizontal: 18,
+              marginVertical: 2,
+              backgroundColor: 'white',
+              zIndex: 1
+            }}>
+              <TouchableOpacity
+                onPress={() => setCalendarMode('month')}
+                style={{ paddingVertical: 5 }}
+              >
                 <MaterialIcons 
                   name="calendar-view-month"
                   size={20} 
                   color="#333"
                 />
               </TouchableOpacity>
-              <View style={{ flex: 1, alignItems: 'center' }}>
-                <TouchableOpacity 
-                  onPress={() => {
-                    const today = new Date();
-                    setSelectedDate(today);
-                    setVisibleWeekMonth(today);
-                    weeklyCalendarRef.current?.scrollToWeek?.(today);
-                  }}
-                  style={{ paddingVertical: 8 }}
-                >
-                  <Text style={[styles.monthLabel, { marginBottom: 0, textTransform: 'capitalize', marginLeft: -5 }]}> 
-                    {visibleWeekMonthText}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <View style={{ width: 40 }}>
-                <Text style={{ color: 'transparent' }}>Spacer</Text>
-              </View>
+
+              <TouchableOpacity 
+                onPress={() => {
+                  const today = new Date();
+                  setSelectedDate(today);
+                  setVisibleWeekMonth(today);
+                  weeklyCalendarRef.current?.scrollToWeek?.(today);
+                }}
+                style={{ padding: 8 }}
+              >
+                <Text style={[styles.monthLabel, { marginBottom: 0, textTransform: 'capitalize' }]}> 
+                  {(() => {
+                    const weekStart = new Date(visibleWeekMonth);
+                    const weekEnd = new Date(visibleWeekMonth);
+                    weekEnd.setDate(weekEnd.getDate() + 6);
+                    
+                    const startMonth = weekStart.getMonth();
+                    const endMonth = weekEnd.getMonth();
+                    const year = weekStart.getFullYear();
+                    
+                    if (startMonth === endMonth) {
+                      return new Date(visibleWeekMonth).toLocaleString('en-US', {
+                        month: 'long',
+                        year: 'numeric'
+                      });
+                    } else {
+                      const months = [
+                        'January', 'February', 'March', 'April', 'May', 'June',
+                        'July', 'August', 'September', 'October', 'November', 'December'
+                      ];
+                      return `${months[startMonth]}/${months[endMonth]} ${year}`;
+                    }
+                  })()}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  resetEventForm();
+                  setShowModal(true);
+                }}
+                style={{ paddingVertical: 5 }}
+              >
+                <MaterialIcons name="add" size={22} color="#3a3a3a" style={{ marginTop: 6 }} />
+              </TouchableOpacity>
             </View>
+
             <WeeklyCalendarView
               ref={weeklyCalendarRef}
               events={events}
@@ -1676,7 +1743,7 @@ const CalendarScreen: React.FC = () => {
               setShowModal(true);
             }}
           >
-            <MaterialIcons name="add" size={22} color="#3a3a3a" style={{ marginLeft: -4, marginTop: 6 }} />
+            <MaterialIcons name="add" size={22} color="#3a3a3a" style={{ marginLeft: 0, marginTop: 6 }} />
           </TouchableOpacity>
       </SafeAreaView>
 
@@ -2132,26 +2199,9 @@ const CalendarScreen: React.FC = () => {
                                 if (showRepeatPicker) setShowRepeatPicker(false);
                                 if (showEndDatePicker) setShowEndDatePicker(false);
                               }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
-                              }}
+                              style={styles.featureButton}
                             >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
+                              <Text style={styles.featureButtonText}>
                                 {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
                               </Text>
                             </TouchableOpacity>
@@ -2166,26 +2216,9 @@ const CalendarScreen: React.FC = () => {
                                 if (showReminderPicker) setShowReminderPicker(false);
                                 if (showEndDatePicker) setShowEndDatePicker(false);
                               }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
-                              }}
+                              style={styles.featureButton}
                             >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
+                              <Text style={styles.featureButtonText}>
                                 {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
                               </Text>
                             </TouchableOpacity>
@@ -2207,26 +2240,9 @@ const CalendarScreen: React.FC = () => {
                                     }, 3000);
                                   }
                                 }}
-                                style={{
-                                  backgroundColor: '#fafafa',
-                                  borderRadius: 12,
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 12,
-                                  marginTop: 2,
-                                  alignItems: 'center',
-                                  shadowColor: '#000',
-                                  shadowOffset: { width: 0, height: 1 },
-                                  shadowOpacity: 0.05,
-                                  shadowRadius: 2,
-                                  elevation: 1,
-                                }}
+                                style={styles.featureButton}
                               >
-                                <Text style={{ 
-                                  fontSize: 13, 
-                                  color: '#3a3a3a',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
+                                <Text style={styles.featureButtonText}>
                                   {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
                                     month: 'short', 
                                     day: 'numeric', 
@@ -3035,26 +3051,9 @@ const CalendarScreen: React.FC = () => {
                               if (showRepeatPicker) setShowRepeatPicker(false);
                               if (showEndDatePicker) setShowEndDatePicker(false);
                             }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
+                            style={styles.featureButton}
                           >
-                            <Text style={{ 
-                              fontSize: 13, 
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.featureButtonText}>
                               {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
                             </Text>
                           </TouchableOpacity>
@@ -3069,26 +3068,9 @@ const CalendarScreen: React.FC = () => {
                               if (showReminderPicker) setShowReminderPicker(false);
                               if (showEndDatePicker) setShowEndDatePicker(false);
                             }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
+                            style={styles.featureButton}
                           >
-                            <Text style={{ 
-                              fontSize: 13, 
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.featureButtonText}>
                               {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
                             </Text>
                           </TouchableOpacity>
@@ -3110,26 +3092,9 @@ const CalendarScreen: React.FC = () => {
                                   }, 3000);
                                 }
                               }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
-                              }}
+                              style={styles.featureButton}
                             >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
+                              <Text style={styles.featureButtonText}>
                                 {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
                                   month: 'short', 
                                   day: 'numeric', 
@@ -3495,26 +3460,9 @@ const CalendarScreen: React.FC = () => {
                             setShowEndDatePicker(false);
                           }
                         }}
-                        style={{
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          marginTop: 2,
-                          alignItems: 'center',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
-                        }}
+                        style={styles.featureButton}
                       >
-                        <Text style={{ 
-                          fontSize: 14,
-                          color: '#333',
-                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                        }}>
+                        <Text style={styles.featureButtonText}>
                           {customTimeReminder ? customTimeReminder.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
                         </Text>
                       </TouchableOpacity>
@@ -3530,26 +3478,9 @@ const CalendarScreen: React.FC = () => {
                             setShowEndDatePicker(false);
                           }
                         }}
-                        style={{
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          marginTop: 2,
-                          alignItems: 'center',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
-                        }}
+                        style={styles.featureButton}
                       >
-                        <Text style={{ 
-                          fontSize: 14,
-                          color: '#333',
-                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                        }}>
+                        <Text style={styles.featureButtonText}>
                           {customTimeRepeat === 'None' ? 'Do Not Repeat' : customTimeRepeat}
                         </Text>
                       </TouchableOpacity>
@@ -4003,26 +3934,9 @@ const CalendarScreen: React.FC = () => {
                               setShowEndDatePicker(false);
                             }
                           }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
+                            style={styles.featureButton}
                           >
-                            <Text style={{ 
-                              fontSize: 13, 
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.featureButtonText}>
                               {editedReminderTime ? editedReminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
                             </Text>
                           </TouchableOpacity>
@@ -4038,26 +3952,9 @@ const CalendarScreen: React.FC = () => {
                                 setShowEndDatePicker(false);
                               }
                             }}
-                            style={{
-                              backgroundColor: '#fafafa',
-                              borderRadius: 12,
-                              paddingVertical: 10,
-                              paddingHorizontal: 12,
-                              marginTop: 2,
-                              alignItems: 'center',
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                              shadowRadius: 2,
-                              elevation: 1,
-                            }}
+                            style={styles.featureButton}
                           >
-                            <Text style={{ 
-                              fontSize: 13, 
-                              color: '#3a3a3a',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.featureButtonText}>
                               {editedRepeatOption === 'None' ? 'Do Not Repeat' : editedRepeatOption}
                             </Text>
                           </TouchableOpacity>
@@ -4074,26 +3971,9 @@ const CalendarScreen: React.FC = () => {
                                 setShowRepeatPicker(false);
                               }
                             }}
-                              style={{
-                                backgroundColor: '#fafafa',
-                                borderRadius: 12,
-                                paddingVertical: 10,
-                                paddingHorizontal: 12,
-                                marginTop: 2,
-                                alignItems: 'center',
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                                shadowRadius: 2,
-                                elevation: 1,
-                              }}
+                              style={styles.featureButton}
                             >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
+                              <Text style={styles.featureButtonText}>
                                 {editedRepeatEndDate ? editedRepeatEndDate.toLocaleDateString([], { 
                                   month: 'short', 
                                   day: 'numeric', 

@@ -668,6 +668,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     paddingTop: 8,
     paddingBottom: 8,
+    marginTop: 5
   },
   timeColumnHeader: {
     width: TIME_COLUMN_WIDTH,
