@@ -28,6 +28,17 @@ import CustomToast from '../../components/CustomToast';
 import WeeklyCalendarView, { WeeklyCalendarViewRef } from '../../components/WeeklyCalendar'; 
 import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
 
+// Add type definitions for custom times
+type CustomTimeData = {
+  start: string;
+  end: string;
+  reminder: string | null;
+  repeat: string;
+};
+
+type CustomTimes = {
+  [date: string]: CustomTimeData;
+};
 
 interface CalendarEvent {
   id: string;
@@ -42,6 +53,7 @@ interface CalendarEvent {
   repeatOption?: 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
   repeatEndDate?: Date | null;
   customDates?: string[];
+  customTimes?: { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } };
   isContinued?: boolean;
   isAllDay?: boolean;
 }
@@ -252,7 +264,7 @@ const styles = StyleSheet.create({
   modalSubtitle: {
     fontSize: 14,
     color: '#A0C3B2',
-    marginBottom: 24,
+    marginBottom: 8,
     fontFamily: 'Onest',
   },
   input: {
@@ -290,17 +302,17 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   inputTitle: {
-    fontSize: 16,
+    fontSize: 15,
     padding: 12,
-    marginBottom: 16,
+    marginBottom: 10,
     fontFamily: 'Onest',
     backgroundColor: '#f5f5f5',
     borderRadius: 12,
   },
   inputDescription: {
-    fontSize: 14,
+    fontSize: 13,
     padding: 12,
-    height: 80,
+    height: 85,
     textAlignVertical: 'top',
     marginBottom: 16,
     fontFamily: 'Onest',
@@ -634,13 +646,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   featureButton: {
-    backgroundColor: '#fff',
+    backgroundColor: '#fafafa',
     borderRadius: 12,
     paddingVertical: 10,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     marginTop: 2,
     alignItems: 'center',
-    elevation: 1,
+    marginBottom: 15,
   },
   featureButtonText: {
     fontSize: 12, 
@@ -937,25 +949,43 @@ const CalendarScreen: React.FC = () => {
         data.forEach((event) => {
           const start = new Date(event.start_datetime);
           const end = new Date(event.end_datetime);
+          const customTimes = event.custom_times ? 
+            Object.entries(event.custom_times as CustomTimes).reduce((acc, [date, times]) => ({
+              ...acc,
+              [date]: {
+                start: new Date(times.start),
+                end: new Date(times.end),
+                reminder: times.reminder ? new Date(times.reminder) : null,
+                repeat: times.repeat as RepeatOption
+              }
+            }), {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } }) : {};
         
           // If it's a custom repeat event, only create events on the custom dates
           if (event.repeat_option === 'Custom' && event.custom_dates && event.custom_dates.length > 0) {
             event.custom_dates.forEach((dateStr: string) => {
               if (!eventsMap[dateStr]) eventsMap[dateStr] = [];
               
+              // Get custom times for this date if they exist
+              const dateCustomTimes = customTimes[dateStr];
+              const eventStart = dateCustomTimes ? new Date(dateCustomTimes.start) : start;
+              const eventEnd = dateCustomTimes ? new Date(dateCustomTimes.end) : end;
+              const eventReminder = dateCustomTimes?.reminder ? new Date(dateCustomTimes.reminder) : event.reminder_time;
+              const eventRepeat = dateCustomTimes?.repeat || event.repeat_option;
+              
               eventsMap[dateStr].push({
                 id: event.id,
                 title: event.title,              
                 description: event.description,
                 date: dateStr,
-                startDateTime: start,
-                endDateTime: end,
+                startDateTime: eventStart,
+                endDateTime: eventEnd,
                 categoryName: event.category_name,
                 categoryColor: event.category_color,
-                reminderTime: event.reminder_time,
-                repeatOption: event.repeat_option,
+                reminderTime: eventReminder,
+                repeatOption: eventRepeat,
                 repeatEndDate: event.repeat_end_date,
                 customDates: event.custom_dates,
+                customTimes: customTimes,
                 isContinued: false,
                 isAllDay: event.is_all_day,
               });
@@ -983,6 +1013,7 @@ const CalendarScreen: React.FC = () => {
                 repeatOption: event.repeat_option,
                 repeatEndDate: event.repeat_end_date,
                 customDates: event.custom_dates,
+                customTimes: customTimes,
                 isContinued: !isFirstDay,
                 isAllDay: event.is_all_day,
               });
@@ -1040,26 +1071,36 @@ const CalendarScreen: React.FC = () => {
     }
   
     const { data, error } = await supabase
-  .from('events')
-  .insert([
-    {
-      title: newEvent.title,
-      description: newEvent.description,
-      date: newEvent.date,
-      start_datetime: newEvent.startDateTime?.toISOString(),
-      end_datetime: newEvent.endDateTime?.toISOString(),
-      category_name: newEvent.categoryName,
-      category_color: newEvent.categoryColor,
-      reminder_time: newEvent.reminderTime?.toISOString(),
-      repeat_option: newEvent.repeatOption,
-      repeat_end_date: newEvent.repeatEndDate?.toISOString(),
-      custom_dates: newEvent.customDates,
-      user_id: user?.id,
-      is_all_day: newEvent.isAllDay,
-    }
-  ])
-  .select()
-  .returns<CalendarEvent[]>(); // ✅
+    .from('events')
+    .insert([
+      {
+        title: newEvent.title,
+        description: newEvent.description,
+        date: newEvent.date,
+        start_datetime: newEvent.startDateTime?.toISOString(),
+        end_datetime: newEvent.endDateTime?.toISOString(),
+        category_name: newEvent.categoryName,
+        category_color: newEvent.categoryColor,
+        reminder_time: newEvent.reminderTime?.toISOString(),
+        repeat_option: newEvent.repeatOption,
+        repeat_end_date: newEvent.repeatEndDate?.toISOString(),
+        custom_dates: newEvent.customDates,
+        custom_times: newEvent.customTimes ? 
+          Object.entries(newEvent.customTimes).reduce((acc, [date, times]) => ({
+            ...acc,
+            [date]: {
+              start: times.start.toISOString(),
+              end: times.end.toISOString(),
+              reminder: times.reminder?.toISOString() || null,
+              repeat: times.repeat
+            }
+          }), {}) : null,
+        user_id: user?.id,
+        is_all_day: newEvent.isAllDay,
+      }
+    ])
+    .select()
+    .returns<CalendarEvent[]>();
     if (error) {
       console.error('Error saving event:', error);
     } else {
@@ -1220,6 +1261,16 @@ const CalendarScreen: React.FC = () => {
             repeat_option: repeatOption || 'None',
             repeat_end_date: repeatEndDate ? repeatEndDate.toISOString() : null,
             custom_dates: repeatOption === 'Custom' ? customSelectedDates : null,
+            custom_times: repeatOption === 'Custom' ? 
+              Object.entries(customDateTimes).reduce((acc, [date, times]) => ({
+                ...acc,
+                [date]: {
+                  start: times.start.toISOString(),
+                  end: times.end.toISOString(),
+                  reminder: times.reminder?.toISOString() || null,
+                  repeat: times.repeat
+                }
+              }), {}) : null,
             user_id: user.id,
             is_all_day: isAllDay,
           },
@@ -1261,6 +1312,7 @@ const CalendarScreen: React.FC = () => {
             repeatOption,
             repeatEndDate,
             customDates: customSelectedDates,
+            customTimes: customDateTimes,
             isContinued: false,
             isAllDay: isAllDay,
           });
@@ -1286,6 +1338,7 @@ const CalendarScreen: React.FC = () => {
             repeatOption,
             repeatEndDate,
             customDates: customSelectedDates,
+            customTimes: customDateTimes,
             isContinued: currentDate.toDateString() !== startDateTime.toDateString(),
             isAllDay: isAllDay,
           });
@@ -1399,6 +1452,13 @@ const CalendarScreen: React.FC = () => {
                               <TouchableOpacity
                                 key={`${event.id}-${eventIndex}`}
                                 onLongPress={() => {
+                                  console.log('Event being edited:', {
+                                    title: event.title,
+                                    repeatOption: event.repeatOption,
+                                    customDates: event.customDates,
+                                    customTimes: event.customTimes
+                                  });
+                                  
                                   setSelectedEvent({ event, dateKey: event.date, index: eventIndex });
                                   setEditedEventTitle(event.title);
                                   setEditedEventDescription(event.description ?? '');
@@ -1408,13 +1468,55 @@ const CalendarScreen: React.FC = () => {
                                   setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                                   setEditedRepeatOption(event.repeatOption || 'None');
                                   setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                                  setCustomSelectedDates(event.customDates || []);
+                                  
+                                  // Initialize custom dates and times from the event
+                                  if (event.customDates && event.customDates.length > 0) {
+                                    console.log('Setting up custom dates and times for editing');
+                                    setCustomSelectedDates(event.customDates);
+                                    // Use the saved custom times if they exist, otherwise use default times
+                                    const customTimes: { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } } = {};
+                                    event.customDates.forEach(date => {
+                                      if (event.customTimes?.[date]) {
+                                        // Use the saved custom time for this date
+                                        const savedTime = event.customTimes[date];
+                                        customTimes[date] = {
+                                          start: new Date(savedTime.start),
+                                          end: new Date(savedTime.end),
+                                          reminder: savedTime.reminder ? new Date(savedTime.reminder) : null,
+                                          repeat: savedTime.repeat
+                                        };
+                                      } else {
+                                        // Fallback to default event times if no custom time exists
+                                        customTimes[date] = {
+                                          start: new Date(event.startDateTime!),
+                                          end: new Date(event.endDateTime!),
+                                          reminder: event.reminderTime ? new Date(event.reminderTime) : null,
+                                          repeat: event.repeatOption || 'None'
+                                        };
+                                      }
+                                    });
+                                    setCustomDateTimes(customTimes);
+                                    // Set default time values from the event
+                                    setStartDateTime(new Date(event.startDateTime!));
+                                    setEndDateTime(new Date(event.endDateTime!));
+                                    setReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                                    setRepeatOption(event.repeatOption || 'None');
+                                  } else {
+                                    console.log('No custom dates found for event');
+                                    setCustomSelectedDates([]);
+                                    setCustomDateTimes({});
+                                  }
+                                  
                                   setIsEditedAllDay(event.isAllDay || false);
                                   resetToggleStates();
-                                  if (event.repeatOption === 'Custom') {
-                                    setIsEditingEvent(true);
+                                  setIsEditingEvent(true);
+                                  
+                                  // If it's a custom event, show the custom dates picker first
+                                  if (event.repeatOption === 'Custom' || (event.customDates && event.customDates.length > 0)) {
+                                    console.log('Showing custom dates picker for custom event');
                                     setShowCustomDatesPicker(true);
                                   } else {
+                                    console.log('Showing edit modal for regular event');
                                     setShowEditEventModal(true);
                                   }
                                 }}
@@ -1719,7 +1821,7 @@ const CalendarScreen: React.FC = () => {
                   contentContainerStyle={{ paddingBottom: 20 }}
                   keyboardShouldPersistTaps="handled"
                 >
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, marginTop: -8, marginRight: -8 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: -2, marginTop: -6, marginRight: -8 }}>
                   <Text style={styles.modalTitle}>Add Event</Text>
                     <TouchableOpacity 
                       onPress={() => setShowModal(false)}
@@ -1737,7 +1839,7 @@ const CalendarScreen: React.FC = () => {
                       }
                     }}
                   >
-                    <Text style={[styles.modalSubtitle, { color: '#888888' }]}>
+                    <Text style={[styles.modalSubtitle, { color: '#888888', marginBottom: 15 }]}>
                       {repeatOption === 'Custom' ? 'Custom Dates' : startDateTime.toDateString()}
                     </Text>
                   </TouchableOpacity>
@@ -2318,8 +2420,29 @@ const CalendarScreen: React.FC = () => {
                               <TouchableOpacity 
                                 key={option}
                                 onPress={() => {
-                                  setRepeatOption(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
-                                  debouncePickerClose('repeat');
+                                  if (option === 'Custom') {
+                                    setRepeatOption('Custom');
+                                    setShowRepeatPicker(false);
+                                    setIsEditingEvent(false); // Explicitly set to false for new events
+                                    // Store the current time values before closing the modal
+                                    const currentStartTime = startDateTime;
+                                    const currentEndTime = endDateTime;
+                                    // Add the current date to customSelectedDates if not already included
+                                    const currentDateStr = getLocalDateString(currentStartTime);
+                                    if (!customSelectedDates.includes(currentDateStr)) {
+                                      setCustomSelectedDates(prev => [...prev, currentDateStr]);
+                                    }
+                                    setShowModal(false); // Close the add event modal
+                                    setTimeout(() => {
+                                      // Set the custom time values before showing the picker
+                                      setCustomTimeStart(currentStartTime);
+                                      setCustomTimeEnd(currentEndTime);
+                                      setShowCustomDatesPicker(true);
+                                    }, 300);
+                                  } else {
+                                    setRepeatOption(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
+                                    debouncePickerClose('repeat');
+                                  }
                                 }}
                                 style={{
                                   paddingVertical: 10,
@@ -2678,10 +2801,40 @@ const CalendarScreen: React.FC = () => {
                         <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Custom Dates</Text>
                         <TouchableOpacity
                           onPress={() => {
-                            // First set the custom dates picker to true
+                            // Initialize custom dates and times from the event being edited
+                            if (selectedEvent?.event.customDates && selectedEvent.event.customDates.length > 0) {
+                              setCustomSelectedDates(selectedEvent.event.customDates);
+                              // Use the saved custom times if they exist, otherwise use default times
+                              const customTimes: { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } } = {};
+                              selectedEvent.event.customDates.forEach(date => {
+                                if (selectedEvent.event.customTimes?.[date]) {
+                                  // Use the saved custom time for this date
+                                  const savedTime = selectedEvent.event.customTimes[date];
+                                  customTimes[date] = {
+                                    start: new Date(savedTime.start),
+                                    end: new Date(savedTime.end),
+                                    reminder: savedTime.reminder ? new Date(savedTime.reminder) : null,
+                                    repeat: savedTime.repeat
+                                  };
+                                } else {
+                                  // Fallback to default event times if no custom time exists
+                                  customTimes[date] = {
+                                    start: new Date(selectedEvent.event.startDateTime!),
+                                    end: new Date(selectedEvent.event.endDateTime!),
+                                    reminder: selectedEvent.event.reminderTime ? new Date(selectedEvent.event.reminderTime) : null,
+                                    repeat: selectedEvent.event.repeatOption || 'None'
+                                  };
+                                }
+                              });
+                              setCustomDateTimes(customTimes);
+                              // Set default time values from the event
+                              setStartDateTime(new Date(selectedEvent.event.startDateTime!));
+                              setEndDateTime(new Date(selectedEvent.event.endDateTime!));
+                              setReminderTime(selectedEvent.event.reminderTime ? new Date(selectedEvent.event.reminderTime) : null);
+                              setRepeatOption(selectedEvent.event.repeatOption || 'None');
+                            }
                             setShowCustomDatesPicker(true);
-                            // Then close the add event modal
-                            setShowModal(false);
+                            setShowEditEventModal(false);
                           }}
                           style={{
                             backgroundColor: '#fafafa',
@@ -2821,12 +2974,13 @@ const CalendarScreen: React.FC = () => {
                 }}
                 onDayLongPress={(day: DateData) => {
                     console.log('Long press detected on:', day.dateString);
-                  const dateStr = day.dateString;
+                    const dateStr = day.dateString;
                     setCustomTimeDate(dateStr);
                     const existingTimes = customDateTimes[dateStr];
+                    // Use the default time values from the add event modal as default
                     setCustomTimeStart(existingTimes?.start || startDateTime);
                     setCustomTimeEnd(existingTimes?.end || endDateTime);
-                    setCustomTimeReminder(existingTimes?.reminder || null);
+                    setCustomTimeReminder(existingTimes?.reminder || reminderTime);
                     setCustomTimeRepeat(existingTimes?.repeat || 'None');
                     setShowCustomTimeInline(true);
                 }}
@@ -2853,7 +3007,7 @@ const CalendarScreen: React.FC = () => {
                   backgroundColor: '#fafafa',
                   borderRadius: 12,
                   padding: 18,
-                  marginBottom: 25
+                  marginBottom: 20
                 }}>
                   <Text style={{ 
                     fontSize: 14, 
@@ -2917,236 +3071,16 @@ const CalendarScreen: React.FC = () => {
                       </Text>
                     )}
                   </ScrollView>
-
-                  {/* Default Event Time - Always visible */}
                   <View style={{ marginTop: 18 }}>
-                    <Text style={{ 
-                      fontSize: 14, 
-                      fontWeight: '600', 
-                      color: '#333',
-                      marginBottom: 12,
-                      fontFamily: 'Onest'
-                    }}>
-                      Default Event Time
-                    </Text>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginBottom: 16, marginTop: 4 }}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setShowStartPicker(prev => !prev);
-                            if (showStartPicker) setShowStartPicker(false);
-                            if (showEndPicker) setShowEndPicker(false);
-                          }}
-                          style={{
-                            backgroundColor: '#fff',
-                            borderRadius: 10,
-                            padding: 10,
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Text style={{ fontSize: 13, color: '#333', fontFamily: 'Onest' }}>
-                            {startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setShowEndPicker(prev => !prev);
-                            if (showStartPicker) setShowStartPicker(false);
-                            if (showEndPicker) setShowEndPicker(false);
-                          }}
-                          style={{
-                            backgroundColor: '#fff',
-                            borderRadius: 10,
-                            padding: 10,
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Text style={{ fontSize: 13, color: '#333', fontFamily: 'Onest' }}>
-                            {endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Time Picker for Default Event Time */}
-                    {(showStartPicker || showEndPicker) && (
-                      <Animated.View style={styles.dateTimePickerContainer}>
-                        <DateTimePicker
-                          value={showStartPicker ? startDateTime : endDateTime}
-                          mode="time"
-                          display="spinner"
-                          onChange={(event, selectedTime) => {
-                            if (selectedTime) {
-                              if (showStartPicker) {
-                                setStartDateTime(selectedTime);
-                                if (!userChangedEndTime) {
-                                  const end = new Date(selectedTime);
-                                  end.setTime(selectedTime.getTime() + 60 * 60 * 1000);
-                                  setEndDateTime(end);
-                                }
-                              } else {
-                                setEndDateTime(selectedTime);
-                                setUserChangedEndTime(true);
-                              }
-                              setShowStartPicker(false);
-                              setShowEndPicker(false);
-                            }
-                          }}
-                          style={{ height: 180 }}
-                          textColor="#333"
-                        />
-                      </Animated.View>
-                    )}
-
-                    {/* Reminder & Repeat Section */}
-                    <View style={{ marginTop: 20 }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                        <View style={{ flex: 1, marginRight: 14 }}>
-                          <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setShowReminderPicker(prev => !prev);
-                              if (showRepeatPicker) setShowRepeatPicker(false);
-                              if (showEndDatePicker) setShowEndDatePicker(false);
-                            }}
-                            style={styles.featureButton}
-                          >
-                              <Text style={styles.featureButtonText}>
-                              {reminderTime ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                        <View style={{ flex: 1, marginRight: repeatOption !== 'None' ? 12 : 0 }}>
-                          <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setShowRepeatPicker(prev => !prev);
-                              if (showReminderPicker) setShowReminderPicker(false);
-                              if (showEndDatePicker) setShowEndDatePicker(false);
-                            }}
-                            style={styles.featureButton}
-                          >
-                              <Text style={styles.featureButtonText}>
-                              {repeatOption === 'None' ? 'Do Not Repeat' : repeatOption}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                        {repeatOption !== 'None' && (
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>End Date</Text>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setShowEndDatePicker(prev => !prev);
-                                if (showReminderPicker) setShowReminderPicker(false);
-                                if (showRepeatPicker) setShowRepeatPicker(false);
-                              }}
-                              style={styles.featureButton}>
-                                <Text style={styles.featureButtonText}>
-                                {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
-                                  month: 'short', 
-                                  day: 'numeric', 
-                                  year: '2-digit' 
-                                }) : 'Set End Date'}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Reminder Picker */}
-                      {showReminderPicker && (
-                        <Animated.View style={styles.dateTimePickerContainer}>
-                          <DateTimePicker
-                            value={reminderTime || new Date()}
-                            mode="time"
-                            display="spinner"
-                            onChange={(event, selectedTime) => {
-                              if (selectedTime) {
-                                setReminderTime(selectedTime);
-                                setShowReminderPicker(false);
-                              }
-                            }}
-                            style={{ height: 180 }}
-                            textColor="#333"
-                          />
-                        </Animated.View>
-                      )}
-
-                      {/* Repeat Picker */}
-                      {showRepeatPicker && (
-                        <Animated.View style={{ 
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                          padding: 12,
-                          marginTop: 12,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
-                        }}>
-                          {['Do Not Repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
-                            <TouchableOpacity 
-                              key={option}
-                              onPress={() => {
-                                setRepeatOption(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
-                                setShowRepeatPicker(false);
-                              }}
-                              style={{
-                                paddingVertical: 10,
-                                paddingHorizontal: 8,
-                                borderRadius: 8,
-                                backgroundColor: (option === 'Do Not Repeat' ? repeatOption === 'None' : repeatOption === option) ? '#f0f0f0' : 'transparent',
-                              }}
-                            >
-                              <Text style={{ 
-                                fontSize: 13, 
-                                color: '#3a3a3a',
-                                fontFamily: 'Onest',
-                                fontWeight: (option === 'Do Not Repeat' ? repeatOption === 'None' : repeatOption === option) ? '600' : '400'
-                              }}>
-                                {option}
-                    </Text>
-                            </TouchableOpacity>
-                          ))}
-              </Animated.View>
-              )}
-                        </View>
-
-                        {/* End Date Picker */}
-                        {showEndDatePicker && (
-                          <Animated.View style={styles.dateTimePickerContainer}>
-
-                            <DateTimePicker
-                              value={repeatEndDate || new Date()}
-                              mode="date"
-                              display="spinner"
-                              onChange={(event, selectedDate) => {
-                                if (selectedDate) {
-                                  setRepeatEndDate(selectedDate);
-                                  setShowEndDatePicker(false);
-                                }
-                              }}
-                              style={{ height: 180 }}
-                              textColor="#333"
-                            />
-                          </Animated.View>
-                        )}
-                      </View>
+                </View>
 
                       {/* Custom Time Features - Shows when a date is long-pressed */}
                       {showCustomTimeInline && customTimeDate && (
                         <View style={{ 
-                          marginTop: 20,
+                          marginTop: 2,
                           backgroundColor: '#fafafa',
                           borderRadius: 12,
-                          padding: 16,
-                          borderWidth: 1,
-                          borderColor: '#eee'
+                          padding: 0,
                         }}>
                           <View style={{ 
                             flexDirection: 'row', 
@@ -3157,7 +3091,7 @@ const CalendarScreen: React.FC = () => {
                             <Text style={{ 
                               fontSize: 14, 
                               fontWeight: '600', 
-                              color: '#333',
+                              color: '#3a3a3a',
                               fontFamily: 'Onest'
                             }}>
                               Custom Time for {new Date(customTimeDate).toLocaleDateString([], { 
@@ -3173,7 +3107,7 @@ const CalendarScreen: React.FC = () => {
                               }}
                               style={{ padding: 4 }}
                             >
-                              <Ionicons name="close" size={20} color="#666" />
+                              <Ionicons name="close" size={16} color="#666" />
                             </TouchableOpacity>
                           </View>
 
@@ -3201,8 +3135,6 @@ const CalendarScreen: React.FC = () => {
                                   borderRadius: 10,
                                   padding: 10,
                                   alignItems: 'center',
-                                  borderWidth: 1,
-                                  borderColor: '#eee'
                                 }}
                               >
                                 <Text style={{ fontSize: 13, color: '#333', fontFamily: 'Onest' }}>
@@ -3232,8 +3164,6 @@ const CalendarScreen: React.FC = () => {
                                   borderRadius: 10,
                                   padding: 10,
                                   alignItems: 'center',
-                                  borderWidth: 1,
-                                  borderColor: '#eee'
                                 }}
                               >
                                 <Text style={{ fontSize: 13, color: '#333', fontFamily: 'Onest' }}>
@@ -3312,523 +3242,253 @@ const CalendarScreen: React.FC = () => {
                       )}
                     </View>
 
-                    <TouchableOpacity 
-                      onPress={() => {
-                    setShowCustomDatesPicker(false);
-                    if (isEditingEvent) {
-                      if (selectedEvent) {
-                        const updateEvent = async () => {
-                          try {
-                            const { error } = await supabase
-                              .from('events')
-                              .update({
-                                title: editedEventTitle,
-                                description: editedEventDescription,
-                                start_datetime: editedStartDateTime.toISOString(),
-                                end_datetime: editedEndDateTime.toISOString(),
-                                category_name: editedSelectedCategory?.name || 'No Category',
-                                category_color: editedSelectedCategory?.color || '#FF9A8B',
-                                reminder_time: editedReminderTime ? editedReminderTime.toISOString() : null,
-                                repeat_option: editedRepeatOption,
-                                repeat_end_date: editedRepeatEndDate ? editedRepeatEndDate.toISOString() : null,
-                                custom_dates: customSelectedDates,
-                                is_all_day: isEditedAllDay,
-                              })
-                              .eq('id', selectedEvent.event.id);
-
-                            if (error) {
-                              console.error('Error updating event:', error);
-                              Alert.alert('Error', 'Failed to update event.');
-                              return;
-                            }
-
-                            // Update local state
-                            const updatedEvents = { ...events };
-                            
-                            // Remove the old event from all dates
-                            Object.keys(updatedEvents).forEach(dateKey => {
-                              updatedEvents[dateKey] = updatedEvents[dateKey].filter(
-                                event => event.id !== selectedEvent.event.id
-                              );
-                              if (updatedEvents[dateKey].length === 0) {
-                                delete updatedEvents[dateKey];
-                              }
-                            });
-
-                            // Add the updated event to the custom dates
-                            customSelectedDates.forEach(dateStr => {
-                              if (!updatedEvents[dateStr]) updatedEvents[dateStr] = [];
-                              updatedEvents[dateStr].push({
-                                id: selectedEvent.event.id,
-                                title: editedEventTitle,
-                                description: editedEventDescription,
-                                date: dateStr,
-                                startDateTime: editedStartDateTime,
-                                endDateTime: editedEndDateTime,
-                                categoryName: editedSelectedCategory?.name,
-                                categoryColor: editedSelectedCategory?.color,
-                                reminderTime: editedReminderTime,
-                                repeatOption: editedRepeatOption,
-                                repeatEndDate: editedRepeatEndDate,
-                                customDates: customSelectedDates,
-                                isContinued: false,
-                                isAllDay: isEditedAllDay,
-                              });
-                            });
-
-                            setEvents(updatedEvents);
-                            setIsEditingEvent(false);
-                            
-                            Toast.show({
-                              type: 'success',
-                              text1: 'Event updated successfully',
-                              position: 'bottom',
-                            });
-                          } catch (err) {
-                            console.error('Error updating event:', err);
-                            Alert.alert('Error', 'Failed to update event. Please try again.');
-                          }
-                        };
-                        updateEvent();
-                      }
-                    } else {
-                      setShowModal(true);
-                    }
-                      }}
-                      style={{
-                    backgroundColor: '#A0C3B2',
-                    padding: 16,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    marginTop: 8,
-                  }}
-                >
+                {/* Event Times Section */}
+                <View style={{ marginTop: 24 }}>
                   <Text style={{ 
-                    color: '#fff', 
-                    fontSize: 16,
-                    fontWeight: '600',
+                    fontSize: 14, 
+                    fontWeight: '600', 
+                    color: '#333',
+                    marginTop: -15,
+                    marginBottom: 12,
                     fontFamily: 'Onest'
                   }}>
-                    Done
-                    </Text>
-                    </TouchableOpacity>
-
-                {/* Custom Times Section */}
-                {Object.keys(customDateTimes).length > 0 && (
-                  <View style={{ marginTop: 24 }}>
-                    <Text style={{ 
-                      fontSize: 14, 
-                      fontWeight: '600', 
-                      color: '#333',
-                      marginBottom: 12,
-                      fontFamily: 'Onest'
-                    }}>
-                      Custom Times
-                    </Text>
-                    {Object.entries(customDateTimes).map(([date, times]) => (
-                      <View 
-                        key={date}
-                        style={{
-                          backgroundColor: '#fff',
-                          borderRadius: 10,
-                          padding: 12,
-                          marginBottom: 8,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
+                    Event Times
+                  </Text>
+                  {/* Default Time Box - Shows all dates using default time */}
+                  <View style={{ 
+                    backgroundColor: '#fafafa',
+                    borderRadius: 10,
+                    padding: 12,
+                    marginBottom: 8,
+                  }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ 
+                          fontSize: 13,
+                          color: '#3a3a3a',
+                          fontFamily: 'Onest',
+                          fontWeight: '500',
+                          marginBottom: 4
+                        }}>
+                          Default Time
+                        </Text>
+                        <ScrollView 
+                          horizontal 
+                          showsHorizontalScrollIndicator={false}
+                          style={{ flexDirection: 'row' }}
+                        >
+                          {customSelectedDates
+                            .filter(date => !customDateTimes[date]) // Only show dates using default time
+                            .map((date, index) => (
+                              <View 
+                                key={date}
+                                style={{
+                                  backgroundColor: '#A0C3B2',
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  borderRadius: 12,
+                                  marginRight: 6,
+                                  marginTop: 2
+                                }}
+                              >
+                                <Text style={{ 
+                                  color: '#fff',
+                                  fontSize: 11,
+                                  fontFamily: 'Onest'
+                                }}>
+                                  {new Date(date).toLocaleDateString([], { 
+                                    weekday: 'short',
+                                    month: 'short', 
+                                    day: 'numeric' 
+                                  })}
+                                </Text>
+                              </View>
+                            ))}
+                        </ScrollView>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => {
+                          // Update the default time for all dates using default time
+                          const updatedCustomDateTimes = { ...customDateTimes };
+                          customSelectedDates.forEach(date => {
+                            if (!updatedCustomDateTimes[date]) {
+                              updatedCustomDateTimes[date] = {
+                                start: startDateTime,
+                                end: endDateTime,
+                                reminder: reminderTime,
+                                repeat: 'None'
+                              };
+                            }
+                          });
+                          setCustomDateTimes(updatedCustomDateTimes);
+                          setCustomTimeDate('default');
+                          setCustomTimeStart(startDateTime);
+                          setCustomTimeEnd(endDateTime);
+                          setCustomTimeReminder(reminderTime);
+                          setCustomTimeRepeat('None');
+                          setShowCustomTimeInline(true);
                         }}
                       >
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text style={{ 
+                          fontSize: 12,
+                          color: '#A0C3B2',
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          Edit
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                      <Text style={{ 
+                        fontSize: 12,
+                        color: '#666',
+                        fontFamily: 'Onest'
+                      }}>
+                        {startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                      {reminderTime && (
+                        <Text style={{ 
+                          fontSize: 12,
+                          color: '#666',
+                          fontFamily: 'Onest'
+                        }}>
+                          Reminder: {reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Custom Times List - Only show dates that have custom times different from default */}
+                  {Object.keys(customDateTimes).length > 0 && Object.entries(customDateTimes)
+                    .filter(([date, times]) => {
+                      // Only show dates that are still selected and have different times than default
+                      return customSelectedDates.includes(date) && (
+                        times.start.getTime() !== startDateTime.getTime() ||
+                        times.end.getTime() !== endDateTime.getTime() ||
+                        (times.reminder?.getTime() !== reminderTime?.getTime()) ||
+                        times.repeat !== 'None'
+                      );
+                    })
+                    .map(([date, times]) => (
+                    <View 
+                      key={date}
+                      style={{
+                        backgroundColor: '#fafafa',
+                        borderRadius: 10,
+                        padding: 12,
+                        marginBottom: 8,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <Text style={{ 
+                          fontSize: 13,
+                          color: '#3a3a3a',
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          {new Date(date).toLocaleDateString([], { 
+                            weekday: 'short',
+                            month: 'short', 
+                            day: 'numeric' 
+                          })}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setCustomTimeDate(date);
+                            setCustomTimeStart(times.start);
+                            setCustomTimeEnd(times.end);
+                            setCustomTimeReminder(times.reminder);
+                            setCustomTimeRepeat(times.repeat);
+                            setShowCustomTimeInline(true);
+                          }}
+                        >
                           <Text style={{ 
-                            fontSize: 13,
-                            color: '#666',
+                            fontSize: 12,
+                            color: '#A0C3B2',
                             fontFamily: 'Onest',
                             fontWeight: '500'
                           }}>
-                            {new Date(date).toLocaleDateString([], { 
-                              weekday: 'short',
-                              month: 'short', 
-                              day: 'numeric' 
-                            })}
+                            Edit
                           </Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              setCustomTimeDate(date);
-                              setCustomTimeStart(times.start);
-                              setCustomTimeEnd(times.end);
-                              setCustomTimeReminder(times.reminder);
-                              setCustomTimeRepeat(times.repeat);
-                              setShowCustomTimeModal(true);
-                            }}
-                          >
-                            <Text style={{ 
-                              fontSize: 12,
-                              color: '#A0C3B2',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              Edit
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ 
+                          fontSize: 12,
+                          color: '#666',
+                          fontFamily: 'Onest'
+                        }}>
+                          {times.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {times.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                        {times.reminder && (
                           <Text style={{ 
                             fontSize: 12,
                             color: '#666',
                             fontFamily: 'Onest'
                           }}>
-                            {times.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {times.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </Text>
-                          {times.reminder && (
-                            <Text style={{ 
-                              fontSize: 12,
-                              color: '#666',
-                              fontFamily: 'Onest'
-                            }}>
-                              Reminder: {times.reminder.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </Text>
-                          )}
-                        </View>
-                        {times.repeat !== 'None' && (
-                          <Text style={{ 
-                            fontSize: 12,
-                            color: '#666',
-                            fontFamily: 'Onest',
-                            marginTop: 4
-                          }}>
-                            Repeats: {times.repeat}
+                            Reminder: {times.reminder.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </Text>
                         )}
                       </View>
-                    ))}
-                  </View>
-                )}
-              </ScrollView>
-                  </View>
-          </View>
-        </Modal>
-        <Modal
-          visible={showCustomTimeModal}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowCustomTimeModal(false)}
-        >
-          <View style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            justifyContent: 'flex-end',
-          }}>
-            <View style={{
-              backgroundColor: '#fff',
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              padding: 20,
-              maxHeight: '80%',
-              position: 'relative', // Add this
-              marginTop: 'auto', // Add this
-            }}>
-              <View style={{ 
-                flexDirection: 'row', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                marginBottom: 16,
-                borderBottomWidth: 1,
-                borderBottomColor: '#f0f0f0',
-                paddingBottom: 12,
-              }}>
-                <Text style={{ 
-                  fontSize: 20, 
-                  fontWeight: '600', 
-                  color: '#333',
-                  fontFamily: 'Onest'
-                }}>
-                  Set Custom Time
-                </Text>
-                      <TouchableOpacity
-                  onPress={() => setShowCustomTimeModal(false)}
-                  style={{ padding: 8 }}
-                >
-                  <Ionicons name="close" size={24} color="#666" />
-                </TouchableOpacity>
-              </View>
-
-              {customTimeDate && (
-                <Text style={{ 
-                  fontSize: 14, 
-                  color: '#666', 
-                  marginBottom: 20,
-                  fontFamily: 'Onest',
-                  backgroundColor: '#fafafa',
-                  padding: 12,
-                        borderRadius: 8,
-                }}>
-                  {new Date(customTimeDate).toLocaleDateString([], { 
-                    weekday: 'long',
-                    month: 'long',
-                    day: 'numeric'
-                  })}
-                </Text>
-              )}
-
-              <ScrollView style={{ flex: 1 }}>
-                {/* Start & End Time */}
-                <View style={{ marginBottom: 20 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Start</Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (showCustomTimeStartPicker) {
-                            // If picker is showing, close it immediately
-                            setShowCustomTimeStartPicker(false);
-                            // Clear any pending debounce timeout
-                            if (customTimeStartTimeoutRef.current) {
-                              clearTimeout(customTimeStartTimeoutRef.current);
-                            }
-                          } else {
-                            // If opening picker, close end picker if it's open
-                            setShowCustomTimeStartPicker(true);
-                            setShowCustomTimeEndPicker(false);
-                            if (customTimeEndTimeoutRef.current) {
-                              clearTimeout(customTimeEndTimeoutRef.current);
-                            }
-                          }
-                        }}
-                        style={{
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          marginTop: 2,
-                          alignItems: 'center',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
-                        }}
-                      >
-                        <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
-                          {customTimeStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {times.repeat !== 'None' && (
+                        <Text style={{ 
+                          fontSize: 12,
+                          color: '#666',
+                          fontFamily: 'Onest',
+                          marginTop: 4
+                        }}>
+                          Repeats: {times.repeat}
                         </Text>
-                      </TouchableOpacity>
+                      )}
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>End</Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (showCustomTimeEndPicker) {
-                            // If picker is showing, close it immediately
-                            setShowCustomTimeEndPicker(false);
-                            // Clear any pending debounce timeout
-                            if (customTimeEndTimeoutRef.current) {
-                              clearTimeout(customTimeEndTimeoutRef.current);
-                            }
-                          } else {
-                            // If opening picker, close start picker if it's open
-                            setShowCustomTimeEndPicker(true);
-                            setShowCustomTimeStartPicker(false);
-                            if (customTimeStartTimeoutRef.current) {
-                              clearTimeout(customTimeStartTimeoutRef.current);
-                            }
-                          }
-                        }}
-                        style={{
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          marginTop: 2,
-                          alignItems: 'center',
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                          shadowRadius: 2,
-                          elevation: 1,
-                        }}
-                      >
-                        <Text style={{ fontSize: 14, color: '#333', fontFamily: 'Onest' }}>
-                          {customTimeEnd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
+                  ))}
 
-                  {/* Time Pickers */}
-                  {(showCustomTimeStartPicker || showCustomTimeEndPicker) && (
-                    <View style={{
-                      backgroundColor: '#fff',
-                      borderRadius: 8,
-                      padding: 12,
-                      marginBottom: 12,
-                    }}>
-                      <DateTimePicker
-  value={showCustomTimeStartPicker ? customTimeStart : customTimeEnd}
-  mode="time"
-  display="spinner"
-  onChange={(event, selectedTime) => {
-    if (!selectedTime) return;
-
-    if (showCustomTimeStartPicker) {
-      setCustomTimeStart(selectedTime);
-      // Close picker immediately after selection
-      setShowCustomTimeStartPicker(false);
-      if (customTimeStartTimeoutRef.current) {
-        clearTimeout(customTimeStartTimeoutRef.current);
-      }
-    } else {
-      setCustomTimeEnd(selectedTime);
-      // Close picker immediately after selection
-      setShowCustomTimeEndPicker(false);
-      if (customTimeEndTimeoutRef.current) {
-        clearTimeout(customTimeEndTimeoutRef.current);
-      }
-    }
-  }}
-  style={{ height: 180, width: '100%' }}
-  textColor="#333"
-/>
-
-                    </View>
-                  )}
-                </View>
-
-                {/* Reminder & Repeat */}
-                <View style={{ flex: 1, marginBottom: 12 }}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <View style={{ flex: 1, marginRight: 12 }}>
-                      <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Reminder</Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          const newReminderPickerState = !showReminderPicker;
-                          setShowReminderPicker(newReminderPickerState);
-                          if (newReminderPickerState) {
-                            setShowRepeatPicker(false);
-                            setShowEndDatePicker(false);
-                          }
-                        }}
-                        style={styles.featureButton}
-                      >
-                        <Text style={styles.featureButtonText}>
-                          {customTimeReminder ? customTimeReminder.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'No Reminder'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 13, color: '#666', marginBottom: 6, fontFamily: 'Onest' }}>Repeat</Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          const newRepeatPickerState = !showRepeatPicker;
-                          setShowRepeatPicker(newRepeatPickerState);
-                          if (newRepeatPickerState) {
-                            setShowReminderPicker(false);
-                            setShowEndDatePicker(false);
-                          }
-                        }}
-                        style={styles.featureButton}
-                      >
-                        <Text style={styles.featureButtonText}>
-                          {customTimeRepeat === 'None' ? 'Do Not Repeat' : customTimeRepeat}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-
-                  {/* Reminder Picker */}
-                  {showCustomTimeReminderPicker && (
-                    <View style={{
-                      backgroundColor: '#fff',
-                      borderRadius: 8,
-                      padding: 12,
-                      marginTop: 12,
-                      marginBottom: 12,
-                    }}>
-                      <DateTimePicker
-                        value={customTimeReminder || new Date()}
-                        mode="time"
-                        display="spinner"
-                        onChange={(event, selectedTime) => {
-                          if (selectedTime) {
-                            setCustomTimeReminder(selectedTime);
-                            debounceCustomTimeReminderClose(); // ✅ Debounced close
-                          }
-                        }}
-                        style={{ height: 180, width: '100%' }}
-                        textColor="#333"
-                      />
-                    </View>
-                  )}
-
-                  {/* Repeat Picker */}
-                  {showCustomTimeRepeatPicker && (
-                    <View style={{ 
-                      backgroundColor: '#fff',
-                      borderRadius: 8,
-                      padding: 12,
-                      marginTop: 12,
-                    }}>
-                      {['Do Not Repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly'].map((option) => (
-                        <TouchableOpacity
-                          key={option}
-                          onPress={() => {
-                            setCustomTimeRepeat(option === 'Do Not Repeat' ? 'None' : option as RepeatOption);
-                            setShowCustomTimeRepeatPicker(false);
-                          }}
-                          style={{
-                            paddingVertical: 10,
-                            paddingHorizontal: 8,
-                            borderRadius: 8,
-                            backgroundColor: (option === 'Do Not Repeat' ? customTimeRepeat === 'None' : customTimeRepeat === option) ? '#f0f0f0' : 'transparent',
-                          }}
-                        >
-                          <Text style={{ 
-                            fontSize: 13, 
-                            color: '#3a3a3a',
-                            fontFamily: 'Onest',
-                            fontWeight: (option === 'Do Not Repeat' ? customTimeRepeat === 'None' : customTimeRepeat === option) ? '600' : '400'
-                          }}>
-                            {option}
-                    </Text>
-                        </TouchableOpacity>
-                      ))}
-                </View>
-              )}
-                </View>
-
-                    <TouchableOpacity 
-                      onPress={() => {
-                    if (customTimeDate) {
-                        setCustomDateTimes(prev => ({
-                          ...prev,
-                        [customTimeDate]: {
-                          start: customTimeStart,
-                          end: customTimeEnd,
-                          reminder: customTimeReminder,
-                          repeat: customTimeRepeat
+                  {/* Done Button */}
+                  <TouchableOpacity 
+                    onPress={() => {
+                      // When closing the modal, ensure all selected dates have a time entry
+                      const updatedCustomDateTimes = { ...customDateTimes };
+                      customSelectedDates.forEach(date => {
+                        // Only add default time if no custom time exists for this date
+                        if (!updatedCustomDateTimes[date]) {
+                          updatedCustomDateTimes[date] = {
+                            start: startDateTime,
+                            end: endDateTime,
+                            reminder: reminderTime,
+                            repeat: 'None'
+                          };
                         }
-                      }));
-                    }
-                    setShowCustomTimeModal(false);
-                      }}
-                      style={{
-                    backgroundColor: '#A0C3B2',
-                    padding: 16,
-                    borderRadius: 12,
+                      });
+                      setCustomDateTimes(updatedCustomDateTimes);
+                      setShowCustomDatesPicker(false);
+                      // Show the appropriate modal based on whether we're editing or creating
+                      setTimeout(() => {
+                        if (isEditingEvent) {
+                          setShowEditEventModal(true);
+                        } else {
+                          setShowModal(true); // Show add event modal for new events
+                        }
+                      }, 300); // Small delay to ensure smooth transition
+                    }}
+                    style={{
+                      backgroundColor: '#A0C3B2',
+                      padding: 12,
+                      borderRadius: 10,
                       alignItems: 'center',
-                    marginTop: 8,
-                  }}
-                >
-                  <Text style={{ 
-                    color: '#fff', 
-                    fontSize: 16,
-                    fontWeight: '600',
-                    fontFamily: 'Onest'
-                  }}>
-                    Save Custom Time
-                      </Text>
-                </TouchableOpacity>
+                      marginTop: 16
+                    }}
+                  >
+                    <Text style={{ 
+                      color: '#fff', 
+                      fontSize: 14,
+                      fontWeight: '600',
+                      fontFamily: 'Onest'
+                    }}>
+                      Done
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </ScrollView>
             </View>
           </View>
@@ -3859,8 +3519,23 @@ const CalendarScreen: React.FC = () => {
                     contentContainerStyle={{ paddingBottom: 20 }}
                     keyboardShouldPersistTaps="handled"
                   >
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, marginTop: -8, marginRight: -8 }}>
-                      <Text style={styles.modalTitle}>Edit Event</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: -2, marginTop: -6, marginRight: -8 }}>
+                      <View>
+                        <Text style={styles.modalTitle}>Edit Event</Text>
+                        <TouchableOpacity 
+                          onPress={() => {
+                            if (editedRepeatOption === 'Custom') {
+                              setEditedRepeatOption('None');
+                            } else {
+                              setEditedRepeatOption('Custom');
+                            }
+                          }}
+                        >
+                          <Text style={[styles.modalSubtitle, { color: '#888888', marginBottom: 15 }]}>
+                            {editedRepeatOption === 'Custom' ? 'Custom Dates' : editedStartDateTime.toDateString()}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                       <TouchableOpacity 
                         onPress={() => setShowEditEventModal(false)}
                         style={{ padding: 12, marginTop: -8, marginRight: -8 }}
@@ -3868,140 +3543,227 @@ const CalendarScreen: React.FC = () => {
                         <Ionicons name="close" size={20} color="#666" />
                       </TouchableOpacity>
                     </View>
-                    <TextInput
-                      style={styles.inputTitle}
-                      placeholder="Title"
-                      value={editedEventTitle}
-                      onChangeText={setEditedEventTitle}
-                    />
-                    <TextInput
-                      style={styles.inputDescription}
-                      placeholder="Description (optional)"
-                      value={editedEventDescription}
-                      onChangeText={setEditedEventDescription}
-                      multiline
-                    />
-                    {/* Category Selection */}
-                    <View style={{ marginBottom: 12 }}>
-                      <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Category</Text>
-                      <TouchableOpacity 
-                        onPress={() => {
-                          setShowCategoryPicker(prev => !prev);
-                          if (showCategoryPicker) {
-                            setShowAddCategoryForm(false);
-                            setNewCategoryName('');
-                            setNewCategoryColor('#FADADD');
-                          }
-                        }}
-                        style={styles.categoryPickerButton}
-                      >
-                        {!showCategoryPicker ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            {editedSelectedCategory ? (
-                              <>
-                                <View style={[styles.selectedCategoryDot, { backgroundColor: editedSelectedCategory.color }]} />
-                                <Text style={styles.selectedCategoryText}>{editedSelectedCategory.name}</Text>
-                              </>
-                            ) : (
-                              <Text style={styles.categoryText}>Set Category</Text>
-                            )}
-                          </View>
-                        ) : (
-                          <View style={styles.categoryPickerContainer}>
-                            {categories.map((cat, idx) => (
-                              <Pressable
-                                key={idx}
-                                onPress={() => {
-                                  setEditedSelectedCategory(cat);
-                                  setShowCategoryPicker(false);
-                                  setShowAddCategoryForm(false);
-                                }}
-                                onLongPress={() => {
-                                  Alert.alert(
-                                    'Delete Category',
-                                    `Are you sure you want to delete "${cat.name}"?`,
-                                    [
-                                      {
-                                        text: 'Cancel',
-                                        style: 'cancel'
-                                      },
-                                      {
-                                        text: 'Delete',
-                                        style: 'destructive',
-                                        onPress: async () => {
-                                          try {
-                                            // Delete from database
-                                            const { error } = await supabase
-                                              .from('categories')
-                                              .delete()
-                                              .eq('id', cat.id);
 
-                                            if (error) {
+                    {editedRepeatOption !== 'Custom' ? (
+                      <>
+                        <TextInput
+                          style={styles.inputTitle}
+                          placeholder="Title"
+                          value={editedEventTitle}
+                          onChangeText={setEditedEventTitle}
+                        />
+
+                        <TextInput
+                          style={styles.inputDescription}
+                          placeholder="Description (optional)"
+                          value={editedEventDescription}
+                          onChangeText={setEditedEventDescription}
+                          multiline
+                        />
+
+                        {/* Category Selection */}
+                        <View style={{ marginBottom: 12 }}>
+                          <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Category</Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setShowCategoryPicker(prev => !prev);
+                              if (showCategoryPicker) {
+                                setShowAddCategoryForm(false);
+                                setNewCategoryName('');
+                                setNewCategoryColor('#FADADD');
+                              }
+                            }}
+                            style={{
+                              backgroundColor: '#fafafa',
+                              borderRadius: 12,
+                              paddingVertical: 10,
+                              paddingHorizontal: 12,
+                              marginTop: 2,
+                              alignItems: 'center',
+                              shadowColor: '#000',
+                              shadowOffset: { width: 0, height: 1 },
+                              shadowOpacity: 0.05,
+                              shadowRadius: 2,
+                              elevation: 1,
+                              marginBottom: 15,
+                            }}
+                          >
+                            {!showCategoryPicker ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                {editedSelectedCategory ? (
+                                  <>
+                                    <View style={{ 
+                                      width: 8, 
+                                      height: 8, 
+                                      borderRadius: 4, 
+                                      backgroundColor: editedSelectedCategory.color,
+                                      marginRight: 8
+                                    }} />
+                                    <Text style={{ 
+                                      fontSize: 13, 
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      fontWeight: '500'
+                                    }}>
+                                      {editedSelectedCategory.name}
+                                    </Text>
+                                  </>
+                                ) : (
+                                  <Text style={{ 
+                                    fontSize: 13, 
+                                    color: '#3a3a3a',
+                                    fontFamily: 'Onest',
+                                    fontWeight: '500'
+                                  }}>
+                                    Set Category
+                                  </Text>
+                                )}
+                              </View>
+                            ) : (
+                              <View style={{ 
+                              flexDirection: 'row', 
+                              flexWrap: 'wrap', 
+                                justifyContent: 'center',
+                                gap: 8,
+                                width: '100%',
+                            }}>
+                              {categories.map((cat, idx) => (
+                                  <Pressable
+                                  key={idx}
+                                  onPress={() => {
+                                    setSelectedCategory(cat);
+                                    setShowCategoryPicker(false);
+                                    setShowAddCategoryForm(false);
+                                  }}
+                                  onLongPress={() => {
+                                    Alert.alert(
+                                      'Delete Category',
+                                      `Are you sure you want to delete "${cat.name}"?`,
+                                      [
+                                        {
+                                          text: 'Cancel',
+                                          style: 'cancel'
+                                        },
+                                        {
+                                          text: 'Delete',
+                                          style: 'destructive',
+                                          onPress: async () => {
+                                            try {
+                                              // Delete from database
+                                              const { error } = await supabase
+                                                .from('categories')
+                                                .delete()
+                                                .eq('id', cat.id);
+
+                                              if (error) {
+                                                console.error('Error deleting category:', error);
+                                                Alert.alert('Error', 'Failed to delete category');
+                                                return;
+                                              }
+
+                                              // Update local state
+                                              setCategories(prev => prev.filter(c => c.id !== cat.id));
+                                              
+                                              // If this was the selected category, clear it
+                                              if (selectedCategory?.id === cat.id) {
+                                                setSelectedCategory(null);
+                                              }
+                                              if (editedSelectedCategory?.id === cat.id) {
+                                                setEditedSelectedCategory(null);
+                                              }
+
+                                              Toast.show({
+                                                type: 'success',
+                                                text1: 'Category deleted successfully',
+                                                position: 'bottom',
+                                              });
+                                            } catch (error) {
                                               console.error('Error deleting category:', error);
                                               Alert.alert('Error', 'Failed to delete category');
-                                              return;
                                             }
-
-                                            // Update local state
-                                            setCategories(prev => prev.filter(c => c.id !== cat.id));
-                                            
-                                            // If this was the selected category, clear it
-                                            if (selectedCategory?.id === cat.id) {
-                                              setSelectedCategory(null);
-                                            }
-                                            if (editedSelectedCategory?.id === cat.id) {
-                                              setEditedSelectedCategory(null);
-                                            }
-
-                                            Toast.show({
-                                              type: 'success',
-                                              text1: 'Category deleted successfully',
-                                              position: 'bottom',
-                                            });
-                                          } catch (error) {
-                                            console.error('Error deleting category:', error);
-                                            Alert.alert('Error', 'Failed to delete category');
                                           }
                                         }
-                                      }
-                                    ]
-                                  );
+                                      ]
+                                    );
+                                  }}
+                                    style={({ pressed }) => ({
+                                      backgroundColor: '#fafafa',
+                                      paddingVertical: 5,
+                                      paddingHorizontal: 8,
+                                      borderRadius: 9,
+                                      borderWidth: (pressed || selectedCategory?.name === cat.name) ? 1 : 0,
+                                      borderColor: cat.color,
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                    })}
+                                  >
+                                    <View style={{ 
+                                      width: 6, 
+                                      height: 6, 
+                                      borderRadius: 3, 
+                                      backgroundColor: cat.color,
+                                    }} />
+                                    <Text style={{ 
+                                      color: '#3a3a3a', 
+                                      fontSize: 12, 
+                                      fontFamily: 'Onest',
+                                      fontWeight: selectedCategory?.name === cat.name ? '600' : '500'
+                                    }}>
+                                      {cat.name}
+                                    </Text>
+                                  </Pressable>
+                              ))}
+                              <TouchableOpacity
+                                onPress={() => setShowAddCategoryForm(true)}
+                                style={{
+                                    backgroundColor: '#fafafa',
+                                  paddingVertical: 5,
+                                    paddingHorizontal: 8,
+                                    borderRadius: 9,
+                                    borderWidth: 0,
+                                    borderColor: '#eee',
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                    gap: 6,
                                 }}
-                                style={({ pressed }) => [
-                                  styles.categoryOption,
-                                  { 
-                                    borderWidth: (pressed || editedSelectedCategory?.name === cat.name) ? 1 : 0,
-                                    borderColor: cat.color 
-                                  }
-                                ]}
                               >
-                                <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
-                                <Text style={[
-                                  styles.categoryText,
-                                  { fontWeight: editedSelectedCategory?.name === cat.name ? '600' : '500' }
-                                ]}>
-                                  {cat.name}
-                                </Text>
-                              </Pressable>
-                            ))}
-                            <TouchableOpacity
-                              onPress={() => setShowAddCategoryForm(true)}
-                              style={styles.addCategoryButton}
-                            >
-                              <Ionicons name="add" size={14} color="#666" />
-                            </TouchableOpacity>
+                                  <Ionicons name="add" size={14} color="#666" />
+                              </TouchableOpacity>
 
-                            {/* Add Category Form */}
-                            {showAddCategoryForm && (
-                              <View style={styles.addCategoryForm}>
-                                <TextInput
-                                  style={styles.addCategoryInput}
-                                  placeholder="Category Name"
-                                  value={newCategoryName}
+                                {showAddCategoryForm && (
+                                  <View style={{
+                                    backgroundColor: '#fafafa',
+                                    padding: 2,
+                                    borderRadius: 12,
+                                    marginTop: 8,
+                                    width: '100%',
+                                  }}>
+                                    <Text style={{
+                                      fontSize: 13,
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      marginBottom: 8,
+                                    }}>
+                                      New Category
+                                    </Text>
+                                    <TextInput
+                                      style={{
+                                        backgroundColor: 'white',
+                                        padding: 10,
+                                        borderRadius: 8,
+                                        marginBottom: 12,
+                                        fontSize: 13,
+                                        marginTop: 4,
+                                        fontFamily: 'Onest',
+                                      }}
+                                      placeholder="Category name"
+                                      value={newCategoryName}
                                       onChangeText={setNewCategoryName}
                                     />
-                               {/* Add Color Picker */}
-                               <Text style={{
+                                    
+                                    {/* Add Color Picker */}
+                                    <Text style={{
                                       fontSize: 13,
                                       color: '#3a3a3a',
                                       fontFamily: 'Onest',
@@ -4034,6 +3796,7 @@ const CalendarScreen: React.FC = () => {
                                         />
                                       ))}
                                     </View>
+
                                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                                       <TouchableOpacity
                                         onPress={() => {
@@ -4108,120 +3871,120 @@ const CalendarScreen: React.FC = () => {
                                 )}
                               </View>
                             )}
-                          </TouchableOpacity>
-                        </View>
-            
-                    {/* All-day event toggle */}
-                    <View style={styles.allDayContainer}>
-                      <Text style={styles.allDayText}>All-day event</Text>
-                      <View style={{ transform: [{ scale: 0.75 }] }}>
-                        <Switch value={isEditedAllDay} onValueChange={setIsEditedAllDay} />
+                        </TouchableOpacity>
                       </View>
-                    </View>
 
-                    {/* Start & End Time */}
-                    <View style={styles.dateTimeContainer}>
-                      <View style={styles.dateTimeRow}>
-                        <View style={styles.dateTimeColumn}>
-                          <Text style={styles.dateTimeLabel}>Start</Text>
-                          <TouchableOpacity 
-                           onPress={() => {
-                            const newStartPickerState = !showStartPicker;
-                            setShowStartPicker(newStartPickerState);
-                            if (newStartPickerState) {
-                              setShowEndPicker(false);
-                            }
-                          }}
-                            style={styles.dateTimeButton}>
-                            <Text style={styles.dateTimeText}>
-                              {editedStartDateTime.toLocaleString([], {
-                                month: 'short',
-                                day: 'numeric',
-                                ...(isEditedAllDay ? {} : {
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true
-                                })
-                              }).replace(',', ' ·')}
-                            </Text>
-                          </TouchableOpacity>
+                      <View style={styles.allDayContainer}>
+                        <Text style={styles.allDayText}>All-day event</Text>
+                        <View style={{ transform: [{ scale: 0.75 }] }}>
+                          <Switch value={isEditedAllDay} onValueChange={setIsEditedAllDay} />
                         </View>
+                      </View>
 
-
-                        <View style={styles.dateTimeColumn}>
-                          <Text style={styles.dateTimeLabel}>End</Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              const newEndPickerState = !showEndPicker;
-                              setShowEndPicker(newEndPickerState);
-                              if (newEndPickerState) {
-                                setShowStartPicker(false);
+                      {/* Start & End Time */}
+                      <View style={styles.dateTimeContainer}>
+                        <View style={styles.dateTimeRow}>
+                          <View style={styles.dateTimeColumn}>
+                            <Text style={styles.dateTimeLabel}>Start</Text>
+                            <TouchableOpacity 
+                             onPress={() => {
+                              const newStartPickerState = !showStartPicker;
+                              setShowStartPicker(newStartPickerState);
+                              if (newStartPickerState) {
+                                setShowEndPicker(false);
                               }
                             }}
-                            
-                            style={styles.dateTimeButton}
-                          >
-                            <Text style={styles.dateTimeText}>
-                              {editedEndDateTime.toLocaleString([], {
-                                month: 'short',
-                                day: 'numeric',
-                                ...(isEditedAllDay ? {} : {
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true
-                                })
-                              }).replace(',', ' ·')}
-                            </Text>
-                          </TouchableOpacity>
+                              style={styles.dateTimeButton}>
+                              <Text style={styles.dateTimeText}>
+                                {editedStartDateTime.toLocaleString([], {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  ...(isEditedAllDay ? {} : {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })
+                                }).replace(',', ' ·')}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+
+
+                          <View style={styles.dateTimeColumn}>
+                            <Text style={styles.dateTimeLabel}>End</Text>
+                            <TouchableOpacity
+                              onPress={() => {
+                                const newEndPickerState = !showEndPicker;
+                                setShowEndPicker(newEndPickerState);
+                                if (newEndPickerState) {
+                                  setShowStartPicker(false);
+                                }
+                              }}
+                              
+                              style={styles.dateTimeButton}
+                            >
+                              <Text style={styles.dateTimeText}>
+                                {editedEndDateTime.toLocaleString([], {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  ...(isEditedAllDay ? {} : {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })
+                                }).replace(',', ' ·')}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
-                      </View>
 
-                      {/* Date/Time Picker */}
-                      {(showStartPicker || showEndPicker) && (
-                        <Animated.View style={styles.dateTimePickerContainer}>
-                          <DateTimePicker
-                            value={showStartPicker ? editedStartDateTime : editedEndDateTime}
-                            mode={isEditedAllDay ? "date" : "datetime"}
-                            display="spinner"
-                            onChange={(event, selectedDate) => {
-                              if (!selectedDate) return;
+                        {/* Date/Time Picker */}
+                        {(showStartPicker || showEndPicker) && (
+                          <Animated.View style={styles.dateTimePickerContainer}>
+                            <DateTimePicker
+                              value={showStartPicker ? editedStartDateTime : editedEndDateTime}
+                              mode={isEditedAllDay ? "date" : "datetime"}
+                              display="spinner"
+                              onChange={(event, selectedDate) => {
+                                if (!selectedDate) return;
 
-                              const newDate = new Date(selectedDate);
+                                const newDate = new Date(selectedDate);
 
-                              if (showStartPicker) {
-                                if (isEditedAllDay) newDate.setHours(0, 0, 0, 0);
-                                setEditedStartDateTime(newDate);
+                                if (showStartPicker) {
+                                  if (isEditedAllDay) newDate.setHours(0, 0, 0, 0);
+                                  setEditedStartDateTime(newDate);
 
-                                if (!userChangedEditedEndTime) {
-                                  const end = new Date(newDate);
-                                  if (isEditedAllDay) {
-                                    end.setHours(23, 59, 59, 999);
-                                  } else {
-                                    end.setTime(newDate.getTime() + 60 * 60 * 1000);
+                                  if (!userChangedEditedEndTime) {
+                                    const end = new Date(newDate);
+                                    if (isEditedAllDay) {
+                                      end.setHours(23, 59, 59, 999);
+                                    } else {
+                                      end.setTime(newDate.getTime() + 60 * 60 * 1000);
+                                    }
+                                    setEditedEndDateTime(end);
                                   }
-                                  setEditedEndDateTime(end);
-                                }
 
-                                // Only call debouncePickerClose if the value actually changed
-                                if (newDate.getTime() !== editedStartDateTime.getTime()) {
-                                  debouncePickerClose('start');
-                                }
-                              } else {
-                                if (isEditedAllDay) newDate.setHours(23, 59, 59, 999);
-                                setEditedEndDateTime(newDate);
-                                setUserChangedEditedEndTime(true);
+                                  // Only call debouncePickerClose if the value actually changed
+                                  if (newDate.getTime() !== editedStartDateTime.getTime()) {
+                                    debouncePickerClose('start');
+                                  }
+                                } else {
+                                  if (isEditedAllDay) newDate.setHours(23, 59, 59, 999);
+                                  setEditedEndDateTime(newDate);
+                                  setUserChangedEditedEndTime(true);
 
-                                // Only call debouncePickerClose if the value actually changed
-                                if (newDate.getTime() !== editedEndDateTime.getTime()) {
-                                  debouncePickerClose('end');
+                                  // Only call debouncePickerClose if the value actually changed
+                                  if (newDate.getTime() !== editedEndDateTime.getTime()) {
+                                    debouncePickerClose('end');
+                                  }
                                 }
-                              }
-                            }}
-                            style={{ height: isEditedAllDay ? 180 : 240, width: '100%' }}
-                            textColor="#333"
-                          />
-                        </Animated.View>
-                      )}
+                              }}
+                              style={{ height: isEditedAllDay ? 180 : 240, width: '100%' }}
+                              textColor="#333"
+                            />
+                          </Animated.View>
+                        )}
+                      </View>
 
                       {/* Reminder & Repeat */}
                       <View style={styles.dateTimeRow}>
@@ -4360,109 +4123,570 @@ const CalendarScreen: React.FC = () => {
                           ))}
                         </Animated.View>
                       )}
-                    </View>
-                  
-                    {/* Action Buttons */}
-                    <View style={styles.modalActions}>
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (selectedEvent) {
-                            handleDeleteEvent(selectedEvent.dateKey, selectedEvent.index);
-                            setShowEditEventModal(false);
-                          }
-                        }}
-                        style={styles.deleteButton}
-                      >
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={async () => {
-                          if (selectedEvent) {
-                            try {
-                              const { error } = await supabase
-                                .from('events')
-                                .update({
-                                  title: editedEventTitle,
-                                  description: editedEventDescription,
-                                  start_datetime: editedStartDateTime.toISOString(),
-                                  end_datetime: editedEndDateTime.toISOString(),
-                                  category_name: editedSelectedCategory?.name || 'No Category',
-                                  category_color: editedSelectedCategory?.color || '#FF9A8B',
-                                  reminder_time: editedReminderTime ? editedReminderTime.toISOString() : null,
-                                  repeat_option: editedRepeatOption,
-                                  repeat_end_date: editedRepeatEndDate ? editedRepeatEndDate.toISOString() : null,
-                                  custom_dates: customSelectedDates,
-                                  is_all_day: isEditedAllDay,
-                                })
-                                .eq('id', selectedEvent.event.id);
+                    </>
+                  ) : (
+                    <>
+                      {/* Title */}
+                      <TextInput
+                        style={styles.inputTitle}
+                        placeholder="Title"
+                        value={editedEventTitle}
+                        onChangeText={setEditedEventTitle}
+                      />
 
-                              if (error) {
-                                console.error('Error updating event:', error);
-                                Alert.alert('Error', 'Failed to update event.');
-                                return;
-                              }
+                      <TextInput
+                        style={styles.inputDescription}
+                        placeholder="Description (optional)"
+                        value={editedEventDescription}
+                        onChangeText={setEditedEventDescription}
+                        multiline
+                      />
 
-                              // Update local state
-                              const updatedEvents = { ...events };
-                              
-                              // Remove the old event from all dates
-                              Object.keys(updatedEvents).forEach(dateKey => {
-                                updatedEvents[dateKey] = updatedEvents[dateKey].filter(
-                                  event => event.id !== selectedEvent.event.id
-                                );
-                                if (updatedEvents[dateKey].length === 0) {
-                                  delete updatedEvents[dateKey];
+                      {/* Category Selection */}
+                      <View style={{ marginBottom: 12 }}>
+                        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Category</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setShowCategoryPicker(prev => !prev);
+                            if (showCategoryPicker) {
+                              setShowAddCategoryForm(false);
+                              setNewCategoryName('');
+                              setNewCategoryColor('#FADADD');
+                            }
+                          }}
+                          style={{
+                            backgroundColor: '#fafafa',
+                            borderRadius: 12,
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            marginTop: 2,
+                            alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 1 },
+                            shadowOpacity: 0.05,
+                            shadowRadius: 2,
+                            elevation: 1,
+                            marginBottom: 15,
+                          }}
+                        >
+                          {!showCategoryPicker ? (
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              {selectedCategory ? (
+                                <>
+                                  <View style={{ 
+                                    width: 8, 
+                                    height: 8, 
+                                    borderRadius: 4, 
+                                    backgroundColor: selectedCategory.color,
+                                    marginRight: 8
+                                  }} />
+                                  <Text style={{ 
+                                    fontSize: 13, 
+                                    color: '#3a3a3a',
+                                    fontFamily: 'Onest',
+                                    fontWeight: '500'
+                                  }}>
+                                    {selectedCategory.name}
+                          </Text>
+                                </>
+                              ) : (
+                                <Text style={{ 
+                                  fontSize: 13, 
+                                  color: '#3a3a3a',
+                                  fontFamily: 'Onest',
+                                  fontWeight: '500'
+                                }}>
+                                  Set Category
+                                </Text>
+                              )}
+                            </View>
+                          ) : (
+                            <View style={{ 
+                              flexDirection: 'row', 
+                              flexWrap: 'wrap', 
+                              justifyContent: 'center',
+                              gap: 8,
+                              width: '100%',
+                            }}>
+                            {categories.map((cat, idx) => (
+                                <Pressable
+                                key={idx}
+                                onPress={() => {
+                                    setSelectedCategory(cat);
+                                  setShowCategoryPicker(false);
+                                    setShowAddCategoryForm(false);
+                                  }}
+                                onLongPress={() => {
+                                  Alert.alert(
+                                    'Delete Category',
+                                    `Are you sure you want to delete "${cat.name}"?`,
+                                    [
+                                      {
+                                        text: 'Cancel',
+                                        style: 'cancel'
+                                      },
+                                      {
+                                        text: 'Delete',
+                                        style: 'destructive',
+                                        onPress: async () => {
+                                          try {
+                                            // Delete from database
+                                            const { error } = await supabase
+                                              .from('categories')
+                                              .delete()
+                                              .eq('id', cat.id);
+
+                                            if (error) {
+                                              console.error('Error deleting category:', error);
+                                              Alert.alert('Error', 'Failed to delete category');
+                                              return;
+                                            }
+
+                                            // Update local state
+                                            setCategories(prev => prev.filter(c => c.id !== cat.id));
+                                            
+                                            // If this was the selected category, clear it
+                                            if (selectedCategory?.id === cat.id) {
+                                              setSelectedCategory(null);
+                                            }
+                                            if (editedSelectedCategory?.id === cat.id) {
+                                              setEditedSelectedCategory(null);
+                                            }
+
+                                            Toast.show({
+                                              type: 'success',
+                                              text1: 'Category deleted successfully',
+                                              position: 'bottom',
+                                            });
+                                          } catch (error) {
+                                            console.error('Error deleting category:', error);
+                                            Alert.alert('Error', 'Failed to delete category');
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  );
+                                }}
+                                  style={({ pressed }) => ({
+                                    backgroundColor: '#fafafa',
+                                    paddingVertical: 5,
+                                    paddingHorizontal: 8,
+                                    borderRadius: 9,
+                                    borderWidth: (pressed || selectedCategory?.name === cat.name) ? 1 : 0,
+                                    borderColor: cat.color,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 6,
+                                  })}
+                                >
+                                  <View style={{ 
+                                    width: 6, 
+                                    height: 6, 
+                                    borderRadius: 3, 
+                                    backgroundColor: cat.color,
+                                  }} />
+                                  <Text style={{ 
+                                    color: '#3a3a3a', 
+                                    fontSize: 12, 
+                                    fontFamily: 'Onest',
+                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500'
+                                  }}>
+                                    {cat.name}
+                                  </Text>
+                                </Pressable>
+                            ))}
+                            <TouchableOpacity
+                              onPress={() => setShowAddCategoryForm(true)}
+                              style={{
+                                  backgroundColor: '#fafafa',
+                                  paddingVertical: 5,
+                                  paddingHorizontal: 8,
+                                  borderRadius: 9,
+                                  borderWidth: 0,
+                                  borderColor: '#eee',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                  gap: 6,
+                              }}
+                            >
+                                <Ionicons name="add" size={14} color="#666" />
+                            </TouchableOpacity>
+
+                              {showAddCategoryForm && (
+                                <View style={{
+                                  backgroundColor: '#fafafa',
+                                  padding: 2,
+                                  borderRadius: 12,
+                                  marginTop: 8,
+                                  width: '100%',
+                                }}>
+                                  <Text style={{
+                                    fontSize: 13,
+                                    color: '#3a3a3a',
+                                    fontFamily: 'Onest',
+                                    marginBottom: 8,
+                                  }}>
+                                    New Category
+                                  </Text>
+                                  <TextInput
+                                    style={{
+                                      backgroundColor: 'white',
+                                      padding: 10,
+                                      borderRadius: 8,
+                                      marginBottom: 12,
+                                      fontSize: 13,
+                                      marginTop: 4,
+                                      fontFamily: 'Onest',
+                                    }}
+                                    placeholder="Category name"
+                                    value={newCategoryName}
+                                    onChangeText={setNewCategoryName}
+                                  />
+                                  
+                                  {/* Add Color Picker */}
+                                  <Text style={{
+                                      fontSize: 13,
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      marginBottom: 8,
+                                    }}>
+                                      Color
+                                    </Text>
+                                    <View style={{
+                                      flexDirection: 'row',
+                                      flexWrap: 'wrap',
+                                      gap: 8,
+                                      marginBottom: 12,
+                                    }}>
+                                      {CATEGORY_COLORS.map((color) => (
+                                        <TouchableOpacity
+                                          key={color}
+                                          onPress={() => setNewCategoryColor(color)}
+                                          style={{
+                                            width: 24,
+                                            height: 24,
+                                            borderRadius: 12,
+                                            backgroundColor: color,
+                                            opacity: newCategoryColor === color ? 1 : 0,
+                                            shadowColor: '#000',
+                                            shadowOffset: { width: 0, height: 1 },
+                                            shadowOpacity: 0.2,
+                                            shadowRadius: 1,
+                                            elevation: 2,
+                                          }}
+                                        />
+                                      ))}
+                                    </View>
+
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <TouchableOpacity
+                                        onPress={() => {
+                                          setShowAddCategoryForm(false);
+                                          setNewCategoryName('');
+                                          setNewCategoryColor('#FADADD'); // Reset to default color
+                                        }}
+                                        style={{
+                                          paddingVertical: 8,
+                                          paddingHorizontal: 6,
+                                        }}
+                                      >
+                                        <Text style={{
+                                          color: '#666',
+                                          fontSize: 12,
+                                          fontFamily: 'Onest',
+                                        }}>
+                                          Cancel
+                                        </Text>
+                                      </TouchableOpacity>
+                                      <TouchableOpacity
+                                        onPress={async () => {
+                                          if (newCategoryName.trim()) {
+                                            const { data, error } = await supabase
+                                              .from('categories')
+                                              .insert([
+                                                {
+                                                  label: newCategoryName.trim(),
+                                                  color: newCategoryColor,
+                                                  user_id: user?.id,
+                                                }
+                                              ])
+                                              .select();
+
+                                            if (error) {
+                                              console.error('Error creating category:', error);
+                                              return;
+                                            }
+
+                                            if (data) {
+                                              const newCategory = {
+                                                id: data[0].id,
+                                                name: data[0].label,
+                                                color: data[0].color,
+                                              };
+                                              setCategories(prev => [...prev, newCategory]);
+                                              setSelectedCategory(newCategory);
+                                              setShowAddCategoryForm(false);
+                                              setNewCategoryName('');
+                                              setNewCategoryColor('#FADADD'); // Reset to default color
+                                            }
+                                          }
+                                        }}
+                                        style={{
+                                          backgroundColor: '#FF9A8B',
+                                          paddingVertical: 6,
+                                          paddingHorizontal: 12,
+                                          borderRadius: 8,
+                                        }}
+                                      >
+                                        <Text style={{
+                                          color: 'white',
+                                          fontSize: 12,
+                                          fontFamily: 'Onest',
+                                          fontWeight: '600',
+                                        }}>
+                                          Add
+                                        </Text>
+                                      </TouchableOpacity>
+                                    </View>
+                                  </View>
+                                )}
+                              </View>
+                            )}
+                        </TouchableOpacity>
+                      </View>
+
+                      {/* Custom Dates */}
+                      <View style={{ marginBottom: 12 }}>
+                        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>Custom Dates</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            // Initialize custom dates and times from the event being edited
+                            if (selectedEvent?.event.customDates && selectedEvent.event.customDates.length > 0) {
+                              setCustomSelectedDates(selectedEvent.event.customDates);
+                              // Use the saved custom times if they exist, otherwise use default times
+                              const customTimes: { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } } = {};
+                              selectedEvent.event.customDates.forEach(date => {
+                                if (selectedEvent.event.customTimes?.[date]) {
+                                  // Use the saved custom time for this date
+                                  const savedTime = selectedEvent.event.customTimes[date];
+                                  customTimes[date] = {
+                                    start: new Date(savedTime.start),
+                                    end: new Date(savedTime.end),
+                                    reminder: savedTime.reminder ? new Date(savedTime.reminder) : null,
+                                    repeat: savedTime.repeat
+                                  };
+                                } else {
+                                  // Fallback to default event times if no custom time exists
+                                  customTimes[date] = {
+                                    start: new Date(selectedEvent.event.startDateTime!),
+                                    end: new Date(selectedEvent.event.endDateTime!),
+                                    reminder: selectedEvent.event.reminderTime ? new Date(selectedEvent.event.reminderTime) : null,
+                                    repeat: selectedEvent.event.repeatOption || 'None'
+                                  };
                                 }
                               });
-
-                              // Add the updated event to the dates
-                              const start = new Date(editedStartDateTime);
-                              const end = new Date(editedEndDateTime);
-                              let currentDate = new Date(start);
-
-                              while (currentDate <= end) {
-                                const dateKey = getLocalDateString(currentDate);
-                                if (!updatedEvents[dateKey]) updatedEvents[dateKey] = [];
-
-                                updatedEvents[dateKey].push({
-                                  id: selectedEvent.event.id,
-                                  title: editedEventTitle,
-                                  description: editedEventDescription,
-                                  date: dateKey,
-                                  startDateTime: editedStartDateTime,
-                                  endDateTime: editedEndDateTime,
-                                  categoryName: editedSelectedCategory?.name,
-                                  categoryColor: editedSelectedCategory?.color,
-                                  reminderTime: editedReminderTime,
-                                  repeatOption: editedRepeatOption,
-                                  repeatEndDate: editedRepeatEndDate,
-                                  customDates: customSelectedDates,
-                                  isContinued: currentDate.toDateString() !== start.toDateString(),
-                                  isAllDay: isEditedAllDay,
-                                });
-
-                                currentDate.setDate(currentDate.getDate() + 1);
-                              }
-
-                              setEvents(updatedEvents);
-                              setShowEditEventModal(false);
-                              
-                              Toast.show({
-                                type: 'success',
-                                text1: 'Event updated successfully',
-                                position: 'bottom',
-                              });
-                            } catch (err) {
-                              console.error('Error updating event:', err);
-                              Alert.alert('Error', 'Failed to update event. Please try again.');
+                              setCustomDateTimes(customTimes);
+                              // Set default time values from the event
+                              setStartDateTime(new Date(selectedEvent.event.startDateTime!));
+                              setEndDateTime(new Date(selectedEvent.event.endDateTime!));
+                              setReminderTime(selectedEvent.event.reminderTime ? new Date(selectedEvent.event.reminderTime) : null);
+                              setRepeatOption(selectedEvent.event.repeatOption || 'None');
                             }
+                            setShowCustomDatesPicker(true);
+                            setShowEditEventModal(false);
+                          }}
+                          style={{
+                            backgroundColor: '#fafafa',
+                            borderRadius: 12,
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            marginTop: 2,
+                            alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 1 },
+                            shadowOpacity: 0.05,
+                            shadowRadius: 2,
+                            elevation: 1,
+                            marginBottom: 15,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={{ 
+                              fontSize: 13, 
+                              color: '#3a3a3a',
+                              fontFamily: 'Onest',
+                              fontWeight: '500'
+                            }}>
+                              {customSelectedDates.length > 0 
+                                ? customSelectedDates
+                                    .map(date => new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' }))
+                                    .join(', ')
+                                : 'Select Dates'}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  )}
+
+                  {/* Action Buttons */}
+                  <View style={[styles.modalActions, { justifyContent: 'space-between' }]}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (selectedEvent) {
+                          handleDeleteEvent(selectedEvent.dateKey, selectedEvent.index);
+                          setShowEditEventModal(false);
+                        }
+                      }}
+                      style={styles.deleteButton}
+                    >
+                      <Text style={styles.deleteButtonText}>Delete</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        if (!editedEventTitle.trim()) {
+                          Alert.alert('Error', 'Please enter a title for the event');
+                          return;
+                        }
+
+                        if (!selectedEvent) {
+                          Alert.alert('Error', 'No event selected for editing');
+                          return;
+                        }
+
+                        try {
+                          // First, remove the old event from all dates
+                          const updatedEventsData = { ...events };
+                          Object.keys(updatedEventsData).forEach(dateKey => {
+                            updatedEventsData[dateKey] = updatedEventsData[dateKey].filter(
+                              event => event.id !== selectedEvent.event.id
+                            );
+                            if (updatedEventsData[dateKey].length === 0) {
+                              delete updatedEventsData[dateKey];
+                            }
+                          });
+
+                          // Then add the updated event
+                          if (editedRepeatOption === 'Custom') {
+                            // Handle custom dates
+                            customSelectedDates.forEach(dateKey => {
+                              if (!updatedEventsData[dateKey]) updatedEventsData[dateKey] = [];
+                              updatedEventsData[dateKey].push({
+                                id: selectedEvent.event.id,
+                                title: editedEventTitle,
+                                description: editedEventDescription || '',
+                                date: dateKey,
+                                startDateTime: editedStartDateTime,
+                                endDateTime: editedEndDateTime,
+                                categoryName: editedSelectedCategory?.name || '',
+                                categoryColor: editedSelectedCategory?.color || '#FF9A8B',
+                                reminderTime: editedReminderTime,
+                                repeatOption: editedRepeatOption,
+                                repeatEndDate: editedRepeatEndDate,
+                                isAllDay: isEditedAllDay,
+                                customDates: editedRepeatOption === 'Custom' ? customSelectedDates : undefined,
+                                customTimes: editedRepeatOption === 'Custom' && Object.keys(customDateTimes).length > 0 ? 
+                                  Object.entries(customDateTimes).reduce((acc, [date, times]) => ({
+                                    ...acc,
+                                    [date]: {
+                                      start: times.start,
+                                      end: times.end,
+                                      reminder: times.reminder,
+                                      repeat: times.repeat
+                                    }
+                                  }), {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } }) : undefined,
+                                isContinued: false
+                              });
+                            });
+                          } else {
+                            // Handle regular event
+                            const dateKey = editedStartDateTime.toISOString().split('T')[0];
+                            if (!updatedEventsData[dateKey]) updatedEventsData[dateKey] = [];
+                            updatedEventsData[dateKey].push({
+                              id: selectedEvent.event.id,
+                              title: editedEventTitle,
+                              description: editedEventDescription || '',
+                              date: dateKey,
+                              startDateTime: editedStartDateTime,
+                              endDateTime: editedEndDateTime,
+                              categoryName: editedSelectedCategory?.name || '',
+                              categoryColor: editedSelectedCategory?.color || '#FF9A8B',
+                              reminderTime: editedReminderTime,
+                              repeatOption: editedRepeatOption,
+                              repeatEndDate: editedRepeatEndDate,
+                              isAllDay: isEditedAllDay,
+                              customDates: customSelectedDates,
+                              customTimes: customDateTimes,
+                              isContinued: false
+                            });
                           }
-                        }}
-                        style={styles.saveButton}
-                      >
-                        <Text style={styles.saveButtonText}>Save</Text>
-                      </TouchableOpacity>
-                    </View>
+
+                          // Update the database
+                          const { error } = await supabase
+                            .from('events')
+                            .update({
+                              title: editedEventTitle,
+                              description: editedEventDescription || '',
+                              start_datetime: editedStartDateTime.toISOString(),
+                              end_datetime: editedEndDateTime.toISOString(),
+                              category_name: editedSelectedCategory?.name || '',
+                              category_color: editedSelectedCategory?.color || '#FF9A8B',
+                              reminder_time: editedReminderTime?.toISOString() || null,
+                              repeat_option: editedRepeatOption,
+                              repeat_end_date: editedRepeatEndDate?.toISOString() || null,
+                              is_all_day: isEditedAllDay,
+                              custom_dates: editedRepeatOption === 'Custom' ? customSelectedDates : undefined,
+                              custom_times: editedRepeatOption === 'Custom' && Object.keys(customDateTimes).length > 0 ? 
+                                Object.entries(customDateTimes).reduce((acc, [date, times]) => ({
+                                  ...acc,
+                                  [date]: {
+                                    start: times.start,
+                                    end: times.end,
+                                    reminder: times.reminder,
+                                    repeat: times.repeat
+                                  }
+                                }), {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } }) : undefined,
+                              user_id: user?.id
+                            })
+                            .eq('id', selectedEvent.event.id);
+
+                          if (error) {
+                            console.error('Error updating event:', error);
+                            Alert.alert('Error', error.message || 'Failed to update event');
+                            return;
+                          }
+
+                          // Update local state
+                          setEvents(updatedEventsData);
+                          setShowEditEventModal(false);
+                          setSelectedEvent(null);
+                          setEditedEventTitle('');
+                          setEditedEventDescription('');
+                          setEditedStartDateTime(new Date());
+                          setEditedEndDateTime(new Date());
+                          setEditedSelectedCategory(null);
+                          setEditedReminderTime(null);
+                          setEditedRepeatOption('None');
+                          setEditedRepeatEndDate(null);
+                          setIsEditedAllDay(false);
+                          setCustomSelectedDates([]);
+                          setCustomDateTimes({});
+
+                          Toast.show({
+                            type: 'success',
+                            text1: 'Event updated successfully',
+                            position: 'bottom',
+                          });
+                        } catch (error) {
+                          console.error('Error updating event:', error);
+                          Alert.alert('Error', 'Failed to update event. Please try again.');
+                        }
+                      }}
+                      style={styles.saveButton}
+                    >
+                      <Text style={styles.saveButtonText}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
                   </ScrollView>
                 </View>
               </View>

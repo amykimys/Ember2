@@ -1042,12 +1042,77 @@ export default function TodoScreen() {
     );
   };
 
-  // Add this new useEffect to handle auth state changes and fetch/save tasks
+  // Add this new useEffect for periodic data refresh
+  useEffect(() => {
+    const refreshInterval = setInterval(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        try {
+          // Fetch latest categories
+          console.log('Refreshing categories...');
+          const { data: categoriesData, error: categoriesError } = await supabase
+            .from('categories')
+            .select('*')
+            .eq('user_id', session.user.id);
+
+          if (categoriesError) {
+            console.error('Error refreshing categories:', categoriesError);
+            return;
+          }
+
+          if (categoriesData) {
+            console.log('Categories refreshed:', categoriesData);
+            setCategories(categoriesData);
+
+            // Update selected category if it no longer exists
+            if (selectedCategoryId && !categoriesData.find(cat => cat.id === selectedCategoryId)) {
+              console.log('🧼 Resetting invalid selectedCategoryId during refresh');
+              setSelectedCategoryId('');
+            }
+          }
+
+          // Fetch latest tasks
+          console.log('Refreshing tasks...');
+          const { data: tasksData, error: tasksError } = await supabase
+            .from('todos')
+            .select('*')
+            .eq('user_id', session.user.id);
+          
+          if (tasksError) {
+            console.error('Error refreshing tasks:', tasksError);
+            return;
+          }
+
+          if (tasksData) {
+            console.log('Tasks refreshed:', tasksData);
+            // Map tasks and ensure they have the correct category
+            const mappedTasks = tasksData.map(task => ({
+              ...task,
+              date: new Date(task.date),
+              repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
+              categoryId: task.category_id || null,
+              customRepeatDates: task.custom_repeat_dates
+                ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
+                : undefined,
+            }));
+            setTodos(mappedTasks);
+          }
+        } catch (error) {
+          console.error('Error in periodic refresh:', error);
+        }
+      }
+    }, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(refreshInterval);
+  }, [selectedCategoryId]); // Add selectedCategoryId as a dependency to ensure proper category state updates
+
+  // Modify the existing auth state change useEffect to also handle TOKEN_REFRESHED
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('Auth state changed:', event, session?.user?.email);
       
-      if (event === 'SIGNED_IN' && session?.user) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
         try {
           // First fetch categories
           console.log('Fetching categories...');
@@ -1070,7 +1135,6 @@ export default function TodoScreen() {
               console.log('🧼 Resetting invalid selectedCategoryId');
               setSelectedCategoryId('');
             }
-
           } else {
             console.log('No categories found for user');
             setCategories([]);
@@ -1096,8 +1160,7 @@ export default function TodoScreen() {
               ...task,
               date: new Date(task.date),
               repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
-              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null, // ✅ You should ADD THIS LINE if not present
-              // Ensure category_id is properly set
+              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
               categoryId: task.category_id || null,
               customRepeatDates: task.custom_repeat_dates
                 ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
@@ -1130,7 +1193,7 @@ export default function TodoScreen() {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [selectedCategoryId]); // Add selectedCategoryId as a dependency
 
   // Add this after your existing useEffect hooks
   useEffect(() => {

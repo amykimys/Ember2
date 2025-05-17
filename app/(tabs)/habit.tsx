@@ -246,7 +246,11 @@ export default function HabitScreen() {
   const noteInputRef = useRef<TextInput>(null);
   // Add this state near the other state declarations
   const [isSwiping, setIsSwiping] = useState(false);
-  
+  // Add new state for progress modal item selection
+  const [selectedProgressItem, setSelectedProgressItem] = useState<{ habitId: string; date: string } | null>(null);
+  // Add new state to track if we should reopen the progress modal
+  const [shouldReopenProgressModal, setShouldReopenProgressModal] = useState(false);
+
   // Update the useEffect for progress animations
   useEffect(() => {
     // Initialize animations for all habits
@@ -672,12 +676,13 @@ const formatDate = (date: Date): string => {
       // Count completions for this week
       const completionsThisWeek = weekDates.filter(date => completedSet.has(date)).length;
 
-      // If we met the target for this week, increment streak and check previous week
+      // If we met or exceeded the target for this week, increment streak by 1
       if (completionsThisWeek >= habit.targetPerWeek) {
-        streak++;
+        streak += 1; // Add exactly 1 point for meeting the weekly target
         // Move to previous week
         currentWeekStart.subtract(7, 'days');
       } else {
+        // If we didn't meet the target this week, stop counting
         break;
       }
     }
@@ -1613,6 +1618,34 @@ const formatDate = (date: Date): string => {
   // Add scroll handler
   const handleScroll = (event: any) => {
     setScrollPosition(event.nativeEvent.contentOffset.x);
+  };
+
+  // Add function to handle progress item press
+  const handleProgressItemPress = (habitId: string, date: string) => {
+    const habit = habits.find(h => h.id === habitId);
+    if (habit?.notes?.[date] || habit?.photos?.[date]) {
+      setSelectedNoteDate({ habitId, date });
+      setIsNoteEditMode(false);
+      setNoteText(habit.notes?.[date] || '');
+      setShouldReopenProgressModal(true); // Set flag to reopen progress modal
+      setIsProgressModalVisible(false);
+    }
+  };
+
+  // Update the note modal close handler
+  const handleNoteModalClose = () => {
+    setSelectedNoteDate(null);
+    setIsNoteEditMode(false);
+    setNoteText('');
+    // If we should reopen the progress modal, do so after a short delay
+    if (shouldReopenProgressModal) {
+      setTimeout(() => {
+        setIsProgressModalVisible(true);
+        setShouldReopenProgressModal(false);
+        // Add a longer delay to ensure the modal is fully rendered before centering
+        setTimeout(centerTodayColumn, 500);
+      }, 300); // Wait for note modal animation to complete
+    }
   };
 
   return (
@@ -2767,13 +2800,7 @@ const formatDate = (date: Date): string => {
             visible={!!selectedNoteDate}
             transparent={true}
             animationType="slide"
-            onRequestClose={() => {
-              if (!isNoteEditMode) {
-                setSelectedNoteDate(null);
-                setIsNoteEditMode(false);
-                setNoteText('');
-              }
-            }}
+            onRequestClose={handleNoteModalClose}
           >
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -2808,12 +2835,7 @@ const formatDate = (date: Date): string => {
                         <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>
                           Add Note
                         </Text>
-                        <TouchableOpacity onPress={() => {
-                          setSelectedNoteDate(null);
-                          setIsNoteEditMode(false);
-                          setNoteText('');
-                          Keyboard.dismiss();
-                        }}>
+                        <TouchableOpacity onPress={handleNoteModalClose}>
                           <Ionicons name="close" size={24} color="#666" />
                         </TouchableOpacity>
                       </View>
@@ -2907,11 +2929,7 @@ const formatDate = (date: Date): string => {
                       <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>
                         Note
                       </Text>
-                      <TouchableOpacity onPress={() => {
-                        setSelectedNoteDate(null);
-                        setIsNoteEditMode(false);
-                        setNoteText('');
-                      }}>
+                      <TouchableOpacity onPress={handleNoteModalClose}>
                         <Ionicons name="close" size={24} color="#666" />
                       </TouchableOpacity>
                     </View>
@@ -3014,22 +3032,12 @@ const formatDate = (date: Date): string => {
                 }}>
                   <Text style={{ fontSize: 20, fontWeight: '700', color: '#3A3A3A', fontFamily: 'Onest' }}>Monthly Progress</Text>
                   <TouchableOpacity onPress={() => setIsProgressModalVisible(false)}>
-\                    <Ionicons name="close" size={24} color="#666" />
+                    <Ionicons name="close" size={24} color="#666" />
                   </TouchableOpacity>
                 </View>
 
-                {/* Month Navigation */}
-                <View style={{ 
-                  flexDirection: 'row', 
-                  alignItems: 'center',
-                  marginBottom: 0,
-                  alignSelf: 'flex-start',
-                  marginLeft: 0,
-                }}>
-\                </View>
-
                 <View style={{ flex: 1 }}>
-\                  {habits.length > 0 ? (
+                  {habits.length > 0 ? (
                     <View style={{ flexDirection: 'row' }}>
                       <View style={{ 
                         width: 64,
@@ -3089,8 +3097,8 @@ const formatDate = (date: Date): string => {
                         showsHorizontalScrollIndicator={false}
                         style={{ flex: 1 }}
                       >
-\                        <View>
-\                          <View style={{ flexDirection: 'row', marginBottom: 8 }}>
+                        <View>
+                          <View style={{ flexDirection: 'row', marginBottom: 8 }}>
                             {getMonthDates().map((date, index) => (
                               <View key={date} style={{ width: 36, alignItems: 'center', justifyContent: 'center' }}>
                                 <Text style={{ 
@@ -3108,7 +3116,7 @@ const formatDate = (date: Date): string => {
                           </View>
 
                           {/* Grid rows for each habit */}
-\                          {habits.map(habit => (
+                          {habits.map(habit => (
                             <View key={habit.id} style={{ 
                               flexDirection: 'row', 
                               height: 48,
@@ -3118,6 +3126,7 @@ const formatDate = (date: Date): string => {
                                 const isCompleted = habit.completedDays.includes(date);
                                 const isToday = moment(date).isSame(moment(), 'day');
                                 const hasNote = habit.notes?.[date];
+                                const hasPhoto = habit.photos?.[date];
                                 return (
                                   <TouchableOpacity 
                                     key={date} 
@@ -3130,26 +3139,26 @@ const formatDate = (date: Date): string => {
                                       padding: 3
                                     }}
                                     onPress={() => {
-                                      if (hasNote) {
-                                        setSelectedNoteDate({ habitId: habit.id, date });
-                                        setIsNoteEditMode(false);
-                                        setNoteText(habit.notes[date]);
+                                      if (hasNote || hasPhoto) {
+                                        handleProgressItemPress(habit.id, date);
                                       }
                                     }}
                                   >
-                                    {hasNote ? (
-                                      <Text 
-                                        style={{ 
-                                          fontSize: 9,
-                                          color: '#3A3A3A',
-                                          textAlign: 'center',
-                                          lineHeight: 12,
-                                          fontFamily: 'Onest'
-                                        }}
-                                        numberOfLines={3}
-                                      >
-                                        {habit.notes[date]}
-                                      </Text>
+                                    {hasNote || hasPhoto ? (
+                                      <View style={{ 
+                                        width: 24, 
+                                        height: 24, 
+                                        borderRadius: 12,
+                                        backgroundColor: '#F5F5F5',
+                                        justifyContent: 'center',
+                                        alignItems: 'center'
+                                      }}>
+                                        {hasPhoto ? (
+                                          <Ionicons name="camera" size={14} color="#666" />
+                                        ) : (
+                                          <Ionicons name="document-text" size={14} color="#666" />
+                                        )}
+                                      </View>
                                     ) : isCompleted ? (
                                       <View style={{ justifyContent: 'center', alignItems: 'center' }}>
                                         <Ionicons name="checkmark-circle" size={17} color="#A0C3B2" />

@@ -94,17 +94,39 @@ export default function ProfileScreen() {
             style: 'destructive',
             onPress: async () => {
               try {
-                await GoogleSignin.revokeAccess();
-                await GoogleSignin.signOut();
-                const { error } = await supabase.auth.signOut();
-                if (error) throw error;
+                // First sign out from Supabase
+                const { error: supabaseError } = await supabase.auth.signOut();
+                if (supabaseError) {
+                  console.error('Supabase sign out error:', supabaseError);
+                  throw new Error('Failed to sign out from Supabase');
+                }
+
+                // Then handle Google sign out
+                try {
+                  const currentUser = await GoogleSignin.getCurrentUser();
+                  if (currentUser) {
+                    await GoogleSignin.signOut();
+                    await GoogleSignin.revokeAccess();
+                  }
+                } catch (googleError) {
+                  console.error('Google sign out error:', googleError);
+                  // Don't throw here, as we've already signed out from Supabase
+                }
+
+                // Clear local state
                 setUser(null);
+                
+                // Provide haptic feedback
                 if (Platform.OS !== 'web') {
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
               } catch (error) {
-                console.error('Error signing out:', error);
-                Alert.alert('Error', 'Failed to sign out. Please try again.');
+                console.error('Error during sign out:', error);
+                Alert.alert(
+                  'Sign Out Error',
+                  'There was a problem signing out. Please try again.',
+                  [{ text: 'OK' }]
+                );
               }
             },
           },
@@ -112,7 +134,11 @@ export default function ProfileScreen() {
       );
     } catch (error) {
       console.error('Error in handleSignOut:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      Alert.alert(
+        'Error',
+        'An unexpected error occurred. Please try again.',
+        [{ text: 'OK' }]
+      );
     }
   };
 
