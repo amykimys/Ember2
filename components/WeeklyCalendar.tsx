@@ -1,11 +1,9 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Modal, TextInput, Button, Alert } from 'react-native';
-import EventModal from '../components/EventModal';
+import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { Feather } from '@expo/vector-icons'; 
-import { supabase } from '../supabase'; 
-
+import { Feather } from '@expo/vector-icons';
+import { supabase } from '../supabase';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -203,31 +201,11 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       const end = new Date(dayDate);
       end.setHours(hour + 1, 0, 0, 0);
     
-      const newEvent: CalendarEvent = {
-        id: Date.now().toString(),
-        title: 'New Event',
-        description: '',
-        date: start.toISOString().split('T')[0],
-        startDateTime: start,
-        endDateTime: end,
-        categoryName: '',
-        categoryColor: '#BF9264',
-        reminderTime: null,
-        repeatOption: 'None',
-        repeatEndDate: null,
-        isContinued: false,
-        isAllDay: false,
-      };
-    
-      setEvents(prev => {
-        const updated = { ...prev };
-        const dateKey = newEvent.date;
-    
-        if (!updated[dateKey]) updated[dateKey] = [];
-        updated[dateKey].push(newEvent);
-    
-        return updated;
-      });
+      // Instead of directly creating and setting the event,
+      // prepare the event data and use the main modal
+      setStartDateTime(start);
+      setEndDateTime(end);
+      setShowModal(true);
     };
     
 
@@ -293,6 +271,12 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       return date;
     });
 
+    console.log('WeeklyCalendar - Rendering Week:', {
+      weekStart: weekStart.toISOString(),
+      weekDates: weekDates.map(d => d.toISOString()),
+      eventsKeys: Object.keys(events)
+    });
+
     // Sticky all-day row
     const allDayRow = (
       <View style={{ 
@@ -313,6 +297,11 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         {weekDates.map((date, idx) => {
           const dateKey = getLocalDateString(date);
           const allDayEvents = (events[dateKey] || []).filter(e => e.isAllDay);
+          console.log('WeeklyCalendar - Day Events:', {
+            date: dateKey,
+            allDayEvents: allDayEvents.length,
+            regularEvents: (events[dateKey] || []).filter(e => !e.isAllDay).length
+          });
           return (
             <View
               key={idx}
@@ -416,6 +405,17 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
               const dateKey = getLocalDateString(date);
               const dayEvents = (events[dateKey] || []).filter(event => !event.isAllDay);
               const isCurrentDay = isToday(date);
+
+              console.log('WeeklyCalendar - Rendering Day Column:', {
+                date: dateKey,
+                eventsCount: dayEvents.length,
+                events: dayEvents.map(e => ({
+                  id: e.id,
+                  title: e.title,
+                  start: e.startDateTime?.toISOString(),
+                  end: e.endDateTime?.toISOString()
+                }))
+              });
 
               return (
                 <View key={dayIndex} style={styles.dayColumn}>
