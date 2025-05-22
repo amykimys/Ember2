@@ -338,7 +338,8 @@ export default function TodoScreen() {
             id: newCategory.id,
             label: newCategory.label,
             color: newCategory.color,
-            user_id: user.id
+            user_id: user.id,
+            type: 'task'  // Add type field
           })
           .select()
           .single();
@@ -375,6 +376,7 @@ export default function TodoScreen() {
           .select('*')
           .eq('user_id', user.id)
           .eq('label', 'todo')
+          .eq('type', 'task')  // Add type filter
           .single();
       
         if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows found
@@ -398,7 +400,8 @@ export default function TodoScreen() {
               id: defaultCategory.id,
               label: defaultCategory.label,
               color: defaultCategory.color,
-              user_id: user.id
+              user_id: user.id,
+              type: 'task'  // Add type field
             })
             .select()
             .single();
@@ -844,77 +847,50 @@ export default function TodoScreen() {
   
   const handleDeleteCategory = async (categoryId: string) => {
     try {
-      
-      // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.error('No user logged in');
         Alert.alert('Error', 'You must be logged in to delete categories.');
         return;
       }
 
-      // First, delete all tasks in this category
-      const { error: tasksError } = await supabase
+      // First update all todos that use this category
+      const { error: updateError } = await supabase
         .from('todos')
-        .delete()
+        .update({ category_id: null })
         .eq('category_id', categoryId)
         .eq('user_id', user.id);
 
-      if (tasksError) {
-        console.error('Error deleting tasks:', tasksError);
-        Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
+      if (updateError) {
+        console.error('Error updating todos:', updateError);
+        Alert.alert('Error', 'Failed to update todos. Please try again.');
         return;
       }
 
       // Then delete the category
-      const { error: categoryError } = await supabase
+      const { error: deleteError } = await supabase
         .from('categories')
         .delete()
         .eq('id', categoryId)
+        .eq('type', 'task') // Only delete task categories
         .eq('user_id', user.id);
 
-      if (categoryError) {
-        console.error('Error deleting category:', categoryError);
+      if (deleteError) {
+        console.error('Error deleting category:', deleteError);
         Alert.alert('Error', 'Failed to delete category. Please try again.');
         return;
       }
-      
-      // Update todos first
-      setTodos(prev => {
-        const newTodos = prev.filter(todo => todo.categoryId !== categoryId);
-        console.log('Updated todos:', newTodos);
-        return newTodos;
-      });
 
-      // Then update categories
-      setCategories(prev => {
-        const newCategories = prev.filter(category => category.id !== categoryId);
-        return newCategories;
-      });
-      
-      // If the deleted category was selected, clear the selection
+      // Update local state
+      setCategories(prev => prev.filter(cat => cat.id !== categoryId));
+      setTodos(prev => prev.map(todo => {
+        if (todo.categoryId === categoryId) {
+          return { ...todo, categoryId: null };
+        }
+        return todo;
+      }));
+
       if (selectedCategoryId === categoryId) {
         setSelectedCategoryId('');
-      }
-
-      // Remove from collapsed state
-      setCollapsedCategories(prev => {
-        const newCollapsed = { ...prev };
-        delete newCollapsed[categoryId];
-        return newCollapsed;
-      });
-
-      console.log('Category deletion completed successfully');
-      
-      // Force a re-render
-      setIsNewTaskModalVisible(false);
-      setTimeout(() => {
-        showModal();
-      }, 100);
-      
-      // Provide haptic feedback
-      if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
     } catch (error) {
       console.error('Error in handleDeleteCategory:', error);
@@ -1053,7 +1029,8 @@ export default function TodoScreen() {
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', session.user.id);
+            .eq('user_id', session.user.id)
+            .eq('type', 'task');  // Add type filter
 
           if (categoriesError) {
             console.error('Error refreshing categories:', categoriesError);
@@ -1119,7 +1096,8 @@ export default function TodoScreen() {
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', session.user.id);
+            .eq('user_id', session.user.id)
+            .eq('type', 'task');  // Add type filter
 
           if (categoriesError) {
             console.error('Error fetching categories:', categoriesError);
@@ -2621,7 +2599,8 @@ export default function TodoScreen() {
                         id: newCategory.id,
                         label: newCategory.label,
                         color: newCategory.color,
-                        user_id: user.id
+                        user_id: user.id,
+                        type: 'task'  // Add type field
                       })
                       .select()
                       .single();

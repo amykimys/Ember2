@@ -763,7 +763,6 @@ const CalendarScreen: React.FC = (): JSX.Element => {
   const [currentMonthIndex, setCurrentMonthIndex] = useState(12); // center month in 25-month buffer
   const flatListRef = useRef<FlatList>(null);
   const weeklyCalendarRef = useRef<WeeklyCalendarViewRef>(null);
-  const monthFlatListRef = useRef<FlatList>(null);
 
   // Add nextTimeBoxId state
   const [nextTimeBoxId, setNextTimeBoxId] = useState<number>(1);
@@ -803,7 +802,6 @@ const CalendarScreen: React.FC = (): JSX.Element => {
   const [selectedDate, setSelectedDate] = useState(today);
   const [user, setUser] = useState<any>(null);
   const [events, setEvents] = useState<{ [date: string]: CalendarEvent[] }>({});
-  const [isSaving, setIsSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventDescription, setNewEventDescription] = useState('');
@@ -855,8 +853,6 @@ const CalendarScreen: React.FC = (): JSX.Element => {
 
   const [calendarMode, setCalendarMode] = useState<'month' | 'week'>('month');
   const [isMonthCompact, setIsMonthCompact] = useState(false);
-
-  const [showTimePicker, setShowTimePicker] = useState(false);
 const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
 const [editingTimeBoxId, setEditingTimeBoxId] = useState<string | null>(null);
 const [editingField, setEditingField] = useState<'start' | 'end'>('start');
@@ -874,10 +870,6 @@ const [customTimePickerTimeout, setCustomTimePickerTimeout] = useState<NodeJS.Ti
   const [selectedDateForCustomTime, setSelectedDateForCustomTime] = useState<Date | null>(null);
   const [customStartTime, setCustomStartTime] = useState<Date>(new Date());
   const [customEndTime, setCustomEndTime] = useState<Date>(new Date(new Date().getTime() + 60 * 60 * 1000));
-  const [showCustomStartPicker, setShowCustomStartPicker] = useState(false);
-  const [showCustomEndPicker, setShowCustomEndPicker] = useState(false);
-  const [pendingCustomDates, setPendingCustomDates] = useState<string[]>([]);
-const [pendingCustomTimes, setPendingCustomTimes] = useState<CustomTimes>({});
 const [customModalTitle, setCustomModalTitle] = useState('');
 const [customModalDescription, setCustomModalDescription] = useState('');
 
@@ -939,17 +931,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }, 1500); // 2 second delay
   };
 
-  const debounceCustomTimePickerClose = () => {
-    if (customTimePickerTimeout) {
-      clearTimeout(customTimePickerTimeout);
-    }
-    const timeout = setTimeout(() => {
-      setShowCustomTimePicker(false);
-      setEditingTimeBoxId(null);
-    }, 1000);
-    setCustomTimePickerTimeout(timeout);
-  };
-
   useEffect(() => {
     return () => {
       if (customTimeReminderTimeoutRef.current) {
@@ -1002,11 +983,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        console.log('Fetching events for user:', user?.id);
+        if (!user?.id) {
+          console.log('No user ID available, skipping event fetch');
+          return;
+        }
+
+        console.log('Fetching events for user:', user.id);
         const { data: eventsData, error } = await supabase
           .from('events')
           .select('*')
-          .eq('user_id', user?.id);
+          .eq('user_id', user.id);
 
         if (error) {
           console.error('Error fetching events:', error);
@@ -1017,11 +1003,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
         // Transform the events data into our local format
         const transformedEvents = eventsData?.reduce((acc, event) => {
-          // Convert ISO strings back to Date objects
-          const startDateTime = event.start_datetime ? new Date(event.start_datetime) : undefined;
-          const endDateTime = event.end_datetime ? new Date(event.end_datetime) : undefined;
-          const reminderTime = event.reminder_time ? new Date(event.reminder_time) : null;
-          const repeatEndDate = event.repeat_end_date ? new Date(event.repeat_end_date) : null;
+          // Parse UTC dates
+          const parseDate = (dateStr: string | null) => {
+            if (!dateStr) return null;
+            // Create date object from UTC string
+            return new Date(dateStr);
+          };
+
+          const startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
+          const endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+          const reminderTime = event.reminder_time ? parseDate(event.reminder_time) : null;
+          const repeatEndDate = event.repeat_end_date ? parseDate(event.repeat_end_date) : null;
 
           // Convert custom times if they exist
           let customTimes;
@@ -1029,9 +1021,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             customTimes = Object.entries(event.custom_times).reduce((acc, [date, times]: [string, any]) => ({
               ...acc,
               [date]: {
-                start: new Date(times.start),
-                end: new Date(times.end),
-                reminder: times.reminder ? new Date(times.reminder) : null,
+                start: parseDate(times.start),
+                end: parseDate(times.end),
+                reminder: times.reminder ? parseDate(times.reminder) : null,
                 repeat: times.repeat
               }
             }), {});
@@ -1057,8 +1049,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           console.log('Transformed event:', {
             id: transformedEvent.id,
             date: transformedEvent.date,
-            start: transformedEvent.startDateTime?.toISOString(),
-            end: transformedEvent.endDateTime?.toISOString()
+            start: transformedEvent.startDateTime?.toString(),
+            end: transformedEvent.endDateTime?.toString()
           });
 
           // For custom events, add to all custom dates
@@ -1095,30 +1087,106 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   useEffect(() => {
     const fetchCategories = async () => {
-      const { data, error } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('user_id', user?.id);
-  
-      if (error) {
-        console.error('Failed to fetch categories:', error);
-        return;
-      }
-  
-      if (data) {
-        const fetchedCategories = data.map((cat) => ({
-          id: cat.id,
-          name: cat.label,
-          color: cat.color,
-        }));
-        setCategories(fetchedCategories);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data, error } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('type', 'calendar'); // Only fetch calendar categories
+
+        if (error) {
+          console.error('Error fetching categories:', error);
+          return;
+        }
+
+        if (data) {
+          setCategories(data.map(cat => ({
+            id: cat.id,
+            name: cat.label,
+            color: cat.color
+          })));
+        }
+      } catch (error) {
+        console.error('Error in fetchCategories:', error);
       }
     };
   
-    if (user?.id) {
-      fetchCategories();
-    }
+    fetchCategories();
   }, [user]);
+
+  // Update category deletion
+  const handleCategoryLongPress = (cat: { id: string; name: string; color: string }) => {
+    Alert.alert(
+      'Delete Category',
+      'Are you sure you want to delete this category?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Check if there are any events using this category
+              const { data: eventsData, error: eventsError } = await supabase
+                .from('events')
+                .select('id')
+                .eq('category_id', cat.id);
+
+              if (eventsError) {
+                console.error('Error checking events:', eventsError);
+                Alert.alert('Error', 'Failed to check if category is in use. Please try again.');
+                return;
+              }
+
+              if (eventsData && eventsData.length > 0) {
+                Alert.alert(
+                  'Cannot Delete Category',
+                  'This category is currently being used by one or more events. Please remove the category from these events before deleting.',
+                  [{ text: 'OK' }]
+                );
+                return;
+              }
+
+              // If no events are using this category, proceed with deletion
+              const { error } = await supabase
+                .from('categories')
+                .delete()
+                .eq('id', cat.id)
+                .eq('type', 'calendar'); // Only delete calendar categories
+
+              if (error) {
+                console.error('Error deleting category:', error);
+                Alert.alert('Error', 'Failed to delete category. Please try again.');
+                return;
+              }
+
+              // Update local state
+              setCategories(prev => prev.filter(c => c.id !== cat.id));
+              
+              // If the deleted category was selected, clear the selection
+              if (selectedCategory?.id === cat.id) {
+                setSelectedCategory(null);
+              }
+              if (editedSelectedCategory?.id === cat.id) {
+                setEditedSelectedCategory(null);
+              }
+
+            } catch (error) {
+              console.error('Error in category deletion:', error);
+              Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+            }
+          },
+        },
+      ],
+      { cancelable: true }
+    );
+  };
 
     
   const getMonthData = (baseDate: Date, offset: number) => {
@@ -1219,7 +1287,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         end: new Date(new Date().getTime() + 60 * 60 * 1000),
         reminder: null,
         repeat: 'None',
-        dates: [getLocalDateString(new Date())]
+        dates: [getLocalDateString(startDateTime)]
       }
     });
     setSelectedDateForCustomTime(null);
@@ -1232,47 +1300,50 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleSaveEvent = async (customEvent?: CalendarEvent) => {
     try {
-      // Create a new date object to avoid modifying the original
-      const localStartDateTime = new Date(startDateTime);
-      const localEndDateTime = new Date(endDateTime);
-      
+      // Format date to UTC ISO string
+      const formatDateToUTC = (date: Date) => {
+        // Get UTC components
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+        return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
+      };
+
       console.log('Event Save - Date Handling:', {
-        originalStartDateTime: startDateTime.toISOString(),
-        localStartDateTime: localStartDateTime.toISOString(),
-        originalEndDateTime: endDateTime.toISOString(),
-        localEndDateTime: localEndDateTime.toISOString(),
-        selectedDate: selectedDate.toISOString(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        dateString: getLocalDateString(localStartDateTime)
+        startDateTime: formatDateToUTC(startDateTime),
+        endDateTime: formatDateToUTC(endDateTime),
+        selectedDate: formatDateToUTC(selectedDate),
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
       });
       
       const eventToSave = customEvent || {
         id: Date.now().toString(),
         title: newEventTitle,
         description: newEventDescription,
-        date: getLocalDateString(localStartDateTime), // Use getLocalDateString for consistent date handling
-        startDateTime: localStartDateTime,
-        endDateTime: localEndDateTime,
+        date: getLocalDateString(startDateTime),
+        startDateTime: new Date(startDateTime),
+        endDateTime: new Date(endDateTime),
         categoryName: selectedCategory?.name,
         categoryColor: selectedCategory?.color,
-        reminderTime: reminderTime,
+        reminderTime: reminderTime ? new Date(reminderTime) : null,
         repeatOption: customSelectedDates.length > 0 ? 'Custom' : repeatOption,
-        repeatEndDate: repeatEndDate,
+        repeatEndDate: repeatEndDate ? new Date(repeatEndDate) : null,
         customDates: customSelectedDates,
         customTimes: Object.entries(customDateTimes).reduce((acc, [key, timeData]) => {
           if (key === 'default') return acc;
-          // Convert dates array to individual entries
           timeData.dates.forEach(date => {
             acc[date] = {
-              start: timeData.start,
-              end: timeData.end,
-              reminder: timeData.reminder,
+              start: new Date(timeData.start),
+              end: new Date(timeData.end),
+              reminder: timeData.reminder ? new Date(timeData.reminder) : null,
               repeat: timeData.repeat
             };
           });
           return acc;
-        }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } }),
-        isAllDay: isAllDay
+        }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } })
       };
 
       console.log('Event Save - Event Object Before Save:', {
@@ -1283,26 +1354,26 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         isAllDay: eventToSave.isAllDay
       });
 
-      // Prepare the database data
+      // Prepare the database data with UTC dates
       const dbData = {
         title: eventToSave.title,
         description: eventToSave.description,
         date: eventToSave.date,
-        start_datetime: eventToSave.startDateTime?.toISOString(),
-        end_datetime: eventToSave.endDateTime?.toISOString(),
-        category_name: eventToSave.categoryName,
-        category_color: eventToSave.categoryColor,
-        reminder_time: eventToSave.reminderTime?.toISOString(),
+        start_datetime: formatDateToUTC(eventToSave.startDateTime!),
+        end_datetime: formatDateToUTC(eventToSave.endDateTime!),
+        category_name: eventToSave.categoryName || null,
+        category_color: eventToSave.categoryColor || null,
+        reminder_time: eventToSave.reminderTime ? formatDateToUTC(eventToSave.reminderTime) : null,
         repeat_option: eventToSave.customDates && eventToSave.customDates.length > 0 ? 'Custom' : eventToSave.repeatOption,
-        repeat_end_date: eventToSave.repeatEndDate?.toISOString(),
+        repeat_end_date: eventToSave.repeatEndDate ? formatDateToUTC(eventToSave.repeatEndDate) : null,
         custom_dates: eventToSave.customDates,
         custom_times: eventToSave.customTimes ? 
           Object.entries(eventToSave.customTimes).reduce((acc, [date, times]) => ({
             ...acc,
             [date]: {
-              start: times.start.toISOString(),
-              end: times.end.toISOString(),
-              reminder: times.reminder?.toISOString() || null,
+              start: formatDateToUTC(times.start),
+              end: formatDateToUTC(times.end),
+              reminder: times.reminder ? formatDateToUTC(times.reminder) : null,
               repeat: times.repeat
             }
           }), {}) : null,
@@ -1495,6 +1566,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 key={`${event.id}-${eventIndex}`}
                                 onPress={() => {
                                   setSelectedEvent({ event, dateKey: event.date, index: eventIndex });
+                                  setEditingEvent(event);  // Add this line to set the editingEvent
                                   setEditedEventTitle(event.title);
                                   setEditedEventDescription(event.description ?? '');
                                   setEditedStartDateTime(new Date(event.startDateTime!));
@@ -1596,6 +1668,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     } else {
       // Handle regular event
       setSelectedEvent({ event, dateKey: event.date, index: 0 });
+      setEditingEvent(event);  // Add this line
       setEditedEventTitle(event.title);
       setEditedEventDescription(event.description ?? '');
       setEditedStartDateTime(new Date(event.startDateTime!));
@@ -1608,58 +1681,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
-  const handleCategoryLongPress = (cat: { id: string; name: string; color: string }) => {
-    Alert.alert(
-      'Delete Category',
-      `Are you sure you want to delete "${cat.name}"?`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              // Delete from database
-              const { error } = await supabase
-                .from('categories')
-                .delete()
-                .eq('id', cat.id);
-
-              if (error) {
-                console.error('Error deleting category:', error);
-                Alert.alert('Error', 'Failed to delete category');
-                return;
-              }
-
-              // Update local state
-              setCategories(prev => prev.filter(c => c.id !== cat.id));
-              
-              // If this was the selected category, clear it
-              if (selectedCategory?.id === cat.id) {
-                setSelectedCategory(null);
-              }
-              if (editedSelectedCategory?.id === cat.id) {
-                setEditedSelectedCategory(null);
-              }
-
-              Toast.show({
-                type: 'success',
-                text1: 'Category deleted successfully',
-                position: 'bottom',
-              });
-            } catch (error) {
-              console.error('Error deleting category:', error);
-              Alert.alert('Error', 'Failed to delete category');
-            }
-          }
-        }
-      ]
-    );
-  };
-
   // Add this effect to reset the time picker state when opening the custom modal
   useEffect(() => {
     if (showCustomDatesPicker) {
@@ -1668,12 +1689,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEditingField('start');
     }
   }, [showCustomDatesPicker]);
-
-  // Add these state variables near the top of the component if they don't exist
-  const [showCustomCategoryPicker, setShowCustomCategoryPicker] = useState(false);
-  const [showCustomAddCategoryForm, setShowCustomAddCategoryForm] = useState(false);
-  const [customNewCategoryName, setCustomNewCategoryName] = useState('');
-  const [customNewCategoryColor, setCustomNewCategoryColor] = useState('#FADADD');
 
   // Add these state variables near the top of the component
   const [tempTimeBox, setTempTimeBox] = useState<CustomTimeData | null>(null);
@@ -1743,7 +1758,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     try {
       // Create a new event object with the edited data
       const editedEvent: CalendarEvent = {
-        id: selectedEvent.event.id,
+        id: selectedEvent.event.id,  // Use the original event's ID
         title: editedEventTitle,
         description: editedEventDescription || '',
         date: getLocalDateString(editedStartDateTime),
@@ -1760,12 +1775,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         isContinued: false
       };
 
-      // Use the main handleSaveEvent function
+      // Use the main handleSaveEvent function with the edited event
       await handleSaveEvent(editedEvent);
 
       // Reset edit form state
       setShowEditEventModal(false);
       setSelectedEvent(null);
+      setEditingEvent(null);  // Add this line to clear the editingEvent state
       setEditedEventTitle('');
       setEditedEventDescription('');
       setEditedStartDateTime(new Date());
@@ -1896,6 +1912,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         }}
                         onPress={() => {
                           setSelectedEvent({ event, dateKey: event.date, index });
+                          setEditingEvent(event);  // Add this line
                           setEditedEventTitle(event.title);
                           setEditedEventDescription(event.description ?? '');
                           setEditedStartDateTime(new Date(event.startDateTime!));
@@ -2339,6 +2356,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                                   label: newCategoryName.trim(),
                                                   color: newCategoryColor,
                                                   user_id: user?.id,
+                                                  type: 'calendar'  // Add type field
                                                 }
                                               ])
                                               .select();
@@ -2358,7 +2376,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                               setSelectedCategory(newCategory);
                                               setShowAddCategoryForm(false);
                                               setNewCategoryName('');
-                                              setNewCategoryColor(null); // Changed from '#FADADD' to null
+                                              setNewCategoryColor(null);
                                             }
                                           }
                                         }}
@@ -2888,8 +2906,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                             height: 24,
                                             borderRadius: 12,
                                             backgroundColor: color,
-                                            borderWidth: 2,
-                                            borderColor: newCategoryColor === color ? '#333' : 'transparent',
                                             shadowColor: '#000',
                                             shadowOffset: { width: 0, height: 1 },
                                             shadowOpacity: 0.2,
@@ -2898,7 +2914,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                             overflow: 'hidden',
                                           }}
                                         >
-                                          {(!newCategoryColor || newCategoryColor !== color) && (
+                                          {newCategoryColor && newCategoryColor !== color && (
                                             <View style={{
                                               position: 'absolute',
                                               top: 0,
@@ -2943,6 +2959,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                                   label: newCategoryName.trim(),
                                                   color: newCategoryColor,
                                                   user_id: user?.id,
+                                                  type: 'calendar'  // Add type field
                                                 }
                                               ])
                                               .select();
@@ -2962,7 +2979,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                               setSelectedCategory(newCategory);
                                               setShowAddCategoryForm(false);
                                               setNewCategoryName('');
-                                              setNewCategoryColor(null); // Changed from '#FADADD' to null
+                                              setNewCategoryColor(null);
                                             }
                                           }
                                         }}
@@ -3771,9 +3788,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               <Pressable
                                 key={idx}
                                 onPress={() => {
-                                    setSelectedCategory(cat);
-                                  setShowCategoryPicker(false);
-                                  setShowAddCategoryForm(false);
+                                    setEditedSelectedCategory(cat);  // Changed from setSelectedCategory to setEditedSelectedCategory
+                                    setShowCategoryPicker(false);
+                                    setShowAddCategoryForm(false);
                                 }}
                                 onLongPress={() => handleCategoryLongPress(cat)}
                                     style={({ pressed }) => ({
@@ -3781,7 +3798,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                       paddingVertical: 5,
                                       paddingHorizontal: 8,
                                       borderRadius: 9,
-                                      borderWidth: (pressed || selectedCategory?.name === cat.name) ? 1 : 0,
+                                      borderWidth: (pressed || editedSelectedCategory?.name === cat.name) ? 1 : 0,  // Changed from selectedCategory to editedSelectedCategory
                                       borderColor: cat.color,
                                       flexDirection: 'row',
                                       alignItems: 'center',
@@ -3791,18 +3808,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     <View style={{ 
                                       width: 6, 
                                       height: 6, 
-                                      borderRadius: 3, 
+                                      borderRadius: 3,
                                       backgroundColor: cat.color,
+                                      marginRight: 4
                                     }} />
                                     <Text style={{ 
-                                      color: '#3a3a3a', 
                                       fontSize: 12, 
+                                      color: '#3a3a3a',
                                       fontFamily: 'Onest',
-                                      fontWeight: selectedCategory?.name === cat.name ? '600' : '500'
+                                      fontWeight: '500'
                                     }}>
-                                  {cat.name}
-                                </Text>
-                              </Pressable>
+                                      {cat.name}
+                                    </Text>
+                                  </Pressable>
                             ))}
                             <TouchableOpacity
                               onPress={() => setShowAddCategoryForm(true)}
@@ -3870,7 +3888,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                       {CATEGORY_COLORS.map((color) => (
                                         <TouchableOpacity
                                           key={color}
-                                          onPress={() => setEditedSelectedCategory(prev => prev ? { ...prev, color } : { name: '', color })}
+                                          onPress={() => setNewCategoryColor(color)}
                                           style={{
                                             width: 24,
                                             height: 24,
@@ -3884,7 +3902,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                             overflow: 'hidden',
                                           }}
                                         >
-                                          {editedSelectedCategory && editedSelectedCategory.color !== color && (
+                                          {newCategoryColor && newCategoryColor !== color && (
                                             <View style={{
                                               position: 'absolute',
                                               top: 0,
@@ -3929,6 +3947,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                                   label: newCategoryName.trim(),
                                                   color: newCategoryColor,
                                                   user_id: user?.id,
+                                                  type: 'calendar'  // Add type field
                                                 }
                                               ])
                                               .select();
@@ -3948,7 +3967,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                               setSelectedCategory(newCategory);
                                               setShowAddCategoryForm(false);
                                               setNewCategoryName('');
-                                              setNewCategoryColor(null); // Changed from '#FADADD' to null
+                                              setNewCategoryColor(null);
                                             }
                                           }
                                         }}
@@ -4413,7 +4432,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                       {CATEGORY_COLORS.map((color) => (
                                         <TouchableOpacity
                                           key={color}
-                                          onPress={() => setEditedSelectedCategory(prev => prev ? { ...prev, color } : { name: '', color })}
+                                          onPress={() => setNewCategoryColor(color)}
                                           style={{
                                             width: 24,
                                             height: 24,
@@ -4427,7 +4446,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                             overflow: 'hidden',
                                           }}
                                         >
-                                          {editedSelectedCategory && editedSelectedCategory.color !== color && (
+                                          {newCategoryColor && newCategoryColor !== color && (
                                             <View style={{
                                               position: 'absolute',
                                               top: 0,
@@ -4472,6 +4491,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                                   label: newCategoryName.trim(),
                                                   color: newCategoryColor,
                                                   user_id: user?.id,
+                                                  type: 'calendar'  // Add type field
                                                 }
                                               ])
                                               .select();
@@ -4491,7 +4511,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                               setSelectedCategory(newCategory);
                                               setShowAddCategoryForm(false);
                                               setNewCategoryName('');
-                                              setNewCategoryColor(null); // Changed from '#FADADD' to null
+                                              setNewCategoryColor(null);
                                             }
                                           }
                                         }}

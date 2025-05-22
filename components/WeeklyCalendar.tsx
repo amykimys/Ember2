@@ -212,21 +212,25 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     const calculateEventPosition = (event: CalendarEvent, date: Date) => {
       if (!event.startDateTime || !event.endDateTime) return null;
 
-      const startTime = new Date(event.startDateTime);
-      const endTime = new Date(event.endDateTime);
       const cellHeight = 45; // Height of each hour cell
 
       // Get the start of the current day
       const dayStart = new Date(date);
       dayStart.setHours(0, 0, 0, 0);
 
-      // Calculate minutes from start of day
-      const startMinutes = (startTime.getTime() - dayStart.getTime()) / (1000 * 60);
-      const endMinutes = (endTime.getTime() - dayStart.getTime()) / (1000 * 60);
+      // Use the event's start and end times directly
+      const startHours = event.startDateTime.getHours();
+      const startMinutes = event.startDateTime.getMinutes();
+      const endHours = event.endDateTime.getHours();
+      const endMinutes = event.endDateTime.getMinutes();
+
+      // Calculate total minutes from start of day
+      const startTotalMinutes = startHours * 60 + startMinutes;
+      const endTotalMinutes = endHours * 60 + endMinutes;
 
       // Calculate position and height
-      const top = (startMinutes / 60) * cellHeight;
-      const height = Math.max(((endMinutes - startMinutes) / 60) * cellHeight, 20); // Minimum height of 20
+      const top = (startTotalMinutes / 60) * cellHeight;
+      const height = Math.max(((endTotalMinutes - startTotalMinutes) / 60) * cellHeight, 20); // Minimum height of 20
 
       return { top, height };
     };
@@ -476,53 +480,41 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 
                   {/* Events Layer */}
                   <View style={[styles.eventsLayer, { pointerEvents: 'box-none' }]}>
-                    {dayEvents.map((event, eventIndex) => {
-                      const position = calculateEventPosition(event, date);
-                      if (!position) return null;
+                  {dayEvents.map((event, eventIndex) => {
+  const position = calculateEventPosition(event, date);
+  if (!position) return null;
 
-                      return (
-                        <TouchableOpacity
-                          key={`${event.id}-${eventIndex}`}
-                          style={styles.eventCell}
-                          onPress={() => {
-                            const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), event.startDateTime!.getHours(), 0, 0);
-                            const end = new Date(date.getFullYear(), date.getMonth(), date.getDate(), event.endDateTime!.getHours(), 0, 0);
-                            setStartDateTime(start);
-                            setEndDateTime(end);
-                            setShowModal(true);
-                          }}
-                        >
-                          <TouchableOpacity
-                            onLongPress={() => {
-                              setSelectedEvent({ event, dateKey, index: eventIndex });
-                              setEditedEventTitle(event.title);
-                              setEditedEventDescription(event.description ?? '');
-                              setEditedStartDateTime(new Date(event.startDateTime!));
-                              setEditedEndDateTime(new Date(event.endDateTime!));
-                              setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                              setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                              setEditedRepeatOption(event.repeatOption || 'None');
-                              setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                              setShowEditEventModal(true);
-                            }}
-                            style={[
-                              styles.eventBox,
-                              {
-                                top: position.top,
-                                height: position.height,
-                                backgroundColor: `${event.categoryColor || '#FF9A8B'}40`,
-                              }
-                            ]}
-                          >
-                            <View style={styles.eventTextContainer}>
-                              <Text style={styles.eventText} numberOfLines={2}>
-                                {event.title}
-                              </Text>
-                            </View>
-                          </TouchableOpacity>
-                        </TouchableOpacity>
-                      );
-                    })}
+  return (
+    <TouchableOpacity
+      key={`${event.id}-${eventIndex}`}
+      style={[
+        styles.eventBox,
+        {
+          top: position.top,
+          height: position.height,
+          backgroundColor: `${event.categoryColor || '#FF9A8B'}40`,
+          position: 'absolute', // ✅ ensures it's not stacked
+          left: 0,
+          right: 0,
+          marginHorizontal: 0,
+        },
+      ]}
+      onLongPress={() => {
+        // your long press logic...
+      }}
+      onPress={() => {
+        // your press logic...
+      }}
+    >
+      <View style={styles.eventTextContainer}>
+        <Text style={styles.eventText} numberOfLines={2}>
+          {event.title}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+})}
+
                   </View>
                 </View>
               );

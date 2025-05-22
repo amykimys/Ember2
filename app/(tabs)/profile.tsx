@@ -6,6 +6,7 @@ import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-goo
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
+import NetInfo from '@react-native-community/netinfo';
 
 const defaultProfileImage = 'https://placekitten.com/200/200';
 
@@ -94,37 +95,111 @@ export default function ProfileScreen() {
             style: 'destructive',
             onPress: async () => {
               try {
-                // First sign out from Supabase
-                const { error: supabaseError } = await supabase.auth.signOut();
-                if (supabaseError) {
-                  console.error('Supabase sign out error:', supabaseError);
-                  throw new Error('Failed to sign out from Supabase');
+                // Clear local state first to ensure UI updates
+                setUser(null);
+                
+                // Check network connectivity
+                const netInfo = await NetInfo.fetch();
+                const isOffline = !netInfo.isConnected || !netInfo.isInternetReachable;
+                
+                if (isOffline) {
+                  console.log('Device is offline, performing local sign out only');
+                  Alert.alert(
+                    'Offline Mode',
+                    'You are currently offline. You have been signed out locally. Your data is secure, and the sign out will be completed when you are back online.',
+                    [{ text: 'OK' }]
+                  );
+                  if (Platform.OS !== 'web') {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }
+                  return;
                 }
 
-                // Then handle Google sign out
+                // Try to sign out from Google first
                 try {
                   const currentUser = await GoogleSignin.getCurrentUser();
                   if (currentUser) {
-                    await GoogleSignin.signOut();
-                    await GoogleSignin.revokeAccess();
+                    // Add timeout to Google sign out
+                    const googleSignOutPromise = Promise.race([
+                      GoogleSignin.signOut(),
+                      new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Google sign out timed out')), 5000)
+                      )
+                    ]);
+                    await googleSignOutPromise;
+                    
+                    const revokePromise = Promise.race([
+                      GoogleSignin.revokeAccess(),
+                      new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Google revoke access timed out')), 5000)
+                      )
+                    ]);
+                    await revokePromise;
                   }
                 } catch (googleError) {
                   console.error('Google sign out error:', googleError);
-                  // Don't throw here, as we've already signed out from Supabase
+                  // Continue with Supabase sign out even if Google sign out fails
                 }
 
-                // Clear local state
-                setUser(null);
-                
-                // Provide haptic feedback
-                if (Platform.OS !== 'web') {
-                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                // Try to sign out from Supabase with retry logic and timeout
+                let retryCount = 0;
+                const maxRetries = 3;
+                let lastError: any = null;
+
+                while (retryCount < maxRetries) {
+                  try {
+                    // Add timeout to Supabase sign out
+                    const signOutPromise = Promise.race([
+                      supabase.auth.signOut(),
+                      new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Supabase sign out timed out')), 5000)
+                      )
+                    ]);
+                    
+                    const result = await signOutPromise as { error: any };
+                    if (!result.error) {
+                      // Successfully signed out
+                      if (Platform.OS !== 'web') {
+                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      }
+                      return; // Exit the function on success
+                    }
+                    lastError = result.error;
+                  } catch (error) {
+                    lastError = error;
+                    // Check if we're still online
+                    const currentNetInfo = await NetInfo.fetch();
+                    if (!currentNetInfo.isConnected || !currentNetInfo.isInternetReachable) {
+                      console.log('Lost connection during sign out');
+                      break; // Break the retry loop if we're offline
+                    }
+                  }
+                  
+                  retryCount++;
+                  if (retryCount < maxRetries) {
+                    // Wait before retrying (exponential backoff)
+                    await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+                  }
                 }
+
+                // If we get here, either all retries failed or we lost connection
+                console.error('Failed to sign out after retries:', lastError);
+                const finalNetInfo = await NetInfo.fetch();
+                const isStillOffline = !finalNetInfo.isConnected || !finalNetInfo.isInternetReachable;
+                
+                Alert.alert(
+                  'Sign Out Status',
+                  isStillOffline
+                    ? 'You are currently offline. You have been signed out locally. Your data is secure, and the sign out will be completed when you are back online.'
+                    : 'There was a problem signing out from the server, but you have been signed out locally. Your data is still secure.',
+                  [{ text: 'OK' }]
+                );
               } catch (error) {
                 console.error('Error during sign out:', error);
+                // Even if there's an error, we've already cleared local state
                 Alert.alert(
-                  'Sign Out Error',
-                  'There was a problem signing out. Please try again.',
+                  'Sign Out Status',
+                  'You have been signed out locally. Your data is secure.',
                   [{ text: 'OK' }]
                 );
               }

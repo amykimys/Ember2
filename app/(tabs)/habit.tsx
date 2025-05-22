@@ -42,21 +42,7 @@ import { Dimensions } from 'react-native';
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
 
-type Category = {
-  id: string;
-  label: string;
-  color: string;
-};
-
-
-const REPEAT_OPTIONS = [
-  { value: 'none' as const, label: "Don't repeat" },
-  { value: 'daily' as const, label: 'Daily' },
-  { value: 'weekly' as const, label: 'Weekly' },
-  { value: 'monthly' as const, label: 'Monthly' },
-  { value: 'custom' as const, label: 'Custom' },
-];
-
+// Add back the Habit interface
 interface Habit {
   id: string;
   text: string;
@@ -64,7 +50,7 @@ interface Habit {
   description?: string;
   completedToday: boolean;
   completedDays: string[];
-  color: string;
+  color: string;  // This is now always a string
   requirePhoto: boolean;
   targetPerWeek: number;
   reminderTime?: string | null;
@@ -75,6 +61,14 @@ interface Habit {
   photos: { [date: string]: string };
   category_id: string | null;
 }
+
+const REPEAT_OPTIONS = [
+  { value: 'none' as const, label: "Don't repeat" },
+  { value: 'daily' as const, label: 'Daily' },
+  { value: 'weekly' as const, label: 'Weekly' },
+  { value: 'monthly' as const, label: 'Monthly' },
+  { value: 'custom' as const, label: 'Custom' },
+];
 
 const HABIT_COLORS = [
   { name: 'Sky', value: '#E3F2FD', text: '#3A3A3A' },
@@ -105,11 +99,6 @@ const DARKER_COLORS: { [key: string]: string } = {
   '#009688': '#00796B', // Teal
   '#FF5722': '#E64A19', // Orange
   '#607D8B': '#455A64', // Blue Grey
-  '#BF9264': '#8B6B4A', // Custom Brown
-  '#6F826A': '#4F5D4C', // Custom Green
-  '#BBD8A3': '#8BA67A', // Custom Light Green
-  '#F0F1C5': '#D8D9A3', // Custom Yellow
-  '#FFCFCF': '#FFA6A6', // Custom Pink
 };
 
 const styles = StyleSheet.create({
@@ -175,6 +164,29 @@ const styles = StyleSheet.create({
   },
 });
 
+// Update the Category interface to use string for color
+interface Category {
+  id: string;
+  label: string;
+  color: string;  // Change to string since we always provide a default
+  user_id: string;
+  type: 'habit';
+}
+
+// Define CategoryBoxProps type above CategoryBox
+type CategoryBoxProps = {
+  onSelectCategory: (categoryId: string | null) => void;
+  onDeleteCategory: (categoryId: string) => void;
+  selectedCategoryId: string | null;
+  onClose: () => void;
+};
+
+// Remove the handleDeleteCategory function from CategoryBox component
+const CategoryBox = ({ onSelectCategory, onDeleteCategory, selectedCategoryId, onClose }: CategoryBoxProps) => {
+  // ... rest of the component code ...
+  // Remove the handleDeleteCategory function from here
+};
+
 export default function HabitScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [newHabit, setNewHabit] = useState('');
@@ -195,7 +207,7 @@ export default function HabitScreen() {
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<keyof typeof THEMES>('pastel');
-  const [newCategoryColor, setNewCategoryColor] = useState('#E3F2FD');
+  const [newCategoryColor, setNewCategoryColor] = useState<string>('#E3F2FD');  // Keep as string since it's an initial value
   const [habitDate, setHabitDate] = useState<Date | null>(null);
   const [showHabitDatePicker, setShowHabitDatePicker] = useState(false);
   const repeatBottomSheetRef = useRef<BottomSheet>(null);
@@ -228,7 +240,7 @@ export default function HabitScreen() {
   const [showFrequencyInline, setShowFrequencyInline] = useState(false);
   const [showCategoryBox, setShowCategoryBox] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -336,12 +348,13 @@ export default function HabitScreen() {
       
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         try {
-          // Fetch user's categories first
+          // Fetch user's categories first, only habit categories
           console.log('Fetching categories for user:', session?.user?.id);
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', session?.user?.id);
+            .eq('user_id', session?.user?.id)
+            .eq('type', 'habit');  // Only fetch habit categories
 
           if (categoriesError) {
             console.error('Error fetching categories:', categoriesError);
@@ -434,12 +447,12 @@ export default function HabitScreen() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          
-          // Fetch categories first
+          // Fetch categories first, only habit categories
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', session.user.id);
+            .eq('user_id', session.user.id)
+            .eq('type', 'habit');  // Only fetch habit categories
 
           if (categoriesError) {
             console.error('Error fetching initial categories:', categoriesError);
@@ -537,37 +550,12 @@ export default function HabitScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         try {
-          // Fetch latest habits
-          const { data: habitsData, error: habitsError } = await supabase
-            .from('habits')
-            .select('*')
-            .eq('user_id', session.user.id);
-          
-          if (!habitsError && habitsData) {
-            const mappedHabits = habitsData.map(habit => ({
-              ...habit,
-              completedDays: habit.completed_days || [],
-              photoProofs: habit.photo_proofs || {},
-              reminderTime: habit.reminder_time,
-              user_id: habit.user_id,
-              streak: habit.streak || 0,
-              completedToday: false,
-              targetPerWeek: habit.target_per_week || 1,
-              requirePhoto: habit.require_photo || false,
-              repeat_type: habit.repeat_type || 'none',
-              repeat_end_date: habit.repeat_end_date || null,
-              notes: habit.notes || {},
-              photos: habit.photos || {},
-              category_id: habit.category_id,
-            }));
-            setHabits(mappedHabits);
-          }
-
-          // Fetch latest categories
+          // Fetch latest categories, only habit categories
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', session.user.id);
+            .eq('user_id', session.user.id)
+            .eq('type', 'habit');  // Only fetch habit categories
 
           if (!categoriesError && categoriesData) {
             setCategories(categoriesData);
@@ -1006,6 +994,7 @@ const formatDate = (date: Date): string => {
       }
     } catch (error) {
       console.error('Error toggling habit completion:', error);
+      Alert.alert('Error', 'Failed to update habit. Please try again.');
     }
   };
   
@@ -1041,114 +1030,120 @@ const formatDate = (date: Date): string => {
   const handleSave = async () => {
     if (!newHabit.trim()) return;
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      console.error('No user logged in');
-      return;
-    }
-
-    const selectedCategory = categories.find(cat => cat.id === selectedCategoryId);
-
-    if (editingHabit) {
-      // Edit existing habit
-      const updatedHabit = {
-        ...editingHabit,
-        text: newHabit.trim(),
-        description: newDescription.trim() || undefined,
-        color: selectedCategory?.color || newCategoryColor,
-        targetPerWeek: parseInt(frequencyInput) || 1,
-        requirePhoto,
-        reminderTime: reminderEnabled ? reminderTime?.toISOString() : null,
-        repeat_type: selectedRepeat,
-        repeat_end_date: repeatEndDate?.toISOString() || null,
-        user_id: user.id,
-        category_id: selectedCategoryId || null
-      };
-
-      // Update in Supabase
-      const { error } = await supabase
-        .from('habits')
-        .update({
-          text: updatedHabit.text,
-          description: updatedHabit.description,
-          color: updatedHabit.color,
-          target_per_week: updatedHabit.targetPerWeek,
-          require_photo: updatedHabit.requirePhoto,
-          reminder_time: updatedHabit.reminderTime,
-          repeat_type: updatedHabit.repeat_type,
-          repeat_end_date: updatedHabit.repeat_end_date,
-          category_id: updatedHabit.category_id,
-          notes: updatedHabit.notes,
-          photos: updatedHabit.photos
-        })
-        .eq('id', updatedHabit.id)
-        .eq('user_id', user.id);
-
-      if (error) {
-        console.error('Error updating habit:', error);
-        Alert.alert('Error', 'Failed to update habit. Please try again.');
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('No user logged in');
+        Alert.alert('Error', 'You must be logged in to save habits.');
         return;
       }
 
-      // Update local state
-      setHabits(prev => prev.map(h => h.id === editingHabit.id ? updatedHabit : h));
-    } else {
-      // Add new habit
-      const newHabitItem: Habit = {
-        id: uuidv4(),
-        text: newHabit.trim(),
-        description: newDescription.trim() || undefined,
-        streak: 0,
-        completedToday: false,
-        completedDays: [],
-        color: selectedCategory?.color || newCategoryColor,
-        targetPerWeek: parseInt(frequencyInput) || 1,
-        requirePhoto,
-        repeat_type: selectedRepeat,
-        repeat_end_date: repeatEndDate?.toISOString() || null,
-        user_id: user.id,
-        notes: {},
-        photos: {},
-        category_id: selectedCategoryId || null
-      };
+      const selectedCategory = categories.find(cat => cat.id === selectedCategoryId);
 
-      // Save to Supabase
-      const { error } = await supabase
-        .from('habits')
-        .insert({
-          id: newHabitItem.id,
-          text: newHabitItem.text,
-          description: newHabitItem.description,
-          streak: newHabitItem.streak,
-          completed_days: newHabitItem.completedDays,
-          color: newHabitItem.color,
-          target_per_week: newHabitItem.targetPerWeek,
-          require_photo: newHabitItem.requirePhoto,
-          photos: newHabitItem.photos,
-          repeat_type: newHabitItem.repeat_type,
-          repeat_end_date: newHabitItem.repeat_end_date,
+      if (editingHabit) {
+        // Edit existing habit
+        const updatedHabit = {
+          ...editingHabit,
+          text: newHabit.trim(),
+          description: newDescription.trim() || undefined,
+          color: selectedCategory?.color || newCategoryColor,  // This is now always a string
+          targetPerWeek: parseInt(frequencyInput) || 1,
+          requirePhoto,
+          reminderTime: reminderEnabled ? reminderTime?.toISOString() : null,
+          repeat_type: selectedRepeat,
+          repeat_end_date: repeatEndDate?.toISOString() || null,
           user_id: user.id,
-          category_id: newHabitItem.category_id,
-          notes: newHabitItem.notes
-        });
+          category_id: selectedCategoryId || null
+        };
 
-      if (error) {
-        console.error('Error saving habit:', error);
-        Alert.alert('Error', 'Failed to save habit. Please try again.');
-        return;
+        // Update in Supabase
+        const { error } = await supabase
+          .from('habits')
+          .update({
+            text: updatedHabit.text,
+            description: updatedHabit.description,
+            color: updatedHabit.color,
+            target_per_week: updatedHabit.targetPerWeek,
+            require_photo: updatedHabit.requirePhoto,
+            reminder_time: updatedHabit.reminderTime,
+            repeat_type: updatedHabit.repeat_type,
+            repeat_end_date: updatedHabit.repeat_end_date,
+            category_id: updatedHabit.category_id,
+            notes: updatedHabit.notes,
+            photos: updatedHabit.photos
+          })
+          .eq('id', updatedHabit.id)
+          .eq('user_id', user.id);
+
+        if (error) {
+          console.error('Error updating habit:', error);
+          Alert.alert('Error', 'Failed to update habit. Please try again.');
+          return;
+        }
+
+        // Update local state
+        setHabits(prev => prev.map(h => h.id === editingHabit.id ? updatedHabit : h));
+      } else {
+        // Add new habit
+        const newHabitItem: Habit = {
+          id: uuidv4(),
+          text: newHabit.trim(),
+          description: newDescription.trim() || undefined,
+          streak: 0,
+          completedToday: false,
+          completedDays: [],
+          color: selectedCategory?.color || newCategoryColor || '#E3F2FD',  // Provide default if null
+          targetPerWeek: parseInt(frequencyInput) || 1,
+          requirePhoto,
+          repeat_type: selectedRepeat,
+          repeat_end_date: repeatEndDate?.toISOString() || null,
+          user_id: user.id,
+          notes: {},
+          photos: {},
+          category_id: selectedCategoryId || null
+        };
+
+        // Save to Supabase
+        const { error } = await supabase
+          .from('habits')
+          .insert({
+            id: newHabitItem.id,
+            text: newHabitItem.text,
+            description: newHabitItem.description,
+            streak: newHabitItem.streak,
+            completed_days: newHabitItem.completedDays,
+            color: newHabitItem.color,
+            target_per_week: newHabitItem.targetPerWeek,
+            require_photo: newHabitItem.requirePhoto,
+            photos: newHabitItem.photos,
+            repeat_type: newHabitItem.repeat_type,
+            repeat_end_date: newHabitItem.repeat_end_date,
+            user_id: user.id,
+            category_id: newHabitItem.category_id,
+            notes: newHabitItem.notes
+          });
+
+        if (error) {
+          console.error('Error saving habit:', error);
+          Alert.alert('Error', 'Failed to save habit. Please try again.');
+          return;
+        }
+
+        // Update local state
+        setHabits(prev => [...prev, newHabitItem]);
+
+        if (reminderTime) {
+          await scheduleReminderNotification(newHabit.trim(), reminderTime);
+        }
       }
 
-      // Update local state
-      setHabits(prev => [...prev, newHabitItem]);
-
-      if (reminderTime) {
-        await scheduleReminderNotification(newHabit.trim(), reminderTime);
-      }
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      resetForm();
+      setIsNewHabitModalVisible(false);
+    } catch (error) {
+      console.error('Error in handleSave:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
-
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    resetForm();
-    setIsNewHabitModalVisible(false);
   };
   
 
@@ -1431,31 +1426,51 @@ const formatDate = (date: Date): string => {
 
   // Add this function before the return statement
   const handleDeleteCategory = async (categoryId: string) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      Alert.alert('Error', 'You must be logged in to delete categories.');
-      return;
-    }
-
     try {
-      // First update all habits that use this category
-      const { error: updateError } = await supabase
-        .from('habits')
-        .update({ category_id: null })
-        .eq('category_id', categoryId)
-        .eq('user_id', user.id);
-
-      if (updateError) {
-        console.error('Error updating habits:', updateError);
-        Alert.alert('Error', 'Failed to update habits. Please try again.');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to delete categories.');
         return;
       }
 
-      // Then delete the category
+      // First, get all habits that use this category
+      const { data: habitsToUpdate, error: fetchError } = await supabase
+        .from('habits')
+        .select('id')
+        .eq('category_id', categoryId)
+        .eq('user_id', user.id);
+
+      if (fetchError) {
+        console.error('Error fetching habits to update:', fetchError);
+        Alert.alert('Error', 'Failed to fetch habits. Please try again.');
+        return;
+      }
+
+      console.log(`Found ${habitsToUpdate?.length || 0} habits to update`);
+
+      // Update all habits that use this category
+      if (habitsToUpdate && habitsToUpdate.length > 0) {
+        const { error: updateError } = await supabase
+          .from('habits')
+          .update({ category_id: null })
+          .eq('category_id', categoryId)
+          .eq('user_id', user.id);
+
+        if (updateError) {
+          console.error('Error updating habits:', updateError);
+          Alert.alert('Error', 'Failed to update habits. Please try again.');
+          return;
+        }
+
+        console.log('Successfully updated habits to remove category reference');
+      }
+
+      // Then delete the category, ensuring it's a habit category
       const { error: deleteError } = await supabase
         .from('categories')
         .delete()
         .eq('id', categoryId)
+        .eq('type', 'habit')  // Ensure we only delete habit categories
         .eq('user_id', user.id);
 
       if (deleteError) {
@@ -1463,6 +1478,8 @@ const formatDate = (date: Date): string => {
         Alert.alert('Error', 'Failed to delete category. Please try again.');
         return;
       }
+
+      console.log('Successfully deleted category');
 
       // Update local state for categories
       setCategories(prev => prev.filter(cat => cat.id !== categoryId));
@@ -1477,7 +1494,7 @@ const formatDate = (date: Date): string => {
 
       // Clear selected category if it was the deleted one
       if (selectedCategoryId === categoryId) {
-        setSelectedCategoryId('');
+        setSelectedCategoryId(null);
       }
 
       // Update expanded categories state
@@ -1489,6 +1506,9 @@ const formatDate = (date: Date): string => {
           return newState;
         });
       }
+
+      // Show success message
+      Alert.alert('Success', 'Category deleted successfully');
 
     } catch (error) {
       console.error('Error in category deletion:', error);
@@ -1646,6 +1666,96 @@ const formatDate = (date: Date): string => {
         setTimeout(centerTodayColumn, 500);
       }, 300); // Wait for note modal animation to complete
     }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('type', 'habit'); // Only fetch habit categories
+
+      if (error) {
+        console.error('Error fetching categories:', error);
+        return;
+      }
+
+      if (data) {
+        setCategories(data);
+      }
+    } catch (error) {
+      console.error('Error in fetchCategories:', error);
+    }
+  };
+
+  // Update category creation
+  const handleCreateCategory = async () => {
+    if (!newCategoryName.trim()) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to create categories.');
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('categories')
+        .insert([
+          {
+            label: newCategoryName.trim(),
+            color: newCategoryColor || '#E3F2FD',  // Provide default if null
+            user_id: user.id,
+            type: 'habit'  // Explicitly set type to 'habit'
+          }
+        ])
+        .select();
+
+      if (error) {
+        console.error('Error creating category:', error);
+        Alert.alert('Error', 'Failed to create category. Please try again.');
+        return;
+      }
+
+      if (data) {
+        setCategories(prev => [...prev, data[0]]);
+        setSelectedCategoryId(data[0].id);
+        setNewCategoryName('');
+        setNewCategoryColor('#E3F2FD');  // Reset to default color
+        setIsNewCategoryModalVisible(false);
+      }
+    } catch (error) {
+      console.error('Error in handleCreateCategory:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    }
+  };
+
+  // Fix implicit any types
+  const getHabitStatusForDate = (habit: Habit, dateStr: string): 'completed' | 'missed' | 'pending' => {
+    // Example logic: return 'completed' if dateStr is in completedDays, otherwise 'pending'
+    if (habit.completedDays.includes(dateStr)) return 'completed';
+    return 'pending';
+  };
+
+  const getHabitStatusForWeek = (habit: Habit, weekStart: Date): ('completed' | 'missed' | 'pending')[] => {
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return getHabitStatusForDate(habit, d.toISOString().split('T')[0]);
+    });
+  };
+
+  const getHabitStatusForMonth = (habit: Habit, monthStart: Date): ('completed' | 'missed' | 'pending')[] => {
+    const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
+    return Array.from({ length: daysInMonth }, (_, i) => {
+      const d = new Date(monthStart);
+      d.setDate(d.getDate() + i);
+      return getHabitStatusForDate(habit, d.toISOString().split('T')[0]);
+    });
   };
 
   return (
@@ -2751,7 +2861,8 @@ const formatDate = (date: Date): string => {
                           id: newCategory.id,
                           label: newCategory.label,
                           color: newCategory.color,
-                          user_id: user.id
+                          user_id: user.id,
+                          type: 'habit'  // Add type field
                         })
                         .select()
                         .single();
