@@ -1,40 +1,30 @@
 import { useEffect, useState } from 'react';
-import { View, Text, Image, ScrollView, TouchableOpacity, SafeAreaView, Alert, Switch, Platform, Linking } from 'react-native';
-import { supabase } from '../../supabase';
+import { View, Text, Image, TouchableOpacity, SafeAreaView, Alert, Platform, ActivityIndicator } from 'react-native';
 import { User } from '@supabase/supabase-js';
-import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
-import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
+import { GoogleSigninButton } from '@react-native-google-signin/google-signin';
 import * as Haptics from 'expo-haptics';
-import * as Notifications from 'expo-notifications';
-import NetInfo from '@react-native-community/netinfo';
+import { supabase } from '../../supabase';
+import { configureGoogleSignIn, signInWithGoogle, signOut, getCurrentSession } from '../../auth';
 
 const defaultProfileImage = 'https://placekitten.com/200/200';
 
 export default function ProfileScreen() {
   const [user, setUser] = useState<User | null>(null);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [darkModeEnabled, setDarkModeEnabled] = useState(false);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Configure Google Sign-In
+  // Configure Google Sign-In and set up auth state listener
   useEffect(() => {
-    GoogleSignin.configure({
-      scopes: ['email', 'profile', 'openid'],
-      webClientId: '407418160129-v3c55fd6db3f8mv747p9q5tsbcmvnrik.apps.googleusercontent.com',
-      iosClientId: '407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds.apps.googleusercontent.com',
-      offlineAccess: true,
-    });
+    // Initialize Google Sign-In
+    configureGoogleSignIn();
 
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+    // Check if user is already signed in
+    getCurrentSession().then(({ session }) => {
       if (session?.user) {
         setUser(session.user);
       }
-    };
+    });
 
-    checkSession();
-
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
@@ -45,514 +35,144 @@ export default function ProfileScreen() {
   }, []);
 
   const handleSignIn = async () => {
+    if (isLoading) return;
+    
+    setIsLoading(true);
     try {
-      await GoogleSignin.hasPlayServices();
-      const userInfo = await GoogleSignin.signIn();
-      const { idToken } = await GoogleSignin.getTokens();
-  
-      if (!idToken) throw new Error('No ID token present');
-  
-      const { data, error } = await supabase.auth.signInWithIdToken({
-        provider: 'google',
-        token: idToken,
-      });
-  
+      const { data, error } = await signInWithGoogle();
+      
       if (error) {
-        console.error('Supabase sign-in error:', error.message);
-        Alert.alert('Error', 'Failed to sign in. Please try again.');
-      } else {
-        setUser(data.user ?? null);
+        if (error.message === 'Sign in was cancelled') {
+          console.log('User cancelled sign-in');
+          return;
+        }
+        throw error;
+      }
+
+      if (data?.user) {
+        setUser(data.user);
         if (Platform.OS !== 'web') {
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
       }
     } catch (error: any) {
-      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-        console.log('User cancelled sign-in.');
-      } else if (error.code === statusCodes.IN_PROGRESS) {
-        console.log('Sign-in already in progress.');
-      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        Alert.alert('Error', 'Play Services not available on your device.');
-      } else {
-        console.error('Google sign-in error:', error);
-        Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-      }
+      console.error('Sign-in error:', error);
+      Alert.alert(
+        'Sign In Error',
+        error.message || 'An error occurred during sign in. Please try again.'
+      );
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSignOut = async () => {
-    try {
-      Alert.alert(
-        'Sign Out',
-        'Are you sure you want to sign out?',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-          {
-            text: 'Sign Out',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                // Clear local state first to ensure UI updates
-                setUser(null);
-                
-                // Check network connectivity
-                const netInfo = await NetInfo.fetch();
-                const isOffline = !netInfo.isConnected || !netInfo.isInternetReachable;
-                
-                if (isOffline) {
-                  console.log('Device is offline, performing local sign out only');
-                  Alert.alert(
-                    'Offline Mode',
-                    'You are currently offline. You have been signed out locally. Your data is secure, and the sign out will be completed when you are back online.',
-                    [{ text: 'OK' }]
-                  );
-                  if (Platform.OS !== 'web') {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                  }
-                  return;
-                }
+    if (isLoading) return;
 
-                // Try to sign out from Google first
-                try {
-                  const currentUser = await GoogleSignin.getCurrentUser();
-                  if (currentUser) {
-                    // Add timeout to Google sign out
-                    const googleSignOutPromise = Promise.race([
-                      GoogleSignin.signOut(),
-                      new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Google sign out timed out')), 5000)
-                      )
-                    ]);
-                    await googleSignOutPromise;
-                    
-                    const revokePromise = Promise.race([
-                      GoogleSignin.revokeAccess(),
-                      new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Google revoke access timed out')), 5000)
-                      )
-                    ]);
-                    await revokePromise;
-                  }
-                } catch (googleError) {
-                  console.error('Google sign out error:', googleError);
-                  // Continue with Supabase sign out even if Google sign out fails
-                }
-
-                // Try to sign out from Supabase with retry logic and timeout
-                let retryCount = 0;
-                const maxRetries = 3;
-                let lastError: any = null;
-
-                while (retryCount < maxRetries) {
-                  try {
-                    // Add timeout to Supabase sign out
-                    const signOutPromise = Promise.race([
-                      supabase.auth.signOut(),
-                      new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('Supabase sign out timed out')), 5000)
-                      )
-                    ]);
-                    
-                    const result = await signOutPromise as { error: any };
-                    if (!result.error) {
-                      // Successfully signed out
-                      if (Platform.OS !== 'web') {
-                        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                      }
-                      return; // Exit the function on success
-                    }
-                    lastError = result.error;
-                  } catch (error) {
-                    lastError = error;
-                    // Check if we're still online
-                    const currentNetInfo = await NetInfo.fetch();
-                    if (!currentNetInfo.isConnected || !currentNetInfo.isInternetReachable) {
-                      console.log('Lost connection during sign out');
-                      break; // Break the retry loop if we're offline
-                    }
-                  }
-                  
-                  retryCount++;
-                  if (retryCount < maxRetries) {
-                    // Wait before retrying (exponential backoff)
-                    await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
-                  }
-                }
-
-                // If we get here, either all retries failed or we lost connection
-                console.error('Failed to sign out after retries:', lastError);
-                const finalNetInfo = await NetInfo.fetch();
-                const isStillOffline = !finalNetInfo.isConnected || !finalNetInfo.isInternetReachable;
-                
-                Alert.alert(
-                  'Sign Out Status',
-                  isStillOffline
-                    ? 'You are currently offline. You have been signed out locally. Your data is secure, and the sign out will be completed when you are back online.'
-                    : 'There was a problem signing out from the server, but you have been signed out locally. Your data is still secure.',
-                  [{ text: 'OK' }]
-                );
-              } catch (error) {
-                console.error('Error during sign out:', error);
-                // Even if there's an error, we've already cleared local state
-                Alert.alert(
-                  'Sign Out Status',
-                  'You have been signed out locally. Your data is secure.',
-                  [{ text: 'OK' }]
-                );
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            setIsLoading(true);
+            try {
+              const { error } = await signOut();
+              if (error) throw error;
+              
+              setUser(null);
+              if (Platform.OS !== 'web') {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
               }
-            },
-          },
-        ]
-      );
-    } catch (error) {
-      console.error('Error in handleSignOut:', error);
-      Alert.alert(
-        'Error',
-        'An unexpected error occurred. Please try again.',
-        [{ text: 'OK' }]
-      );
-    }
-  };
-
-  const toggleNotifications = async () => {
-    if (Platform.OS !== 'web') {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      
-      if (finalStatus !== 'granted') {
-        Alert.alert(
-          'Permission Required',
-          'Please enable notifications in your device settings to receive reminders.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Open Settings',
-              onPress: () => Linking.openSettings()
+            } catch (error: any) {
+              console.error('Sign-out error:', error);
+              Alert.alert(
+                'Sign Out Error',
+                'There was a problem signing out. Please try again.'
+              );
+            } finally {
+              setIsLoading(false);
             }
-          ]
-        );
-        return;
-      }
-    }
-    
-    setNotificationsEnabled(!notificationsEnabled);
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
+          },
+        },
+      ]
+    );
   };
-
-  const toggleSetting = (setting: 'darkMode' | 'sound' | 'haptics') => {
-    switch (setting) {
-      case 'darkMode':
-        setDarkModeEnabled(!darkModeEnabled);
-        break;
-      case 'sound':
-        setSoundEnabled(!soundEnabled);
-        break;
-      case 'haptics':
-        setHapticsEnabled(!hapticsEnabled);
-        break;
-    }
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-  };
-
-  const renderSettingItem = (
-    icon: string,
-    title: string,
-    value: boolean,
-    onToggle: () => void,
-    iconType: 'ionicons' | 'material' | 'feather' = 'ionicons'
-  ) => (
-    <View style={{
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingVertical: 12,
-      paddingHorizontal: 4,
-      borderBottomWidth: 1,
-      borderBottomColor: '#F0F0F0',
-    }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        {iconType === 'ionicons' && (
-          <Ionicons name={icon as any} size={22} color="#666" style={{ marginRight: 12 }} />
-        )}
-        {iconType === 'material' && (
-          <MaterialIcons name={icon as any} size={22} color="#666" style={{ marginRight: 12 }} />
-        )}
-        {iconType === 'feather' && (
-          <Feather name={icon as any} size={22} color="#666" style={{ marginRight: 12 }} />
-        )}
-        <Text style={{ fontSize: 16, color: '#1a1a1a', fontFamily: 'Onest' }}>{title}</Text>
-      </View>
-      <Switch
-        value={value}
-        onValueChange={onToggle}
-        trackColor={{ false: '#E0E0E0', true: '#FF9A8B' }}
-        thumbColor={value ? '#fff' : '#fff'}
-      />
-    </View>
-  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 40 }}>
-        {/* Profile Header */}
-        <View style={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 30 }}>
-          <View style={{ alignItems: 'center' }}>
-            <Image
-              source={{ uri: user?.user_metadata?.avatar_url || defaultProfileImage }}
-              style={{
-                width: 100,
-                height: 100,
-                borderRadius: 50,
-                marginBottom: 16,
-                backgroundColor: '#F5F5F5',
-              }}
-            />
-            <Text style={{ 
-              fontSize: 24, 
-              fontWeight: '600', 
-              color: '#1a1a1a',
-              marginBottom: 4,
-              fontFamily: 'Onest'
-            }}>
-              {user?.user_metadata?.full_name || 'Welcome!'}
-            </Text>
-            <Text style={{ 
-              fontSize: 16, 
-              color: '#666',
-              marginBottom: 20,
-              fontFamily: 'Onest'
-            }}>
-              {user?.email || 'Sign in to sync your data'}
-            </Text>
-            
-            {!user && (
-              <GoogleSigninButton
-                size={GoogleSigninButton.Size.Wide}
-                color={GoogleSigninButton.Color.Light}
-                onPress={handleSignIn}
-                style={{ marginTop: 8 }}
-              />
-            )}
-          </View>
-        </View>
+      <View style={{ flex: 1, padding: 20, alignItems: 'center', justifyContent: 'center' }}>
+        {/* Profile Image */}
+        <Image
+          source={{ uri: user?.user_metadata?.avatar_url || defaultProfileImage }}
+          style={{
+            width: 100,
+            height: 100,
+            borderRadius: 50,
+            marginBottom: 16,
+            backgroundColor: '#F5F5F5',
+          }}
+        />
 
-        {/* Settings Sections */}
-        <View style={{ paddingHorizontal: 24 }}>
-          {/* Account Section */}
-          <View style={{ marginBottom: 32 }}>
+        {/* User Info */}
+        <Text style={{ 
+          fontSize: 24, 
+          fontWeight: '600', 
+          color: '#1a1a1a',
+          marginBottom: 4,
+          fontFamily: 'Onest'
+        }}>
+          {user?.user_metadata?.full_name || 'Welcome!'}
+        </Text>
+        
+        <Text style={{ 
+          fontSize: 16, 
+          color: '#666',
+          marginBottom: 32,
+          fontFamily: 'Onest'
+        }}>
+          {user?.email || 'Sign in to sync your data'}
+        </Text>
+
+        {/* Sign In/Out Button */}
+        {isLoading ? (
+          <ActivityIndicator size="large" color="#FF9A8B" />
+        ) : user ? (
+          <TouchableOpacity
+            onPress={handleSignOut}
+            style={{
+              backgroundColor: '#FF3B30',
+              paddingHorizontal: 24,
+              paddingVertical: 12,
+              borderRadius: 8,
+              minWidth: 200,
+              alignItems: 'center',
+            }}
+          >
             <Text style={{ 
-              fontSize: 18, 
-              fontWeight: '600', 
-              color: '#1a1a1a',
-              marginBottom: 16,
+              color: '#fff',
+              fontSize: 16,
+              fontWeight: '600',
               fontFamily: 'Onest'
             }}>
-              Account
+              Sign Out
             </Text>
-            <View style={{
-              backgroundColor: '#F5F5F5',
-              borderRadius: 12,
-              overflow: 'hidden',
-            }}>
-              {user ? (
-                <TouchableOpacity
-                  onPress={handleSignOut}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    padding: 16,
-                  }}
-                >
-                  <Ionicons name="log-out-outline" size={22} color="#FF3B30" style={{ marginRight: 12 }} />
-                  <Text style={{ 
-                    fontSize: 16, 
-                    color: '#FF3B30',
-                    fontFamily: 'Onest'
-                  }}>
-                    Sign Out
-                  </Text>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity
-                  onPress={handleSignIn}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    padding: 16,
-                  }}
-                >
-                  <Ionicons name="log-in-outline" size={22} color="#FF9A8B" style={{ marginRight: 12 }} />
-                  <Text style={{ 
-                    fontSize: 16, 
-                    color: '#FF9A8B',
-                    fontFamily: 'Onest'
-                  }}>
-                    Sign In with Google
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-
-          {/* Notifications Section */}
-          <View style={{ marginBottom: 32 }}>
-            <Text style={{ 
-              fontSize: 18, 
-              fontWeight: '600', 
-              color: '#1a1a1a',
-              marginBottom: 16,
-              fontFamily: 'Onest'
-            }}>
-              Notifications
-            </Text>
-            <View style={{
-              backgroundColor: '#F5F5F5',
-              borderRadius: 12,
-              overflow: 'hidden',
-            }}>
-              {renderSettingItem(
-                'notifications-outline',
-                'Push Notifications',
-                notificationsEnabled,
-                toggleNotifications
-              )}
-              {renderSettingItem(
-                'volume-high-outline',
-                'Sound',
-                soundEnabled,
-                () => toggleSetting('sound')
-              )}
-            </View>
-          </View>
-
-          {/* Preferences Section */}
-          <View style={{ marginBottom: 32 }}>
-            <Text style={{ 
-              fontSize: 18, 
-              fontWeight: '600', 
-              color: '#1a1a1a',
-              marginBottom: 16,
-              fontFamily: 'Onest'
-            }}>
-              Preferences
-            </Text>
-            <View style={{
-              backgroundColor: '#F5F5F5',
-              borderRadius: 12,
-              overflow: 'hidden',
-            }}>
-              {renderSettingItem(
-                'moon-outline',
-                'Dark Mode',
-                darkModeEnabled,
-                () => toggleSetting('darkMode')
-              )}
-              {renderSettingItem(
-                'vibrate-outline',
-                'Haptic Feedback',
-                hapticsEnabled,
-                () => toggleSetting('haptics')
-              )}
-            </View>
-          </View>
-
-          {/* About Section */}
-          <View style={{ marginBottom: 32 }}>
-            <Text style={{ 
-              fontSize: 18, 
-              fontWeight: '600', 
-              color: '#1a1a1a',
-              marginBottom: 16,
-              fontFamily: 'Onest'
-            }}>
-              About
-            </Text>
-            <View style={{
-              backgroundColor: '#F5F5F5',
-              borderRadius: 12,
-              overflow: 'hidden',
-            }}>
-              <TouchableOpacity
-                onPress={() => Linking.openURL('https://jaani.app/privacy')}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  padding: 16,
-                  borderBottomWidth: 1,
-                  borderBottomColor: '#E0E0E0',
-                }}
-              >
-                <Ionicons name="shield-outline" size={22} color="#666" style={{ marginRight: 12 }} />
-                <Text style={{ 
-                  fontSize: 16, 
-                  color: '#1a1a1a',
-                  fontFamily: 'Onest'
-                }}>
-                  Privacy Policy
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => Linking.openURL('https://jaani.app/terms')}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  padding: 16,
-                  borderBottomWidth: 1,
-                  borderBottomColor: '#E0E0E0',
-                }}
-              >
-                <Ionicons name="document-text-outline" size={22} color="#666" style={{ marginRight: 12 }} />
-                <Text style={{ 
-                  fontSize: 16, 
-                  color: '#1a1a1a',
-                  fontFamily: 'Onest'
-                }}>
-                  Terms of Service
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => Linking.openURL('mailto:support@jaani.app')}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  padding: 16,
-                }}
-              >
-                <Ionicons name="mail-outline" size={22} color="#666" style={{ marginRight: 12 }} />
-                <Text style={{ 
-                  fontSize: 16, 
-                  color: '#1a1a1a',
-                  fontFamily: 'Onest'
-                }}>
-                  Contact Support
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Version Info */}
-          <Text style={{ 
-            textAlign: 'center', 
-            color: '#999',
-            fontSize: 14,
-            fontFamily: 'Onest'
-          }}>
-            Version 1.0.0
-          </Text>
-        </View>
-      </ScrollView>
+          </TouchableOpacity>
+        ) : (
+          <GoogleSigninButton
+            size={GoogleSigninButton.Size.Wide}
+            color={GoogleSigninButton.Color.Light}
+            onPress={handleSignIn}
+            style={{ marginTop: 8 }}
+          />
+        )}
+      </View>
     </SafeAreaView>
   );
 }
