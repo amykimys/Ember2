@@ -493,17 +493,26 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
           top: position.top,
           height: position.height,
           backgroundColor: `${event.categoryColor || '#FF9A8B'}40`,
-          position: 'absolute', // ✅ ensures it's not stacked
+          position: 'absolute',
           left: 0,
           right: 0,
           marginHorizontal: 0,
         },
       ]}
+      onPress={() => {
+        setSelectedEvent({ event, dateKey, index: eventIndex });
+        setEditedEventTitle(event.title);
+        setEditedEventDescription(event.description ?? '');
+        setEditedStartDateTime(new Date(event.startDateTime!));
+        setEditedEndDateTime(new Date(event.endDateTime!));
+        setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+        setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+        setEditedRepeatOption(event.repeatOption || 'None');
+        setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+        setShowEditEventModal(true);
+      }}
       onLongPress={() => {
         // your long press logic...
-      }}
-      onPress={() => {
-        // your press logic...
       }}
     >
       <View style={styles.eventTextContainer}>

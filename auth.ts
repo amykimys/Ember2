@@ -16,22 +16,16 @@ export const configureGoogleSignIn = () => {
 // Sign in with Google and Supabase
 export const signInWithGoogle = async () => {
   try {
-    // 1. Check if user is already signed in
-    const currentUser = await GoogleSignin.getCurrentUser();
-    if (currentUser) {
-      await GoogleSignin.signOut();
-    }
-
-    // 2. Start Google Sign-In process
-    await GoogleSignin.hasPlayServices();
-    const signInResult = await GoogleSignin.signIn();
+    // Always prompt the user to sign in
+    const userInfo = await GoogleSignin.signIn();
+    // Now get tokens
     const { idToken } = await GoogleSignin.getTokens();
 
     if (!idToken) {
       throw new Error('No ID token received from Google');
     }
 
-    // 3. Sign in with Supabase using the Google ID token
+    // Sign in with Supabase using the Google ID token
     const { data, error } = await supabase.auth.signInWithIdToken({
       provider: 'google',
       token: idToken,
