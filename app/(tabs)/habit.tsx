@@ -19,7 +19,7 @@ import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Modal } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Swipeable, GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
-import { Animated } from 'react-native';
+import { Animated as RNAnimated } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import importedStyles from '../../styles/habit.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
@@ -38,6 +38,20 @@ import * as FileSystem from 'expo-file-system';
 import { decode } from 'base-64';
 import { LineChart } from 'react-native-chart-kit';
 import { Dimensions } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  useAnimatedGestureHandler,
+  interpolate,
+  Extrapolate,
+} from 'react-native-reanimated';
+import { 
+  PinchGestureHandler, 
+  PanGestureHandler as PanGesture,
+  PinchGestureHandlerGestureEvent,
+  PanGestureHandlerGestureEvent,
+} from 'react-native-gesture-handler';
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -187,6 +201,108 @@ const CategoryBox = ({ onSelectCategory, onDeleteCategory, selectedCategoryId, o
   // Remove the handleDeleteCategory function from here
 };
 
+// Add these new components before the main component
+const ZoomableImage = ({ uri }: { uri: string }) => {
+  const scale = useSharedValue(1);
+  const savedScale = useSharedValue(1);
+  const offsetX = useSharedValue(0);
+  const offsetY = useSharedValue(0);
+  const savedOffsetX = useSharedValue(0);
+  const savedOffsetY = useSharedValue(0);
+
+  type PinchContext = {
+    startScale: number;
+  };
+
+  type PanContext = {
+    startX: number;
+    startY: number;
+  };
+
+  const pinchHandler = useAnimatedGestureHandler<PinchGestureHandlerGestureEvent, PinchContext>({
+    onStart: (_, ctx) => {
+      ctx.startScale = scale.value;
+    },
+    onActive: (event, ctx) => {
+      scale.value = interpolate(
+        event.scale,
+        [0.5, 2],
+        [0.5, 2],
+        Extrapolate.CLAMP
+      ) * ctx.startScale;
+    },
+    onEnd: () => {
+      if (scale.value < 1) {
+        scale.value = withSpring(1);
+      } else if (scale.value > 2) {
+        scale.value = withSpring(2);
+      }
+      savedScale.value = scale.value;
+    },
+  });
+
+  const panHandler = useAnimatedGestureHandler<PanGestureHandlerGestureEvent, PanContext>({
+    onStart: (_, ctx) => {
+      ctx.startX = offsetX.value;
+      ctx.startY = offsetY.value;
+    },
+    onActive: (event, ctx) => {
+      if (scale.value > 1) {
+        offsetX.value = ctx.startX + event.translationX;
+        offsetY.value = ctx.startY + event.translationY;
+      }
+    },
+    onEnd: () => {
+      if (scale.value <= 1) {
+        offsetX.value = withSpring(0);
+        offsetY.value = withSpring(0);
+      }
+      savedOffsetX.value = offsetX.value;
+      savedOffsetY.value = offsetY.value;
+    },
+  });
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { translateX: offsetX.value },
+        { translateY: offsetY.value },
+        { scale: scale.value },
+      ],
+    };
+  });
+
+  return (
+    <PinchGestureHandler
+      onGestureEvent={pinchHandler}
+      onHandlerStateChange={pinchHandler}
+    >
+      <Animated.View style={{ flex: 1 }}>
+        <PanGesture
+          onGestureEvent={panHandler}
+          onHandlerStateChange={panHandler}
+        >
+          <Animated.View style={{ flex: 1 }}>
+            <Animated.Image
+              source={{ uri }}
+              style={[
+                {
+                  width: '100%',
+                  height: 300,
+                  borderRadius: 12,
+                  backgroundColor: '#f0f0f0',
+                },
+                animatedStyle,
+              ]}
+              resizeMode="contain"
+            />
+          </Animated.View>
+        </PanGesture>
+      </Animated.View>
+    </PinchGestureHandler>
+  );
+};
+
 export default function HabitScreen() {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [newHabit, setNewHabit] = useState('');
@@ -226,7 +342,7 @@ export default function HabitScreen() {
   const newHabitInputRef = useRef<TextInput | null>(null);
   const newDescriptionInputRef = useRef<TextInput | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const modalAnimation = useRef(new Animated.Value(0)).current;
+  const modalAnimation = useRef(new RNAnimated.Value(0)).current;
   const [showRepeatPicker, setShowRepeatPicker] = useState(false);
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
   const [repeatEndDate, setRepeatEndDate] = useState<Date | null>(null);
@@ -268,7 +384,7 @@ export default function HabitScreen() {
     // Initialize animations for all habits
     const newAnimations = new Map();
     habits.forEach(habit => {
-      newAnimations.set(habit.id, new Animated.Value(getWeeklyProgressPercentage(habit)));
+      newAnimations.set(habit.id, new RNAnimated.Value(getWeeklyProgressPercentage(habit)));
     });
     setProgressAnimations(newAnimations);
   }, [habits.length]); // Only reinitialize when number of habits changes
@@ -278,7 +394,7 @@ export default function HabitScreen() {
     habits.forEach(habit => {
       const animation = progressAnimations.get(habit.id);
       if (animation) {
-        Animated.timing(animation, {
+        RNAnimated.timing(animation, {
           toValue: getWeeklyProgressPercentage(habit),
           duration: 300,
           useNativeDriver: false
@@ -653,24 +769,49 @@ const formatDate = (date: Date): string => {
     let currentWeekStart = moment(today).startOf('week');
     currentWeekStart.add(1, 'days'); // Adjust to Monday
 
+    // Keep track of whether we've met the target in the current week
+    let currentWeekMetTarget = false;
+    let currentWeekCompletions = 0;
+
+    // Check current week first
+    for (let i = 0; i < 7; i++) {
+      const date = moment(currentWeekStart).add(i, 'days');
+      const dateStr = date.format('YYYY-MM-DD');
+      if (completedSet.has(dateStr)) {
+        currentWeekCompletions++;
+      }
+    }
+    currentWeekMetTarget = currentWeekCompletions >= habit.targetPerWeek;
+
+    // If we haven't met the target in the current week and we're not in the current week,
+    // don't count it towards the streak
+    if (!currentWeekMetTarget && !currentWeekStart.isSame(moment().startOf('week').add(1, 'days'), 'week')) {
+      return 0;
+    }
+
+    // If we've met the target in the current week, start counting the streak
+    if (currentWeekMetTarget) {
+      streak = 1;
+    }
+
+    // Now check previous weeks
+    let previousWeekStart = moment(currentWeekStart).subtract(7, 'days');
     while (true) {
-      // Generate dates for this week
-      const weekDates: string[] = [];
+      let weekCompletions = 0;
       for (let i = 0; i < 7; i++) {
-        const date = moment(currentWeekStart).add(i, 'days');
-        weekDates.push(date.format('YYYY-MM-DD'));
+        const date = moment(previousWeekStart).add(i, 'days');
+        const dateStr = date.format('YYYY-MM-DD');
+        if (completedSet.has(dateStr)) {
+          weekCompletions++;
+        }
       }
 
-      // Count completions for this week
-      const completionsThisWeek = weekDates.filter(date => completedSet.has(date)).length;
-
-      // If we met or exceeded the target for this week, increment streak by 1
-      if (completionsThisWeek >= habit.targetPerWeek) {
-        streak += 1; // Add exactly 1 point for meeting the weekly target
-        // Move to previous week
-        currentWeekStart.subtract(7, 'days');
+      // If we met the target for this week, increment streak
+      if (weekCompletions >= habit.targetPerWeek) {
+        streak++;
+        previousWeekStart.subtract(7, 'days');
       } else {
-        // If we didn't meet the target this week, stop counting
+        // If we didn't meet the target, break the streak
         break;
       }
     }
@@ -687,31 +828,42 @@ const formatDate = (date: Date): string => {
       return;
     }
 
-    setHabits(habits.map(habit => {
-      if (habit.id === habitId) {
-        const completedDays = habit.completedDays.includes(normalizedDate)
-          ? habit.completedDays.filter(d => d !== normalizedDate)
-          : [...habit.completedDays, normalizedDate];
+    const habit = habits.find(h => h.id === habitId);
+    if (!habit) return;
 
-        const updatedHabit = {
-          ...habit,
+    const completedDays = habit.completedDays.includes(normalizedDate)
+      ? habit.completedDays.filter(d => d !== normalizedDate)
+      : [...habit.completedDays, normalizedDate];
+
+    // Calculate new streak with updated completed days
+    const newStreak = calculateStreak(habit, completedDays);
+
+    // Update in Supabase first and wait for the response
+    const { error } = await supabase
+      .from('habits')
+      .update({
+        completed_days: completedDays,
+        streak: newStreak
+      })
+      .eq('id', habitId)
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error('Error updating habit:', error);
+      Alert.alert('Error', 'Failed to update habit. Please try again.');
+      return;
+    }
+
+    // Only update local state after successful Supabase update
+    setHabits(habits.map(h => {
+      if (h.id === habitId) {
+        return {
+          ...h,
           completedDays,
-          streak: calculateStreak(habit, completedDays),
+          streak: newStreak,
         };
-
-        // Update in Supabase
-        supabase
-          .from('habits')
-          .update({
-            completed_days: completedDays,
-            streak: updatedHabit.streak
-          })
-          .eq('id', habitId)
-          .eq('user_id', user.id);
-
-        return updatedHabit;
       }
-      return habit;
+      return h;
     }));
   };
   
@@ -957,9 +1109,17 @@ const formatDate = (date: Date): string => {
         ? habit.completedDays.filter(d => d !== today)
         : [...habit.completedDays, today];
 
+      // Calculate new streak with updated completed days
       const newStreak = calculateStreak(habit, newCompletedDays);
 
-      // Update in Supabase first
+      console.log('Updating habit:', {
+        habitId,
+        newStreak,
+        newCompletedDays,
+        targetPerWeek: habit.targetPerWeek
+      });
+
+      // Update in Supabase first and wait for the response
       const { error } = await supabase
         .from('habits')
         .update({
@@ -971,26 +1131,40 @@ const formatDate = (date: Date): string => {
 
       if (error) {
         console.error('Error updating habit:', error);
+        Alert.alert('Error', 'Failed to update habit. Please try again.');
         return;
       }
 
-      // Then update local state
-      const updatedHabit = {
-        ...habit,
-        completedDays: newCompletedDays,
-        streak: newStreak
-      };
-
-      setHabits(prev => prev.map(h => h.id === habitId ? updatedHabit : h));
+      // Only update local state after successful Supabase update
+      setHabits(prev => prev.map(h => {
+        if (h.id === habitId) {
+          const updatedHabit = {
+            ...h,
+            completedDays: newCompletedDays,
+            streak: newStreak
+          };
+          console.log('Updated habit in local state:', updatedHabit);
+          return updatedHabit;
+        }
+        return h;
+      }));
 
       // Force update of progress animation
       const animation = progressAnimations.get(habitId);
       if (animation) {
-        Animated.timing(animation, {
-          toValue: getWeeklyProgressPercentage(updatedHabit),
+        RNAnimated.timing(animation, {
+          toValue: getWeeklyProgressPercentage({
+            ...habit,
+            completedDays: newCompletedDays
+          }),
           duration: 300,
           useNativeDriver: false
         }).start();
+      }
+
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
     } catch (error) {
       console.error('Error toggling habit completion:', error);
@@ -1014,7 +1188,7 @@ const formatDate = (date: Date): string => {
     setSelectedCategoryId(habit.category_id || '');
     setIsNewHabitModalVisible(true);
     requestAnimationFrame(() => {
-      Animated.timing(modalAnimation, {
+      RNAnimated.timing(modalAnimation, {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
@@ -1283,7 +1457,7 @@ const formatDate = (date: Date): string => {
   const showModal = () => {
     setIsNewHabitModalVisible(true);
     requestAnimationFrame(() => {
-      Animated.timing(modalAnimation, {
+      RNAnimated.timing(modalAnimation, {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
@@ -2569,16 +2743,9 @@ const formatDate = (date: Date): string => {
 
                   <View style={{ flex: 1 }}>
                     {previewPhoto ? (
-                      <Image
-                        source={{ uri: previewPhoto }}
-                        style={{
-                          width: '100%',
-                          height: 300,
-                          borderRadius: 12,
-                          backgroundColor: '#f0f0f0',
-                        }}
-                        resizeMode="contain"
-                      />
+                      <View style={{ flex: 1, overflow: 'hidden' }}>
+                        <ZoomableImage uri={previewPhoto} />
+                      </View>
                     ) : (
                       <Text style={{ color: '#999' }}>No photo available.</Text>
                     )}

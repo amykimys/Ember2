@@ -655,7 +655,17 @@ export default function TodoScreen() {
     const taskDate = new Date(todo.date);
     const endDate = todo.repeatEndDate ? new Date(todo.repeatEndDate) : null;
   
-    if (endDate && date > endDate) return false;
+    // Set both dates to start of day for proper comparison
+    const compareDate = new Date(date);
+    compareDate.setHours(0, 0, 0, 0);
+    
+    const compareEndDate = endDate ? new Date(endDate) : null;
+    if (compareEndDate) {
+      compareEndDate.setHours(0, 0, 0, 0);
+    }
+  
+    // Check if the date is after the end date (not including the end date)
+    if (compareEndDate && compareDate > compareEndDate) return false;
   
     if (isSameDay(taskDate, date)) return true; // normal case
   
@@ -1838,15 +1848,21 @@ export default function TodoScreen() {
     >
       <View style={[styles.modalOverlay, { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }]}>
         <View style={[styles.modalContent, { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '74%' : '67%', width: '100%' }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 10 }}>
+            <Text style={{ 
+              fontSize: 20, 
+              fontWeight: '700', 
+              color: '#1a1a1a', 
+              fontFamily: 'Onest',
+              marginLeft: 2
+            }}>
+              Task Settings
+            </Text>
             <TouchableOpacity
               onPress={handleCancelFromSettings}
               style={{
-                position: 'absolute',
-                top: 10,
-                right: -10,
-                zIndex: 10, // ensures it stays above other elements
-                backgroundColor: '#transparent',
+                zIndex: 10,
+                backgroundColor: 'transparent',
                 borderRadius: 16,
                 padding: 6,
               }}
@@ -1854,7 +1870,7 @@ export default function TodoScreen() {
               <Ionicons name="close" size={18} color="#666" />
             </TouchableOpacity>
           </View>
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingBottom: 0, paddingTop: 20 }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingBottom: 0, paddingTop: 10 }}>
             {/* Calendar View */}
             <View style={{ 
               flex: 1,
@@ -2378,35 +2394,7 @@ export default function TodoScreen() {
                     paddingHorizontal: 20,
                     marginBottom: 8
                   }}>
-                    <Picker selectedValue={selectedYear} 
-                      style={{ 
-                        flex: 1,
-                        height: 120,
-                      }}
-                      itemStyle={{
-                        height: 120,
-                        fontSize: 24,
-                        fontFamily: 'Onest',
-                        color: '#1a1a1a'
-                      }}
-                      onValueChange={setSelectedYear}>
-                      {years.map((y) => (
-                        <Picker.Item 
-                          key={y} 
-                          label={y.slice(-2)} 
-                          value={y} 
-                        />
-                      ))}
-                    </Picker>
-
-                    <Text style={{
-                      fontSize: 35,
-                      color: '#1a1a1a',
-                      fontFamily: 'Onest',
-                      marginHorizontal: 10,
-                      marginTop: 34
-                    }}>/</Text>
-
+                    {/* Month Picker */}
                     <Picker selectedValue={selectedMonth} 
                       style={{ 
                         flex: 1,
@@ -2430,6 +2418,7 @@ export default function TodoScreen() {
                       marginTop: 34
                     }}>/</Text>
 
+                    {/* Day Picker */}
                     <Picker selectedValue={selectedDay} 
                       style={{ 
                         flex: 1,
@@ -2443,6 +2432,36 @@ export default function TodoScreen() {
                       }}
                       onValueChange={setSelectedDay}>
                       {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
+                    </Picker>
+
+                    <Text style={{
+                      fontSize: 35,
+                      color: '#1a1a1a',
+                      fontFamily: 'Onest',
+                      marginHorizontal: 10,
+                      marginTop: 34
+                    }}>/</Text>
+
+                    {/* Year Picker */}
+                    <Picker selectedValue={selectedYear} 
+                      style={{ 
+                        flex: 1,
+                        height: 120,
+                      }}
+                      itemStyle={{
+                        height: 120,
+                        fontSize: 24,
+                        fontFamily: 'Onest',
+                        color: '#1a1a1a'
+                      }}
+                      onValueChange={setSelectedYear}>
+                      {years.map((y) => (
+                        <Picker.Item 
+                          key={y} 
+                          label={y.slice(-2)} 
+                          value={y} 
+                        />
+                      ))}
                     </Picker>
                   </View>
 

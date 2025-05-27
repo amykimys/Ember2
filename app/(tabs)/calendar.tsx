@@ -391,6 +391,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   gridCompact: {
+    paddingTop: 5,  // Add padding to the top of the grid in compact mode
     height: getCellHeight(new Date()) * 5, // Make it much more compact
     overflow: 'hidden',
   }, 
@@ -748,7 +749,7 @@ customTimePicker: {
     borderBottomColor: '#eee',
   },
   dateHeader: {
-    borderTopWidth: 1.5,
+    borderTopWidth: 1,
     borderTopColor: '#eee',
     paddingHorizontal: 16,
     paddingTop: 18,
@@ -1284,32 +1285,63 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     date?.toDateString() === selectedDate.toDateString();
 
   
-  const handleDeleteEvent = async (dateKey: string, eventIndex: number) => {
-    const eventToDelete = events[dateKey][eventIndex];
-  
+  const handleDeleteEvent = async (eventId: string) => {
+    // Find the event in our events object using the ID
+    const eventToDelete = Object.values(events).flat().find(e => e.id === eventId);
+
     if (!eventToDelete?.id) {
       console.error('No event id found!');
       return;
     }
-  
-    const { error } = await supabase
-      .from('events')
-      .delete()
-      .eq('id', eventToDelete.id);
-  
-    if (error) {
-      console.error('Failed to delete event from Supabase:', error);
-      return;
-    }
-  
-    const updatedEvents = { ...events };
-    updatedEvents[dateKey].splice(eventIndex, 1);
-  
-    if (updatedEvents[dateKey].length === 0) {
-      delete updatedEvents[dateKey];
-    }
-  
-    setEvents(updatedEvents);
+
+    Alert.alert(
+      'Delete Event',
+      'Are you sure you want to delete this event?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              // Delete from database
+              const { error } = await supabase
+                .from('events')
+                .delete()
+                .eq('id', eventToDelete.id);
+
+              if (error) {
+                console.error('Failed to delete event from Supabase:', error);
+                Alert.alert('Error', 'Failed to delete event. Please try again.');
+                return;
+              }
+
+              // Remove from local state using event ID
+              setEvents(prev => {
+                const updated = { ...prev };
+                // Remove from all dates where the event exists
+                Object.keys(updated).forEach(date => {
+                  updated[date] = updated[date].filter(e => e.id !== eventToDelete.id);
+                  if (updated[date].length === 0) {
+                    delete updated[date];
+                  }
+                });
+                return updated;
+              });
+
+              Toast.show({
+                type: 'success',
+                text1: 'Event deleted successfully',
+                position: 'bottom',
+              });
+            } catch (error) {
+              console.error('Error deleting event:', error);
+              Alert.alert('Error', 'Failed to delete event. Please try again.');
+            }
+          }
+        }
+      ]
+    );
   };
 
 
@@ -1354,13 +1386,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
       };
 
-      console.log('Event Save - Date Handling:', {
-        startDateTime: formatDateToUTC(startDateTime),
-        endDateTime: formatDateToUTC(endDateTime),
-        selectedDate: formatDateToUTC(selectedDate),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-      });
-      
       const eventToSave = customEvent || {
         id: Date.now().toString(),
         title: newEventTitle,
@@ -1387,14 +1412,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return acc;
         }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } })
       };
-
-      console.log('Event Save - Event Object Before Save:', {
-        eventDate: eventToSave.date,
-        startDateTime: eventToSave.startDateTime?.toISOString(),
-        endDateTime: eventToSave.endDateTime?.toISOString(),
-        customDates: eventToSave.customDates,
-        isAllDay: eventToSave.isAllDay
-      });
 
       // Prepare the database data with UTC dates
       const dbData = {
@@ -1423,13 +1440,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         user_id: user?.id
       };
 
-      console.log('Event Save - Database Data:', {
-        date: dbData.date,
-        start_datetime: dbData.start_datetime,
-        end_datetime: dbData.end_datetime,
-        is_all_day: dbData.is_all_day
-      });
-
       let error;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
       if (eventToSave.id && editingEvent) {
@@ -1442,12 +1452,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         // First remove the old event from all its dates
         setEvents(prev => {
           const updated = { ...prev };
-          editingEvent.customDates?.forEach((date: string) => {
-            if (updated[date]) {
-              updated[date] = updated[date].filter(e => e.id !== editingEvent.id);
-              if (updated[date].length === 0) {
-                delete updated[date];
-              }
+          // Remove from all dates where the event exists
+          Object.keys(updated).forEach(date => {
+            updated[date] = updated[date].filter(e => e.id !== editingEvent.id);
+            if (updated[date].length === 0) {
+              delete updated[date];
             }
           });
           return updated;
@@ -1475,7 +1484,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw error;
       }
 
-      // Update local state
+      // Update local state with the new event
       setEvents(prev => {
         const updated = { ...prev };
         // For custom events, add to all custom dates
@@ -1485,7 +1494,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             if (!updated[date]) {
               updated[date] = [];
             }
-            // Remove any existing event with the same ID
+            // Remove any existing event with the same ID (should be redundant but just in case)
             updated[date] = updated[date].filter(e => e.id !== eventToSave.id);
             updated[date].push(eventToSave);
           });
@@ -1496,7 +1505,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           if (!updated[dateKey]) {
             updated[dateKey] = [];
           }
-          // Remove any existing event with the same ID
+          // Remove any existing event with the same ID (should be redundant but just in case)
           updated[dateKey] = updated[dateKey].filter(e => e.id !== eventToSave.id);
           updated[dateKey].push(eventToSave);
         }
@@ -3708,41 +3717,45 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             'Are you sure you want to delete this event?',
                             [
                               { text: 'Cancel', style: 'cancel' },
-                              { text: 'Delete', style: 'destructive', onPress: async () => {
-                                try {
-                                  // Delete from database
-                                  const { error } = await supabase
-                                    .from('events')
-                                    .delete()
-                                    .eq('id', editingEvent.id);
-                                  if (error) throw error;
-                                  // Remove from local state
-                                  setEvents(prev => {
-                                    const updated = { ...prev };
-                                    editingEvent.customDates?.forEach(date => {
-                                      if (updated[date]) {
+                              { 
+                                text: 'Delete', 
+                                style: 'destructive', 
+                                onPress: async () => {
+                                  try {
+                                    // Delete from database
+                                    const { error } = await supabase
+                                      .from('events')
+                                      .delete()
+                                      .eq('id', editingEvent.id);
+
+                                    if (error) {
+                                      console.error('Failed to delete event from Supabase:', error);
+                                      Alert.alert('Error', 'Failed to delete event. Please try again.');
+                                      return;
+                                    }
+
+                                    // Remove from local state using event ID
+                                    setEvents(prev => {
+                                      const updated = { ...prev };
+                                      // Remove from all dates where the event exists
+                                      Object.keys(updated).forEach(date => {
                                         updated[date] = updated[date].filter(e => e.id !== editingEvent.id);
                                         if (updated[date].length === 0) delete updated[date];
-                                      }
+                                      });
+                                      return updated;
                                     });
-                                    return updated;
-                                  });
-                                  setCustomModalTitle('');
-                                  setCustomModalDescription('');
-                                  setCustomSelectedDates([]);
-                                  setCustomDateTimes({});
-                                  setShowCustomDatesPicker(false);
-                                  setEditingEvent(null);
-                                  Toast.show({
-                                    type: 'success',
-                                    text1: 'Event deleted successfully',
-                                    position: 'bottom',
-                                  });
-                                } catch (error) {
-                                  console.error('Error deleting event:', error);
-                                  Alert.alert('Error', 'Failed to delete event. Please try again.');
+
+                                    Toast.show({
+                                      type: 'success',
+                                      text1: 'Event deleted successfully',
+                                      position: 'bottom',
+                                    });
+                                  } catch (error) {
+                                    console.error('Error deleting event:', error);
+                                    Alert.alert('Error', 'Failed to delete event. Please try again.');
+                                  }
                                 }
-                              } }
+                              }
                             ]
                           );
                         }}
@@ -4747,8 +4760,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   <View style={[styles.modalActions, { justifyContent: 'space-between' }]}>
                       <TouchableOpacity
                         onPress={() => {
-                          if (selectedEvent) {
-                            handleDeleteEvent(selectedEvent.dateKey, selectedEvent.index);
+                          if (selectedEvent?.event.id) {
+                            handleDeleteEvent(selectedEvent.event.id);
                             setShowEditEventModal(false);
                           }
                         }}
