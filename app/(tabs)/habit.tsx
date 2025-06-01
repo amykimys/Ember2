@@ -12,14 +12,16 @@ import {
   Alert,
   StyleSheet,
   TouchableWithoutFeedback,
-  Keyboard
+  Keyboard,
+  Dimensions,
+  Pressable,
+  Animated
 } from 'react-native';
 import { Plus, Check, Menu, X, Camera, CreditCard as Edit2, Repeat, Trash2 } from 'lucide-react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { Modal } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Swipeable, GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
-import { Animated as RNAnimated } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import importedStyles from '../../styles/habit.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
@@ -37,8 +39,7 @@ import 'moment/locale/en-gb';
 import * as FileSystem from 'expo-file-system';
 import { decode } from 'base-64';
 import { LineChart } from 'react-native-chart-kit';
-import { Dimensions } from 'react-native';
-import Animated, {
+import {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -312,24 +313,15 @@ export default function HabitScreen() {
   const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const [frequencyInput, setFrequencyInput] = useState('');
   const [requirePhoto, setRequirePhoto] = useState(false);
-  const [showPhotoModal, setShowPhotoModal] = useState(false);
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [showPhotoPreview, setShowPhotoPreview] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
-  const [selectedTheme, setSelectedTheme] = useState<keyof typeof THEMES>('pastel');
   const [newCategoryColor, setNewCategoryColor] = useState<string>('#E3F2FD');  // Keep as string since it's an initial value
-  const [habitDate, setHabitDate] = useState<Date | null>(null);
-  const [showHabitDatePicker, setShowHabitDatePicker] = useState(false);
-  const repeatBottomSheetRef = useRef<BottomSheet>(null);
-  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
-  const photoOptionsSheetRef = useRef<BottomSheet>(null);
-  const [expandedStreakId, setExpandedStreakId] = useState<string | null>(null);
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
   const [isPhotoOptionsModalVisible, setIsPhotoOptionsModalVisible] = useState(false);
   const [isPhotoPreviewModalVisible, setIsPhotoPreviewModalVisible] = useState(false);
@@ -341,23 +333,12 @@ export default function HabitScreen() {
   const calendarStripRef = useRef<any>(null);
   const newHabitInputRef = useRef<TextInput | null>(null);
   const newDescriptionInputRef = useRef<TextInput | null>(null);
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const modalAnimation = useRef(new RNAnimated.Value(0)).current;
-  const [showRepeatPicker, setShowRepeatPicker] = useState(false);
+  const modalAnimation = useRef(new Animated.Value(0)).current;
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
   const [repeatEndDate, setRepeatEndDate] = useState<Date | null>(null);
-  const [showRepeatEndDatePicker, setShowRepeatEndDatePicker] = useState(false);
-  const [customRepeatFrequency, setCustomRepeatFrequency] = useState('1');
-  const [customRepeatUnit, setCustomRepeatUnit] = useState<'days' | 'weeks' | 'months'>('days');
-  const [selectedWeekDays, setSelectedWeekDays] = useState<WeekDay[]>([]);
-  const [showCustomDatesPicker, setShowCustomDatesPicker] = useState(false);
-  const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
-  const [showFrequencyPicker, setShowFrequencyPicker] = useState(false);
-  const [showFrequencyInline, setShowFrequencyInline] = useState(false);
   const [showCategoryBox, setShowCategoryBox] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const categoryInputRef = useRef<TextInput>(null);
@@ -384,7 +365,7 @@ export default function HabitScreen() {
     // Initialize animations for all habits
     const newAnimations = new Map();
     habits.forEach(habit => {
-      newAnimations.set(habit.id, new RNAnimated.Value(getWeeklyProgressPercentage(habit)));
+      newAnimations.set(habit.id, new Animated.Value(getWeeklyProgressPercentage(habit)));
     });
     setProgressAnimations(newAnimations);
   }, [habits.length]); // Only reinitialize when number of habits changes
@@ -394,7 +375,7 @@ export default function HabitScreen() {
     habits.forEach(habit => {
       const animation = progressAnimations.get(habit.id);
       if (animation) {
-        RNAnimated.timing(animation, {
+        Animated.timing(animation, {
           toValue: getWeeklyProgressPercentage(habit),
           duration: 300,
           useNativeDriver: false
@@ -1152,7 +1133,7 @@ const formatDate = (date: Date): string => {
       // Force update of progress animation
       const animation = progressAnimations.get(habitId);
       if (animation) {
-        RNAnimated.timing(animation, {
+        Animated.timing(animation, {
           toValue: getWeeklyProgressPercentage({
             ...habit,
             completedDays: newCompletedDays
@@ -1186,18 +1167,7 @@ const formatDate = (date: Date): string => {
     setSelectedRepeat(habit.repeat_type);
     setRepeatEndDate(habit.repeat_end_date ? new Date(habit.repeat_end_date) : null);
     setSelectedCategoryId(habit.category_id || '');
-    setIsNewHabitModalVisible(true);
-    requestAnimationFrame(() => {
-      RNAnimated.timing(modalAnimation, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => {
-        setTimeout(() => {
-          newHabitInputRef.current?.focus();
-        }, 100);
-      });
-    });
+    showNewHabitModal();
   };
   
 
@@ -1340,18 +1310,91 @@ const formatDate = (date: Date): string => {
     };
   };
 
-  // Create debounced handlers
-  const handleCloseNewHabitModal = useCallback(
-    debounce(() => {
-      if (isModalTransitioning) return;
-      setIsModalTransitioning(true);
+  // Define modal management functions first
+  const showNewHabitModal = useCallback(() => {
+    setShowCategoryBox(false);
+    setIsNewHabitModalVisible(true);
+    requestAnimationFrame(() => {
+      Animated.timing(modalAnimation, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setTimeout(() => {
+          newHabitInputRef.current?.focus();
+        }, 100);
+      });
+    });
+  }, [modalAnimation, newHabitInputRef]);
+
+  const hideNewHabitModal = useCallback(() => {
+    Animated.timing(modalAnimation, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
       setIsNewHabitModalVisible(false);
-      setTimeout(() => {
-        setIsModalTransitioning(false);
-      }, 300);
-    }, 300),
-    [isModalTransitioning]
-  );
+    });
+  }, [modalAnimation]);
+
+  // Combine reminder handling and modal management
+  const handleReminderConfirm = useCallback(() => {
+    const hours = selectedAmPm === 'PM' ? (parseInt(selectedHour) % 12) + 12 : parseInt(selectedHour) % 12;
+    const time = new Date();
+    time.setHours(hours);
+    time.setMinutes(parseInt(selectedMinute));
+    setReminderTime(time);
+    setShowReminderPicker(false);
+    
+    // Show modal after a short delay
+    setTimeout(() => {
+      setShowCategoryBox(false);
+      setIsNewHabitModalVisible(true);
+      requestAnimationFrame(() => {
+        Animated.timing(modalAnimation, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start(() => {
+          setTimeout(() => {
+            newHabitInputRef.current?.focus();
+          }, 100);
+        });
+      });
+    }, 300);
+  }, [selectedHour, selectedMinute, selectedAmPm, modalAnimation, newHabitInputRef]);
+
+  // Update handleAddButtonPress to use the new function name
+  const handleAddButtonPress = useCallback(() => {
+    // Reset form state
+    setNewHabit('');
+    setNewDescription('');
+    setSelectedColor(HABIT_COLORS[0]);
+    setNewCategoryColor(HABIT_COLORS[0].value);
+    setFrequencyInput('');
+    setRequirePhoto(false);
+    setReminderEnabled(false);
+    setReminderTime(null);
+    setEditingHabit(null);
+    setShowEditModal(false);
+    setSelectedCategoryId(null);
+    setSelectedRepeat('none');
+    setRepeatEndDate(null);
+
+    // Show modal using new function name
+    showNewHabitModal();
+  }, [showNewHabitModal]);
+
+  // Update handleCloseNewHabitModal to use the new function name
+  const handleCloseNewHabitModal = useCallback(() => {
+    if (isModalTransitioning) return;
+    
+    setIsModalTransitioning(true);
+    hideNewHabitModal();
+    setTimeout(() => {
+      setIsModalTransitioning(false);
+    }, 300);
+  }, [isModalTransitioning, hideNewHabitModal]);
 
   const handleClosePhotoOptionsModal = useCallback(
     debounce(() => {
@@ -1435,42 +1478,9 @@ const formatDate = (date: Date): string => {
   };
   
 
-  const handleReminderConfirm = useCallback(() => {
-    const hours = selectedAmPm === 'PM' ? (parseInt(selectedHour) % 12) + 12 : parseInt(selectedHour) % 12;
-    const time = new Date();
-    time.setHours(hours);
-    time.setMinutes(parseInt(selectedMinute));
-    setReminderTime(time);
-  
-    setShowReminderPicker(false);
-  
-    setTimeout(() => {
-      showModal(); // ✅ reopen the New Habit Modal smoothly
-    }, 300);
-  }, [selectedHour, selectedMinute, selectedAmPm]);
-  
-
   const handleReminderCancel = useCallback(() => {
     setShowReminderPicker(false);
   }, []);
-
-  const showModal = () => {
-    setIsNewHabitModalVisible(true);
-    requestAnimationFrame(() => {
-      RNAnimated.timing(modalAnimation, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }).start(() => {
-        // Focus the title input after animation completes
-        setTimeout(() => {
-          newHabitInputRef.current?.focus();
-        }, 100);
-      });
-    });
-  };
-
-
 
   const goToToday = () => {
     const today = new Date();
@@ -1482,16 +1492,17 @@ const formatDate = (date: Date): string => {
 
 
   const handleNotePress = (habitId: string, date: string) => {
-    const today = moment().format('YYYY-MM-DD');
- 
+    // Convert the input date to the user's local timezone
+    const localDate = moment(date).startOf('day');
+    const today = moment().startOf('day');
     
     // Only show note modal for today's date
-    if (date === today) {
-      setSelectedNoteDate({ habitId, date });
+    if (localDate.isSame(today)) {
+      setSelectedNoteDate({ habitId, date: localDate.format('YYYY-MM-DD') });
       setIsNoteEditMode(true);
       const habit = habits.find(h => h.id === habitId);
-      if (habit?.notes?.[date]) {
-        setNoteText(habit.notes[date]);
+      if (habit?.notes?.[localDate.format('YYYY-MM-DD')]) {
+        setNoteText(habit.notes[localDate.format('YYYY-MM-DD')]);
       } else {
         setNoteText('');
       }
@@ -1507,11 +1518,13 @@ const formatDate = (date: Date): string => {
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
-    setSelectedNoteDate({ habitId, date });
+    // Convert the input date to the user's local timezone
+    const localDate = moment(date).startOf('day');
+    setSelectedNoteDate({ habitId, date: localDate.format('YYYY-MM-DD') });
     setIsNoteEditMode(false);
     const habit = habits.find(h => h.id === habitId);
-    if (habit?.notes?.[date]) {
-      setNoteText(habit.notes[date]);
+    if (habit?.notes?.[localDate.format('YYYY-MM-DD')]) {
+      setNoteText(habit.notes[localDate.format('YYYY-MM-DD')]);
     } else {
       setNoteText('');
     }
@@ -1526,9 +1539,12 @@ const formatDate = (date: Date): string => {
     const habit = habits.find(h => h.id === selectedNoteDate.habitId);
     if (!habit) return;
 
+    // Ensure we're using the local timezone date
+    const localDate = moment(selectedNoteDate.date).startOf('day').format('YYYY-MM-DD');
+
     const updatedNotes = {
       ...habit.notes,
-      [selectedNoteDate.date]: noteText
+      [localDate]: noteText
     };
 
     // Update in Supabase
@@ -1932,6 +1948,21 @@ const formatDate = (date: Date): string => {
     });
   };
 
+  // Add darkenColor function
+  function darkenColor(hex: string, amount = 0.2): string {
+    const num = parseInt(hex.replace('#', ''), 16);
+    const r = Math.max(0, (num >> 16) - 255 * amount);
+    const g = Math.max(0, ((num >> 8) & 0x00FF) - 255 * amount);
+    const b = Math.max(0, (num & 0x0000FF) - 255 * amount);
+
+    return (
+      '#' +
+      [r, g, b]
+        .map((c) => Math.round(c).toString(16).padStart(2, '0'))
+        .join('')
+    );
+  }
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -2092,7 +2123,7 @@ const formatDate = (date: Date): string => {
                           renderRightActions={() => (
                             <TouchableOpacity
                               style={[styles.rightAction, {
-                                backgroundColor: `${DARKER_COLORS[habit.color] || '#FF3B30'}66`, // Use darker shade with 40% opacity
+                                backgroundColor: `${darkenColor(habit.color, 0.2)}90`, // Added 80 for 50% opacity
                               }]}
                               onPress={() => {
                                 if (Platform.OS !== 'web') {
@@ -2201,29 +2232,30 @@ const formatDate = (date: Date): string => {
                               </View>
                               <View style={{
                                 flexDirection: 'row',
-                                gap: 8, // Reduced from 6 to 2
+                                gap: 8,
                                 alignItems: 'center',
                                 paddingTop: 3
                               }}>
                                 {[
-                                  { day: 'M', key: 'mon' },
-                                  { day: 'T', key: 'tue' },
-                                  { day: 'W', key: 'wed' },
-                                  { day: 'T', key: 'thu' },
-                                  { day: 'F', key: 'fri' },
-                                  { day: 'S', key: 'sat' },
-                                  { day: 'S', key: 'sun' }
-                                ].map(({ day, key }, index) => {
-                                  const today = moment();
-                                  const currentDay = today.day(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-                                  const date = moment(today);
-                                  // Adjust to make Monday (1) the first day of the week
-                                  const daysToAdd = index - (currentDay === 0 ? 6 : currentDay - 1);
-                                  date.add(daysToAdd, 'days');
+                                  { day: 'M', key: 'mon', weekday: 1 },
+                                  { day: 'T', key: 'tue', weekday: 2 },
+                                  { day: 'W', key: 'wed', weekday: 3 },
+                                  { day: 'T', key: 'thu', weekday: 4 },
+                                  { day: 'F', key: 'fri', weekday: 5 },
+                                  { day: 'S', key: 'sat', weekday: 6 },
+                                  { day: 'S', key: 'sun', weekday: 0 }
+                                ].map(({ day, key, weekday }, index) => {
+                                  // Get the start of the current week (Monday) in local timezone
+                                  const today = moment().startOf('day');
+                                  // Set Monday as the start of the week
+                                  const startOfWeek = moment().startOf('isoWeek'); // This sets Monday as start of week
+                                  
+                                  // Calculate the date for this weekday
+                                  const date = moment(startOfWeek).add(weekday === 0 ? 6 : weekday - 1, 'days');
                                   
                                   const dateStr = date.format('YYYY-MM-DD');
                                   const isCompleted = habit.completedDays.includes(dateStr);
-                                  const isToday = date.isSame(moment(), 'day');
+                                  const isToday = date.isSame(today, 'day');
                                   
                                   return (
                                     <TouchableOpacity
@@ -2285,11 +2317,9 @@ const formatDate = (date: Date): string => {
 
           {/* ADD HABIT BUTTON */}
           <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => {
-              resetForm();
-              showModal();
-            }}
+            style={[styles.addButton, { opacity: isModalTransitioning ? 0.5 : 1 }]}
+            onPress={handleAddButtonPress}
+            disabled={isModalTransitioning}
           >
             <Ionicons name="add" size={22} color="white" />
           </TouchableOpacity>
@@ -2326,9 +2356,9 @@ const formatDate = (date: Date): string => {
                       transform: [{
                         translateY: modalAnimation.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [600, 0]
+                          outputRange: [1000, 0]
                         })
-                      }],
+                      }]
                     }}
                   >
                   <View style={{ flexGrow: 1 }}>
@@ -2364,7 +2394,7 @@ const formatDate = (date: Date): string => {
                           value={frequencyInput}
                           onChangeText={setFrequencyInput}
                           keyboardType="numeric"
-                          placeholder="Target frequency: pick 1~7"
+                          placeholder="Goal per week: pick 1-7"
                           placeholderTextColor="#999"
                           style={{
                             fontSize: 16,
@@ -2394,7 +2424,7 @@ const formatDate = (date: Date): string => {
                           }}
                           value={newDescription}
                           onChangeText={setNewDescription}
-                          placeholder="Add description (optional)"
+                          placeholder="Description (optional)"
                           placeholderTextColor="#999"
                           multiline
                         />
@@ -3126,11 +3156,82 @@ const formatDate = (date: Date): string => {
                           marginBottom: 20,
                           fontFamily: 'Onest'
                         }}>
-                          {new Date(selectedNoteDate.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                          {moment(selectedNoteDate.date).format('dddd, MMMM D, YYYY')}
                         </Text>
                       )}
 
                       {/* Note Input */}
+                      {/* Photo section if photo exists */}
+                      {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] && (
+                        <View style={{ marginBottom: 16, position: 'relative' }}>
+                          <Image
+                            source={{ uri: habits.find(h => h.id === selectedNoteDate.habitId)?.photos?.[selectedNoteDate.date] }}
+                            style={{
+                              width: '100%',
+                              aspectRatio: 4/3,
+                              borderRadius: 12,
+                            }}
+                            resizeMode="contain"
+                          />
+                          <TouchableOpacity
+                            onPress={async () => {
+                              if (!selectedNoteDate) return;
+                              
+                              const { data: { user } } = await supabase.auth.getUser();
+                              if (!user) return;
+
+                              const habit = habits.find(h => h.id === selectedNoteDate.habitId);
+                              if (!habit) return;
+
+                              // Create a new photos object without the current date's photo
+                              const updatedPhotos = { ...habit.photos };
+                              delete updatedPhotos[selectedNoteDate.date];
+
+                              // Update in Supabase
+                              const { error } = await supabase
+                                .from('habits')
+                                .update({
+                                  photos: updatedPhotos
+                                })
+                                .eq('id', selectedNoteDate.habitId)
+                                .eq('user_id', user.id);
+
+                              if (error) {
+                                console.error('Error deleting photo:', error);
+                                return;
+                              }
+
+                              // Update local state
+                              setHabits(habits.map(h => {
+                                if (h.id === selectedNoteDate.habitId) {
+                                  return {
+                                    ...h,
+                                    photos: updatedPhotos
+                                  };
+                                }
+                                return h;
+                              }));
+
+                              // Provide haptic feedback
+                              if (Platform.OS !== 'web') {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              }
+                            }}
+                            style={{
+                              position: 'absolute',
+                              top: 8,
+                              right: 8,
+                              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                              borderRadius: 20,
+                              padding: 8,
+                            }}
+                          >
+                            <Ionicons name="trash-outline" size={20} color="white" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+
+                      {/* Text Input with gray background */}
                       <View style={{
                         backgroundColor: '#F5F5F5',
                         borderRadius: 12,
@@ -3220,7 +3321,7 @@ const formatDate = (date: Date): string => {
                         marginBottom: 20,
                         fontFamily: 'Onest'
                       }}>
-                        {new Date(selectedNoteDate.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        {moment(selectedNoteDate.date).format('dddd, MMMM D, YYYY')}
                       </Text>
                     )}
 
@@ -3260,26 +3361,6 @@ const formatDate = (date: Date): string => {
                         </>
                       )}
                     </ScrollView>
-
-                    {/* Edit Button */}
-                    {selectedNoteDate && habits.find(h => h.id === selectedNoteDate.habitId)?.notes?.[selectedNoteDate.date] && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          setIsNoteEditMode(true);
-                          setNoteText(habits.find(h => h.id === selectedNoteDate.habitId)?.notes?.[selectedNoteDate.date] || '');
-                        }}
-                        style={{
-                          backgroundColor: '#FF9A8B',
-                          padding: 14,
-                          borderRadius: 12,
-                          alignItems: 'center',
-                          marginTop: 'auto',
-                          marginBottom: 0,
-                        }}
-                      >
-                        <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Edit Note</Text>
-                      </TouchableOpacity>
-                    )}
                   </View>
                 )}
               </View>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -1286,62 +1286,41 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   
   const handleDeleteEvent = async (eventId: string) => {
-    // Find the event in our events object using the ID
-    const eventToDelete = Object.values(events).flat().find(e => e.id === eventId);
+    try {
+      // Delete from database
+      const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventId);
 
-    if (!eventToDelete?.id) {
-      console.error('No event id found!');
-      return;
-    }
+      if (error) throw error;
 
-    Alert.alert(
-      'Delete Event',
-      'Are you sure you want to delete this event?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Delete', 
-          style: 'destructive', 
-          onPress: async () => {
-            try {
-              // Delete from database
-              const { error } = await supabase
-                .from('events')
-                .delete()
-                .eq('id', eventToDelete.id);
-
-              if (error) {
-                console.error('Failed to delete event from Supabase:', error);
-                Alert.alert('Error', 'Failed to delete event. Please try again.');
-                return;
-              }
-
-              // Remove from local state using event ID
-              setEvents(prev => {
-                const updated = { ...prev };
-                // Remove from all dates where the event exists
-                Object.keys(updated).forEach(date => {
-                  updated[date] = updated[date].filter(e => e.id !== eventToDelete.id);
-                  if (updated[date].length === 0) {
-                    delete updated[date];
-                  }
-                });
-                return updated;
-              });
-
-              Toast.show({
-                type: 'success',
-                text1: 'Event deleted successfully',
-                position: 'bottom',
-              });
-            } catch (error) {
-              console.error('Error deleting event:', error);
-              Alert.alert('Error', 'Failed to delete event. Please try again.');
-            }
+      // Update local state
+      setEvents(prevEvents => {
+        const newEvents = { ...prevEvents };
+        
+        // Remove the event from all dates where it exists
+        Object.keys(newEvents).forEach(dateKey => {
+          newEvents[dateKey] = newEvents[dateKey].filter(event => event.id !== eventId);
+          if (newEvents[dateKey].length === 0) {
+            delete newEvents[dateKey];
           }
-        }
-      ]
-    );
+        });
+
+        return newEvents;
+      });
+
+      // Show success message
+      Toast.show({
+        type: 'success',
+        text1: 'Event deleted successfully',
+        position: 'bottom',
+        visibilityTime: 2000,
+      });
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      throw error;
+    }
   };
 
 
@@ -1641,7 +1620,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               <TouchableOpacity
                                 key={index}
                                 onPress={() => {
-                                  setSelectedEvent({ event, dateKey: event.date, index });
+                                  const selectedEventData = { event, dateKey: event.date, index };
+                                  setSelectedEvent(selectedEventData);
                                   setEditingEvent(event);
                                   setEditedEventTitle(event.title);
                                   setEditedEventDescription(event.description ?? '');
@@ -1683,7 +1663,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               <TouchableOpacity
                                 key={`${event.id}-${eventIndex}`}
                                 onPress={() => {
-                                  setSelectedEvent({ event, dateKey: event.date, index: eventIndex });
+                                  const selectedEventData = { event, dateKey: event.date, index: eventIndex };
+                                  setSelectedEvent(selectedEventData);
                                   setEditingEvent(event);
                                   setEditedEventTitle(event.title);
                                   setEditedEventDescription(event.description ?? '');
@@ -1728,6 +1709,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const handleLongPress = (event: CalendarEvent) => {
     if (event.customDates && event.customDates.length > 0) {
       // Handle custom event
+      setSelectedEvent({ event, dateKey: event.date, index: 0 });
       setEditingEvent(event);
       setIsEditingEvent(true);
       setCustomModalTitle(event.title);
@@ -1776,7 +1758,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     } else {
       // Handle regular event
       setSelectedEvent({ event, dateKey: event.date, index: 0 });
-      setEditingEvent(event);  // Add this line
+      setEditingEvent(event);
       setEditedEventTitle(event.title);
       setEditedEventDescription(event.description ?? '');
       setEditedStartDateTime(new Date(event.startDateTime!));
@@ -2023,7 +2005,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         paddingHorizontal: 16,
                       }}
                       onPress={() => {
-                        setSelectedEvent({ event, dateKey: event.date, index });
+                        const selectedEventData = { event, dateKey: event.date, index };
+                        setSelectedEvent(selectedEventData);
                         setEditingEvent(event);
                         setEditedEventTitle(event.title);
                         setEditedEventDescription(event.description ?? '');
@@ -3711,63 +3694,38 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
                     {editingEvent && (
                       <TouchableOpacity
-                        onPress={async () => {
-                          Alert.alert(
-                            'Delete Event',
-                            'Are you sure you want to delete this event?',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              { 
-                                text: 'Delete', 
-                                style: 'destructive', 
-                                onPress: async () => {
-                                  try {
-                                    // Delete from database
-                                    const { error } = await supabase
-                                      .from('events')
-                                      .delete()
-                                      .eq('id', editingEvent.id);
-
-                                    if (error) {
-                                      console.error('Failed to delete event from Supabase:', error);
+                        onPress={() => {
+                          if (selectedEvent?.event.id) {
+                            Alert.alert(
+                              'Delete Event',
+                              'Are you sure you want to delete this event?',
+                              [
+                                {
+                                  text: 'Cancel',
+                                  style: 'cancel'
+                                },
+                                {
+                                  text: 'Delete',
+                                  style: 'destructive',
+                                  onPress: async () => {
+                                    try {
+                                      await handleDeleteEvent(selectedEvent.event.id);
+                                      setShowEditEventModal(false);
+                                      setSelectedEvent(null);
+                                      setEditingEvent(null);
+                                    } catch (error) {
+                                      console.error('Error deleting event:', error);
                                       Alert.alert('Error', 'Failed to delete event. Please try again.');
-                                      return;
                                     }
-
-                                    // Remove from local state using event ID
-                                    setEvents(prev => {
-                                      const updated = { ...prev };
-                                      // Remove from all dates where the event exists
-                                      Object.keys(updated).forEach(date => {
-                                        updated[date] = updated[date].filter(e => e.id !== editingEvent.id);
-                                        if (updated[date].length === 0) delete updated[date];
-                                      });
-                                      return updated;
-                                    });
-
-                                    Toast.show({
-                                      type: 'success',
-                                      text1: 'Event deleted successfully',
-                                      position: 'bottom',
-                                    });
-                                  } catch (error) {
-                                    console.error('Error deleting event:', error);
-                                    Alert.alert('Error', 'Failed to delete event. Please try again.');
                                   }
                                 }
-                              }
-                            ]
-                          );
+                              ]
+                            );
+                          }
                         }}
-                        style={{
-                          backgroundColor: '#ffebee',
-                          borderRadius: 12,
-                          padding: 16,
-                          alignItems: 'center',
-                          flex: 1,
-                        }}
+                        style={styles.deleteButton}
                       >
-                        <Text style={{ color: '#d32f2f', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Delete</Text>
+                        <Text style={styles.deleteButtonText}>Delete</Text>
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity
@@ -4760,9 +4718,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   <View style={[styles.modalActions, { justifyContent: 'space-between' }]}>
                       <TouchableOpacity
                         onPress={() => {
-                          if (selectedEvent?.event.id) {
+                          if (selectedEvent) {
                             handleDeleteEvent(selectedEvent.event.id);
                             setShowEditEventModal(false);
+                            setSelectedEvent(null);  // Clear the selected event
+                            setEditingEvent(null);   // Clear the editing event
                           }
                         }}
                         style={styles.deleteButton}
