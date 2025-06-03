@@ -1392,21 +1392,116 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } })
       };
 
-      // Prepare the database data with UTC dates
-      const dbData = {
-        title: eventToSave.title,
-        description: eventToSave.description,
-        date: eventToSave.date,
-        start_datetime: formatDateToUTC(eventToSave.startDateTime!),
-        end_datetime: formatDateToUTC(eventToSave.endDateTime!),
-        category_name: eventToSave.categoryName || null,
-        category_color: eventToSave.categoryColor || null,
-        reminder_time: eventToSave.reminderTime ? formatDateToUTC(eventToSave.reminderTime) : null,
-        repeat_option: eventToSave.customDates && eventToSave.customDates.length > 0 ? 'Custom' : eventToSave.repeatOption,
-        repeat_end_date: eventToSave.repeatEndDate ? formatDateToUTC(eventToSave.repeatEndDate) : null,
-        custom_dates: eventToSave.customDates,
-        custom_times: eventToSave.customTimes ? 
-          Object.entries(eventToSave.customTimes).reduce((acc, [date, times]) => ({
+      // Generate repeated events if needed
+      const generateRepeatedEvents = (event: CalendarEvent): CalendarEvent[] => {
+        if (!event.repeatOption || event.repeatOption === 'None' || event.repeatOption === 'Custom') {
+          return [event];
+        }
+
+        const events: CalendarEvent[] = [event];
+        const startDate = new Date(event.startDateTime!);
+        const endDate = event.repeatEndDate || new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
+        let currentDate = new Date(startDate);
+
+        // Helper function to check if a date matches the repeat pattern
+        const isDateInPattern = (date: Date, baseDate: Date, option: RepeatOption): boolean => {
+          switch (option) {
+            case 'Daily':
+              return true; // Every day matches
+            case 'Weekly':
+              return date.getDay() === baseDate.getDay(); // Same day of week
+            case 'Monthly':
+              return date.getDate() === baseDate.getDate(); // Same day of month
+            case 'Yearly':
+              return date.getMonth() === baseDate.getMonth() && date.getDate() === baseDate.getDate(); // Same month and day
+            default:
+              return false;
+          }
+        };
+
+        // Helper function to create an event for a specific date
+        const createEventForDate = (date: Date): CalendarEvent => {
+          const newEvent: CalendarEvent = {
+            ...event,
+            id: `${event.id}_${date.toISOString()}`,
+            date: getLocalDateString(date),
+            startDateTime: new Date(date.setHours(startDate.getHours(), startDate.getMinutes())),
+            endDateTime: new Date(new Date(date).setHours(startDate.getHours() + (event.endDateTime!.getHours() - event.startDateTime!.getHours()), startDate.getMinutes() + (event.endDateTime!.getMinutes() - event.startDateTime!.getMinutes()))),
+          };
+
+          // Adjust reminder time if it exists
+          if (event.reminderTime) {
+            const reminderOffset = event.reminderTime.getTime() - event.startDateTime!.getTime();
+            newEvent.reminderTime = new Date(newEvent.startDateTime!.getTime() + reminderOffset);
+          }
+
+          return newEvent;
+        };
+
+        // Helper function to check if a date is already included in events
+        const isDateAlreadyIncluded = (date: Date): boolean => {
+          return events.some(e => {
+            const eventDate = new Date(e.startDateTime!);
+            return eventDate.getTime() === date.getTime();
+          });
+        };
+
+        // Generate events up to but not including the end date
+        while (currentDate < endDate) {
+          // Increment date based on repeat option
+          switch (event.repeatOption) {
+            case 'Daily':
+              currentDate.setDate(currentDate.getDate() + 1);
+              break;
+            case 'Weekly':
+              currentDate.setDate(currentDate.getDate() + 7);
+              break;
+            case 'Monthly':
+              currentDate.setMonth(currentDate.getMonth() + 1);
+              break;
+            case 'Yearly':
+              currentDate.setFullYear(currentDate.getFullYear() + 1);
+              break;
+            default:
+              return events;
+          }
+
+          // If we've gone past the end date, check if we should include the end date
+          if (currentDate > endDate) {
+            // Only add the end date if it matches the pattern and isn't already included
+            if (isDateInPattern(endDate, startDate, event.repeatOption) && !isDateAlreadyIncluded(endDate)) {
+              events.push(createEventForDate(new Date(endDate)));
+            }
+            break;
+          }
+
+          // Only add the event if it's not already included
+          if (!isDateAlreadyIncluded(currentDate)) {
+            events.push(createEventForDate(new Date(currentDate)));
+          }
+        }
+
+        return events;
+      };
+
+      // Generate all repeated events
+      const allEvents = generateRepeatedEvents(eventToSave);
+
+      // Prepare database data for all events
+      const dbEvents = allEvents.map(event => ({
+        title: event.title,
+        description: event.description,
+        date: event.date,
+        start_datetime: formatDateToUTC(event.startDateTime!),
+        end_datetime: formatDateToUTC(event.endDateTime!),
+        category_name: event.categoryName || null,
+        category_color: event.categoryColor || null,
+        reminder_time: event.reminderTime ? formatDateToUTC(event.reminderTime) : null,
+        repeat_option: event.repeatOption,
+        repeat_end_date: event.repeatEndDate ? formatDateToUTC(event.repeatEndDate) : null,
+        custom_dates: event.customDates,
+        custom_times: event.customTimes ? 
+          Object.entries(event.customTimes).reduce((acc, [date, times]) => ({
             ...acc,
             [date]: {
               start: formatDateToUTC(times.start),
@@ -1415,9 +1510,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               repeat: times.repeat
             }
           }), {}) : null,
-        is_all_day: eventToSave.isAllDay,
+        is_all_day: event.isAllDay,
         user_id: user?.id
-      };
+      }));
 
       let error;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
@@ -1441,19 +1536,29 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return updated;
         });
 
-        // Update the event in the database
-        const { error: updateError } = await supabase
+        // Delete all existing repeated events
+        const { error: deleteError } = await supabase
           .from('events')
-          .update(dbData)
-          .eq('id', eventToSave.id);
+          .delete()
+          .like('id', `${eventToSave.id}%`);
 
-        error = updateError;
-      } else {
-        console.log('Event Save - Creating New Event');
-        // Insert new event
+        if (deleteError) {
+          console.error('Error deleting existing repeated events:', deleteError);
+          throw deleteError;
+        }
+
+        // Insert all new events
         const { error: insertError } = await supabase
           .from('events')
-          .insert([dbData]);
+          .insert(dbEvents);
+
+        error = insertError;
+      } else {
+        console.log('Event Save - Creating New Event');
+        // Insert all new events
+        const { error: insertError } = await supabase
+          .from('events')
+          .insert(dbEvents);
 
         error = insertError;
       }
@@ -1463,31 +1568,29 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw error;
       }
 
-      // Update local state with the new event
+      // Update local state with all events
       setEvents(prev => {
         const updated = { ...prev };
-        // For custom events, add to all custom dates
-        if (eventToSave.customDates && eventToSave.customDates.length > 0) {
-          console.log('Event Save - Adding to Custom Dates:', eventToSave.customDates);
-          eventToSave.customDates.forEach(date => {
-            if (!updated[date]) {
-              updated[date] = [];
+        allEvents.forEach(event => {
+          if (event.customDates && event.customDates.length > 0) {
+            console.log('Event Save - Adding to Custom Dates:', event.customDates);
+            event.customDates.forEach(date => {
+              if (!updated[date]) {
+                updated[date] = [];
+              }
+              updated[date] = updated[date].filter(e => e.id !== event.id);
+              updated[date].push(event);
+            });
+          } else {
+            const dateKey = event.date;
+            console.log('Event Save - Adding to Primary Date:', dateKey);
+            if (!updated[dateKey]) {
+              updated[dateKey] = [];
             }
-            // Remove any existing event with the same ID (should be redundant but just in case)
-            updated[date] = updated[date].filter(e => e.id !== eventToSave.id);
-            updated[date].push(eventToSave);
-          });
-        } else {
-          // For regular events, add to the primary date
-          const dateKey = eventToSave.date;
-          console.log('Event Save - Adding to Primary Date:', dateKey);
-          if (!updated[dateKey]) {
-            updated[dateKey] = [];
+            updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
+            updated[dateKey].push(event);
           }
-          // Remove any existing event with the same ID (should be redundant but just in case)
-          updated[dateKey] = updated[dateKey].filter(e => e.id !== eventToSave.id);
-          updated[dateKey].push(eventToSave);
-        }
+        });
         return updated;
       });
 
@@ -1786,14 +1889,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [currentEditingField, setCurrentEditingField] = useState<'start' | 'end'>('start');
 
   // Add this function to handle time selection
-  const handleTimeSelection = (selectedDate: Date | null | undefined, field: 'start' | 'end') => {
-    if (!selectedDate || !editingTimeBoxId || !customDateTimes[editingTimeBoxId]) return;
+  const handleTimeSelection = (selectedDate: Date | null | undefined, field: 'start' | 'end'): void => {
+    if (!selectedDate || !editingTimeBoxId) return;
 
     const currentTimeBox = customDateTimes[editingTimeBoxId];
-    const currentDate = currentTimeBox[field] || new Date();
-    const newDate = new Date(currentDate);
-    
-    // Update only the time portion
+    if (!currentTimeBox) return;
+
+    const newDate = new Date(currentTimeBox[field]);
     newDate.setHours(selectedDate.getHours());
     newDate.setMinutes(selectedDate.getMinutes());
     newDate.setSeconds(0);
@@ -1812,31 +1914,205 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       updatedTimeBox.end = newEnd;
     }
 
-    // Update temporary state for preview
-    setTempTimeBox(updatedTimeBox);
-  };
-
-  // Add this function to save time changes
-  const saveTimeChanges = () => {
-    if (!tempTimeBox || !editingTimeBoxId) return;
-
+    // Update the time box immediately
     setCustomDateTimes(prev => ({
       ...prev,
-      [editingTimeBoxId]: tempTimeBox
+      [editingTimeBoxId]: updatedTimeBox
     }));
-
-    // Reset states
-    setTempTimeBox(null);
-    setIsTimePickerVisible(false);
-    setCurrentEditingField('start');
   };
 
-  // Add this function to cancel time changes
-  const cancelTimeChanges = () => {
-    setTempTimeBox(null);
-    setIsTimePickerVisible(false);
-    setCurrentEditingField('start');
+  // Add a function to handle time box editing with proper return type
+  const handleEditTimeBox = (timeBoxId: string, field: 'start' | 'end'): void => {
+    setEditingTimeBoxId(timeBoxId);
+    setCurrentEditingField(field);
+    setIsTimePickerVisible(true);
   };
+
+  // Add styles for the time box components
+  const timeBoxStyles = StyleSheet.create({
+    container: {
+      marginBottom: 16,
+      backgroundColor: '#fafafa',
+      borderRadius: 12,
+      padding: 12
+    },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 8
+    },
+    dateText: {
+      fontSize: 13,
+      color: '#666',
+      fontFamily: 'Onest'
+    },
+    timeContainer: {
+      flexDirection: 'row',
+      gap: 12
+    },
+    timeButton: {
+      flex: 1,
+      backgroundColor: '#fff',
+      padding: 8,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#eee'
+    },
+    timeLabel: {
+      fontSize: 12,
+      color: '#666',
+      marginBottom: 4,
+      fontFamily: 'Onest'
+    },
+    timeValue: {
+      fontSize: 14,
+      color: '#333',
+      fontFamily: 'Onest'
+    },
+    pickerContainer: {
+      marginTop: 12,
+      backgroundColor: '#fff',
+      borderRadius: 12,
+      padding: 12
+    },
+    pickerLabel: {
+      fontSize: 13,
+      color: '#666',
+      marginBottom: 8,
+      fontFamily: 'Onest'
+    },
+    doneButton: {
+      backgroundColor: '#f5f5f5',
+      paddingVertical: 12,
+      borderRadius: 12,
+      alignItems: 'center',
+      marginTop: 12
+    },
+    doneButtonText: {
+      fontSize: 15,
+      color: '#666',
+      fontFamily: 'Onest',
+      fontWeight: '500'
+    },
+    addTimeButton: {
+      backgroundColor: '#f5f5f5',
+      paddingVertical: 12,
+      borderRadius: 12,
+      alignItems: 'center',
+      marginTop: 8
+    },
+    addTimeButtonText: {
+      fontSize: 15,
+      color: '#666',
+      fontFamily: 'Onest',
+      fontWeight: '500'
+    }
+  });
+
+  // Update the time box rendering with proper styles
+  {Object.entries(customDateTimes).map(([key, timeData]) => {
+    if (key === 'default') return null;
+
+    return (
+      <View key={key} style={timeBoxStyles.container}>
+        <View style={timeBoxStyles.header}>
+          <Text style={timeBoxStyles.dateText}>
+            {timeData.dates.map(date => new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })).join(', ')}
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              const updatedTimes = { ...customDateTimes };
+              const datesToRemove = timeData.dates;
+              delete updatedTimes[key];
+              setCustomDateTimes(updatedTimes);
+              setCustomSelectedDates(prev => prev.filter(date => !datesToRemove.includes(date)));
+            }}
+            style={{ padding: 4 }}
+          >
+            <Ionicons name="close-circle" size={20} color="#999" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={timeBoxStyles.timeContainer}>
+          <TouchableOpacity
+            onPress={() => handleEditTimeBox(key, 'start')}
+            style={timeBoxStyles.timeButton}
+          >
+            <Text style={timeBoxStyles.timeLabel}>Start</Text>
+            <Text style={timeBoxStyles.timeValue}>
+              {timeData.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => handleEditTimeBox(key, 'end')}
+            style={timeBoxStyles.timeButton}
+          >
+            <Text style={timeBoxStyles.timeLabel}>End</Text>
+            <Text style={timeBoxStyles.timeValue}>
+              {timeData.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {isTimePickerVisible && editingTimeBoxId === key && (
+          <View style={timeBoxStyles.pickerContainer}>
+            <Text style={timeBoxStyles.pickerLabel}>
+              {currentEditingField === 'start' ? 'Set Start Time' : 'Set End Time'}
+            </Text>
+            <DateTimePicker
+              value={timeData[currentEditingField]}
+              mode="time"
+              display="spinner"
+              onChange={(event, selectedDate) => {
+                if (selectedDate) {
+                  handleTimeSelection(selectedDate, currentEditingField);
+                }
+              }}
+              style={{ height: 150 }}
+              textColor="#333"
+            />
+            <TouchableOpacity
+              onPress={() => handleTimeBoxSave(key)}
+              style={timeBoxStyles.doneButton}
+            >
+              <Text style={timeBoxStyles.doneButtonText}>Save & Select Dates</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    );
+  })}
+
+  {/* Add Custom Time Button */}
+  {!isTimePickerVisible && (
+    <TouchableOpacity
+      onPress={() => {
+        const timeBoxKey = `time_${Date.now()}`;
+        const currentTime = new Date();
+        const newTimeBox: CustomTimeData = {
+          start: new Date(currentTime),
+          end: new Date(currentTime.getTime() + 60 * 60 * 1000),
+          reminder: null,
+          repeat: 'None',
+          dates: []
+        };
+
+        setCustomDateTimes(prev => ({
+          ...prev,
+          [timeBoxKey]: newTimeBox
+        }));
+
+        setEditingTimeBoxId(timeBoxKey);
+        setCurrentEditingField('start');
+        setIsTimePickerVisible(true);
+      }}
+      style={timeBoxStyles.addTimeButton}
+    >
+      <Text style={timeBoxStyles.addTimeButtonText}>Add Time</Text>
+    </TouchableOpacity>
+  )}
 
   const handleEditEvent = async () => {
     if (!selectedEvent) return;
@@ -1897,6 +2173,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
+  // Add new state for the time box calendar picker
+  const [selectedTimeBoxForCalendar, setSelectedTimeBoxForCalendar] = useState<string | null>(null);
+
+  // Add function to handle time box save and show calendar
+  const handleTimeBoxSave = (timeBoxId: string): void => {
+    setIsTimePickerVisible(false);
+    setEditingTimeBoxId(null);
+  };
+
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
@@ -1934,6 +2219,26 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           onPress={() => {
             resetEventForm();
             setShowModal(true);
+          }}
+          onLongPress={() => {
+            resetEventForm();
+            // Set up for custom event
+            setCustomModalTitle('');
+            setCustomModalDescription('');
+            const currentDateStr = getLocalDateString(startDateTime);
+            setCustomSelectedDates([currentDateStr]);
+            setCustomDateTimes({
+              default: {
+                start: startDateTime,
+                end: endDateTime,
+                reminder: reminderTime,
+                repeat: 'None',
+                dates: [currentDateStr]
+              }
+            });
+            setEditingEvent(null);
+            setIsEditingEvent(false);
+            setShowCustomDatesPicker(true);
           }}
         >
           <MaterialIcons name="add" size={22} color="#3a3a3a" />
@@ -2109,6 +2414,26 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             resetEventForm();
             setShowModal(true);
           }}
+          onLongPress={() => {
+            resetEventForm();
+            // Set up for custom event
+            setCustomModalTitle('');
+            setCustomModalDescription('');
+            const currentDateStr = getLocalDateString(startDateTime);
+            setCustomSelectedDates([currentDateStr]);
+            setCustomDateTimes({
+              default: {
+                start: startDateTime,
+                end: endDateTime,
+                reminder: reminderTime,
+                repeat: 'None',
+                dates: [currentDateStr]
+              }
+            });
+            setEditingEvent(null);
+            setIsEditingEvent(false);
+            setShowCustomDatesPicker(true);
+          }}
         >
           <MaterialIcons name="add" size={22} color="#3a3a3a" />
         </TouchableOpacity>
@@ -2158,6 +2483,26 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           dates: [currentDateStr],
         },
       });
+    }}
+    onLongPress={() => {
+      resetEventForm();
+      // Set up for custom event
+      setCustomModalTitle('');
+      setCustomModalDescription('');
+      const currentDateStr = getLocalDateString(startDateTime);
+      setCustomSelectedDates([currentDateStr]);
+      setCustomDateTimes({
+        default: {
+          start: startDateTime,
+          end: endDateTime,
+          reminder: reminderTime,
+          repeat: 'None',
+          dates: [currentDateStr]
+        }
+      });
+      setEditingEvent(null);
+      setIsEditingEvent(false);
+      setShowCustomDatesPicker(true);
     }}
   />
 </SafeAreaView>
@@ -3319,7 +3664,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     </Text>
                     <RNCalendar
                       onDayPress={(day: DateData) => {
-                        const dateStr = day.dateString;
+                        // Create a date object in the local timezone
+                        const localDate = new Date(day.timestamp);
+                        const dateStr = localDate.toISOString().split('T')[0]; // Get YYYY-MM-DD format
                         
                         if (selectedTimeBox) {
                           // Add date to the selected time box
@@ -3334,7 +3681,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             };
                             setCustomDateTimes(updatedCustomDateTimes);
                             
-                            // Also update customSelectedDates
+                            // Also update customSelectedDates if needed
                             if (!customSelectedDates.includes(dateStr)) {
                               setCustomSelectedDates(prev => [...prev, dateStr]);
                             }
@@ -3355,31 +3702,45 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             }
                           }
                         } else {
-                          // If no time box is selected, just toggle the date in customSelectedDates
-                          if (!customSelectedDates.includes(dateStr)) {
-                            setCustomSelectedDates(prev => [...prev, dateStr]);
-                          } else {
-                            setCustomSelectedDates(prev => prev.filter(d => d !== dateStr));
-                          }
+                          // If no time box is selected, create a new one
+                          const timeBoxKey = `time_${Date.now()}`;
+                          const currentTime = new Date();
+                          const newTimeBox: CustomTimeData = {
+                            start: new Date(currentTime),
+                            end: new Date(currentTime.getTime() + 60 * 60 * 1000),
+                            reminder: null,
+                            repeat: 'None',
+                            dates: [dateStr]
+                          };
+
+                          setCustomDateTimes(prev => ({
+                            ...prev,
+                            [timeBoxKey]: newTimeBox
+                          }));
+                          setSelectedTimeBox(timeBoxKey);
+                          setCustomSelectedDates(prev => [...prev, dateStr]);
                         }
                       }}
-                      markedDates={Object.fromEntries(
-                        customSelectedDates.map(date => [
-                          date,
-                          { 
-                            selected: true, 
-                            selectedColor: selectedTimeBox ? '#FF9A8B' : '#FF9A8B',
-                            // If a time box is selected, highlight dates that belong to it
-                            ...(selectedTimeBox && customDateTimes[selectedTimeBox]?.dates.includes(date) && {
-                              selectedColor: '#FF9A8B',
-                              selectedTextColor: '#fff'
-                            })
-                          }
-                        ])
-                      )}
+                      markedDates={(() => {
+                        const marked: { [key: string]: { selected: boolean; selectedColor: string } } = {};
+                        
+                        // Mark all dates that are in any time box
+                        Object.values(customDateTimes).forEach(timeBox => {
+                          timeBox.dates.forEach(date => {
+                            marked[date] = {
+                              selected: true,
+                              selectedColor: selectedTimeBox && customDateTimes[selectedTimeBox]?.dates.includes(date)
+                                ? '#FF9A8B'  // Highlight color for selected time box dates
+                                : '#f0f0f0'  // Default color for other time box dates
+                            };
+                          });
+                        });
+                        
+                        return marked;
+                      })()}
                       style={{
                         borderRadius: 12,
-                        marginBottom: 16,
+                        marginBottom: 16
                       }}
                     />
                   </View>
@@ -3397,79 +3758,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       Time Settings
                     </Text>
 
-                    {/* Custom Time Boxes */}
                     {Object.entries(customDateTimes).map(([key, timeData]) => {
-                      if (key === 'default') return null; // Skip default time box
-                      const date = timeData.dates[0];
+                      if (key === 'default') return null;
+
                       return (
-                        <TouchableOpacity
-                          key={key}
-                          onPress={() => {
-                            setSelectedTimeBox(selectedTimeBox === key ? null : key);
-                          }}
-                          style={[
-                            { 
-                              backgroundColor: '#fafafa',
-                              borderRadius: 10,
-                              padding: 12,
-                              marginBottom: 12,
-                              borderWidth: 2,
-                              borderColor: 'transparent'
-                            },
-                            selectedTimeBox === key && {
-                              borderColor: '#FF9A8B',
-                              backgroundColor: '#f8f8f8'
-                            }
-                          ]}
-                        >
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-                            <View style={{ flex: 1 }}>
-                              <Text style={{ fontSize: 13, color: '#3a3a3a', fontFamily: 'Onest', marginBottom: 4 }}>
-                                {timeData.start.toLocaleTimeString([], { 
-                                  hour: 'numeric', 
-                                  minute: '2-digit',
-                                  hour12: true 
-                                })} - {timeData.end.toLocaleTimeString([], { 
-                                  hour: 'numeric', 
-                                  minute: '2-digit',
-                                  hour12: true 
-                                })}
-                              </Text>
-                              {timeData.dates && timeData.dates.length > 0 && (
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
-                                  {timeData.dates.map((date) => (
-                                    <View 
-                                      key={date} 
-                                      style={{
-                                        backgroundColor: selectedTimeBox === key ? '#FF9A8B' : '#FF9A8B40',
-                                        paddingHorizontal: 6,
-                                        paddingVertical: 2,
-                                        borderRadius: 4,
-                                      }}
-                                    >
-                                      <Text style={{ 
-                                        fontSize: 11, 
-                                        color: selectedTimeBox === key ? 'white' : '#3a3a3a',
-                                        fontFamily: 'Onest',
-                                      }}>
-                                        {new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })}
-                                      </Text>
-                                    </View>
-                                  ))}
-                                </View>
-                              )}
-                            </View>
+                        <View key={key} style={timeBoxStyles.container}>
+                          <View style={timeBoxStyles.header}>
+                            <Text style={timeBoxStyles.dateText}>
+                              {timeData.dates.map(date => new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })).join(', ')}
+                            </Text>
                             <TouchableOpacity
                               onPress={() => {
                                 const updatedTimes = { ...customDateTimes };
-                                // Get the dates associated with this time box before deleting it
                                 const datesToRemove = timeData.dates;
                                 delete updatedTimes[key];
                                 setCustomDateTimes(updatedTimes);
-                                if (selectedTimeBox === key) {
-                                  setSelectedTimeBox(null);
-                                }
-                                // Remove the associated dates from customSelectedDates
                                 setCustomSelectedDates(prev => prev.filter(date => !datesToRemove.includes(date)));
                               }}
                               style={{ padding: 4 }}
@@ -3477,66 +3780,84 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               <Ionicons name="close-circle" size={20} color="#999" />
                             </TouchableOpacity>
                           </View>
-                        </TouchableOpacity>
+
+                          <View style={timeBoxStyles.timeContainer}>
+                            <TouchableOpacity
+                              onPress={() => handleEditTimeBox(key, 'start')}
+                              style={timeBoxStyles.timeButton}
+                            >
+                              <Text style={timeBoxStyles.timeLabel}>Start</Text>
+                              <Text style={timeBoxStyles.timeValue}>
+                                {timeData.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              onPress={() => handleEditTimeBox(key, 'end')}
+                              style={timeBoxStyles.timeButton}
+                            >
+                              <Text style={timeBoxStyles.timeLabel}>End</Text>
+                              <Text style={timeBoxStyles.timeValue}>
+                                {timeData.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+
+                          {isTimePickerVisible && editingTimeBoxId === key && (
+                            <View style={timeBoxStyles.pickerContainer}>
+                              <Text style={timeBoxStyles.pickerLabel}>
+                                {currentEditingField === 'start' ? 'Set Start Time' : 'Set End Time'}
+                              </Text>
+                              <DateTimePicker
+                                value={timeData[currentEditingField]}
+                                mode="time"
+                                display="spinner"
+                                onChange={(event, selectedDate) => {
+                                  if (selectedDate) {
+                                    handleTimeSelection(selectedDate, currentEditingField);
+                                  }
+                                }}
+                                style={{ height: 150 }}
+                                textColor="#333"
+                              />
+                              <TouchableOpacity
+                                onPress={() => handleTimeBoxSave(key)}
+                                style={timeBoxStyles.doneButton}
+                              >
+                                <Text style={timeBoxStyles.doneButtonText}>Save & Select Dates</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+                        </View>
                       );
                     })}
 
-                    {/* Add Custom Time Button - always show when time picker is not open */}
-                    {!showCustomTimePicker && (
+                    {/* Add Custom Time Button */}
+                    {!isTimePickerVisible && (
                       <TouchableOpacity
                         onPress={() => {
-                          try {
-                            // Create a new time box with a unique key
-                            const timeBoxKey = `time_${Date.now()}`;
-                            
-                            // Create the time box with current time values
-                            const currentTime = new Date();
-                            const newTimeBox: CustomTimeData = {
-                              start: new Date(currentTime),
-                              end: new Date(currentTime.getTime() + 60 * 60 * 1000), // 1 hour later
-                              reminder: null,
-                              repeat: 'None' as RepeatOption,
-                              dates: []
-                            };
+                          const timeBoxKey = `time_${Date.now()}`;
+                          const currentTime = new Date();
+                          const newTimeBox: CustomTimeData = {
+                            start: new Date(currentTime),
+                            end: new Date(currentTime.getTime() + 60 * 60 * 1000),
+                            reminder: null,
+                            repeat: 'None',
+                            dates: []
+                          };
 
-                            // First update the state with the new time box
-                            setCustomDateTimes(prev => ({
-                              ...prev,
-                              [timeBoxKey]: newTimeBox
-                            }));
+                          setCustomDateTimes(prev => ({
+                            ...prev,
+                            [timeBoxKey]: newTimeBox
+                          }));
 
-                            // Then set up the picker after a small delay to ensure state is updated
-                            setTimeout(() => {
-                              setSelectedTimeBox(timeBoxKey);
-                              setEditingTimeBoxId(timeBoxKey);
-                              setEditingField('start');
-                              setShowCustomTimePicker(true);
-                            }, 0);
-                          } catch (error) {
-                            console.error('Error creating new time box:', error);
-                          }
+                          setEditingTimeBoxId(timeBoxKey);
+                          setCurrentEditingField('start');
+                          setIsTimePickerVisible(true);
                         }}
-                        style={{
-                          backgroundColor: '#fafafa',
-                          borderRadius: 12,
-                          paddingVertical: 12,
-                          paddingHorizontal: 16,
-                          alignItems: 'center',
-                          marginTop: 8,
-                          flexDirection: 'row',
-                          justifyContent: 'center',
-                          gap: 8
-                        }}
+                        style={timeBoxStyles.addTimeButton}
                       >
-                        <Ionicons name="add-circle-outline" size={20} color="#666" />
-                        <Text style={{ 
-                          fontSize: 13,
-                          color: '#666',
-                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                        }}>
-                          Add Time
-                        </Text>
+                        <Text style={timeBoxStyles.addTimeButtonText}>Add Time</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -3646,7 +3967,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           gap: 12
                         }}>
                           <TouchableOpacity
-                            onPress={cancelTimeChanges}
+                            onPress={() => setIsTimePickerVisible(false)}
                             style={{
                               flex: 1,
                               backgroundColor: '#f5f5f5',
@@ -3666,7 +3987,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           </TouchableOpacity>
 
                           <TouchableOpacity
-                            onPress={saveTimeChanges}
+                            onPress={() => {
+                              setTempTimeBox(customDateTimes[editingTimeBoxId]);
+                              setIsTimePickerVisible(false);
+                              setCurrentEditingField('start');
+                            }}
                             style={{
                               flex: 1,
                               backgroundColor: '#FF9A8B',

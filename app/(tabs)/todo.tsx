@@ -318,12 +318,47 @@ export default function TodoScreen() {
         return;
       }
 
+      // Get the default 'TODO' category
+      const { data: defaultCategory, error: defaultCategoryError } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('label', 'todo')
+        .eq('type', 'task')
+        .single();
+
+      if (defaultCategoryError && defaultCategoryError.code !== 'PGRST116') {
+        throw defaultCategoryError;
+      }
+
+      // If no category is selected, use the default 'TODO' category
+      let categoryId = selectedCategoryId;
+      if (!categoryId) {
+        if (!defaultCategory) {
+          // Create default category if it doesn't exist
+          const { data: newDefaultCategory, error: createError } = await supabase
+            .from('categories')
+            .insert({
+              id: uuidv4(),
+              label: 'todo',
+              color: '#E0E0E0',
+              user_id: user.id,
+              type: 'task'
+            })
+            .select()
+            .single();
+
+          if (createError) throw createError;
+          categoryId = newDefaultCategory.id;
+        } else {
+          categoryId = defaultCategory.id;
+        }
+      }
+
       // Check current categories
       await checkCategories();
 
       // First, handle new category creation if needed
-      let finalCategoryId: string | null = selectedCategoryId;
-
       if (showNewCategoryInput && newCategoryName.trim()) {
         const newCategory = {
           id: uuidv4(),
@@ -365,11 +400,11 @@ export default function TodoScreen() {
           return updatedCategories;
         });
         
-        finalCategoryId = savedCategory.id;
+        categoryId = savedCategory.id;
       }
 
       // If no category is selected, set it to null
-      if (!finalCategoryId) {
+      if (!categoryId) {
       
         const { data: existingTodoCategory, error: fetchError } = await supabase
           .from('categories')
@@ -386,7 +421,7 @@ export default function TodoScreen() {
         }
       
         if (existingTodoCategory) {
-          finalCategoryId = existingTodoCategory.id;
+          categoryId = existingTodoCategory.id;
         } else {
           const defaultCategory = {
             id: uuidv4(),
@@ -414,26 +449,26 @@ export default function TodoScreen() {
       
           console.log('✅ Created new default "todo" category:', newDefaultCategory);
           setCategories(prev => [...prev, newDefaultCategory]);
-          finalCategoryId = newDefaultCategory.id;
+          categoryId = newDefaultCategory.id;
         }
       }
       
-      console.log('Final categoryId before task creation:', finalCategoryId);
+      console.log('Final categoryId before task creation:', categoryId);
 
-      const existsLocally = categories.some(c => c.id === finalCategoryId);
+      const existsLocally = categories.some(c => c.id === categoryId);
       if (!existsLocally) {
-        console.error('Selected category not found in local state:', finalCategoryId);
+        console.error('Selected category not found in local state:', categoryId);
         Alert.alert('Error', 'Selected category is no longer available.');
         return;
       }
 
 
       // Verify category exists if one is selected
-      if (finalCategoryId) {
+      if (categoryId) {
         const { data: categoryData, error: categoryCheckError } = await supabase
           .from('categories')
           .select('id')
-          .eq('id', finalCategoryId);
+          .eq('id', categoryId);
 
         if (categoryCheckError) {
           console.error('Category verification failed:', categoryCheckError);
@@ -442,7 +477,7 @@ export default function TodoScreen() {
         }
 
         if (!categoryData || categoryData.length === 0) {
-          console.error('Category not found:', finalCategoryId);
+          console.error('Category not found:', categoryId);
           Alert.alert('Error', 'Selected category does not exist. Please try again.');
           return;
         }
@@ -455,7 +490,7 @@ export default function TodoScreen() {
         text: newTodo.trim(),
         description: newDescription.trim(),
         completed: false,
-        categoryId: finalCategoryId,
+        categoryId: categoryId,
         date: taskDate || currentDate,
         repeat: selectedRepeat,
         repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
@@ -473,7 +508,7 @@ export default function TodoScreen() {
           text: newTodoItem.text,
           description: newTodoItem.description,
           completed: newTodoItem.completed,
-          category_id: finalCategoryId,
+          category_id: categoryId,
           date: newTodoItem.date.toISOString(),
           repeat: newTodoItem.repeat,
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
@@ -909,6 +944,9 @@ export default function TodoScreen() {
   };
 
   const renderCategory = (category: Category, todayTodos: Todo[]) => {
+    // Skip rendering the 'TODO' category in the folder section
+    if (category.label.toLowerCase() === 'todo') return null;
+
     const categoryTodos = todayTodos.filter((todo) => todo.categoryId === category.id && !todo.completed);
   
     if (categoryTodos.length === 0) return null;
@@ -958,9 +996,15 @@ export default function TodoScreen() {
   };
 
   const renderUncategorizedTodos = (todayTodos: Todo[]) => {
-    const uncategorizedTodos = todayTodos.filter((todo) => !todo.categoryId && !todo.completed);
-  
+    // Get the default 'TODO' category
+    const defaultTodoCategory = categories.find(cat => cat.label.toLowerCase() === 'todo');
     
+    // Show tasks that either have no category or have the default 'TODO' category
+    const uncategorizedTodos = todayTodos.filter((todo) => 
+      (!todo.categoryId || (defaultTodoCategory && todo.categoryId === defaultTodoCategory.id)) && 
+      !todo.completed
+    );
+
     if (uncategorizedTodos.length === 0) return null;
 
     const isCollapsed = collapsedCategories['uncategorized'];
@@ -981,7 +1025,6 @@ export default function TodoScreen() {
             />
           </View>
         </TouchableOpacity>
-
 
         {!isCollapsed && (
           <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
@@ -1600,100 +1643,102 @@ export default function TodoScreen() {
                         contentContainerStyle={{ paddingRight: 4 }}
                         style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
                       >
-                        {categories.filter(cat => cat.label.toLowerCase() !== 'todo').map((cat) => (
-                          <Pressable
-                            key={cat.id}
-                            onPress={() => {
-                              setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
-                              setShowCategoryBox(false);
-                            }}
-                            onLongPress={() => {
-                              Alert.alert(
-                                "Delete Category",
-                                `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
-                                [
-                                  { text: "Cancel", style: "cancel" },
-                                  {
-                                    text: "Delete",
-                                    style: "destructive",
-                                    onPress: async () => {
-                                      try {
-                                        const { data: { user } } = await supabase.auth.getUser();
-                                        if (!user) {
-                                          Alert.alert('Error', 'You must be logged in to delete categories.');
-                                          return;
+                        {categories
+                          .filter(cat => cat.label.toLowerCase() !== 'todo') // Filter out the 'TODO' category
+                          .map((cat) => (
+                            <Pressable
+                              key={cat.id}
+                              onPress={() => {
+                                setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
+                                setShowCategoryBox(false);
+                              }}
+                              onLongPress={() => {
+                                Alert.alert(
+                                  "Delete Category",
+                                  `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
+                                  [
+                                    { text: "Cancel", style: "cancel" },
+                                    {
+                                      text: "Delete",
+                                      style: "destructive",
+                                      onPress: async () => {
+                                        try {
+                                          const { data: { user } } = await supabase.auth.getUser();
+                                          if (!user) {
+                                            Alert.alert('Error', 'You must be logged in to delete categories.');
+                                            return;
+                                          }
+
+                                          // First, delete all tasks in this category
+                                          const { error: tasksError } = await supabase
+                                            .from('todos')
+                                            .delete()
+                                            .eq('category_id', cat.id)
+                                            .eq('user_id', user.id);
+
+                                          if (tasksError) {
+                                            console.error('Error deleting tasks:', tasksError);
+                                            Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
+                                            return;
+                                          }
+
+                                          // Then delete the category
+                                          const { error: categoryError } = await supabase
+                                            .from('categories')
+                                            .delete()
+                                            .eq('id', cat.id)
+                                            .eq('user_id', user.id);
+
+                                          if (categoryError) {
+                                            console.error('Error deleting category:', categoryError);
+                                            Alert.alert('Error', 'Failed to delete category. Please try again.');
+                                            return;
+                                          }
+
+                                          // Update local state
+                                          setCategories(prev => prev.filter(category => category.id !== cat.id));
+                                          
+                                          // If the deleted category was selected, clear the selection
+                                          if (selectedCategoryId === cat.id) {
+                                            setSelectedCategoryId('');
+                                          }
+
+                                          // Provide haptic feedback
+                                          if (Platform.OS !== 'web') {
+                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                          }
+                                        } catch (error) {
+                                          console.error('Error in category deletion:', error);
+                                          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
                                         }
-
-                                        // First, delete all tasks in this category
-                                        const { error: tasksError } = await supabase
-                                          .from('todos')
-                                          .delete()
-                                          .eq('category_id', cat.id)
-                                          .eq('user_id', user.id);
-
-                                        if (tasksError) {
-                                          console.error('Error deleting tasks:', tasksError);
-                                          Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
-                                          return;
-                                        }
-
-                                        // Then delete the category
-                                        const { error: categoryError } = await supabase
-                                          .from('categories')
-                                          .delete()
-                                          .eq('id', cat.id)
-                                          .eq('user_id', user.id);
-
-                                        if (categoryError) {
-                                          console.error('Error deleting category:', categoryError);
-                                          Alert.alert('Error', 'Failed to delete category. Please try again.');
-                                          return;
-                                        }
-
-                                        // Update local state
-                                        setCategories(prev => prev.filter(category => category.id !== cat.id));
-                                        
-                                        // If the deleted category was selected, clear the selection
-                                        if (selectedCategoryId === cat.id) {
-                                          setSelectedCategoryId('');
-                                        }
-
-                                        // Provide haptic feedback
-                                        if (Platform.OS !== 'web') {
-                                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                        }
-                                      } catch (error) {
-                                        console.error('Error in category deletion:', error);
-                                        Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                                      }
+                                      },
                                     },
-                                  },
-                                ]
-                              );
-                            }}
-                            delayLongPress={500}
-                            style={{
-                              paddingVertical: 6,
-                              paddingHorizontal: 12,
-                              borderRadius: 20,
-                              backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
-                              marginRight: 8,
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                            }}
-                          >
-                           <Text
-                            style={{
-                              color: cat.id === selectedCategoryId ? '#fff' : '#333',
-                              fontWeight: '500',
-                              fontSize: 12.5, // 👈 smaller size than default
-                              textTransform: 'uppercase',
-                            }}
-                          >
-                            {cat.label}
-                          </Text>
-                          </Pressable>
-                        ))}
+                                  ]
+                                );
+                              }}
+                              delayLongPress={500}
+                              style={{
+                                paddingVertical: 6,
+                                paddingHorizontal: 12,
+                                borderRadius: 20,
+                                backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
+                                marginRight: 8,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                              }}
+                            >
+                             <Text
+                              style={{
+                                color: cat.id === selectedCategoryId ? '#fff' : '#333',
+                                fontWeight: '500',
+                                fontSize: 12.5, // 👈 smaller size than default
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {cat.label}
+                            </Text>
+                            </Pressable>
+                          ))}
                       </ScrollView>
 
                       {/* ➕ Plus Button */}
