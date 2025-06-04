@@ -1,0 +1,48 @@
+create or replace function create_notes_table()
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  -- Create notes table
+  create table if not exists public.notes (
+    id uuid default gen_random_uuid() primary key,
+    user_id uuid references auth.users(id) on delete cascade not null,
+    title text not null,
+    content text not null,
+    color text default '#FFFFFF',
+    created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+    updated_at timestamp with time zone default timezone('utc'::text, now()) not null
+  );
+
+  -- Add indexes
+  create index if not exists notes_user_id_idx on public.notes(user_id);
+  create index if not exists notes_created_at_idx on public.notes(created_at);
+
+  -- Enable RLS
+  alter table public.notes enable row level security;
+
+  -- Drop existing policies if they exist
+  drop policy if exists "Users can view their own notes" on public.notes;
+  drop policy if exists "Users can create their own notes" on public.notes;
+  drop policy if exists "Users can update their own notes" on public.notes;
+  drop policy if exists "Users can delete their own notes" on public.notes;
+
+  -- Create policies
+  create policy "Users can view their own notes"
+    on public.notes for select
+    using (auth.uid() = user_id);
+
+  create policy "Users can create their own notes"
+    on public.notes for insert
+    with check (auth.uid() = user_id);
+
+  create policy "Users can update their own notes"
+    on public.notes for update
+    using (auth.uid() = user_id);
+
+  create policy "Users can delete their own notes"
+    on public.notes for delete
+    using (auth.uid() = user_id);
+end;
+$$; 
