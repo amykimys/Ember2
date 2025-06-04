@@ -306,8 +306,6 @@ export default function TodoScreen() {
   const handleSave = async () => {
     if (!newTodo.trim()) return;
   
-    console.log('Starting save process...');
-    console.log('New todo:', newTodo);
   
     try {
       // Get the current user
@@ -390,13 +388,10 @@ export default function TodoScreen() {
           Alert.alert('Error', 'Failed to save category. Please try again.');
           return;
         }
-        
-        console.log('Category saved successfully:', savedCategory);
-        
+                
         // Update local state with new category
         setCategories(prev => {
           const updatedCategories = [...prev, savedCategory];
-          console.log('Updated categories:', updatedCategories);
           return updatedCategories;
         });
         
@@ -447,14 +442,11 @@ export default function TodoScreen() {
             return;
           }
       
-          console.log('✅ Created new default "todo" category:', newDefaultCategory);
           setCategories(prev => [...prev, newDefaultCategory]);
           categoryId = newDefaultCategory.id;
         }
       }
       
-      console.log('Final categoryId before task creation:', categoryId);
-
       const existsLocally = categories.some(c => c.id === categoryId);
       if (!existsLocally) {
         console.error('Selected category not found in local state:', categoryId);
@@ -484,7 +476,6 @@ export default function TodoScreen() {
       }
   
       // Then create the new task
-      console.log('Creating new task...');
       const newTodoItem: Todo = {
         id: uuidv4(),
         text: newTodo.trim(),
@@ -527,7 +518,6 @@ export default function TodoScreen() {
       
       // Update local state with new task
       setTodos(prev => [...prev, newTodoItem]);
-      console.log('New task created:', newTodoItem);
       
       // Schedule reminder if set
       if (reminderTime) {
@@ -747,7 +737,6 @@ export default function TodoScreen() {
         }
 
         // Delete from Supabase
-        console.log('Deleting task from Supabase...');
         const { data: deletedTask, error } = await supabase
           .from('todos')
           .delete()
@@ -791,7 +780,6 @@ export default function TodoScreen() {
     };
   
     const handleEdit = () => {
-      console.log('Editing task:', todo);
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
@@ -1078,7 +1066,6 @@ export default function TodoScreen() {
       if (session?.user) {
         try {
           // Fetch latest categories
-          console.log('Refreshing categories...');
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
@@ -1091,18 +1078,15 @@ export default function TodoScreen() {
           }
 
           if (categoriesData) {
-            console.log('Categories refreshed:', categoriesData);
             setCategories(categoriesData);
 
             // Update selected category if it no longer exists
             if (selectedCategoryId && !categoriesData.find(cat => cat.id === selectedCategoryId)) {
-              console.log('🧼 Resetting invalid selectedCategoryId during refresh');
               setSelectedCategoryId('');
             }
           }
 
           // Fetch latest tasks
-          console.log('Refreshing tasks...');
           const { data: tasksData, error: tasksError } = await supabase
             .from('todos')
             .select('*')
@@ -1114,7 +1098,6 @@ export default function TodoScreen() {
           }
 
           if (tasksData) {
-            console.log('Tasks refreshed:', tasksData);
             // Map tasks and ensure they have the correct category
             const mappedTasks = tasksData.map(task => ({
               ...task,
@@ -1140,53 +1123,65 @@ export default function TodoScreen() {
   // Modify the existing auth state change useEffect to also handle TOKEN_REFRESHED
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
+      console.log('[Todo] Auth state changed:', {
+        event,
+        userEmail: session?.user?.email,
+        userId: session?.user?.id,
+        hasAccessToken: !!session?.access_token
+      });
       
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         try {
-          // First fetch categories
-          console.log('Fetching categories...');
+          console.log('[Todo] Starting data fetch for user:', session?.user?.id);
+          
+          // Fetch user's categories first
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
-            .eq('user_id', session.user.id)
-            .eq('type', 'task');  // Add type filter
+            .eq('user_id', session?.user?.id)
+            .eq('type', 'todo');
 
           if (categoriesError) {
-            console.error('Error fetching categories:', categoriesError);
+            console.error('[Todo] Error fetching categories:', {
+              message: categoriesError.message,
+              code: categoriesError.code,
+              details: categoriesError.details
+            });
             Alert.alert('Error', 'Failed to load categories. Please try again.');
             return;
           }
 
-          if (categoriesData) {
-            console.log('Categories fetched:', categoriesData);
-            setCategories(categoriesData);
+          console.log('[Todo] Categories fetched:', {
+            count: categoriesData?.length || 0,
+            categories: categoriesData?.map(c => ({ id: c.id, label: c.label }))
+          });
 
-            if (selectedCategoryId && !categoriesData.find(cat => cat.id === selectedCategoryId)) {
-              console.log('🧼 Resetting invalid selectedCategoryId');
-              setSelectedCategoryId('');
-            }
-          } else {
-            console.log('No categories found for user');
-            setCategories([]);
+          if (categoriesData) {
+            setCategories(categoriesData);
           }
 
-          // Then fetch tasks
-          console.log('Fetching tasks...');
+          // Then fetch user's tasks
           const { data: tasksData, error: tasksError } = await supabase
             .from('todos')
             .select('*')
-            .eq('user_id', session.user.id);
+            .eq('user_id', session?.user?.id);
           
           if (tasksError) {
-            console.error('Error fetching tasks:', tasksError);
+            console.error('[Todo] Error fetching tasks:', {
+              message: tasksError.message,
+              code: tasksError.code,
+              details: tasksError.details
+            });
             Alert.alert('Error', 'Failed to load tasks. Please try again.');
             return;
           }
 
+          console.log('[Todo] Tasks fetched:', {
+            count: tasksData?.length || 0,
+            tasks: tasksData?.map(t => ({ id: t.id, text: t.text }))
+          });
+
           if (tasksData) {
-            console.log('Tasks fetched:', tasksData);
-            // Map tasks and ensure they have the correct category
             const mappedTasks = tasksData.map(task => ({
               ...task,
               date: new Date(task.date),
@@ -1200,10 +1195,11 @@ export default function TodoScreen() {
             setTodos(mappedTasks);
           }
         } catch (error) {
-          console.error('Error in auth state change handler:', error);
+          console.error('[Todo] Error in auth state change handler:', error);
           Alert.alert('Error', 'An unexpected error occurred. Please try again.');
         }
       } else if (event === 'SIGNED_OUT') {
+        console.log('[Todo] User signed out, clearing state');
         // Clear all local state when user signs out
         setTodos([]);
         setCategories([]);
@@ -1223,8 +1219,94 @@ export default function TodoScreen() {
       }
     });
 
+    // Initial data fetch
+    const fetchInitialData = async () => {
+      try {
+        console.log('[Todo] Starting initial data fetch...');
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('[Todo] Error getting session:', sessionError);
+          return;
+        }
+
+        if (session?.user) {
+          console.log('[Todo] User found in session:', {
+            email: session.user.email,
+            id: session.user.id,
+            hasAccessToken: !!session.access_token
+          });
+
+          // Fetch categories first
+          const { data: categoriesData, error: categoriesError } = await supabase
+            .from('categories')
+            .select('*')
+            .eq('user_id', session.user.id)
+            .eq('type', 'todo');
+
+          if (categoriesError) {
+            console.error('[Todo] Error fetching initial categories:', {
+              message: categoriesError.message,
+              code: categoriesError.code,
+              details: categoriesError.details
+            });
+            return;
+          }
+
+          console.log('[Todo] Initial categories fetched:', {
+            count: categoriesData?.length || 0,
+            categories: categoriesData?.map(c => ({ id: c.id, label: c.label }))
+          });
+
+          if (categoriesData) {
+            setCategories(categoriesData);
+          }
+
+          // Then fetch tasks
+          const { data: tasksData, error: tasksError } = await supabase
+            .from('todos')
+            .select('*')
+            .eq('user_id', session.user.id);
+          
+          if (tasksError) {
+            console.error('[Todo] Error fetching initial tasks:', {
+              message: tasksError.message,
+              code: tasksError.code,
+              details: tasksError.details
+            });
+            return;
+          }
+
+          console.log('[Todo] Initial tasks fetched:', {
+            count: tasksData?.length || 0,
+            tasks: tasksData?.map(t => ({ id: t.id, text: t.text }))
+          });
+
+          if (tasksData) {
+            const mappedTasks = tasksData.map(task => ({
+              ...task,
+              date: new Date(task.date),
+              repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
+              categoryId: task.category_id || null,
+              customRepeatDates: task.custom_repeat_dates
+                ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
+                : undefined,
+            }));
+            setTodos(mappedTasks);
+          }
+        } else {
+          console.log('[Todo] No user found in session');
+        }
+      } catch (error) {
+        console.error('[Todo] Error in fetchInitialData:', error);
+      }
+    };
+
+    fetchInitialData();
+
     return () => subscription.unsubscribe();
-  }, [selectedCategoryId]); // Add selectedCategoryId as a dependency
+  }, [selectedCategoryId]);
 
   // Add this after your existing useEffect hooks
   useEffect(() => {

@@ -441,12 +441,10 @@ export default function HabitScreen() {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
       
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         try {
           // Fetch user's categories first, only habit categories
-          console.log('Fetching categories for user:', session?.user?.id);
           const { data: categoriesData, error: categoriesError } = await supabase
             .from('categories')
             .select('*')
@@ -535,7 +533,6 @@ export default function HabitScreen() {
     // Set up session refresh listener
     const refreshSubscription = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED') {
-        console.log('Session refreshed:', session?.user?.email);
       }
     });
 
@@ -1006,8 +1003,6 @@ const formatDate = (date: Date): string => {
           return;
         }
 
-        console.log('Upload successful:', uploadData);
-
         // Get the public URL
         const { data: { publicUrl } } = supabase.storage
           .from('habit-photos')
@@ -1093,13 +1088,6 @@ const formatDate = (date: Date): string => {
       // Calculate new streak with updated completed days
       const newStreak = calculateStreak(habit, newCompletedDays);
 
-      console.log('Updating habit:', {
-        habitId,
-        newStreak,
-        newCompletedDays,
-        targetPerWeek: habit.targetPerWeek
-      });
-
       // Update in Supabase first and wait for the response
       const { error } = await supabase
         .from('habits')
@@ -1124,7 +1112,6 @@ const formatDate = (date: Date): string => {
             completedDays: newCompletedDays,
             streak: newStreak
           };
-          console.log('Updated habit in local state:', updatedHabit);
           return updatedHabit;
         }
         return h;
@@ -1636,8 +1623,6 @@ const formatDate = (date: Date): string => {
         return;
       }
 
-      console.log(`Found ${habitsToUpdate?.length || 0} habits to update`);
-
       // Update all habits that use this category
       if (habitsToUpdate && habitsToUpdate.length > 0) {
         const { error: updateError } = await supabase
@@ -1651,8 +1636,6 @@ const formatDate = (date: Date): string => {
           Alert.alert('Error', 'Failed to update habits. Please try again.');
           return;
         }
-
-        console.log('Successfully updated habits to remove category reference');
       }
 
       // Then delete the category, ensuring it's a habit category
@@ -1668,8 +1651,6 @@ const formatDate = (date: Date): string => {
         Alert.alert('Error', 'Failed to delete category. Please try again.');
         return;
       }
-
-      console.log('Successfully deleted category');
 
       // Update local state for categories
       setCategories(prev => prev.filter(cat => cat.id !== categoryId));

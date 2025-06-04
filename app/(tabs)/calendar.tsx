@@ -812,16 +812,10 @@ const CalendarScreen: React.FC = (): JSX.Element => {
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
   const getLocalDateString = (date: Date) => {
-    console.log('getLocalDateString input:', {
-      date: date.toISOString(),
-      localDate: date.toLocaleDateString(),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-    });
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const result = `${year}-${month}-${day}`;
-    console.log('getLocalDateString output:', result);
     return result;
   };
 
@@ -1027,11 +1021,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     const fetchEvents = async () => {
       try {
         if (!user?.id) {
-          console.log('No user ID available, skipping event fetch');
           return;
         }
 
-        console.log('Fetching events for user:', user.id);
         const { data: eventsData, error } = await supabase
           .from('events')
           .select('*')
@@ -1041,8 +1033,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           console.error('Error fetching events:', error);
           return;
         }
-
-        console.log('Fetched events from database:', eventsData?.length || 0);
 
         // Transform the events data into our local format
         const transformedEvents = eventsData?.reduce((acc, event) => {
@@ -1089,13 +1079,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             isAllDay: event.is_all_day
           };
 
-          console.log('Transformed event:', {
-            id: transformedEvent.id,
-            date: transformedEvent.date,
-            start: transformedEvent.startDateTime?.toString(),
-            end: transformedEvent.endDateTime?.toString()
-          });
-
           // For custom events, add to all custom dates
           if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
             transformedEvent.customDates.forEach((date: string) => {
@@ -1114,11 +1097,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
           return acc;
         }, {} as { [date: string]: CalendarEvent[] });
-
-        console.log('Transformed events object:', {
-          dates: Object.keys(transformedEvents),
-          totalEvents: (Object.values(transformedEvents) as CalendarEvent[][]).reduce<number>((sum: number, events: CalendarEvent[]) => sum + events.length, 0)
-        });
 
         setEvents(transformedEvents);
       } catch (error) {
@@ -1517,12 +1495,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       let error;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
       if (eventToSave.id && editingEvent) {
-        console.log('Event Save - Updating Existing Event:', {
-          eventId: eventToSave.id,
-          oldDate: editingEvent.date,
-          newDate: eventToSave.date
-        });
-        
         // First remove the old event from all its dates
         setEvents(prev => {
           const updated = { ...prev };
@@ -1554,7 +1526,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
         error = insertError;
       } else {
-        console.log('Event Save - Creating New Event');
         // Insert all new events
         const { error: insertError } = await supabase
           .from('events')
@@ -1573,7 +1544,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         const updated = { ...prev };
         allEvents.forEach(event => {
           if (event.customDates && event.customDates.length > 0) {
-            console.log('Event Save - Adding to Custom Dates:', event.customDates);
             event.customDates.forEach(date => {
               if (!updated[date]) {
                 updated[date] = [];
@@ -1583,7 +1553,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             });
           } else {
             const dateKey = event.date;
-            console.log('Event Save - Adding to Primary Date:', dateKey);
             if (!updated[dateKey]) {
               updated[dateKey] = [];
             }
