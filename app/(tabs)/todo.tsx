@@ -137,7 +137,8 @@ export default function TodoScreen() {
   const [newCategoryColor, setNewCategoryColor] = useState('#E3F2FD');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({
-    completed: true, // ✅ start collapsed
+    completed: true, // Ensure completed section starts collapsed
+    uncategorized: false
   });  const [currentDate, setCurrentDate] = useState(new Date());
   const [hasTriggeredSwipeHaptic, setHasTriggeredSwipeHaptic] = useState(false);
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
@@ -316,172 +317,13 @@ export default function TodoScreen() {
         return;
       }
 
-      // Get the default 'TODO' category
-      const { data: defaultCategory, error: defaultCategoryError } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('label', 'todo')
-        .eq('type', 'task')
-        .single();
-
-      if (defaultCategoryError && defaultCategoryError.code !== 'PGRST116') {
-        throw defaultCategoryError;
-      }
-
-      // If no category is selected, use the default 'TODO' category
-      let categoryId = selectedCategoryId;
-      if (!categoryId) {
-        if (!defaultCategory) {
-          // Create default category if it doesn't exist
-          const { data: newDefaultCategory, error: createError } = await supabase
-            .from('categories')
-            .insert({
-              id: uuidv4(),
-              label: 'todo',
-              color: '#E0E0E0',
-              user_id: user.id,
-              type: 'task'
-            })
-            .select()
-            .single();
-
-          if (createError) throw createError;
-          categoryId = newDefaultCategory.id;
-        } else {
-          categoryId = defaultCategory.id;
-        }
-      }
-
-      // Check current categories
-      await checkCategories();
-
-      // First, handle new category creation if needed
-      if (showNewCategoryInput && newCategoryName.trim()) {
-        const newCategory = {
-          id: uuidv4(),
-          label: newCategoryName.trim(),
-          color: newCategoryColor,
-        };
-                
-        // Save new category to Supabase
-        const { data: savedCategory, error: categoryError } = await supabase
-          .from('categories')
-          .insert({
-            id: newCategory.id,
-            label: newCategory.label,
-            color: newCategory.color,
-            user_id: user.id,
-            type: 'task'  // Add type field
-          })
-          .select()
-          .single();
-        
-        if (categoryError) {
-          console.error('Error saving category:', categoryError);
-          Alert.alert('Error', 'Failed to save category. Please try again.');
-          return;
-        }
-
-        if (!savedCategory) {
-          console.error('No category data returned after save');
-          Alert.alert('Error', 'Failed to save category. Please try again.');
-          return;
-        }
-                
-        // Update local state with new category
-        setCategories(prev => {
-          const updatedCategories = [...prev, savedCategory];
-          return updatedCategories;
-        });
-        
-        categoryId = savedCategory.id;
-      }
-
-      // If no category is selected, set it to null
-      if (!categoryId) {
-      
-        const { data: existingTodoCategory, error: fetchError } = await supabase
-          .from('categories')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('label', 'todo')
-          .eq('type', 'task')  // Add type filter
-          .single();
-      
-        if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = no rows found
-          console.error('Error fetching default todo category:', fetchError);
-          Alert.alert('Error', 'Failed to fetch default category.');
-          return;
-        }
-      
-        if (existingTodoCategory) {
-          categoryId = existingTodoCategory.id;
-        } else {
-          const defaultCategory = {
-            id: uuidv4(),
-            label: 'todo',
-            color: '#E0E0E0', // pick any neutral color
-          };
-      
-          const { data: newDefaultCategory, error: createError } = await supabase
-            .from('categories')
-            .insert({
-              id: defaultCategory.id,
-              label: defaultCategory.label,
-              color: defaultCategory.color,
-              user_id: user.id,
-              type: 'task'  // Add type field
-            })
-            .select()
-            .single();
-      
-          if (createError || !newDefaultCategory) {
-            console.error('Error creating default "todo" category:', createError);
-            Alert.alert('Error', 'Failed to create default category.');
-            return;
-          }
-      
-          setCategories(prev => [...prev, newDefaultCategory]);
-          categoryId = newDefaultCategory.id;
-        }
-      }
-      
-      const existsLocally = categories.some(c => c.id === categoryId);
-      if (!existsLocally) {
-        console.error('Selected category not found in local state:', categoryId);
-        Alert.alert('Error', 'Selected category is no longer available.');
-        return;
-      }
-
-
-      // Verify category exists if one is selected
-      if (categoryId) {
-        const { data: categoryData, error: categoryCheckError } = await supabase
-          .from('categories')
-          .select('id')
-          .eq('id', categoryId);
-
-        if (categoryCheckError) {
-          console.error('Category verification failed:', categoryCheckError);
-          Alert.alert('Error', 'Error verifying category. Please try again.');
-          return;
-        }
-
-        if (!categoryData || categoryData.length === 0) {
-          console.error('Category not found:', categoryId);
-          Alert.alert('Error', 'Selected category does not exist. Please try again.');
-          return;
-        }
-      }
-  
-      // Then create the new task
+      // Create the new task
       const newTodoItem: Todo = {
         id: uuidv4(),
         text: newTodo.trim(),
         description: newDescription.trim(),
         completed: false,
-        categoryId: categoryId,
+        categoryId: selectedCategoryId || null, // Make category optional
         date: taskDate || currentDate,
         repeat: selectedRepeat,
         repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
@@ -499,7 +341,7 @@ export default function TodoScreen() {
           text: newTodoItem.text,
           description: newTodoItem.description,
           completed: newTodoItem.completed,
-          category_id: categoryId,
+          category_id: selectedCategoryId || null, // Make category optional
           date: newTodoItem.date.toISOString(),
           repeat: newTodoItem.repeat,
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
@@ -527,7 +369,7 @@ export default function TodoScreen() {
       // Reset form and close modal
       resetForm();
       setIsNewTaskModalVisible(false);
-      Keyboard.dismiss(); // Only dismiss keyboard when task is actually saved
+      Keyboard.dismiss();
       
       // Provide haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -931,258 +773,72 @@ export default function TodoScreen() {
     }
   };
 
-  const renderCategory = (category: Category, todayTodos: Todo[]) => {
-    // Skip rendering the 'TODO' category in the folder section
-    if (category.label.toLowerCase() === 'todo') return null;
+  // Add these memoized functions near the top of the component, after the state declarations
+  const filteredTodos = useMemo(() => {
+    return todos.filter(todo => doesTodoBelongToday(todo, currentDate));
+  }, [todos, currentDate]);
 
-    const categoryTodos = todayTodos.filter((todo) => todo.categoryId === category.id && !todo.completed);
-  
-    if (categoryTodos.length === 0) return null;
-
-    const isCollapsed = collapsedCategories[category.id];
-
-    return (
-      <View key={category.id} style={styles.categoryContainer}>
-      <Pressable
-        style={styles.categoryHeader}
-        onPress={() => toggleCategoryCollapse(category.id)}
-        onLongPress={() => {
-          Alert.alert(
-            "Delete Category",
-            `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
-            [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Delete",
-                style: "destructive",
-                onPress: () => handleDeleteCategory(category.id),
-              },
-            ]
-          );
-        }}
-        delayLongPress={500}
-      >
-
-      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>{category?.label || 'TODO'}</Text>
-          <Ionicons
-            name={isCollapsed ? 'chevron-up' : 'chevron-down'}
-            size={15}
-            color="#3A3A3A"
-            style={{ marginRight: 8}}
-          />
-        </View>
-      </Pressable>
-        
-        {!isCollapsed && (
-          <View style={[styles.categoryContent, { backgroundColor: category.color }]}>
-            {categoryTodos.map(renderTodoItem)}
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  const renderUncategorizedTodos = (todayTodos: Todo[]) => {
-    // Get the default 'TODO' category
-    const defaultTodoCategory = categories.find(cat => cat.label.toLowerCase() === 'todo');
+  const categorizedTodos = useMemo(() => {
+    const result: Record<string, Todo[]> = {
+      'uncategorized': [],
+      'completed': [] // Restore the completed category
+    };
     
-    // Show tasks that either have no category or have the default 'TODO' category
-    const uncategorizedTodos = todayTodos.filter((todo) => 
-      (!todo.categoryId || (defaultTodoCategory && todo.categoryId === defaultTodoCategory.id)) && 
-      !todo.completed
-    );
-
-    if (uncategorizedTodos.length === 0) return null;
-
-    const isCollapsed = collapsedCategories['uncategorized'];
-
-    return (
-      <View style={styles.categoryContainer}>
-        <TouchableOpacity 
-          style={styles.categoryHeader}
-          onPress={() => toggleCategoryCollapse('uncategorized')}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>Todo</Text>
-            <Ionicons
-              name={isCollapsed ? 'chevron-up' : 'chevron-down'}
-              size={15}
-              color="#3A3A3A"
-              style={{ marginRight: 8 }}
-            />
-          </View>
-        </TouchableOpacity>
-
-        {!isCollapsed && (
-          <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
-            {uncategorizedTodos.map(renderTodoItem)}
-          </View>
-        )}
-      </View>
-    );
-  };
-  
-
-  const renderCompletedTodos = (todayTodos: Todo[]) => {
-    const completedTodos = todayTodos.filter((todo) => todo.completed);
-  
+    // Initialize with empty arrays for each category
+    categories.forEach(category => {
+      result[category.id] = [];
+    });
     
-    if (completedTodos.length === 0) return null;
-
-    const isCollapsed = collapsedCategories['completed'];
-
-    return (
-      <View style={styles.completedSection}>
-       <TouchableOpacity
-          style={styles.categoryHeader}
-          onPress={() => toggleCategoryCollapse('completed')}
-        >
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <Text style={[styles.categoryTitle, { flex: 1 }]}>COMPLETED</Text>
-            <Ionicons
-              name={isCollapsed ? 'chevron-up' : 'chevron-down'}
-              size={15}
-              color="#3A3A3A"
-              style={{ marginRight: 8 }}
-            />
-          </View>
-        </TouchableOpacity>
-
-
-        {!isCollapsed && (
-          <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
-            {completedTodos.map(renderTodoItem)}
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  // Add this new useEffect for periodic data refresh
-  useEffect(() => {
-    const refreshInterval = setInterval(async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        try {
-          // Fetch latest categories
-          const { data: categoriesData, error: categoriesError } = await supabase
-            .from('categories')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .eq('type', 'task');  // Add type filter
-
-          if (categoriesError) {
-            console.error('Error refreshing categories:', categoriesError);
-            return;
-          }
-
-          if (categoriesData) {
-            setCategories(categoriesData);
-
-            // Update selected category if it no longer exists
-            if (selectedCategoryId && !categoriesData.find(cat => cat.id === selectedCategoryId)) {
-              setSelectedCategoryId('');
-            }
-          }
-
-          // Fetch latest tasks
-          const { data: tasksData, error: tasksError } = await supabase
-            .from('todos')
-            .select('*')
-            .eq('user_id', session.user.id);
-          
-          if (tasksError) {
-            console.error('Error refreshing tasks:', tasksError);
-            return;
-          }
-
-          if (tasksData) {
-            // Map tasks and ensure they have the correct category
-            const mappedTasks = tasksData.map(task => ({
-              ...task,
-              date: new Date(task.date),
-              repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
-              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
-              categoryId: task.category_id || null,
-              customRepeatDates: task.custom_repeat_dates
-                ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
-                : undefined,
-            }));
-            setTodos(mappedTasks);
-          }
-        } catch (error) {
-          console.error('Error in periodic refresh:', error);
-        }
+    // Sort tasks into their respective categories
+    filteredTodos.forEach(todo => {
+      if (todo.completed) {
+        result['completed'].push(todo);
+      } else if (todo.categoryId && categories.some(cat => cat.id === todo.categoryId)) {
+        result[todo.categoryId].push(todo);
+      } else {
+        result['uncategorized'].push(todo);
       }
-    }, 30000); // Refresh every 30 seconds
+    });
+    
+    return result;
+  }, [filteredTodos, categories]);
 
-    return () => clearInterval(refreshInterval);
-  }, [selectedCategoryId]); // Add selectedCategoryId as a dependency to ensure proper category state updates
-
-  // Modify the existing auth state change useEffect to also handle TOKEN_REFRESHED
+  // Modify the useEffect for data fetching to be more efficient
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('[Todo] Auth state changed:', {
-        event,
-        userEmail: session?.user?.email,
-        userId: session?.user?.id,
-        hasAccessToken: !!session?.access_token
-      });
-      
       if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         try {
-          console.log('[Todo] Starting data fetch for user:', session?.user?.id);
-          
-          // Fetch user's categories first
-          const { data: categoriesData, error: categoriesError } = await supabase
-            .from('categories')
-            .select('*')
-            .eq('user_id', session?.user?.id)
-            .eq('type', 'todo');
+          // Fetch categories and tasks in parallel
+          const [categoriesResponse, tasksResponse] = await Promise.all([
+            supabase
+              .from('categories')
+              .select('*')
+              .eq('user_id', session?.user?.id)
+              .eq('type', 'task'),
+            supabase
+              .from('todos')
+              .select('*')
+              .eq('user_id', session?.user?.id)
+          ]);
 
-          if (categoriesError) {
-            console.error('[Todo] Error fetching categories:', {
-              message: categoriesError.message,
-              code: categoriesError.code,
-              details: categoriesError.details
-            });
-            Alert.alert('Error', 'Failed to load categories. Please try again.');
+          if (categoriesResponse.error) {
+            console.error('[Todo] Error fetching categories:', categoriesResponse.error);
             return;
           }
 
-          console.log('[Todo] Categories fetched:', {
-            count: categoriesData?.length || 0,
-            categories: categoriesData?.map(c => ({ id: c.id, label: c.label }))
-          });
-
-          if (categoriesData) {
-            setCategories(categoriesData);
-          }
-
-          // Then fetch user's tasks
-          const { data: tasksData, error: tasksError } = await supabase
-            .from('todos')
-            .select('*')
-            .eq('user_id', session?.user?.id);
-          
-          if (tasksError) {
-            console.error('[Todo] Error fetching tasks:', {
-              message: tasksError.message,
-              code: tasksError.code,
-              details: tasksError.details
-            });
-            Alert.alert('Error', 'Failed to load tasks. Please try again.');
+          if (tasksResponse.error) {
+            console.error('[Todo] Error fetching tasks:', tasksResponse.error);
             return;
           }
 
-          console.log('[Todo] Tasks fetched:', {
-            count: tasksData?.length || 0,
-            tasks: tasksData?.map(t => ({ id: t.id, text: t.text }))
-          });
+          // Update categories
+          if (categoriesResponse.data) {
+            setCategories(categoriesResponse.data);
+          }
 
-          if (tasksData) {
-            const mappedTasks = tasksData.map(task => ({
+          // Update tasks with proper date parsing
+          if (tasksResponse.data) {
+            const mappedTasks = tasksResponse.data.map(task => ({
               ...task,
               date: new Date(task.date),
               repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
@@ -1196,117 +852,129 @@ export default function TodoScreen() {
           }
         } catch (error) {
           console.error('[Todo] Error in auth state change handler:', error);
-          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
         }
       } else if (event === 'SIGNED_OUT') {
-        console.log('[Todo] User signed out, clearing state');
-        // Clear all local state when user signs out
         setTodos([]);
         setCategories([]);
-        setNewTodo('');
-        setNewDescription('');
-        setSelectedCategoryId('');
-        setShowNewCategoryInput(false);
-        setNewCategoryName('');
-        setNewCategoryColor('#E3F2FD');
-        setEditingTodo(null);
-        setCollapsedCategories({});
-        setCurrentDate(new Date());
-        setTaskDate(null);
-        setReminderTime(null);
-        setSelectedRepeat('none');
-        setRepeatEndDate(null);
+        resetForm();
       }
     });
 
-    // Initial data fetch
-    const fetchInitialData = async () => {
-      try {
-        console.log('[Todo] Starting initial data fetch...');
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError) {
-          console.error('[Todo] Error getting session:', sessionError);
-          return;
-        }
-
-        if (session?.user) {
-          console.log('[Todo] User found in session:', {
-            email: session.user.email,
-            id: session.user.id,
-            hasAccessToken: !!session.access_token
-          });
-
-          // Fetch categories first
-          const { data: categoriesData, error: categoriesError } = await supabase
-            .from('categories')
-            .select('*')
-            .eq('user_id', session.user.id)
-            .eq('type', 'todo');
-
-          if (categoriesError) {
-            console.error('[Todo] Error fetching initial categories:', {
-              message: categoriesError.message,
-              code: categoriesError.code,
-              details: categoriesError.details
-            });
-            return;
-          }
-
-          console.log('[Todo] Initial categories fetched:', {
-            count: categoriesData?.length || 0,
-            categories: categoriesData?.map(c => ({ id: c.id, label: c.label }))
-          });
-
-          if (categoriesData) {
-            setCategories(categoriesData);
-          }
-
-          // Then fetch tasks
-          const { data: tasksData, error: tasksError } = await supabase
-            .from('todos')
-            .select('*')
-            .eq('user_id', session.user.id);
-          
-          if (tasksError) {
-            console.error('[Todo] Error fetching initial tasks:', {
-              message: tasksError.message,
-              code: tasksError.code,
-              details: tasksError.details
-            });
-            return;
-          }
-
-          console.log('[Todo] Initial tasks fetched:', {
-            count: tasksData?.length || 0,
-            tasks: tasksData?.map(t => ({ id: t.id, text: t.text }))
-          });
-
-          if (tasksData) {
-            const mappedTasks = tasksData.map(task => ({
-              ...task,
-              date: new Date(task.date),
-              repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
-              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
-              categoryId: task.category_id || null,
-              customRepeatDates: task.custom_repeat_dates
-                ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
-                : undefined,
-            }));
-            setTodos(mappedTasks);
-          }
-        } else {
-          console.log('[Todo] No user found in session');
-        }
-      } catch (error) {
-        console.error('[Todo] Error in fetchInitialData:', error);
-      }
-    };
-
-    fetchInitialData();
-
     return () => subscription.unsubscribe();
-  }, [selectedCategoryId]);
+  }, []);
+
+  // Update the render functions to use the memoized data
+  const renderCategory = (category: Category) => {
+    const categoryTodos = categorizedTodos[category.id] || [];
+    if (categoryTodos.length === 0) return null;
+
+    const isCollapsed = collapsedCategories[category.id];
+
+    return (
+      <View key={category.id} style={styles.categoryContainer}>
+        <Pressable
+          style={styles.categoryHeader}
+          onPress={() => toggleCategoryCollapse(category.id)}
+          onLongPress={() => {
+            Alert.alert(
+              "Delete Category",
+              `Are you sure you want to delete "${category.label}"? This will also delete all tasks in this category.`,
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Delete",
+                  style: "destructive",
+                  onPress: () => handleDeleteCategory(category.id),
+                },
+              ]
+            );
+          }}
+          delayLongPress={500}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>{category.label}</Text>
+            <Ionicons
+              name={isCollapsed ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color="#3A3A3A"
+              style={{ marginRight: 8}}
+            />
+          </View>
+        </Pressable>
+        
+        {!isCollapsed && (
+          <View style={[styles.categoryContent, { backgroundColor: category.color }]}>
+            {categoryTodos.map(renderTodoItem)}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderUncategorizedTodos = () => {
+    const uncategorizedTasks = categorizedTodos['uncategorized'] || [];
+    if (uncategorizedTasks.length === 0) return null;
+
+    const isCollapsed = collapsedCategories['uncategorized'];
+
+    return (
+      <View style={styles.categoryContainer}>
+        <TouchableOpacity 
+          style={styles.categoryHeader}
+          onPress={() => toggleCategoryCollapse('uncategorized')}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>Tasks</Text>
+            <Ionicons
+              name={isCollapsed ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color="#3A3A3A"
+              style={{ marginRight: 8 }}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {!isCollapsed && (
+          <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
+            {uncategorizedTasks.map(renderTodoItem)}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // Restore the renderCompletedTodos function
+  const renderCompletedTodos = () => {
+    const completedTasks = categorizedTodos['completed'] || [];
+    if (completedTasks.length === 0) return null;
+
+    const isCollapsed = collapsedCategories['completed'];
+
+    return (
+      <View style={[styles.categoryContainer, { marginTop: 16 }]}>
+        <TouchableOpacity
+          style={styles.categoryHeader}
+          onPress={() => toggleCategoryCollapse('completed')}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>Completed</Text>
+            <Ionicons
+              name={isCollapsed ? 'chevron-up' : 'chevron-down'}
+              size={15}
+              color="#3A3A3A"
+              style={{ marginRight: 8 }}
+            />
+          </View>
+        </TouchableOpacity>
+
+        {!isCollapsed && (
+          <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
+            {completedTasks.map(renderTodoItem)}
+          </View>
+        )}
+      </View>
+    );
+  };
 
   // Add this after your existing useEffect hooks
   useEffect(() => {
@@ -1583,7 +1251,7 @@ export default function TodoScreen() {
 
           {/* TASK LIST */}
           <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
-            {todayTodos.length === 0 ? (
+            {filteredTodos.length === 0 ? (
               <View style={[styles.emptyState, { 
                 flex: 1, 
                 justifyContent: 'center', 
@@ -1603,9 +1271,9 @@ export default function TodoScreen() {
               </View>
             ) : (
               <>
-                {categories.map(category => renderCategory(category, todayTodos))}
-                {renderUncategorizedTodos(todayTodos)}
-                {renderCompletedTodos(todayTodos)}
+                {categories.map(category => renderCategory(category))}
+                {renderUncategorizedTodos()}
+                {renderCompletedTodos()}
               </>
             )}
           </ScrollView>

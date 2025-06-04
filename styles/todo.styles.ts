@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     todoItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      padding: 11,
+      padding: 10,
       backgroundColor: 'rgba(255, 255, 255, 0.8)',
       marginBottom: 0,
       overflow: 'hidden', // or your base bg
