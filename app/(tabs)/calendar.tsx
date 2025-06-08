@@ -1329,10 +1329,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     resetToggleStates();
   };
 
-  const handleSaveEvent = async (customEvent?: CalendarEvent) => {
+  const handleSaveEvent = async (customEvent?: CalendarEvent): Promise<void> => {
     try {
       // Format date to UTC ISO string
-      const formatDateToUTC = (date: Date) => {
+      const formatDateToUTC = (date: Date): string => {
         // Get UTC components
         const year = date.getUTCFullYear();
         const month = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -1348,8 +1348,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         title: newEventTitle,
         description: newEventDescription,
         date: getLocalDateString(startDateTime),
-        startDateTime: new Date(startDateTime),
-        endDateTime: new Date(endDateTime),
         categoryName: selectedCategory?.name,
         categoryColor: selectedCategory?.color,
         reminderTime: reminderTime ? new Date(reminderTime) : null,
@@ -1367,8 +1365,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             };
           });
           return acc;
-        }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } })
+        }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } }),
+        isAllDay: isAllDay
       };
+
+      // For all-day events, we only store the date without time components
+      if (eventToSave.isAllDay) {
+        const startDate = new Date(eventToSave.date);
+        startDate.setHours(0, 0, 0, 0);
+        eventToSave.startDateTime = startDate;
+        eventToSave.endDateTime = startDate; // Use the same date for both start and end
+      } else {
+        // For regular events, store the full datetime
+        eventToSave.startDateTime = new Date(startDateTime);
+        eventToSave.endDateTime = new Date(endDateTime);
+      }
 
       // Generate repeated events if needed
       const generateRepeatedEvents = (event: CalendarEvent): CalendarEvent[] => {
@@ -1377,7 +1388,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
 
         const events: CalendarEvent[] = [event];
-        const startDate = new Date(event.startDateTime!);
+        const startDate = new Date(event.date); // Use date instead of startDateTime for all-day events
         const endDate = event.repeatEndDate || new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
         let currentDate = new Date(startDate);
 
@@ -1403,14 +1414,28 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             ...event,
             id: `${event.id}_${date.toISOString()}`,
             date: getLocalDateString(date),
-            startDateTime: new Date(date.setHours(startDate.getHours(), startDate.getMinutes())),
-            endDateTime: new Date(new Date(date).setHours(startDate.getHours() + (event.endDateTime!.getHours() - event.startDateTime!.getHours()), startDate.getMinutes() + (event.endDateTime!.getMinutes() - event.startDateTime!.getMinutes()))),
+            isAllDay: event.isAllDay // Preserve the all-day status
           };
 
+          if (event.isAllDay) {
+            // For all-day events, just use the date without time
+            newEvent.startDateTime = new Date(date);
+            newEvent.endDateTime = new Date(date);
+          } else if (event.startDateTime && event.endDateTime) {
+            // For regular events, maintain the time from the original event
+            newEvent.startDateTime = new Date(date);
+            newEvent.endDateTime = new Date(date);
+            newEvent.startDateTime.setHours(event.startDateTime.getHours(), event.startDateTime.getMinutes());
+            newEvent.endDateTime.setHours(
+              event.startDateTime.getHours() + (event.endDateTime.getHours() - event.startDateTime.getHours()),
+              event.startDateTime.getMinutes() + (event.endDateTime.getMinutes() - event.startDateTime.getMinutes())
+            );
+          }
+
           // Adjust reminder time if it exists
-          if (event.reminderTime) {
-            const reminderOffset = event.reminderTime.getTime() - event.startDateTime!.getTime();
-            newEvent.reminderTime = new Date(newEvent.startDateTime!.getTime() + reminderOffset);
+          if (event.reminderTime && newEvent.startDateTime && event.startDateTime) {
+            const reminderOffset = event.reminderTime.getTime() - event.startDateTime.getTime();
+            newEvent.reminderTime = new Date(newEvent.startDateTime.getTime() + reminderOffset);
           }
 
           return newEvent;
@@ -1419,8 +1444,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         // Helper function to check if a date is already included in events
         const isDateAlreadyIncluded = (date: Date): boolean => {
           return events.some(e => {
-            const eventDate = new Date(e.startDateTime!);
-            return eventDate.getTime() === date.getTime();
+            const eventDate = e.startDateTime ? new Date(e.startDateTime) : null;
+            return eventDate?.getTime() === date.getTime();
           });
         };
 
@@ -1470,8 +1495,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         title: event.title,
         description: event.description,
         date: event.date,
-        start_datetime: formatDateToUTC(event.startDateTime!),
-        end_datetime: formatDateToUTC(event.endDateTime!),
+        start_datetime: event.startDateTime ? formatDateToUTC(event.startDateTime) : null,
+        end_datetime: event.endDateTime ? formatDateToUTC(event.endDateTime) : null,
         category_name: event.categoryName || null,
         category_color: event.categoryColor || null,
         reminder_time: event.reminderTime ? formatDateToUTC(event.reminderTime) : null,
@@ -1492,7 +1517,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         user_id: user?.id
       }));
 
-      let error;
+      let dbError;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
       if (eventToSave.id && editingEvent) {
         // First remove the old event from all its dates
@@ -1524,19 +1549,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .from('events')
           .insert(dbEvents);
 
-        error = insertError;
+        dbError = insertError;
       } else {
         // Insert all new events
         const { error: insertError } = await supabase
           .from('events')
           .insert(dbEvents);
 
-        error = insertError;
+        dbError = insertError;
       }
 
-      if (error) {
-        console.error('Event Save - Database Error:', error);
-        throw error;
+      if (dbError) {
+        console.error('Event Save - Database Error:', dbError);
+        throw dbError;
       }
 
       // Update local state with all events
@@ -1704,6 +1729,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   setEditedRepeatOption(event.repeatOption || 'None');
                                   setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                                   setCustomSelectedDates(event.customDates || []);
+                                  setIsEditedAllDay(event.isAllDay || false);
                                   setShowEditEventModal(true);
                                 }}
                                 onLongPress={() => handleLongPress(event)}
@@ -1779,56 +1805,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   };
 
   const handleLongPress = (event: CalendarEvent) => {
-    if (event.customDates && event.customDates.length > 0) {
+    if (event.repeatOption === 'Custom') {
       // Handle custom event
-      setSelectedEvent({ event, dateKey: event.date, index: 0 });
-      setEditingEvent(event);
-      setIsEditingEvent(true);
-      setCustomModalTitle(event.title);
-      setCustomModalDescription(event.description || '');
-      setSelectedCategory(categories.find(cat => cat.name === event.categoryName) || null);
-      
-      // Set up custom times by grouping dates with the same time settings
-      const customTimes: CustomTimes = {};
-      const timeSettingsMap = new Map<string, string[]>(); // Map to group dates by their time settings
-
-      // First, group dates by their time settings
-      event.customDates.forEach(date => {
-        const timeData = event.customTimes?.[date];
-        const startTime = timeData ? new Date(timeData.start) : new Date(event.startDateTime!);
-        const endTime = timeData ? new Date(timeData.end) : new Date(event.endDateTime!);
-        const reminderTime = timeData?.reminder ? new Date(timeData.reminder) : (event.reminderTime ? new Date(event.reminderTime) : null);
-        const repeat = timeData?.repeat || event.repeatOption || 'None';
-
-        // Create a unique key for this time setting
-        const timeKey = `${startTime.toISOString()}_${endTime.toISOString()}_${reminderTime?.toISOString() || 'null'}_${repeat}`;
-        
-        if (!timeSettingsMap.has(timeKey)) {
-          timeSettingsMap.set(timeKey, []);
-        }
-        timeSettingsMap.get(timeKey)!.push(date);
-      });
-
-      // Then create time boxes for each unique time setting
-      let timeBoxIndex = 0;
-      timeSettingsMap.forEach((dates, timeKey) => {
-        const [startStr, endStr, reminderStr, repeat] = timeKey.split('_');
-        const timeBoxKey = `time_${timeBoxIndex++}`;
-        
-        customTimes[timeBoxKey] = {
-          start: new Date(startStr),
-          end: new Date(endStr),
-          reminder: reminderStr === 'null' ? null : new Date(reminderStr),
-          repeat: repeat as RepeatOption,
-          dates: dates
-        };
-      });
-
-      setCustomDateTimes(customTimes);
-      setCustomSelectedDates(event.customDates);
-      setShowCustomDatesPicker(true);
-    } else {
-      // Handle regular event
       setSelectedEvent({ event, dateKey: event.date, index: 0 });
       setEditingEvent(event);
       setEditedEventTitle(event.title);
@@ -2097,48 +2075,34 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         title: editedEventTitle,
         description: editedEventDescription || '',
         date: getLocalDateString(editedStartDateTime),
-        startDateTime: editedStartDateTime,
-        endDateTime: editedEndDateTime,
         categoryName: editedSelectedCategory?.name || '',
         categoryColor: editedSelectedCategory?.color || '#FF9A8B',
         reminderTime: editedReminderTime,
         repeatOption: editedRepeatOption,
         repeatEndDate: editedRepeatEndDate,
-        isAllDay: isEditedAllDay,
+        isAllDay: isEditedAllDay, // Make sure this is included
         customDates: editedRepeatOption === 'Custom' ? customSelectedDates : undefined,
         customTimes: editedRepeatOption === 'Custom' ? customDateTimes : undefined,
         isContinued: false
       };
 
+      // If it's an all-day event, set start time to beginning of day and end time to end of day
+      if (editedEvent.isAllDay && editedEvent.startDateTime && editedEvent.endDateTime) {
+        const startDate = new Date(editedEvent.startDateTime);
+        startDate.setHours(0, 0, 0, 0);
+        editedEvent.startDateTime = startDate;
+
+        const endDate = new Date(editedEvent.endDateTime);
+        endDate.setHours(23, 59, 59, 999);
+        editedEvent.endDateTime = endDate;
+      }
+
       // Use the main handleSaveEvent function with the edited event
       await handleSaveEvent(editedEvent);
-
-      // Reset edit form state
       setShowEditEventModal(false);
-      setSelectedEvent(null);
-      setEditingEvent(null);  // Add this line to clear the editingEvent state
-      setEditedEventTitle('');
-      setEditedEventDescription('');
-      setEditedStartDateTime(new Date());
-      setEditedEndDateTime(new Date());
-      setEditedSelectedCategory(null);
-      setEditedReminderTime(null);
-      setEditedRepeatOption('None');
-      setEditedRepeatEndDate(null);
-      setIsEditedAllDay(false);
-      setCustomSelectedDates([]);
-      setCustomDateTimes({
-        default: {
-          start: startDateTime,
-          end: endDateTime,
-          reminder: reminderTime,
-          repeat: 'None',
-          dates: [getLocalDateString(startDateTime)]
-        }
-      });
     } catch (error) {
-      console.error('Error updating event:', error);
-      Alert.alert('Error', 'Failed to update event. Please try again.');
+      console.error('Error editing event:', error);
+      Alert.alert('Error', 'Failed to edit event. Please try again.');
     }
   };
 

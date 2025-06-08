@@ -269,7 +269,7 @@ export default function TodoScreen() {
     setCollapsedCategories({
       completed: true
     });
-    setCurrentDate(new Date());
+    // Don't reset currentDate here
     setTaskDate(null);
     setReminderTime(null);
     setSelectedRepeat('none');
@@ -1149,8 +1149,10 @@ export default function TodoScreen() {
   };
 
   const showModal = () => {
-    setShowCategoryBox(false); // 👈 Reset folder toggle state
+    setShowCategoryBox(false);
     setIsNewTaskModalVisible(true);
+    // Set the task date to the currently selected date instead of today
+    setTaskDate(currentDate);
     requestAnimationFrame(() => {
       Animated.timing(modalAnimation, {
         toValue: 1,
@@ -1170,9 +1172,23 @@ export default function TodoScreen() {
     });
   };
 
-  // Update the add button press handler
+  // Update the handleAddButtonPress function
   const handleAddButtonPress = () => {
-    resetForm();
+    // Don't reset the form completely, just clear the task-specific fields
+    setNewTodo('');
+    setNewDescription('');
+    setSelectedCategoryId('');
+    setShowNewCategoryInput(false);
+    setNewCategoryName('');
+    setNewCategoryColor('#E3F2FD');
+    setEditingTodo(null);
+    setTaskDate(currentDate); // Set to current selected date
+    setReminderTime(null);
+    setSelectedRepeat('none');
+    setRepeatEndDate(null);
+    setCustomRepeatFrequency('1');
+    setCustomRepeatUnit('days');
+    setSelectedWeekDays([]);
     showModal();
   };
 

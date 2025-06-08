@@ -43,6 +43,8 @@ export default function ProfileScreen() {
   const [tomorrowTodos, setTomorrowTodos] = useState<Todo[]>([]);
   const [todayEvents, setTodayEvents] = useState<Event[]>([]);
   const [tomorrowEvents, setTomorrowEvents] = useState<Event[]>([]);
+  const [thisWeekTodos, setThisWeekTodos] = useState<Todo[]>([]);
+  const [thisWeekEvents, setThisWeekEvents] = useState<Event[]>([]);
 
   // ✅ Configure Google Sign-In (run once)
   useEffect(() => {
@@ -306,6 +308,15 @@ export default function ProfileScreen() {
       const dayAfterTomorrow = new Date(tomorrow);
       dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
 
+      // Get the start and end of this week (Sunday to Saturday)
+      const startOfWeek = new Date(today);
+      startOfWeek.setDate(today.getDate() - today.getDay()); // Start from Sunday
+      startOfWeek.setHours(0, 0, 0, 0);
+
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(startOfWeek.getDate() + 6); // End on Saturday
+      endOfWeek.setHours(23, 59, 59, 999);
+
       // Fetch today's tasks
       const { data: todayTasksData, error: todayTasksError } = await supabase
         .from('todos')
@@ -337,6 +348,24 @@ export default function ProfileScreen() {
         console.error('Error fetching tomorrow\'s tasks:', tomorrowTasksError);
       } else {
         setTomorrowTodos(tomorrowTasksData.map(task => ({
+          ...task,
+          date: new Date(task.date)
+        })));
+      }
+
+      // Fetch this week's tasks (excluding today and tomorrow)
+      const { data: thisWeekTasksData, error: thisWeekTasksError } = await supabase
+        .from('todos')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('date', dayAfterTomorrow.toISOString())
+        .lte('date', endOfWeek.toISOString())
+        .order('date', { ascending: true });
+
+      if (thisWeekTasksError) {
+        console.error('Error fetching this week\'s tasks:', thisWeekTasksError);
+      } else {
+        setThisWeekTodos(thisWeekTasksData.map(task => ({
           ...task,
           date: new Date(task.date)
         })));
@@ -379,6 +408,25 @@ export default function ProfileScreen() {
           end_time: new Date(event.end_time)
         })));
       }
+
+      // Fetch this week's events (excluding today and tomorrow)
+      const { data: thisWeekEventsData, error: thisWeekEventsError } = await supabase
+        .from('events')
+        .select('*')
+        .eq('user_id', user.id)
+        .gte('start_time', dayAfterTomorrow.toISOString())
+        .lte('start_time', endOfWeek.toISOString())
+        .order('start_time', { ascending: true });
+
+      if (thisWeekEventsError) {
+        console.error('Error fetching this week\'s events:', thisWeekEventsError);
+      } else {
+        setThisWeekEvents(thisWeekEventsData.map(event => ({
+          ...event,
+          start_time: new Date(event.start_time),
+          end_time: new Date(event.end_time)
+        })));
+      }
     } catch (error) {
       console.error('Error fetching upcoming data:', error);
     } finally {
@@ -412,8 +460,8 @@ export default function ProfileScreen() {
     </TouchableOpacity>
   );
 
-  const renderUpcomingSection = (date: Date, todos: Todo[], events: Event[], isToday: boolean) => {
-    const dateStr = isToday ? 'Today' : 'Tomorrow';
+  const renderUpcomingSection = (date: Date, todos: Todo[], events: Event[], isToday: boolean, isThisWeek: boolean = false) => {
+    const dateStr = isToday ? 'Today' : isThisWeek ? 'This Week' : 'Tomorrow';
     const hasContent = todos.length > 0 || events.length > 0;
 
     return (
@@ -436,14 +484,21 @@ export default function ProfileScreen() {
                   >
                     <View style={[styles.checkbox, todo.completed && styles.checkboxCompleted]}>
                       {todo.completed && <Ionicons name="checkmark" size={16} color="#fff" />}
-                  </View>
-                    <Text style={[styles.itemText, todo.completed && styles.completedText]}>
-                      {todo.text}
-                    </Text>
+                    </View>
+                    <View style={styles.itemContent}>
+                      <Text style={[styles.itemText, todo.completed && styles.completedText]}>
+                        {todo.text}
+                      </Text>
+                      {isThisWeek && (
+                        <Text style={styles.itemDate}>
+                          {todo.date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </Text>
+                      )}
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>
-                  )}
+            )}
             {events.length > 0 && (
               <View style={styles.eventsContainer}>
                 <Text style={styles.subsectionTitle}>Events</Text>
@@ -456,14 +511,21 @@ export default function ProfileScreen() {
                     <View style={styles.eventTimeContainer}>
                       <Text style={styles.eventTime}>
                         {formatTime(event.start_time)}
-                    </Text>
-                </View>
-                    <Text style={styles.itemText}>{event.title}</Text>
+                      </Text>
+                    </View>
+                    <View style={styles.itemContent}>
+                      <Text style={styles.itemText}>{event.title}</Text>
+                      {isThisWeek && (
+                        <Text style={styles.itemDate}>
+                          {event.start_time.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </Text>
+                      )}
+                    </View>
                   </TouchableOpacity>
                 ))}
               </View>
             )}
-        </View>
+          </View>
         )}
       </View>
     );
@@ -474,6 +536,7 @@ export default function ProfileScreen() {
       <ScrollView style={styles.scrollView}>
         {/* Profile Header */}
         <View style={styles.header}>
+          <View style={styles.headerLeft} />
           <View style={styles.profileInfo}>
             <Text style={styles.name}>
               {user?.user_metadata?.full_name || user?.email || 'Your Name'}
@@ -482,6 +545,16 @@ export default function ProfileScreen() {
               {user ? 'Signed In' : 'Not Signed In'}
             </Text>
           </View>
+          <View style={styles.headerRight}>
+            {user && (
+              <TouchableOpacity
+                style={styles.notesButton}
+                onPress={() => router.push('/notes')}
+              >
+                <Ionicons name="document-text-outline" size={24} color="#FF9A8B" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {/* Upcoming Section */}
@@ -489,6 +562,7 @@ export default function ProfileScreen() {
           <>
             {renderUpcomingSection(new Date(), todayTodos, todayEvents, true)}
             {renderUpcomingSection(new Date(new Date().setDate(new Date().getDate() + 1)), tomorrowTodos, tomorrowEvents, false)}
+            {renderUpcomingSection(new Date(), thisWeekTodos, thisWeekEvents, false, true)}
           </>
         )}
 
@@ -530,13 +604,6 @@ export default function ProfileScreen() {
                 ]
               )
             )}
-            {renderPreferenceItem(
-              'document-text-outline',
-              'Notes',
-              '',
-              () => router.push('/notes'),
-              '#FF9A8B'
-            )}
           </View>
         )}
 
@@ -574,14 +641,21 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingTop: 40,
     paddingBottom: 24,
   },
+  headerLeft: {
+    width: 44, // Same width as notesButton for balance
+  },
+  headerRight: {
+    width: 44, // Same width as notesButton for balance
+  },
   profileInfo: {
     alignItems: 'center',
+    flex: 1,
   },
   name: {
     fontSize: 20,
@@ -702,5 +776,21 @@ const styles = StyleSheet.create({
   signInContainer: {
     marginTop: 24,
     alignItems: 'center',
+  },
+  notesButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFF5F3',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  itemContent: {
+    flex: 1,
+  },
+  itemDate: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
 });
