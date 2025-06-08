@@ -1,14 +1,30 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, ScrollView, ActivityIndicator, StyleSheet, Platform, Alert, TextInput, Pressable } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  Alert,
+  Platform,
+  KeyboardAvoidingView,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
 import { useRouter, Stack } from 'expo-router';
 import { supabase } from '../supabase';
+import * as Haptics from 'expo-haptics';
+import moment from 'moment';
+import debounce from 'lodash/debounce';
 
 interface Note {
   id: string;
   title: string;
   content: string;
+  user_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -17,10 +33,10 @@ export default function NotesScreen() {
   const router = useRouter();
   const [notes, setNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
-  const [noteText, setNoteText] = useState('');
-  const [originalNoteText, setOriginalNoteText] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     fetchNotes();
@@ -34,40 +50,36 @@ export default function NotesScreen() {
         return;
       }
 
-      const { data: notesData, error: notesError } = await supabase
+      const { data, error } = await supabase
         .from('notes')
         .select('*')
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+        .order('updated_at', { ascending: false });
 
-      if (notesError) {
-        console.error('Error fetching notes:', notesError);
-        return;
-      }
-
-      setNotes(notesData || []);
+      if (error) throw error;
+      setNotes(data || []);
     } catch (error) {
-      console.error('Error in fetchNotes:', error);
+      console.error('Error fetching notes:', error);
+      Alert.alert('Error', 'Failed to load notes');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Helper function to split note text into title and content
-  const splitNoteText = (text: string) => {
-    const lines = text.split('\n');
-    const title = lines[0] || '';
-    const content = lines.slice(1).join('\n');
-    return { title, content };
+  // Helper function to split content into title and body
+  const splitContent = (content: string) => {
+    const lines = content.split('\n');
+    const title = lines[0] || 'Untitled Note';
+    const body = lines.slice(1).join('\n');
+    return { title, body };
   };
 
-  // Helper function to combine title and content
-  const combineNoteText = (title: string, content: string) => {
-    return title + (content ? '\n' + content : '');
-  };
+  // Debounced save function to prevent too many API calls
+  const debouncedSave = useCallback(
+    debounce(async (content: string, note: Note | null) => {
+      if (!content.trim()) return;
 
-  const handleBackPress = async () => {
-    if (noteText !== originalNoteText) {
+      setIsSaving(true);
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
@@ -75,55 +87,69 @@ export default function NotesScreen() {
           return;
         }
 
-        const { title, content } = splitNoteText(noteText.trim());
+        const { title, body } = splitContent(content.trim());
 
-        if (currentNote) {
-          const { error: updateError } = await supabase
+        if (note) {
+          // Update existing note
+          const { error } = await supabase
             .from('notes')
             .update({
               title,
-              content,
-              updated_at: new Date().toISOString()
+              content: body,
+              updated_at: new Date().toISOString(),
             })
-            .eq('id', currentNote.id)
+            .eq('id', note.id)
             .eq('user_id', user.id);
 
-          if (updateError) throw updateError;
+          if (error) throw error;
 
-          setNotes(prevNotes => 
-            prevNotes.map(note => 
-              note.id === currentNote.id 
-                ? { ...note, title, content, updated_at: new Date().toISOString() }
-                : note
+          setNotes(prevNotes =>
+            prevNotes.map(n =>
+              n.id === note.id
+                ? {
+                    ...n,
+                    title,
+                    content: body,
+                    updated_at: new Date().toISOString(),
+                  }
+                : n
             )
           );
         } else {
-          const { data: newNote, error } = await supabase
+          // Create new note
+          const { data, error } = await supabase
             .from('notes')
             .insert({
               title,
-              content,
-              user_id: user.id
+              content: body,
+              user_id: user.id,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
             })
             .select()
             .single();
 
           if (error) throw error;
-          if (newNote) {
-            setNotes(prevNotes => [newNote, ...prevNotes]);
-          }
+          setNotes(prevNotes => [data, ...prevNotes]);
+          setCurrentNote(data);
+        }
+
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         }
       } catch (error) {
         console.error('Error saving note:', error);
-        Alert.alert('Error', 'Failed to save note. Please try again.');
-        return;
+        Alert.alert('Error', 'Failed to save note');
+      } finally {
+        setIsSaving(false);
       }
-    }
+    }, 1000),
+    []
+  );
 
-    setIsAddingNote(false);
-    setNoteText('');
-    setOriginalNoteText('');
-    setCurrentNote(null);
+  const handleContentChange = (text: string) => {
+    setNoteContent(text);
+    debouncedSave(text, currentNote);
   };
 
   const handleDeleteNote = async (noteId: string) => {
@@ -142,324 +168,274 @@ export default function NotesScreen() {
 
       if (error) throw error;
 
-      setNotes(prev => prev.filter(note => note.id !== noteId));
+      setNotes(prevNotes => prevNotes.filter(note => note.id !== noteId));
+      if (currentNote?.id === noteId) {
+        setShowNoteModal(false);
+        setCurrentNote(null);
+        setNoteContent('');
+      }
 
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (error) {
       console.error('Error deleting note:', error);
-      Alert.alert('Error', 'Failed to delete note. Please try again.');
+      Alert.alert('Error', 'Failed to delete note');
     }
   };
 
-  const handleEditNote = (note: Note) => {
-    const combinedText = combineNoteText(note.title, note.content);
+  const handleOpenNote = (note: Note) => {
     setCurrentNote(note);
-    setNoteText(combinedText);
-    setOriginalNoteText(combinedText);
-    setIsAddingNote(true);
+    setNoteContent(note.title !== 'Untitled Note' ? note.title + '\n' + note.content : note.content);
+    setShowNoteModal(true);
   };
 
-  const handleViewNote = (note: Note) => {
-    const combinedText = combineNoteText(note.title, note.content);
-    setCurrentNote(note);
-    setNoteText(combinedText);
-    setOriginalNoteText(combinedText);
-    setIsAddingNote(true);
+  const handleNewNote = () => {
+    setCurrentNote(null);
+    setNoteContent('');
+    setShowNoteModal(true);
   };
 
-  const handleNoteTextChange = (text: string) => {
-    setNoteText(text);
+  const handleCloseNote = () => {
+    setShowNoteModal(false);
+    setCurrentNote(null);
+    setNoteContent('');
   };
 
-  const handleLongPressNote = (note: Note) => {
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
-    handleEditNote(note);
+  const renderNoteItem = (note: Note) => {
+    return (
+      <TouchableOpacity
+        key={note.id}
+        style={styles.noteItem}
+        onPress={() => handleOpenNote(note)}
+        onLongPress={() => {
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }
+          Alert.alert(
+            'Delete Note',
+            'Are you sure you want to delete this note?',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: () => handleDeleteNote(note.id),
+              },
+            ]
+          );
+        }}
+        delayLongPress={500}
+      >
+        <View style={styles.noteContent}>
+          <View style={styles.notePreview}>
+            <Text style={styles.notePreviewTitle} numberOfLines={1}>
+              {note.title}
+            </Text>
+            {note.content ? (
+              <Text style={styles.notePreviewContent} numberOfLines={2}>
+                {note.content}
+              </Text>
+            ) : null}
+          </View>
+          <Text style={styles.noteDate}>
+            {moment(note.updated_at).fromNow()}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Stack.Screen
-        options={{
-          title: 'Notes',
-          headerShown: false,
-        }}
-      />
-      {!isAddingNote ? (
-        <>
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              style={styles.backButton}
-            >
-              <Ionicons name="chevron-back" size={24} color="#666" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Notes</Text>
-            <TouchableOpacity
-              onPress={() => {
-                setCurrentNote(null);
-                setNoteText('');
-                setOriginalNoteText('');
-                setIsAddingNote(true);
-              }}
-              style={styles.addButton}
-            >
-              <Ionicons name="add" size={24} color="#666" />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-            {isLoading ? (
-              <ActivityIndicator size="small" color="#666" style={styles.loader} />
-            ) : (
-              <View style={styles.content}>
-                {notes.length > 0 ? (
-                  notes.map((note, index) => (
-                    <View key={note.id}>
-                      <Pressable
-                        style={styles.noteItem}
-                        onPress={() => handleViewNote(note)}
-                        onLongPress={() => {
-                          if (Platform.OS !== 'web') {
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                          }
-                          handleEditNote(note);
-                        }}
-                        delayLongPress={500}
-                      >
-                        <View style={styles.noteContent}>
-                          <Text style={styles.noteTitle} numberOfLines={1}>
-                            {note.title}
-                          </Text>
-                          {note.content ? (
-                            <Text style={styles.noteText} numberOfLines={2}>
-                              {note.content}
-                            </Text>
-                          ) : null}
-                        </View>
-                        <TouchableOpacity
-                          onPress={() => {
-                            Alert.alert(
-                              'Delete Note',
-                              'Are you sure you want to delete this note?',
-                              [
-                                { text: 'Cancel', style: 'cancel' },
-                                { 
-                                  text: 'Delete', 
-                                  style: 'destructive',
-                                  onPress: () => handleDeleteNote(note.id)
-                                }
-                              ]
-                            );
-                          }}
-                          style={styles.noteDeleteButton}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#666" />
-                        </TouchableOpacity>
-                      </Pressable>
-                      {index < notes.length - 1 && <View style={styles.itemDivider} />}
-                    </View>
-                  ))
-                ) : (
-                  <Text style={styles.emptyText}>No notes yet</Text>
-                )}
-              </View>
-            )}
-          </ScrollView>
-        </>
-      ) : (
-        <View style={styles.fullScreenNote}>
-          <View style={styles.noteHeader}>
-            <TouchableOpacity
-              onPress={handleBackPress}
-              style={styles.backButton}
-            >
-              <Ionicons name="chevron-back" size={24} color="#666" />
-            </TouchableOpacity>
-            {noteText !== originalNoteText && (
-              <Text style={styles.unsavedChanges}></Text>
-            )}
-          </View>
-          <TextInput
-            style={styles.fullScreenInput}
-            placeholder={currentNote ? "Edit your note..." : "Write your note..."}
-            value={noteText}
-            onChangeText={handleNoteTextChange}
-            multiline
-            textAlignVertical="top"
-            autoFocus
-          />
+    <>
+      <Stack.Screen options={{ headerShown: false }} />
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <Ionicons name="chevron-back" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Notes</Text>
+          <TouchableOpacity
+            onPress={handleNewNote}
+            style={styles.addButton}
+          >
+            <Ionicons name="add" size={24} color="#FF9A8B" />
+          </TouchableOpacity>
         </View>
-      )}
-    </SafeAreaView>
+
+        {/* Notes List */}
+        <ScrollView style={styles.notesList}>
+          {isLoading ? (
+            <ActivityIndicator style={styles.loader} color="#666" />
+          ) : notes.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateTitle}>No notes yet</Text>
+              <Text style={styles.emptyStateSubtitle}>
+                Tap the + button to create your first note
+              </Text>
+            </View>
+          ) : (
+            notes.map(renderNoteItem)
+          )}
+        </ScrollView>
+
+        {/* Note Modal */}
+        <Modal
+          visible={showNoteModal}
+          animationType="slide"
+          presentationStyle="pageSheet"
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalContainer}
+          >
+            <SafeAreaView style={styles.modalContent}>
+              {/* Modal Header */}
+              <View style={styles.modalHeader}>
+                <TouchableOpacity
+                  onPress={handleCloseNote}
+                  style={styles.modalCloseButton}
+                >
+                  <Ionicons name="chevron-back" size={24} color="#000" />
+                </TouchableOpacity>
+                {isSaving && (
+                  <ActivityIndicator size="small" color="#666" style={styles.savingIndicator} />
+                )}
+                <View style={styles.modalCloseButton} />
+              </View>
+
+              {/* Note Editor */}
+              <TextInput
+                style={styles.noteEditor}
+                placeholder="Start writing..."
+                value={noteContent}
+                onChangeText={handleContentChange}
+                multiline
+                textAlignVertical="top"
+                autoFocus
+              />
+            </SafeAreaView>
+          </KeyboardAvoidingView>
+        </Modal>
+      </SafeAreaView>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#fff',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 5,
+    paddingVertical: 12,
   },
   backButton: {
-    padding: 4,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 17,
-    fontWeight: '500',
-    color: '#1A1A1A',
-    fontFamily: 'Onest',
+    fontWeight: '600',
+    color: '#000',
   },
-  headerRight: {
-    width: 32,
-  },
-  scrollView: {
+  notesList: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
   },
   loader: {
     marginTop: 20,
   },
-  content: {
-    padding: 12,
-    gap: 8,
-    marginTop: -10,
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 100,
   },
-  noteForm: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#F0F0F0',
-    marginHorizontal: -16,
+  emptyStateTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 8,
   },
-  noteInput: {
-    borderWidth: 0,
-    padding: 10,
+  emptyStateSubtitle: {
     fontSize: 16,
-    fontFamily: 'Onest',
-    backgroundColor: '#FFFFFF',
-    height: 350,
-    textAlignVertical: 'top',
-    lineHeight: 24,
-  },
-  noteFormActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    padding: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
-  },
-  cancelButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-  },
-  cancelButtonText: {
     color: '#666',
-    fontSize: 14,
-    fontFamily: 'Onest',
-  },
-  saveButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#FF9A8B',
-  },
-  saveButtonDisabled: {
-    backgroundColor: '#F0F0F0',
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '500',
-    fontFamily: 'Onest',
-  },
-  saveButtonTextDisabled: {
-    color: '#999',
+    textAlign: 'center',
+    paddingHorizontal: 32,
   },
   noteItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 16,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    borderWidth: 0,
-    borderColor: '#F0F0F0',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#ccc',
   },
   noteContent: {
     flex: 1,
-    marginRight: 32,
   },
-  noteTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1A1A1A',
+  notePreview: {
     marginBottom: 4,
-    fontFamily: 'Onest',
   },
-  noteText: {
-    fontSize: 14,
-    color: '#666',
-    fontFamily: 'Onest',
-    lineHeight: 20,
+  notePreviewTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 2,
   },
-  noteDeleteButton: {
-    position: 'absolute',
-    right: 12,
-    top: 12,
-    padding: 4,
+  notePreviewContent: {
+    fontSize: 16,
+    color: '#000',
+    lineHeight: 22,
   },
-  itemDivider: {
-    height: 1,
-    backgroundColor: '#F0F0F0',
-    marginVertical: 4,
+  noteDate: {
+    fontSize: 12,
+    color: '#999',
   },
-  emptyText: {
-    textAlign: 'center',
-    color: '#666',
-    fontSize: 13,
-    fontFamily: 'Onest',
-    marginVertical: 12,
-  },
-  addButton: {
-    padding: 4,
-  },
-  fullScreenNote: {
+  modalContainer: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#fff',
   },
-  noteHeader: {
+  modalContent: {
+    flex: 1,
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 5,
+    paddingVertical: 12,
   },
-  fullScreenInput: {
+  modalCloseButton: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savingIndicator: {
+    marginHorizontal: 8,
+  },
+  noteEditor: {
     flex: 1,
-    paddingTop: 10,
-    paddingHorizontal: 16,
     fontSize: 16,
-    fontFamily: 'Onest',
-    backgroundColor: '#FFFFFF',
-    textAlignVertical: 'top',
+    color: '#000',
     lineHeight: 24,
-    marginTop: -5,
-  },
-  unsavedChanges: {
-    position: 'absolute',
-    right: 16,
-    color: '#666',
-    fontSize: 14,
-    fontFamily: 'Onest',
+    padding: 16,
+    textAlignVertical: 'top',
   },
 }); 

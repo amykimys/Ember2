@@ -28,6 +28,7 @@ import * as Haptics from 'expo-haptics';
 import { PanGestureHandler, GestureHandlerRootView, State, Swipeable } from 'react-native-gesture-handler';
 import styles from '../../styles/todo.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
 import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
 import { Picker } from '@react-native-picker/picker';
@@ -137,9 +138,10 @@ export default function TodoScreen() {
   const [newCategoryColor, setNewCategoryColor] = useState('#E3F2FD');
   const [editingTodo, setEditingTodo] = useState<Todo | null>(null);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({
-    completed: true, // Ensure completed section starts collapsed
+    completed: true,
     uncategorized: false
-  });  const [currentDate, setCurrentDate] = useState(new Date());
+  });
+  const [currentDate, setCurrentDate] = useState(new Date());
   const [hasTriggeredSwipeHaptic, setHasTriggeredSwipeHaptic] = useState(false);
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
   const [showRepeatOptions, setShowRepeatOptions] = useState(false);
@@ -193,6 +195,20 @@ export default function TodoScreen() {
   const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
   const [selectedDateStrings, setSelectedDateStrings] = useState<string[]>([]);
   const [isSwiping, setIsSwiping] = useState(false);
+  const repeatButtonRef = useRef<View>(null);
+  const [repeatButtonLayout, setRepeatButtonLayout] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }>({ x: 0, y: 0, width: 0, height: 0 });
+  const [selectedRepeatType, setSelectedRepeatType] = useState<RepeatOption | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateButtonLayout, setDateButtonLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const dateButtonRef = useRef<View>(null);
+  const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
+  const [showNativeTimePicker, setShowNativeTimePicker] = useState(false);
+  const [lastPickerActivity, setLastPickerActivity] = useState<number>(Date.now());
 
 
 
@@ -323,7 +339,7 @@ export default function TodoScreen() {
         text: newTodo.trim(),
         description: newDescription.trim(),
         completed: false,
-        categoryId: selectedCategoryId || null, // Make category optional
+        categoryId: selectedCategoryId || null,
         date: taskDate || currentDate,
         repeat: selectedRepeat,
         repeatEndDate: selectedRepeat !== 'none' ? repeatEndDate : undefined,
@@ -341,7 +357,7 @@ export default function TodoScreen() {
           text: newTodoItem.text,
           description: newTodoItem.description,
           completed: newTodoItem.completed,
-          category_id: selectedCategoryId || null, // Make category optional
+          category_id: selectedCategoryId || null,
           date: newTodoItem.date.toISOString(),
           repeat: newTodoItem.repeat,
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
@@ -1166,6 +1182,20 @@ export default function TodoScreen() {
   useEffect(() => {
   }, [showRepeatEndDatePicker]);
   
+  // Add this useEffect to handle the auto-close timer
+  useEffect(() => {
+    if (!showReminderPicker) return;
+
+    const timer = setTimeout(() => {
+      const now = Date.now();
+      if (now - lastPickerActivity >= 2000) {
+        setShowReminderPicker(false);
+      }
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [showReminderPicker, lastPickerActivity]);
+  
   
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -1326,6 +1356,256 @@ export default function TodoScreen() {
                   }],
                 }}
               >
+                {/* Add the repeat options floating panel */}
+                {showRepeatPicker && (
+                  <>
+                    <TouchableOpacity
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'transparent',
+                        zIndex: 999,
+                      }}
+                      activeOpacity={1}
+                      onPress={() => setShowRepeatPicker(false)}
+                    />
+                    <View
+                      style={{
+                        position: 'absolute',
+                        bottom: repeatButtonLayout.height + 18,
+                        left: repeatButtonLayout.x,
+                        backgroundColor: 'white',
+                        borderRadius: 12,
+                        shadowColor: '#000',
+                        shadowOffset: {
+                          width: 0,
+                          height: 2,
+                        },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 6,
+                        elevation: 4,
+                        zIndex: 1000,
+                        maxHeight: selectedRepeat && selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? 240 : 190,
+                        width: 175,
+                      }}
+                    >
+                      <ScrollView style={{ padding: 6 }}>
+                        {REPEAT_OPTIONS.map((option) => (
+                          <TouchableOpacity
+                            key={option.value}
+                            onPress={() => {
+                              if (option.value === 'custom') {
+                                setSelectedRepeat(option.value);
+                                setShowRepeatPicker(false);
+                              } else if (option.value === 'none') {
+                                setSelectedRepeat('none');
+                                setRepeatEndDate(null); // Clear any existing end date
+                                setShowRepeatPicker(false);
+                              } else {
+                                setSelectedRepeat(option.value);
+                              }
+                            }}
+                            style={{
+                              paddingVertical: 8,
+                              paddingHorizontal: 10,
+                              borderRadius: 8,
+                              backgroundColor: selectedRepeat === option.value ? '#f0f0f0' : 'transparent',
+                            }}
+                          >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <Text style={{ 
+                                fontSize: 14,
+                                color: '#3A3A3A',
+                                fontFamily: 'Onest',
+                                fontWeight: selectedRepeat === option.value ? '600' : '400'
+                              }}>
+                                {option.label}
+                              </Text>
+                              {selectedRepeat === option.value && (
+                                <Ionicons name="checkmark" size={16} color="#FF9A8B" />
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+
+                        {selectedRepeat && selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
+                          <>
+                            <View style={{ 
+                              height: 1, 
+                              backgroundColor: '#f0f0f0', 
+                              marginVertical: 6,
+                              marginHorizontal: 4 
+                            }} />
+                            <TouchableOpacity
+                              onPress={() => {
+                                setShowRepeatEndDatePicker(true);
+                              }}
+                              style={{
+                                paddingVertical: 8,
+                                paddingHorizontal: 10,
+                                borderRadius: 8,
+                                backgroundColor: repeatEndDate ? '#f0f0f0' : 'transparent',
+                              }}
+                            >
+                              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Text style={{ 
+                                  fontSize: 14,
+                                  color: '#3A3A3A',
+                                  fontFamily: 'Onest',
+                                  fontWeight: repeatEndDate ? '600' : '400'
+                                }}>
+                                  {repeatEndDate ? 
+                                    `Ends ${moment(repeatEndDate).format('MMM D, YYYY')}` : 
+                                    'Set end date'}
+                                </Text>
+                                {repeatEndDate ? (
+                                  <Ionicons name="checkmark" size={16} color="#FF9A8B" />
+                                ) : (
+                                  <Ionicons name="calendar-outline" size={16} color="#666" />
+                                )}
+                              </View>
+                            </TouchableOpacity>
+                          </>
+                        )}
+                      </ScrollView>
+                    </View>
+                  </>
+                )}
+                {/* Add DateTimePicker for end date */}
+                <DateTimePickerModal
+                  isVisible={showRepeatEndDatePicker}
+                  mode="date"
+                  onConfirm={(date) => {
+                    setRepeatEndDate(date);
+                    setShowRepeatEndDatePicker(false);
+                  }}
+                  onCancel={() => setShowRepeatEndDatePicker(false)}
+                  minimumDate={new Date()}
+                />
+
+               
+
+  {/* Date Picker */}
+  {showDatePicker && (
+    <View style={{
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 999,
+    }}>
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        }}
+        activeOpacity={1}
+        onPress={() => setShowDatePicker(false)}
+      />
+      <DateTimePicker
+        value={taskDate instanceof Date ? taskDate : new Date()}
+        mode="date"
+        display="spinner"
+        onChange={(event, selectedDate) => {
+          if (selectedDate) {
+            setTaskDate(selectedDate);
+            setShowDatePicker(false);
+          }
+        }}
+        minimumDate={new Date()}
+        style={{
+          position: 'absolute',
+          bottom: dateButtonLayout.height + 18,
+          left: dateButtonLayout.x - 40,
+          backgroundColor: 'white',
+          borderRadius: 16,
+          shadowColor: '#000',
+          shadowOffset: {
+            width: 0,
+            height: 8,
+          },
+          shadowOpacity: 0.2,
+          shadowRadius: 16,
+          elevation: 12,
+          zIndex: 1000,
+          width: 200,
+          height: 180,
+        }}
+        textColor="#333"
+      />
+    </View>
+  )}
+
+  {/* Reminder Picker */}
+  {showReminderPicker && (
+    <View style={{
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 999,
+    }}>
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        }}
+        activeOpacity={1}
+        onPress={() => {
+          setLastPickerActivity(Date.now());
+          setShowReminderPicker(false);
+        }}
+      />
+      <DateTimePicker
+        value={reminderTime instanceof Date ? reminderTime : new Date()}
+        mode="datetime"
+        display="spinner"
+        onChange={(event, selectedTime) => {
+          setLastPickerActivity(Date.now()); // Update activity timestamp
+          if (selectedTime) {
+            if (selectedTime > new Date()) {
+              setReminderTime(selectedTime);
+              // Don't close the picker immediately, let the timer handle it
+            }
+          }
+        }}
+        minimumDate={new Date()}
+        style={{
+          position: 'absolute',
+          bottom: reminderButtonLayout.height + 18,
+          left: reminderButtonLayout.x - 40,
+          backgroundColor: 'white',
+          borderRadius: 16,
+          shadowColor: '#000',
+          shadowOffset: {
+            width: 0,
+            height: 8,
+          },
+          shadowOpacity: 0.2,
+          shadowRadius: 16,
+          elevation: 12,
+          zIndex: 1000,
+          width: 200,
+          height: 180,
+        }}
+        textColor="#333"
+      />
+    </View>
+  )}
+
                 <View style={{ flexGrow: 1 }}>
                   <ScrollView
                     style={{ flex: 1 }}
@@ -1386,1077 +1666,757 @@ export default function TodoScreen() {
                       }}
                     >
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                      <ScrollView 
-                        horizontal 
-                        showsHorizontalScrollIndicator={false}
-                        keyboardShouldPersistTaps="always"
-                        contentContainerStyle={{ paddingRight: 4 }}
-                        style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
-                      >
-                        {categories
-                          .filter(cat => cat.label.toLowerCase() !== 'todo') // Filter out the 'TODO' category
-                          .map((cat) => (
-                            <Pressable
-                              key={cat.id}
-                              onPress={() => {
-                                setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
-                                setShowCategoryBox(false);
-                              }}
-                              onLongPress={() => {
-                                Alert.alert(
-                                  "Delete Category",
-                                  `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
-                                  [
-                                    { text: "Cancel", style: "cancel" },
-                                    {
-                                      text: "Delete",
-                                      style: "destructive",
-                                      onPress: async () => {
-                                        try {
-                                          const { data: { user } } = await supabase.auth.getUser();
-                                          if (!user) {
-                                            Alert.alert('Error', 'You must be logged in to delete categories.');
-                                            return;
+                        <ScrollView 
+                          horizontal 
+                          showsHorizontalScrollIndicator={false}
+                          keyboardShouldPersistTaps="always"
+                          contentContainerStyle={{ paddingRight: 4 }}
+                          style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
+                        >
+                          {categories
+                            .filter(cat => cat.label.toLowerCase() !== 'todo')
+                            .map((cat) => (
+                              <Pressable
+                                key={cat.id}
+                                onPress={() => {
+                                  setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
+                                  setShowCategoryBox(false);
+                                }}
+                                onLongPress={() => {
+                                  Alert.alert(
+                                    "Delete Category",
+                                    `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
+                                    [
+                                      { text: "Cancel", style: "cancel" },
+                                      {
+                                        text: "Delete",
+                                        style: "destructive",
+                                        onPress: async () => {
+                                          try {
+                                            const { data: { user } } = await supabase.auth.getUser();
+                                            if (!user) {
+                                              Alert.alert('Error', 'You must be logged in to delete categories.');
+                                              return;
+                                            }
+
+                                            // First, delete all tasks in this category
+                                            const { error: tasksError } = await supabase
+                                              .from('todos')
+                                              .delete()
+                                              .eq('category_id', cat.id)
+                                              .eq('user_id', user.id);
+
+                                            if (tasksError) {
+                                              console.error('Error deleting tasks:', tasksError);
+                                              Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
+                                              return;
+                                            }
+
+                                            // Then delete the category
+                                            const { error: categoryError } = await supabase
+                                              .from('categories')
+                                              .delete()
+                                              .eq('id', cat.id)
+                                              .eq('user_id', user.id);
+
+                                            if (categoryError) {
+                                              console.error('Error deleting category:', categoryError);
+                                              Alert.alert('Error', 'Failed to delete category. Please try again.');
+                                              return;
+                                            }
+
+                                            // Update local state
+                                            setCategories(prev => prev.filter(category => category.id !== cat.id));
+                                            
+                                            // If the deleted category was selected, clear the selection
+                                            if (selectedCategoryId === cat.id) {
+                                              setSelectedCategoryId('');
+                                            }
+
+                                            // Provide haptic feedback
+                                            if (Platform.OS !== 'web') {
+                                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                            }
+                                          } catch (error) {
+                                            console.error('Error in category deletion:', error);
+                                            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
                                           }
-
-                                          // First, delete all tasks in this category
-                                          const { error: tasksError } = await supabase
-                                            .from('todos')
-                                            .delete()
-                                            .eq('category_id', cat.id)
-                                            .eq('user_id', user.id);
-
-                                          if (tasksError) {
-                                            console.error('Error deleting tasks:', tasksError);
-                                            Alert.alert('Error', 'Failed to delete tasks in this category. Please try again.');
-                                            return;
-                                          }
-
-                                          // Then delete the category
-                                          const { error: categoryError } = await supabase
-                                            .from('categories')
-                                            .delete()
-                                            .eq('id', cat.id)
-                                            .eq('user_id', user.id);
-
-                                          if (categoryError) {
-                                            console.error('Error deleting category:', categoryError);
-                                            Alert.alert('Error', 'Failed to delete category. Please try again.');
-                                            return;
-                                          }
-
-                                          // Update local state
-                                          setCategories(prev => prev.filter(category => category.id !== cat.id));
-                                          
-                                          // If the deleted category was selected, clear the selection
-                                          if (selectedCategoryId === cat.id) {
-                                            setSelectedCategoryId('');
-                                          }
-
-                                          // Provide haptic feedback
-                                          if (Platform.OS !== 'web') {
-                                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                          }
-                                        } catch (error) {
-                                          console.error('Error in category deletion:', error);
-                                          Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                                        }
+                                        },
                                       },
-                                    },
-                                  ]
-                                );
+                                    ]
+                                  );
+                                }}
+                                delayLongPress={500}
+                                style={({ pressed }) => ({
+                                  backgroundColor: '#fafafa',
+                                  paddingVertical: 5,
+                                  paddingHorizontal: 8,
+                                  borderRadius: 9,
+                                  borderWidth: (pressed || selectedCategoryId === cat.id) ? 1 : 0,
+                                  borderColor: cat.color,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  marginRight: 8,
+                                })}
+                              >
+                                <View style={{ 
+                                  width: 6, 
+                                  height: 6, 
+                                  borderRadius: 3, 
+                                  backgroundColor: cat.color,
+                                }} />
+                                <Text style={{ 
+                                  color: '#3a3a3a', 
+                                  fontSize: 12, 
+                                  fontFamily: 'Onest',
+                                  fontWeight: selectedCategoryId === cat.id ? '600' : '500'
+                                }}>
+                                  {cat.label}
+                                </Text>
+                              </Pressable>
+                            ))}
+
+                          {showNewCategoryInput ? (
+                            <View style={{ 
+                              flexDirection: 'row', 
+                              alignItems: 'center',
+                              backgroundColor: '#fafafa',
+                              paddingVertical: 5,
+                              paddingHorizontal: 8,
+                              borderRadius: 9,
+                              borderWidth: 1,
+                              borderColor: newCategoryColor,
+                              marginRight: 8,
+                            }}>
+                              <View style={{ 
+                                width: 6, 
+                                height: 6, 
+                                borderRadius: 3, 
+                                backgroundColor: newCategoryColor,
+                                marginRight: 6,
+                              }} />
+                              <TextInput
+                                ref={categoryInputRef}
+                                style={{
+                                  fontSize: 12,
+                                  color: '#3a3a3a',
+                                  fontFamily: 'Onest',
+                                  padding: 0,
+                                  margin: 0,
+                                  width: 70,
+                                  maxWidth: 70,
+                                }}
+                                value={newCategoryName}
+                                onChangeText={setNewCategoryName}
+                                placeholder="New category"
+                                placeholderTextColor="#999"
+                                autoFocus
+                              />
+                              <View style={{ 
+                                flexDirection: 'row', 
+                                alignItems: 'center',
+                                marginLeft: 4,
+                                gap: 8,
+                              }}>
+                                <TouchableOpacity
+                                  onPress={() => setShowNewCategoryInput(false)}
+                                >
+                                  <Ionicons name="close" size={14} color="#666" />
+                                </TouchableOpacity>
+                                {newCategoryName.trim() && (
+                                  <TouchableOpacity
+                                    onPress={async () => {
+                                      if (!newCategoryName.trim()) return;
+                                      
+                                      try {
+                                        console.log('[Category] Starting category creation...');
+                                        const { data: { user } } = await supabase.auth.getUser();
+                                        if (!user) {
+                                          console.log('[Category] No user found');
+                                          Alert.alert('Error', 'You must be logged in to create categories.');
+                                          return;
+                                        }
+                                    
+                                        const newCategory = {
+                                          id: uuidv4(),
+                                          label: newCategoryName.trim(),
+                                          color: newCategoryColor,
+                                        };
+                                    
+                                        console.log('[Category] Saving category:', newCategory);
+                                        const { data: savedCategory, error: categoryError } = await supabase
+                                          .from('categories')
+                                          .insert({
+                                            id: newCategory.id,
+                                            label: newCategory.label,
+                                            color: newCategory.color,
+                                            user_id: user.id,
+                                            type: 'task'
+                                          })
+                                          .select()
+                                          .single();
+                                    
+                                            if (categoryError) {
+                                              console.error('[Category] Error saving category:', categoryError);
+                                              Alert.alert('Error', 'Failed to save category. Please try again.');
+                                              return;
+                                            }
+
+                                            if (!savedCategory) {
+                                              console.error('[Category] No category returned after save');
+                                              Alert.alert('Error', 'Failed to save category. Please try again.');
+                                              return;
+                                            }
+                                    
+                                            console.log('[Category] Category saved successfully:', savedCategory);
+                                            
+                                            // Update local state
+                                            setCategories(prev => {
+                                              const updatedCategories = [...prev, savedCategory];
+                                              console.log('[Category] Updated categories:', updatedCategories);
+                                              return updatedCategories;
+                                            });
+                                            
+                                            // Select the new category
+                                            setSelectedCategoryId(savedCategory.id);
+                                            console.log('[Category] Selected new category:', savedCategory.id);
+                                            
+                                            // Reset form
+                                            setNewCategoryName('');
+                                            setShowNewCategoryInput(false);
+                                        
+                                            // Provide haptic feedback
+                                            if (Platform.OS !== 'web') {
+                                              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                                            }
+                                          } catch (error) {
+                                            console.error('[Category] Error in category creation:', error);
+                                            Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                                          }
+                                        }}
+                                        style={{
+                                          opacity: newCategoryName.trim() ? 1 : 0.5,
+                                          padding: 4, // Add padding to make the touch target larger
+                                        }}
+                                        activeOpacity={0.7} // Add visual feedback when pressed
+                                      >
+                                        <Ionicons 
+                                          name="checkmark" 
+                                          size={16} 
+                                          color={newCategoryName.trim() ? "#FF9A8B" : "#999"} 
+                                        />
+                                      </TouchableOpacity>
+                                )}
+                              </View>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              onPress={() => {
+                                setShowNewCategoryInput(true);
+                                setNewCategoryName('');
+                                setNewCategoryColor('#BF9264');
                               }}
-                              delayLongPress={500}
                               style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 12,
-                                borderRadius: 20,
-                                backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
-                                marginRight: 8,
+                                backgroundColor: '#fafafa',
+                                paddingVertical: 5,
+                                paddingHorizontal: 8,
+                                borderRadius: 9,
+                                borderWidth: 0,
+                                borderColor: '#eee',
                                 flexDirection: 'row',
                                 alignItems: 'center',
+                                gap: 6,
                               }}
                             >
-                             <Text
-                              style={{
-                                color: cat.id === selectedCategoryId ? '#fff' : '#333',
-                                fontWeight: '500',
-                                fontSize: 12.5, // 👈 smaller size than default
-                                textTransform: 'uppercase',
-                              }}
-                            >
-                              {cat.label}
-                            </Text>
-                            </Pressable>
-                          ))}
-                      </ScrollView>
-
-                      {/* ➕ Plus Button */}
-                      <TouchableOpacity
-                        onPress={() => {
-                          setIsNewTaskModalVisible(false);
-                          setTimeout(() => {
-                            setIsNewCategoryModalVisible(true);
-                          }, 300);
-                        }}
-                        style={{
-                          paddingVertical: 4,
-                          paddingHorizontal: 4,
-                          borderRadius: 16,
-                          backgroundColor: '#F0F0F0',
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          marginLeft: -5
-                        }}
-                      >
-                        <Ionicons name="add" size={16} color="#333" />
-                      </TouchableOpacity>
-
+                              <Ionicons name="add" size={14} color="#666" />
+                            </TouchableOpacity>
+                          )}
+                        </ScrollView>
                       </View>
+
+                      {showNewCategoryInput && (
+                        <View style={{ 
+                          flexDirection: 'row', 
+                          alignItems: 'center',
+                          marginLeft: 8,
+                          marginBottom: 12,
+                        }}>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={{ paddingRight: 20 }}
+                          >
+                            {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => (
+                              <TouchableOpacity
+                                key={color}
+                                onPress={() => setNewCategoryColor(color)}
+                                style={{
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: 12,
+                                  backgroundColor: color,
+                                  marginRight: 8,
+                                  marginLeft: 2,
+                                  opacity: newCategoryColor === color ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
+                                }}
+                              />
+                            ))}
+                          </ScrollView>
                         </View>
                       )}
-                      </View>
-
-                    {/* Quick Action Row - Fixed at bottom */}
-                    <View
-                      style={{
-                        position: 'absolute',
-                        bottom: 10,
-                        left: 0,
-                        right: 0,
-                        paddingHorizontal: 10,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        backgroundColor: 'white',
-                        zIndex: 1,
-                      }}
-                    >
-                     {/* Left Section: Folder + Calendar */}
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            {/* Folder Button */}
-            <TouchableOpacity
-          onPress={() => {
-            setShowCategoryBox(prev => !prev);
-          }}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            marginRight: 16,
-            marginLeft: 8, // 👈 shifts the entire folder icon + label to the right
-          }}
-        >
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            paddingHorizontal: 4,
-            paddingVertical: 6,
-          }}
-        >
-          <Ionicons
-            name="folder-outline"
-            size={20}
-            color={
-              selectedCategoryId
-                ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666'
-                : '#666'
-            }
-          />
-
-        {selectedCategoryId && (
-          <>
-            <Text
-              numberOfLines={1}
-              style={{
-                marginLeft: 8,
-                fontSize: 14,
-                fontWeight: '600',
-                color: categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666',
-                maxWidth: 100,
-              }}
-            >
-              {categories.find((cat) => cat.id === selectedCategoryId)?.label.toUpperCase()}
-            </Text>
-
-            {showCategoryBox && (
-              <TouchableOpacity
-                onPress={() => {
-                  setSelectedCategoryId('');
-                }}
-                style={{ marginLeft: 6 }}
-              >
-                <Ionicons
-                  name="close"
-                  size={14}
-                  color={categories.find((cat) => cat.id === selectedCategoryId)?.color || '#666'}
-                />
-              </TouchableOpacity>
-            )}
-          </>
-        )}
-
-        </View>
-
-        </TouchableOpacity>
-
-
-
-          {/* Calendar Button */}
-          <TouchableOpacity 
-            onPress={handleCalendarPress}
-            style={{ marginLeft: selectedCategoryId ? -8 : 0 }}
-          >
-            <Ionicons name="calendar-outline" size={20} color="#666" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Right Section: Send Button */}
-        <TouchableOpacity
-          onPress={editingTodo ? handleEditSave : handleSave}
-          disabled={!newTodo.trim()}
-          style={{
-            width: 28,
-            height: 28,
-            borderRadius: 15,
-            backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ECE7E1',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Ionicons name="arrow-up" size={18} color="#fff" />
-        </TouchableOpacity>
-      </View>
-            </Animated.View>
-          </View>
-        </TouchableWithoutFeedback>
-      </KeyboardAvoidingView>
-      
-    </Modal>
-
-    {/* Settings Modal */}
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={isSettingsModalVisible}
-      onRequestClose={handleCloseSettingsModal}
-    >
-      <View style={[styles.modalOverlay, { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)', justifyContent: 'flex-end' }]}>
-        <View style={[styles.modalContent, { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 20, height: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? '74%' : '67%', width: '100%' }]}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, marginTop: 10 }}>
-            <Text style={{ 
-              fontSize: 20, 
-              fontWeight: '700', 
-              color: '#1a1a1a', 
-              fontFamily: 'Onest',
-              marginLeft: 2
-            }}>
-              Task Settings
-            </Text>
-            <TouchableOpacity
-              onPress={handleCancelFromSettings}
-              style={{
-                zIndex: 10,
-                backgroundColor: 'transparent',
-                borderRadius: 16,
-                padding: 6,
-              }}
-            >
-              <Ionicons name="close" size={18} color="#666" />
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ flexGrow: 1, paddingBottom: 0, paddingTop: 10 }}>
-            {/* Calendar View */}
-            <View style={{ 
-              flex: 1,
-              width: '100%',
-              backgroundColor: 'white',
-              paddingTop: 1,
-              marginBottom: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? 40 : 0,
-            }}>
-              <MonthlyCalendar
-                selectedDate={taskDate?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0]}
-                onDayPress={(day: DateData) => {
-                  setTaskDate(new Date(day.timestamp));
-                }}
-              />
-            </View>
-
-            {/* Reminder Picker */}
-            <View
-              ref={reminderButtonRef}
-              onLayout={(e) => setReminderButtonLayout(e.nativeEvent.layout)}
-              style={{
-                marginTop: selectedRepeat !== 'none' && selectedRepeat !== 'custom' ? -20 : 0,
-              }}
-            >
-              <View style={{
-                backgroundColor: '#F5F5F5',
-                borderRadius: 12,
-                overflow: 'hidden',
-                marginBottom: 110,
-              }}>
-                {/* Set Reminder Button */}
-                <TouchableOpacity
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: 16,
-                  }}
-                  onPress={handleReminderPress}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="time-outline" size={20} color="#666" />
-                    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                      {reminderTime
-                        ? reminderTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                        : 'Set reminder'}
-                    </Text>
-                  </View>
-
-                  {reminderTime ? (
-                  <TouchableOpacity onPress={() => setReminderTime(null)}>
-                    <Ionicons name="close" size={16} color="#999" />
-                  </TouchableOpacity>
-                ) : (
-                  <Ionicons name="chevron-forward" size={18} color="#666" />
-                )}
-
-                </TouchableOpacity>
-
-                {/* Repeat Button */}
-                <TouchableOpacity
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: 16,
-                  }}
-                  onPress={() => {
-                    if (selectedRepeat) {
-                      setShowRepeatPicker(true);
-                    }
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="repeat" size={20} color="#666" />
-                    <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                      {selectedRepeat && selectedRepeat !== 'none'
-                        ? REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label
-                        : 'Set repeat'}
-                    </Text>
-                  </View>
-
-                  {selectedRepeat && selectedRepeat !== 'none' ? (
-                    <TouchableOpacity onPress={() => setSelectedRepeat('none')}>
-                      <Ionicons name="close" size={16} color="#999" />
-                    </TouchableOpacity>
-                  ) : (
-                    <Ionicons name="chevron-forward" size={18} color="#666" />
+                    </View>
                   )}
-                </TouchableOpacity>
+                  </View>
 
-                {/* Set End Date – Only show if repeat is not 'none' */}
-                {selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
-                    <>
-                      {(() => {
-                        return null;
-                      })()}
-                     <TouchableOpacity
+                {/* Quick Action Row - Fixed at bottom */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    bottom: 10,
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'white',
+                    zIndex: 1,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    {/* Category Button */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowCategoryBox(prev => !prev);
+                      }}
                       style={{
                         flexDirection: 'row',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        padding: 16,
-                      }}
-                      onPress={() => {
-                        setShowRepeatEndDatePicker(true);
+                        backgroundColor: selectedCategoryId ? '#E5F6FF' : 'transparent',
+                        paddingHorizontal: 8,
+                        paddingVertical: 5,
+                        borderRadius: 8,
+                        marginLeft: 3,
+                        marginRight: selectedCategoryId ? 10 : 2,
                       }}
                     >
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="calendar-outline" size={20} color="#666" />
-                        <Text style={{ marginLeft: 12, fontSize: 16, color: '#1a1a1a' }}>
-                          {repeatEndDate
-                            ? `Ends on ${repeatEndDate.toLocaleDateString()}`
-                            : 'Set end date'}
+                      <Ionicons
+                        name="folder-outline"
+                        size={18}
+                        color={
+                          selectedCategoryId
+                            ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666'
+                            : '#666'
+                        }
+                      />
+                      {selectedCategoryId && (
+                        <Text style={{ 
+                          marginLeft: 5,
+                          fontSize: 11,
+                          color: categories.find(cat => cat.id === selectedCategoryId)?.color || '#666',
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          {categories.find(cat => cat.id === selectedCategoryId)?.label}
                         </Text>
-                      </View>
-
-                      {repeatEndDate ? (
-                        <TouchableOpacity onPress={() => setRepeatEndDate(null)}>
-                          <Ionicons name="close" size={16} color="#999" />
-                        </TouchableOpacity>
-                      ) : (
-                        <Ionicons name="chevron-forward" size={18} color="#666" />
                       )}
                     </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </View>
 
-            {/* Simple Time Picker */}
-            <Modal
-            visible={showReminderPicker}
-            transparent
-            animationType="fade"
-            onRequestClose={handleReminderCancel}
-          >
-            <TouchableOpacity
-              activeOpacity={1}
-              onPress={() => {
-                handleReminderConfirm(); // Save time
-                setShowReminderPicker(false); // Dismiss
-              }}
-              style={{
-                flex: 1,
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                justifyContent: 'flex-end',
-              }}
-            >
-              <TouchableOpacity
-                activeOpacity={1}
-                style={{
-                  backgroundColor: '#fff',
-                  paddingTop: 16,
-                  paddingBottom: 28,
-                  borderTopLeftRadius: 20,
-                  borderTopRightRadius: 20,
-                  shadowColor: '#3A3A3A',
-                  shadowOffset: { width: 0, height: -2 },
-                  shadowOpacity: 0.1,
-                  shadowRadius: 10,
-                  elevation: 10,
-                }}
-                onPress={() => {}} // Prevent closing when tapping inside
-              >
-                <Text style={{ 
-                  fontSize: 20, 
-                  fontWeight: '700', 
-                  color: '#1a1a1a', 
-                  marginBottom: 10,
-                  marginLeft: 22,
-                  fontFamily: 'Onest'
-                }}>
-                  Reminder Time
-                </Text>
-         
-                <View style={{ 
-                  flexDirection: 'row', 
-                  justifyContent: 'space-around',
-                  paddingHorizontal: 20,
-                  marginBottom: 8
-                }}>
-                  {/* Hour Picker */}
-                  <Picker
-                    selectedValue={selectedHour}
-                    style={{ 
-                      flex: 1,
-                      height: 120,
-                    }}
-                    itemStyle={{
-                      height: 120,
-                      fontSize: 24,
-                      fontFamily: 'Onest',
-                      color: '#1a1a1a'
-                    }}
-                    onValueChange={(val) => setSelectedHour(val)}
-                  >
-                    {Array.from({ length: 12 }, (_, i) => {
-                      const val = (i + 1).toString().padStart(2, '0');
-                      return <Picker.Item key={val} label={val} value={val} />;
-                    })}
-                  </Picker>
+                    {/* Calendar Button */}
+                    <TouchableOpacity
+                      ref={dateButtonRef}
+                      onPress={() => {
+                        dateButtonRef.current?.measure((x, y, width, height, pageX, pageY) => {
+                          setDateButtonLayout({ x: pageX, y: pageY, width, height });
+                          setShowDatePicker(true);
+                        });
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: taskDate ? '#E5F6FF' : 'transparent',
+                        paddingHorizontal: 8,
+                        paddingVertical: 5,
+                        borderRadius: 8,
+                        marginRight: taskDate ? 10 : 0,
+                      }}
+                    >
+                      <Ionicons 
+                        name="calendar-outline" 
+                        size={17} 
+                        color={taskDate ? '#007AFF' : '#666'} 
+                      />
+                      {taskDate && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            dateButtonRef.current?.measure((x, y, width, height, pageX, pageY) => {
+                              setDateButtonLayout({ x: pageX, y: pageY, width, height });
+                              setShowDatePicker(true);
+                            });
+                          }}
+                          onLongPress={() => {
+                            setTaskDate(null);
+                            if (Platform.OS !== 'web') {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            }
+                          }}
+                          delayLongPress={500}
+                          style={{ marginLeft: 5 }}
+                        >
+                          <Text style={{ 
+                            fontSize: 12,
+                            color: '#007AFF',
+                            fontFamily: 'Onest',
+                            fontWeight: '500'
+                          }}>
+                            {(() => {
+                              const today = moment().startOf('day');
+                              const tomorrow = moment().add(1, 'day').startOf('day');
+                              const taskMoment = moment(taskDate).startOf('day');
+                              
+                              if (taskMoment.isSame(today)) {
+                                return 'Today';
+                              } else if (taskMoment.isSame(tomorrow)) {
+                                return 'Tomorrow';
+                              } else {
+                                return moment(taskDate).format('MMM D');
+                              }
+                            })()}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </TouchableOpacity>
 
-                  <Text style={{
-                    fontSize: 35,
-                    color: '#1a1a1a',
-                    fontFamily: 'Onest',
-                    marginHorizontal: 10,
-                    marginTop: 34
-                  }}>:</Text>
+                    {/* Reminder Button */}
+                    <TouchableOpacity
+                      ref={reminderButtonRef}
+                      onPress={() => {
+                        reminderButtonRef.current?.measure((x, y, width, height, pageX, pageY) => {
+                          setReminderButtonLayout({ x: pageX, y: pageY, width, height });
+                          setShowReminderPicker(true);
+                        });
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: reminderTime ? '#FFE5E5' : 'transparent',
+                        paddingHorizontal: 8,
+                        paddingVertical: 5,
+                        borderRadius: 8,
+                        marginRight: reminderTime ? 10 : 0,
+                      }}
+                    >
+                      <Ionicons 
+                        name="notifications-outline" 
+                        size={17} 
+                        color={reminderTime ? '#FF4D4D' : '#666'} 
+                      />
+                      {reminderTime && (
+                        <Text style={{ 
+                          marginLeft: 3,
+                          fontSize: 12,
+                          color: '#FF4D4D',
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          {moment(reminderTime).format('h:mm A')}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
 
-                  {/* Minute Picker */}
-                  <Picker
-                    selectedValue={selectedMinute}
-                    style={{ 
-                      flex: 1,
-                      height: 120,
-                    }}
-                    itemStyle={{
-                      height: 120,
-                      fontSize: 24,
-                      fontFamily: 'Onest',
-                      color: '#1a1a1a'
-                    }}
-                    onValueChange={(val) => setSelectedMinute(val)}
-                  >
-                    {Array.from({ length: 60 }, (_, i) => {
-                      const val = i.toString().padStart(2, '0');
-                      return <Picker.Item key={val} label={val} value={val} />;
-                    })}
-                  </Picker>
+                    {/* Repeat Button */}
+                    <TouchableOpacity 
+                      ref={repeatButtonRef}
+                      onPress={() => {
+                        repeatButtonRef.current?.measure((x, y, width, height, pageX, pageY) => {
+                          setRepeatButtonLayout({ x: pageX, y: pageY, width, height });
+                          setShowRepeatPicker(true);
+                        });
+                      }}
+                      style={{ 
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        backgroundColor: selectedRepeat !== 'none' ? '#FFF9E6' : 'transparent',
+                        paddingHorizontal: 8,
+                        paddingVertical: 5,
+                        borderRadius: 8,
+                        marginRight: selectedRepeat !== 'none' ? 10 : 0,
+                      }}
+                    >
+                      <Ionicons 
+                        name="repeat" 
+                        size={17} 
+                        color={selectedRepeat !== 'none' ? '#FF9500' : '#666'} 
+                      />
+                      {selectedRepeat !== 'none' && (
+                        <Text style={{ 
+                          marginLeft: 3,
+                          fontSize: 12,
+                          color: '#FF9500',
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          {REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
 
-                  {/* AM/PM Picker */}
-                  <Picker
-                    selectedValue={selectedAmPm}
-                    style={{ 
-                      flex: 1,
-                      height: 120,
-                    }}
-                    itemStyle={{
-                      height: 120,
-                      fontSize: 24,
-                      fontFamily: 'Onest',
-                      color: '#1a1a1a'
-                    }}
-                    onValueChange={(val) => setSelectedAmPm(val)}
-                  >
-                    <Picker.Item label="AM" value="AM" />
-                    <Picker.Item label="PM" value="PM" />
-                  </Picker>
+                  {/* Sticky Send Button */}
+                  <View style={{ 
+                    position: 'absolute', 
+                    right: 10, 
+                    top: 0, 
+                    bottom: 0, 
+                    justifyContent: 'center',
+                    backgroundColor: 'white',
+                    paddingLeft: 10,
+                  }}>
+                    <TouchableOpacity
+                      onPress={editingTodo ? handleEditSave : handleSave}
+                      disabled={!newTodo.trim()}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 15,
+                        backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ECE7E1',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Ionicons name="arrow-up" size={18} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
                 </View>
+              </Animated.View>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+        
+      </Modal>
+
+      
+
+      {/* New Category Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isNewCategoryModalVisible}
+        onRequestClose={() => {
+          setIsNewCategoryModalVisible(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <View style={{ flex: 1 }} />
+            <View style={{ 
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              backgroundColor: 'white',
+              padding: 20,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              shadowColor: '#000',
+              shadowOffset: {
+                width: 0,
+                height: -2,
+              },
+              shadowOpacity: 0.25,
+              shadowRadius: 3.84,
+              elevation: 5,
+            }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>New Category</Text>
+                <TouchableOpacity onPress={() => {
+                  setIsNewCategoryModalVisible(false);
+                  setTimeout(() => {
+                    setIsNewTaskModalVisible(true);
+                  }, 300);
+                }}>
+                  <Ionicons name="close" size={20} color="#666" style={{ marginTop: -8, marginRight: -5 }} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView keyboardShouldPersistTaps="always">
+                <TextInput
+                  ref={categoryInputRef}
+                  style={{
+                    fontSize: 16,
+                    color: '#1a1a1a',
+                    padding: 12,
+                    backgroundColor: '#F5F5F5',
+                    borderRadius: 12,
+                    marginBottom: 20,
+                    fontFamily: 'Onest',
+                  }}
+                  value={newCategoryName}
+                  onChangeText={setNewCategoryName}
+                  placeholder="Category name"
+                  placeholderTextColor="#999"
+                  autoFocus
+                />
+
+                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
+                
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                  keyboardShouldPersistTaps="always"
+                >
+                  {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
+                    const isSelected = newCategoryColor === color;
+                    return (
+                      <TouchableOpacity
+                        key={color}
+                        onPress={() => setNewCategoryColor(color)}
+                        style={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: 15,
+                          backgroundColor: color,
+                          marginRight: 8,
+                          marginLeft: 2,
+                          opacity: newCategoryColor === color ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
+                        }}
+                      />
+                    );
+                  })}
+                </ScrollView>
 
                 <TouchableOpacity
-                  onPress={() => {
-                    handleReminderConfirm();
-                    setShowReminderPicker(false);
+                  onPress={async () => {
+                    if (!newCategoryName.trim()) return;
+                  
+                    try {
+                      const { data: { user } } = await supabase.auth.getUser();
+                      if (!user) {
+                        Alert.alert('Error', 'You must be logged in to create categories.');
+                        return;
+                      }
+                  
+                      const newCategory = {
+                        id: uuidv4(),
+                        label: newCategoryName.trim(),
+                        color: newCategoryColor,
+                      };
+                  
+                      const { data: savedCategory, error: categoryError } = await supabase
+                        .from('categories')
+                        .insert({
+                          id: newCategory.id,
+                          label: newCategory.label,
+                          color: newCategory.color,
+                          user_id: user.id,
+                          type: 'task'  // Add type field
+                        })
+                        .select()
+                        .single();
+                  
+                      if (categoryError || !savedCategory) {
+                        console.error('Error saving category:', categoryError);
+                        Alert.alert('Error', 'Failed to save category. Please try again.');
+                        return;
+                      }
+                  
+                      // Update state in the correct order
+                      setCategories(prev => [...prev, savedCategory]);
+                      setSelectedCategoryId(savedCategory.id);
+                      setNewCategoryName('');
+                      
+                      // Close category modal and show task modal
+                      setIsNewCategoryModalVisible(false);
+                      requestAnimationFrame(() => {
+                        setIsNewTaskModalVisible(true);
+                      });
+                  
+                    } catch (error) {
+                      console.error('Error creating category:', error);
+                      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                    }
                   }}
                   style={{
                     backgroundColor: '#FF9A8B',
-                    marginHorizontal: 20,
-                    paddingVertical: 12,
+                    padding: 12,
                     borderRadius: 12,
                     alignItems: 'center',
-                    marginTop: 4,
+                    marginTop: 'auto',
+                    marginBottom: 8,
                   }}
                 >
-                  <Text style={{ 
-                    color: 'white', 
-                    fontSize: 16, 
-                    fontWeight: '600',
-                    fontFamily: 'Onest',
-                  }}>
-                    Set Time
-                  </Text>
+                  <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
                 </TouchableOpacity>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          </Modal>
-
-
-            {/* Simple Repeat Options */}
-            <Modal
-              visible={showRepeatPicker}
-              animationType="slide"
-              transparent
-              onRequestClose={() => setShowRepeatPicker(false)}
-            >
-              <TouchableOpacity
-                activeOpacity={1}
-                onPress={() => setShowRepeatPicker(false)}
-                style={{
-                  flex: 1,
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                  justifyContent: 'flex-end',
-                }}
-              >
-                <View
-                  style={{
-                    backgroundColor: '#fff',
-                    paddingTop: 16,
-                    paddingBottom: 28,
-                    borderTopLeftRadius: 20,
-                    borderTopRightRadius: 20,
-                    shadowColor: '#3A3A3A',
-                    shadowOffset: { width: 0, height: -2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 10,
-                    elevation: 10,
-                  }}
-                >
-                  <Text style={{ 
-                    fontSize: 20, 
-                    fontWeight: '700', 
-                    color: '#1a1a1a', 
-                    marginBottom: 10,
-                    marginLeft: 22,
-                    fontFamily: 'Onest'
-                  }}>
-                    Repeat
-                  </Text>
-
-                  {REPEAT_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.value}
-                      onPress={() => {
-                        setSelectedRepeat(opt.value as RepeatOption);
-                        setShowRepeatPicker(false);
-
-                        if (opt.value === 'custom') {
-                          setTimeout(() => {
-                            setShowCustomDatesPicker(true);
-                          }, 300);
-                        }
-                      }}
-                      style={{
-                        paddingVertical: 16,
-                        paddingHorizontal: 24,
-                      }}
-                    >
-                      <Text style={{ 
-                        fontSize: 16, 
-                        color: '#1a1a1a',
-                        fontFamily: 'Onest'
-                      }}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </TouchableOpacity>
-            </Modal>
-
-            <Modal
-    visible={showCustomDatesPicker}
-    transparent
-    animationType="fade"
-    onRequestClose={() => setShowCustomDatesPicker(false)}
-  >
-    <TouchableOpacity
-      activeOpacity={1}
-      onPressOut={() => setShowCustomDatesPicker(false)}
-      style={{
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.3)',
-        justifyContent: 'flex-end',
-      }}
-    >
-      <View style={{
-        backgroundColor: '#fff',
-        padding: 20,
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-      }}>
-        <RNCalendar
-          onDayPress={(day: DateData) => {
-            const dateStr = day.dateString;
-            setCustomSelectedDates((prev) =>
-              prev.includes(dateStr)
-                ? prev.filter((d) => d !== dateStr)
-                : [...prev, dateStr]
-            );
-          }}
-          markedDates={Object.fromEntries(
-            customSelectedDates.map((date) => [
-              date,
-              { selected: true, selectedColor: '#FF9A8B' },
-            ])
-          )}
-          style={{
-            width: '100%',
-          }}
-          theme={{
-            backgroundColor: 'white',
-            calendarBackground: 'white',
-            textSectionTitleColor: '#666',
-            todayTextColor: '#FF9A8B',
-            dayTextColor: '#1a1a1a',
-            textDisabledColor: '#DCD7C9',
-            dotColor: '#007AFF',
-            selectedDotColor: '#ffffff',
-            arrowColor: '#FF9A8B',
-            monthTextColor: '#1a1a1a',
-            indicatorColor: '#007AFF',
-            textDayFontSize: 14,
-            textMonthFontSize: 17,
-            textDayHeaderFontSize: 12,
-            textDayFontFamily: 'Onest',
-            textMonthFontFamily: 'Onest',
-            textDayHeaderFontFamily: 'Onest',
-            'stylesheet.calendar.header': {
-              monthText: {
-                fontSize: 17,
-                fontWeight: '500',
-                color: '#1a1a1a',
-                marginBottom: 15,
-                fontFamily: 'Onest',
-              },
-              arrow: {
-                color: '#FF9A8B',
-                marginHorizontal: 60,
-                marginBottom: 15,
-              },
-            },
-            'stylesheet.day.basic': {
-              base: {
-                width: 33,
-                height: 33,
-                alignItems: 'center',
-                justifyContent: 'center',
-              },
-              text: {
-                fontSize: 14,
-                color: '#1a1a1a',
-                backgroundColor: 'transparent',
-                textAlign: 'center',
-                marginTop: 5,
-                fontFamily: 'Onest',
-              },
-              today: {
-                backgroundColor: '#FAF9F6',
-                borderRadius: 18,
-              },
-              selected: {
-                backgroundColor: '#FF9A8B',
-                borderRadius: 18,
-              },
-              selectedText: {
-                color: '#ffffff',
-                fontFamily: 'Onest',
-              },
-            }
-          }}
-        />
-
-        <TouchableOpacity
-          onPress={() => setShowCustomDatesPicker(false)}
-          style={{
-            backgroundColor: '#FFB6B9',
-            padding: 16,
-            borderRadius: 12,
-            alignItems: 'center',
-            marginTop: 15,
-            marginBottom: 14, 
-          }}
-        >
-          <Text style={{ color: 'white', fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
-        </TouchableOpacity>
-      </View>
-    </TouchableOpacity>
-  </Modal>
-
-
-            <Modal
-              visible={showRepeatEndDatePicker}
-              transparent
-              animationType="fade"
-              onRequestClose={() => setShowRepeatEndDatePicker(false)}
-            >
-              <TouchableOpacity
-                activeOpacity={1}
-                onPress={() => {
-                  handleEndDateConfirm();
-                  setShowRepeatEndDatePicker(false);
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                  justifyContent: 'flex-end',
-                }}
-              >
-                <TouchableOpacity
-                  activeOpacity={1}
-                  style={{
-                    backgroundColor: '#fff',
-                    paddingTop: 16,
-                    paddingBottom: 28,
-                    borderTopLeftRadius: 20,
-                    borderTopRightRadius: 20,
-                    shadowColor: '#3A3A3A',
-                    shadowOffset: { width: 0, height: -2 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 10,
-                    elevation: 10,
-                  }}
-                  onPress={() => {}} // Prevent closing when tapping inside
-                >
-                  <Text style={{ 
-                    fontSize: 20, 
-                    fontWeight: '700', 
-                    color: '#1a1a1a', 
-                    marginBottom: 10,
-                    marginLeft: 22,
-                    fontFamily: 'Onest'
-                  }}>
-                    Pick End Date
-                  </Text>
-
-                  <View style={{ 
-                    flexDirection: 'row', 
-                    justifyContent: 'space-around',
-                    paddingHorizontal: 20,
-                    marginBottom: 8
-                  }}>
-                    {/* Month Picker */}
-                    <Picker selectedValue={selectedMonth} 
-                      style={{ 
-                        flex: 1,
-                        height: 120,
-                      }}
-                      itemStyle={{
-                        height: 120,
-                        fontSize: 24,
-                        fontFamily: 'Onest',
-                        color: '#1a1a1a'
-                      }}
-                      onValueChange={setSelectedMonth}>
-                      {months.map((m) => <Picker.Item key={m} label={m} value={m} />)}
-                    </Picker>
-
-                    <Text style={{
-                      fontSize: 35,
-                      color: '#1a1a1a',
-                      fontFamily: 'Onest',
-                      marginHorizontal: 10,
-                      marginTop: 34
-                    }}>/</Text>
-
-                    {/* Day Picker */}
-                    <Picker selectedValue={selectedDay} 
-                      style={{ 
-                        flex: 1,
-                        height: 120,
-                      }}
-                      itemStyle={{
-                        height: 120,
-                        fontSize: 24,
-                        fontFamily: 'Onest',
-                        color: '#1a1a1a'
-                      }}
-                      onValueChange={setSelectedDay}>
-                      {days.map((d) => <Picker.Item key={d} label={d} value={d} />)}
-                    </Picker>
-
-                    <Text style={{
-                      fontSize: 35,
-                      color: '#1a1a1a',
-                      fontFamily: 'Onest',
-                      marginHorizontal: 10,
-                      marginTop: 34
-                    }}>/</Text>
-
-                    {/* Year Picker */}
-                    <Picker selectedValue={selectedYear} 
-                      style={{ 
-                        flex: 1,
-                        height: 120,
-                      }}
-                      itemStyle={{
-                        height: 120,
-                        fontSize: 24,
-                        fontFamily: 'Onest',
-                        color: '#1a1a1a'
-                      }}
-                      onValueChange={setSelectedYear}>
-                      {years.map((y) => (
-                        <Picker.Item 
-                          key={y} 
-                          label={y.slice(-2)} 
-                          value={y} 
-                        />
-                      ))}
-                    </Picker>
-                  </View>
-
-                  <TouchableOpacity
-                    onPress={() => {
-                      handleEndDateConfirm();
-                      setShowRepeatEndDatePicker(false);
-                    }}
-                    style={{
-                      backgroundColor: '#FF9A8B',
-                      marginHorizontal: 20,
-                      paddingVertical: 12,
-                      borderRadius: 12,
-                      alignItems: 'center',
-                      marginTop: 4,
-                    }}
-                  >
-                    <Text style={{ 
-                      color: 'white', 
-                      fontSize: 16, 
-                      fontWeight: '600',
-                      fontFamily: 'Onest',
-                    }}>
-                      Set Date
-                    </Text>
-                  </TouchableOpacity>
-                </TouchableOpacity>
-              </TouchableOpacity>
-            </Modal>
-          </ScrollView>
-          
-          <View style={styles.stickyFooter}>
-            <TouchableOpacity style={[styles.doneButton, { backgroundColor: '#FF9A8B' }]} onPress={handleCloseSettingsModal}>
-              <Text style={[styles.doneText, { color: 'white' }]}>Done</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-    </Modal>
-
-    {/* New Category Modal */}
-    <Modal
-      animationType="slide"
-      transparent={true}
-      visible={isNewCategoryModalVisible}
-      onRequestClose={() => {
-        setIsNewCategoryModalVisible(false);
-      }}
-    >
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-          <View style={{ flex: 1 }} />
-          <View style={{ 
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            backgroundColor: 'white',
-            padding: 20,
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: {
-              width: 0,
-              height: -2,
-            },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-          }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>New Category</Text>
-              <TouchableOpacity onPress={() => {
-                setIsNewCategoryModalVisible(false);
-                setTimeout(() => {
-                  setIsNewTaskModalVisible(true);
-                }, 300);
-              }}>
-                <Ionicons name="close" size={20} color="#666" style={{ marginTop: -8, marginRight: -5 }} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView keyboardShouldPersistTaps="always">
-              <TextInput
-                ref={categoryInputRef}
-                style={{
-                  fontSize: 16,
-                  color: '#1a1a1a',
-                  padding: 12,
-                  backgroundColor: '#F5F5F5',
-                  borderRadius: 12,
-                  marginBottom: 20,
-                  fontFamily: 'Onest',
-                }}
-                value={newCategoryName}
-                onChangeText={setNewCategoryName}
-                placeholder="Category name"
-                placeholderTextColor="#999"
-                autoFocus
-              />
-
-              <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
-              
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 20 }}
-                keyboardShouldPersistTaps="always"
-              >
-                {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
-                  const isSelected = newCategoryColor === color;
-                  return (
-                    <TouchableOpacity
-                      key={color}
-                      onPress={() => setNewCategoryColor(color)}
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: 15,
-                        backgroundColor: color,
-                        marginRight: 8,
-                        marginLeft: 2,
-                        opacity: isSelected ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
-                      }}
-                    />
-                  );
-                })}
               </ScrollView>
-
-              <TouchableOpacity
-                onPress={async () => {
-                  if (!newCategoryName.trim()) return;
-                
-                  try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if (!user) {
-                      Alert.alert('Error', 'You must be logged in to create categories.');
-                      return;
-                    }
-                
-                    const newCategory = {
-                      id: uuidv4(),
-                      label: newCategoryName.trim(),
-                      color: newCategoryColor,
-                    };
-                
-                    const { data: savedCategory, error: categoryError } = await supabase
-                      .from('categories')
-                      .insert({
-                        id: newCategory.id,
-                        label: newCategory.label,
-                        color: newCategory.color,
-                        user_id: user.id,
-                        type: 'task'  // Add type field
-                      })
-                      .select()
-                      .single();
-                
-                    if (categoryError || !savedCategory) {
-                      console.error('Error saving category:', categoryError);
-                      Alert.alert('Error', 'Failed to save category. Please try again.');
-                      return;
-                    }
-                
-                    // Update state in the correct order
-                    setCategories(prev => [...prev, savedCategory]);
-                    setSelectedCategoryId(savedCategory.id);
-                    setNewCategoryName('');
-                    
-                    // Close category modal and show task modal
-                    setIsNewCategoryModalVisible(false);
-                    requestAnimationFrame(() => {
-                      setIsNewTaskModalVisible(true);
-                    });
-                
-                  } catch (error) {
-                    console.error('Error creating category:', error);
-                    Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                  }
-                }}
-                style={{
-                  backgroundColor: '#FF9A8B',
-                  padding: 12,
-                  borderRadius: 12,
-                  alignItems: 'center',
-                  marginTop: 'auto',
-                  marginBottom: 8,
-                }}
-              >
-                <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
-              </TouchableOpacity>
-            </ScrollView>
+            </View>
           </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Reminder Time Picker */}
+      {showReminderPicker && (
+        <View style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 999,
+        }}>
+          <TouchableOpacity
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+            }}
+            activeOpacity={1}
+            onPress={() => {
+              setLastPickerActivity(Date.now());
+              setShowReminderPicker(false);
+            }}
+          />
+          <DateTimePicker
+            value={reminderTime instanceof Date ? reminderTime : new Date()}
+            mode="datetime"
+            display="spinner"
+            onChange={(event, selectedTime) => {
+              setLastPickerActivity(Date.now()); // Update activity timestamp
+              if (selectedTime) {
+                if (selectedTime > new Date()) {
+                  setReminderTime(selectedTime);
+                  // Don't close the picker immediately, let the timer handle it
+                }
+              }
+            }}
+            minimumDate={new Date()}
+            style={{
+              position: 'absolute',
+              bottom: reminderButtonLayout.height + 18,
+              left: reminderButtonLayout.x - 40,
+              backgroundColor: 'white',
+              borderRadius: 16,
+              shadowColor: '#000',
+              shadowOffset: {
+                width: 0,
+                height: 8,
+              },
+              shadowOpacity: 0.2,
+              shadowRadius: 16,
+              elevation: 12,
+              zIndex: 1000,
+              width: 200,
+              height: 180,
+            }}
+            textColor="#333"
+          />
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
-  </GestureHandlerRootView>
-);
+      )}
+
+    </GestureHandlerRootView>
+  );
 }

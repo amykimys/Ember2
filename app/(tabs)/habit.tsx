@@ -359,6 +359,10 @@ export default function HabitScreen() {
   const [selectedProgressItem, setSelectedProgressItem] = useState<{ habitId: string; date: string } | null>(null);
   // Add new state to track if we should reopen the progress modal
   const [shouldReopenProgressModal, setShouldReopenProgressModal] = useState(false);
+  // Add this state near the other state declarations
+  const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
+  // Add new state for time picker visibility
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   // Update the useEffect for progress animations
   useEffect(() => {
@@ -2424,215 +2428,343 @@ const formatDate = (date: Date): string => {
                     }}>
                       {/* Category List */}
                       {showCategoryBox && (
-                        <View style={{
-                          paddingHorizontal: 10,
-                          paddingVertical: 0,
-                          borderBottomColor: '#E0E0E0',
-                        }}>
-                          <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={{ paddingHorizontal: 10 }}
-                            keyboardShouldPersistTaps="always"
-                            keyboardDismissMode="none"
-                          >
-                            {categories.map((cat) => (
-                              <TouchableOpacity
-                                key={cat.id}
-                                onPress={() => {
-                                  setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
-                                  setShowCategoryBox(false);
-                                  // Keep keyboard focused
-                                  setTimeout(() => {
-                                    newHabitInputRef.current?.focus();
-                                  }, 0);
-                                }}
-                                onLongPress={() => {
-                                  if (Platform.OS !== 'web') {
-                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                                  }
-                                  Alert.alert(
-                                    'Delete Category',
-                                    `Are you sure you want to delete "${cat.label}"?`,
-                                    [
-                                      {
-                                        text: 'Cancel',
-                                        style: 'cancel'
-                                      },
-                                      {
-                                        text: 'Delete',
-                                        style: 'destructive',
-                                        onPress: () => handleDeleteCategory(cat.id)
+                        <View
+                          style={{
+                            marginLeft: 8,
+                            marginBottom: 28,
+                            position: 'relative',
+                            zIndex: 2,
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                            <ScrollView 
+                              horizontal 
+                              showsHorizontalScrollIndicator={false}
+                              keyboardShouldPersistTaps="always"
+                              contentContainerStyle={{ paddingRight: 4 }}
+                              style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto' }}
+                            >
+                              {categories
+                                .filter(cat => cat.label.toLowerCase() !== 'habit')
+                                .map((cat) => (
+                                  <Pressable
+                                    key={cat.id}
+                                    onPress={() => {
+                                      setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
+                                      setShowCategoryBox(false);
+                                      setTimeout(() => {
+                                        newHabitInputRef.current?.focus();
+                                      }, 0);
+                                    }}
+                                    onLongPress={() => {
+                                      if (Platform.OS !== 'web') {
+                                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                                       }
-                                    ]
-                                  );
-                                }}
-                                delayLongPress={500}
-                                style={{
-                                  paddingVertical: 6,
-                                  paddingHorizontal: 10,
-                                  borderRadius: 20,
-                                  backgroundColor: cat.id === selectedCategoryId ? cat.color : '#F0F0F0',
-                                  marginRight: 6,
-                                  flexDirection: 'row',
+                                      Alert.alert(
+                                        'Delete Category',
+                                        `Are you sure you want to delete "${cat.label}"?`,
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          {
+                                            text: 'Delete',
+                                            style: 'destructive',
+                                            onPress: () => handleDeleteCategory(cat.id),
+                                          },
+                                        ]
+                                      );
+                                    }}
+                                    delayLongPress={500}
+                                    style={({ pressed }) => ({
+                                      backgroundColor: '#fafafa',
+                                      paddingVertical: 5,
+                                      paddingHorizontal: 8,
+                                      borderRadius: 9,
+                                      borderWidth: (pressed || selectedCategoryId === cat.id) ? 1 : 0,
+                                      borderColor: cat.color,
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      gap: 6,
+                                      marginRight: 8,
+                                    })}
+                                  >
+                                    <View style={{ 
+                                      width: 6, 
+                                      height: 6, 
+                                      borderRadius: 3, 
+                                      backgroundColor: cat.color,
+                                    }} />
+                                    <Text style={{ 
+                                      color: '#3a3a3a', 
+                                      fontSize: 12, 
+                                      fontFamily: 'Onest',
+                                      fontWeight: selectedCategoryId === cat.id ? '600' : '500'
+                                    }}>
+                                      {cat.label}
+                                    </Text>
+                                  </Pressable>
+                                ))}
+
+                              {showNewCategoryInput ? (
+                                <View style={{ 
+                                  flexDirection: 'row', 
                                   alignItems: 'center',
-                                }}
-                              >
-                                <Text
+                                  backgroundColor: '#fafafa',
+                                  paddingVertical: 5,
+                                  paddingHorizontal: 8,
+                                  borderRadius: 9,
+                                  borderWidth: 1,
+                                  borderColor: newCategoryColor,
+                                  marginRight: 8,
+                                }}>
+                                  <View style={{ 
+                                    width: 6, 
+                                    height: 6, 
+                                    borderRadius: 3, 
+                                    backgroundColor: newCategoryColor,
+                                    marginRight: 6,
+                                  }} />
+                                  <TextInput
+                                    ref={categoryInputRef}
+                                    style={{
+                                      fontSize: 12,
+                                      color: '#3a3a3a',
+                                      fontFamily: 'Onest',
+                                      padding: 0,
+                                      margin: 0,
+                                      width: 70,
+                                      maxWidth: 70,
+                                    }}
+                                    value={newCategoryName}
+                                    onChangeText={setNewCategoryName}
+                                    placeholder="New category"
+                                    placeholderTextColor="#999"
+                                    autoFocus
+                                  />
+                                  <View style={{ 
+                                    flexDirection: 'row', 
+                                    alignItems: 'center',
+                                    marginLeft: 4,
+                                    gap: 8,
+                                  }}>
+                                    <TouchableOpacity
+                                      onPress={() => setShowNewCategoryInput(false)}
+                                    >
+                                      <Ionicons name="close" size={14} color="#666" />
+                                    </TouchableOpacity>
+                                    {newCategoryName.trim() && (
+                                      <TouchableOpacity
+                                        onPress={handleCreateCategory}
+                                        style={{
+                                          opacity: newCategoryName.trim() ? 1 : 0.5,
+                                          padding: 4,
+                                        }}
+                                        activeOpacity={0.7}
+                                      >
+                                        <Ionicons 
+                                          name="checkmark" 
+                                          size={16} 
+                                          color={newCategoryName.trim() ? "#FF9A8B" : "#999"} 
+                                        />
+                                      </TouchableOpacity>
+                                    )}
+                                  </View>
+                                </View>
+                              ) : (
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setShowNewCategoryInput(true);
+                                    setNewCategoryName('');
+                                    setNewCategoryColor('#BF9264');
+                                  }}
                                   style={{
-                                    color: cat.id === selectedCategoryId ? '#fff' : '#333',
-                                    fontWeight: '500',
-                                    fontSize: 10,
-                                    textTransform: 'uppercase',
+                                    backgroundColor: '#fafafa',
+                                    paddingVertical: 5,
+                                    paddingHorizontal: 8,
+                                    borderRadius: 9,
+                                    borderWidth: 0,
+                                    borderColor: '#eee',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 6,
                                   }}
                                 >
-                                  {cat.label}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
+                                  <Ionicons name="add" size={14} color="#666" />
+                                </TouchableOpacity>
+                              )}
+                            </ScrollView>
+                          </View>
 
-                            {/* ➕ Button */}
-                            <TouchableOpacity
-                              onPress={() => {
-                                setShowCategoryBox(false);
-                                setIsNewHabitModalVisible(false);
-                                setTimeout(() => {
-                                  setIsNewCategoryModalVisible(true);
-                                }, 300);
-                              }}
-                              style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 8,
-                                borderRadius: 20,
-                                backgroundColor: '#F0F0F0',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              }}
-                            >
-                              <Ionicons name="add" size={16} color="#333" />
-                            </TouchableOpacity>
-                          </ScrollView>
+                          {showNewCategoryInput && (
+                            <View style={{ 
+                              flexDirection: 'row', 
+                              alignItems: 'center',
+                              marginLeft: 8,
+                              marginBottom: 12,
+                            }}>
+                              <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={{ paddingRight: 20 }}
+                              >
+                                {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => (
+                                  <TouchableOpacity
+                                    key={color}
+                                    onPress={() => setNewCategoryColor(color)}
+                                    style={{
+                                      width: 24,
+                                      height: 24,
+                                      borderRadius: 12,
+                                      backgroundColor: color,
+                                      marginRight: 8,
+                                      borderWidth: newCategoryColor === color ? 2 : 0,
+                                      borderColor: '#666',
+                                    }}
+                                  />
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )}
                         </View>
                       )}
 
-                      {/* Quick Action Row */}
-                      <View style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        paddingHorizontal: 10,
-                        paddingVertical: 10,
-                      }}>
-                        {/* Left Section: Color + Reminder + Photo + Repeat */}
+                      {/* Quick Action Row - Fixed at bottom */}
+                      <View
+                        style={{
+                          position: 'absolute',
+                          bottom: 10,
+                          left: 0,
+                          right: 0,
+                          backgroundColor: 'white',
+                          zIndex: 1,
+                        }}
+                      >
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          {/* Color Button and Selected Category */}
-                          <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
-                            <TouchableOpacity
-                              onPress={() => setShowCategoryBox((prev) => !prev)}
-                              style={{
-                                marginRight: 0,
-                                marginLeft: 10,
-                              }}
-                            >
-                              <Ionicons name="folder-outline" size={20} color={selectedCategoryId ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666' : '#666'} />
-                            </TouchableOpacity>
-                            
-                            {/* Selected Category Display */}
+                          {/* Category Button */}
+                          <TouchableOpacity
+                            onPress={() => {
+                              setShowCategoryBox(prev => !prev);
+                            }}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: selectedCategoryId ? '#E5F6FF' : 'transparent',
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                              borderRadius: 8,
+                              marginLeft: 3,
+                              marginRight: selectedCategoryId ? 10 : 2,
+                            }}
+                          >
+                            <Ionicons
+                              name="folder-outline"
+                              size={18}
+                              color={
+                                selectedCategoryId
+                                  ? categories.find(cat => cat.id === selectedCategoryId)?.color || '#666'
+                                  : '#666'
+                              }
+                            />
                             {selectedCategoryId && (
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setSelectedCategoryId('');
-                                  setShowCategoryBox(false);
-                                }}
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  paddingVertical: 4,
-                                  paddingHorizontal: 8,
-                                  marginRight: -14,
-                                }}
-                              >
-                                <Text style={{
-                                  color: categories.find(cat => cat.id === selectedCategoryId)?.color || '#333',
-                                  fontSize: 12,
-                                  fontWeight: '500',
-                                  textTransform: 'uppercase',
-                                  marginRight: 4,
-                                  marginTop: 2,
-                                  fontFamily: 'Onest'
-                                }}>
-                                  {categories.find(cat => cat.id === selectedCategoryId)?.label}
-                                </Text>
-                                <Ionicons name="close-circle" size={13} color={categories.find(cat => cat.id === selectedCategoryId)?.color || '#333'} style={{ marginTop: 4}} />
-                              </TouchableOpacity>
+                              <Text style={{ 
+                                marginLeft: 5,
+                                fontSize: 11,
+                                color: categories.find(cat => cat.id === selectedCategoryId)?.color || '#666',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {categories.find(cat => cat.id === selectedCategoryId)?.label}
+                              </Text>
                             )}
-                          </View>
+                          </TouchableOpacity>
+
+                          {/* Reminder Button */}
+                          <TouchableOpacity
+                            onPress={() => setShowTimePicker(!showTimePicker)}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: reminderTime ? '#FFE5E5' : 'transparent',
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                              borderRadius: 8,
+                              marginRight: reminderTime ? 10 : 0,
+                            }}
+                          >
+                            <Ionicons 
+                              name="alarm-outline" 
+                              size={17} 
+                              color={reminderTime ? '#FF4D4D' : '#666'} 
+                            />
+                            {reminderTime && (
+                              <Text style={{ 
+                                marginLeft: 3,
+                                fontSize: 12,
+                                color: '#FF4D4D',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {reminderTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
 
                           {/* Photo Button */}
                           <TouchableOpacity
                             onPress={() => setRequirePhoto(!requirePhoto)}
-                            style={{ marginRight: 16 }}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: requirePhoto ? '#FFF9E6' : 'transparent',
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                              borderRadius: 8,
+                              marginRight: requirePhoto ? 10 : 0,
+                            }}
                           >
                             <Ionicons 
                               name="camera-outline" 
-                              size={20} 
-                              color={requirePhoto ? '#FF9A8B' : '#666'} 
-                              style={{ marginTop: 2}}
+                              size={17} 
+                              color={requirePhoto ? '#FF9500' : '#666'} 
                             />
-                          </TouchableOpacity>
-
-                          {/* Reminder Button */}
-                          <TouchableOpacity 
-                            onPress={handleReminderPress}
-                            style={{ marginRight: 16, flexDirection: 'row', alignItems: 'center' }}
-                          >
-                            <Ionicons 
-                              name="alarm-outline" 
-                              size={20} 
-                              color={reminderTime ? '#FF9A8B' : '#666'} 
-                              style={{ marginTop: 2}}
-                            />
-                            {reminderTime && (
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={{ 
-                                  color: '#FF9A8B', 
-                                  fontSize: 12, 
-                                  marginLeft: 4,
-                                  marginTop: 3,
-                                  fontWeight: '500',
-                                  fontFamily: 'Onest'
-                                }}>
-                                  {reminderTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                                </Text>
-                                <TouchableOpacity 
-                                  onPress={() => {
-                                    setReminderTime(null);
-                                    setReminderEnabled(false);
-                                  }}
-                                  style={{ marginLeft: 4, marginTop: 3 }}
-                                >
-                                  <Ionicons name="close-circle" size={14} color="#FF9A8B" />
-                                </TouchableOpacity>
-                              </View>
+                            {requirePhoto && (
+                              <Text style={{ 
+                                marginLeft: 3,
+                                fontSize: 12,
+                                color: '#FF9500',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                Photo
+                              </Text>
                             )}
                           </TouchableOpacity>
                         </View>
 
-                        {/* Right Section: Send Button */}
-                        <TouchableOpacity
-                          onPress={handleSave}
-                          disabled={!newHabit.trim()}
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 15,
-                            backgroundColor: newHabit.trim() ? '#FF6B6B' : '#ECE7E1',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Ionicons name="arrow-up" size={18} color="#fff" />
-                        </TouchableOpacity>
+                        {/* Sticky Send Button */}
+                        <View style={{ 
+                          position: 'absolute', 
+                          right: 10, 
+                          top: 0, 
+                          bottom: 0, 
+                          justifyContent: 'center',
+                          backgroundColor: 'white',
+                          paddingLeft: 10,
+                        }}>
+                          <TouchableOpacity
+                            onPress={handleSave}
+                            disabled={!newHabit.trim()}
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 15,
+                              backgroundColor: newHabit.trim() ? '#FF6B6B' : '#ECE7E1',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Ionicons name="arrow-up" size={18} color="#fff" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
                   </Animated.View>
@@ -2772,317 +2904,6 @@ const formatDate = (date: Date): string => {
               </View>
             </TouchableWithoutFeedback>
           </Modal>
-
-          {/* Reminder Picker Modal */}
-          <Modal
-            visible={showReminderPicker}
-            transparent
-            animationType="fade"
-            onRequestClose={handleReminderCancel}
-          >
-            <TouchableOpacity
-              activeOpacity={1}
-              onPress={() => {
-                handleReminderConfirm(); // Save time
-                setShowReminderPicker(false); // Dismiss
-              }}
-              style={{
-                flex: 1,
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                justifyContent: 'flex-end',
-              }}
-            >
-              <TouchableOpacity
-                activeOpacity={1}
-                style={{
-                  backgroundColor: '#fff',
-                  paddingTop: 16,
-                  paddingBottom: 28,
-                  borderTopLeftRadius: 20,
-                  borderTopRightRadius: 20,
-                  shadowColor: '#3A3A3A',
-                  shadowOffset: { width: 0, height: -2 },
-                  shadowOpacity: 0.1,
-                  shadowRadius: 10,
-                  elevation: 10,
-                }}
-                onPress={() => {}} // Prevent closing when tapping inside
-              >
-                <Text style={{ 
-                  fontSize: 20, 
-                  fontWeight: '700', 
-                  color: '#1a1a1a', 
-                  marginBottom: 10,
-                  marginLeft: 22,
-                  fontFamily: 'Onest'
-                }}>
-                  Reminder Time
-                </Text>
-         
-                <View style={{ 
-                  flexDirection: 'row', 
-                  justifyContent: 'space-around',
-                  paddingHorizontal: 20,
-                  marginBottom: 8
-                }}>
-                  {/* Hour Picker */}
-                  <Picker
-                    selectedValue={selectedHour}
-                    style={{ 
-                      flex: 1,
-                      height: 120,
-                    }}
-                    itemStyle={{
-                      height: 120,
-                      fontSize: 24,
-                      fontFamily: 'Onest',
-                      color: '#1a1a1a'
-                    }}
-                    onValueChange={(val) => setSelectedHour(val)}
-                  >
-                    {Array.from({ length: 12 }, (_, i) => {
-                      const val = (i + 1).toString().padStart(2, '0');
-                      return <Picker.Item key={val} label={val} value={val} />;
-                    })}
-                  </Picker>
-
-                  <Text style={{
-                    fontSize: 35,
-                    color: '#1a1a1a',
-                    fontFamily: 'Onest',
-                    marginHorizontal: 10,
-                    marginTop: 34
-                  }}>:</Text>
-
-                  {/* Minute Picker */}
-                  <Picker
-                    selectedValue={selectedMinute}
-                    style={{ 
-                      flex: 1,
-                      height: 120,
-                    }}
-                    itemStyle={{
-                      height: 120,
-                      fontSize: 24,
-                      fontFamily: 'Onest',
-                      color: '#1a1a1a'
-                    }}
-                    onValueChange={(val) => setSelectedMinute(val)}
-                  >
-                    {Array.from({ length: 60 }, (_, i) => {
-                      const val = i.toString().padStart(2, '0');
-                      return <Picker.Item key={val} label={val} value={val} />;
-                    })}
-                  </Picker>
-
-                  {/* AM/PM Picker */}
-                  <Picker
-                    selectedValue={selectedAmPm}
-                    style={{ 
-                      flex: 1,
-                      height: 120,
-                    }}
-                    itemStyle={{
-                      height: 120,
-                      fontSize: 24,
-                      fontFamily: 'Onest',
-                      color: '#1a1a1a'
-                    }}
-                    onValueChange={(val) => setSelectedAmPm(val)}
-                  >
-                    <Picker.Item label="AM" value="AM" />
-                    <Picker.Item label="PM" value="PM" />
-                  </Picker>
-                </View>
-
-                <TouchableOpacity
-                  onPress={() => {
-                    handleReminderConfirm();
-                    setShowReminderPicker(false);
-                  }}
-                  style={{
-                    backgroundColor: '#FF9A8B',
-                    marginHorizontal: 20,
-                    paddingVertical: 12,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    marginTop: 4,
-                  }}
-                >
-                  <Text style={{ 
-                    color: 'white', 
-                    fontSize: 16, 
-                    fontWeight: '600',
-                    fontFamily: 'Onest',
-                  }}>
-                    Set Time
-                  </Text>
-                </TouchableOpacity>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          </Modal>
-
-      
-         {/* New Category Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isNewCategoryModalVisible}
-        onRequestClose={() => {
-          setIsNewCategoryModalVisible(false);
-        }}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-        >
-          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <View style={{ flex: 1 }} />
-            <View style={{ 
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
-              right: 0,
-              backgroundColor: 'white',
-              padding: 20,
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              shadowColor: '#000',
-              shadowOffset: {
-                width: 0,
-                height: -2,
-              },
-              shadowOpacity: 0.25,
-              shadowRadius: 3.84,
-              elevation: 5,
-            }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <Text style={{ fontSize: 20, fontWeight: '600', fontFamily: 'Onest' }}>New Category</Text>
-                <TouchableOpacity onPress={() => {
-                  setIsNewCategoryModalVisible(false);
-                  setTimeout(() => {
-                    setIsNewHabitModalVisible(true);
-                  }, 300);
-                }}>
-                  <Ionicons name="close" size={20} color="#666" style={{ marginTop: -8, marginRight: -5 }} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView keyboardShouldPersistTaps="always">
-                <TextInput
-                  ref={categoryInputRef}
-                  style={{
-                    fontSize: 16,
-                    color: '#1a1a1a',
-                    padding: 12,
-                    backgroundColor: '#F5F5F5',
-                    borderRadius: 12,
-                    marginBottom: 20,
-                    fontFamily: 'Onest',
-                  }}
-                  value={newCategoryName}
-                  onChangeText={setNewCategoryName}
-                  placeholder="Category name"
-                  placeholderTextColor="#999"
-                  autoFocus
-                />
-
-                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
-                
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingBottom: 20 }}
-                  keyboardShouldPersistTaps="always"
-                >
-                  {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF'].map((color) => {
-                    const isSelected = newCategoryColor === color;
-                    return (
-                      <TouchableOpacity
-                        key={color}
-                        onPress={() => setNewCategoryColor(color)}
-                        style={{
-                          width: 30,
-                            height: 30,
-                            borderRadius: 15,
-                            backgroundColor: color,
-                            marginRight: 8,
-                            marginLeft: 2,
-                            opacity: isSelected ? 1 : (newCategoryColor === '#E3F2FD' ? 1 : 0.6)
-                        }}
-                      />
-                    );
-                  })}
-                </ScrollView>
-
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (!newCategoryName.trim()) return;
-                  
-                    try {
-                      const { data: { user } } = await supabase.auth.getUser();
-                      if (!user) {
-                        Alert.alert('Error', 'You must be logged in to create categories.');
-                        return;
-                      }
-                  
-                      const newCategory = {
-                        id: uuidv4(),
-                        label: newCategoryName.trim(),
-                        color: newCategoryColor,
-                      };
-                  
-                      const { data: savedCategory, error: categoryError } = await supabase
-                        .from('categories')
-                        .insert({
-                          id: newCategory.id,
-                          label: newCategory.label,
-                          color: newCategory.color,
-                          user_id: user.id,
-                          type: 'habit'  // Add type field
-                        })
-                        .select()
-                        .single();
-                  
-                      if (categoryError || !savedCategory) {
-                        console.error('Error saving category:', categoryError);
-                        Alert.alert('Error', 'Failed to save category. Please try again.');
-                        return;
-                      }
-                  
-                      // Update state in the correct order
-                      setCategories(prev => [...prev, savedCategory]);
-                      setSelectedCategoryId(savedCategory.id);
-                      setNewCategoryName('');
-                      
-                      // Close category modal and show task modal
-                      setIsNewCategoryModalVisible(false);
-                      requestAnimationFrame(() => {
-                        setIsNewHabitModalVisible(true);
-                      });
-                  
-                    } catch (error) {
-                      console.error('Error creating category:', error);
-                      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                    }
-                  }}
-                  style={{
-                    backgroundColor: '#FF9A8B',
-                    padding: 12,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    marginTop: 'auto',
-                    marginBottom: 8,
-                  }}
-                >
-                  <Text style={{ color: 'white', fontSize: 16, fontWeight: '600', fontFamily: 'Onest' }}>Done</Text>
-                </TouchableOpacity>
-              </ScrollView>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
           {/* Note Modal */}
           <Modal

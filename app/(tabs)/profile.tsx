@@ -530,6 +530,13 @@ export default function ProfileScreen() {
                 ]
               )
             )}
+            {renderPreferenceItem(
+              'document-text-outline',
+              'Notes',
+              '',
+              () => router.push('/notes'),
+              '#FF9A8B'
+            )}
           </View>
         )}
 
