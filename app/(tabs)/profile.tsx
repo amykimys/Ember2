@@ -5,6 +5,7 @@ import { User } from '@supabase/supabase-js';
 import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { format } from 'date-fns';
 
 interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
@@ -25,8 +26,8 @@ interface Event {
   id: string;
   title: string;
   description?: string;
-  start_time: Date;
-  end_time: Date;
+  start_datetime: Date;
+  end_datetime: Date;
   category_id: string | null;
 }
 
@@ -45,6 +46,8 @@ export default function ProfileScreen() {
   const [tomorrowEvents, setTomorrowEvents] = useState<Event[]>([]);
   const [thisWeekTodos, setThisWeekTodos] = useState<Todo[]>([]);
   const [thisWeekEvents, setThisWeekEvents] = useState<Event[]>([]);
+  const [startOfWeek, setStartOfWeek] = useState<Date>(new Date());
+  const [endOfWeek, setEndOfWeek] = useState<Date>(new Date());
 
   // ✅ Configure Google Sign-In (run once)
   useEffect(() => {
@@ -270,7 +273,21 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (user) {
       loadUserPreferences();
+      fetchUpcomingData(); // Fetch upcoming data when user signs in
     }
+  }, [user]);
+
+  // Add a periodic refresh for upcoming data
+  useEffect(() => {
+    if (!user) return;
+
+    // Initial fetch
+    fetchUpcomingData();
+
+    // Set up periodic refresh every minute
+    const refreshInterval = setInterval(fetchUpcomingData, 60000);
+
+    return () => clearInterval(refreshInterval);
   }, [user]);
 
   const handlePreferenceChange = async (key: keyof UserPreferences, value: any) => {
@@ -309,13 +326,27 @@ export default function ProfileScreen() {
       dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
 
       // Get the start and end of this week (Sunday to Saturday)
-      const startOfWeek = new Date(today);
-      startOfWeek.setDate(today.getDate() - today.getDay()); // Start from Sunday
-      startOfWeek.setHours(0, 0, 0, 0);
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay()); // Start from Sunday
+      weekStart.setHours(0, 0, 0, 0);
 
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6); // End on Saturday
-      endOfWeek.setHours(23, 59, 59, 999);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6); // End on Saturday
+      weekEnd.setHours(23, 59, 59, 999);
+
+      setStartOfWeek(weekStart);
+      setEndOfWeek(weekEnd);
+
+      console.log('Date ranges for fetching:', {
+        today: today.toISOString(),
+        tomorrow: tomorrow.toISOString(),
+        dayAfterTomorrow: dayAfterTomorrow.toISOString(),
+        startOfWeek: weekStart.toISOString(),
+        endOfWeek: weekEnd.toISOString(),
+        todayDay: today.getDay(), // 0 = Sunday, 1 = Monday, etc.
+        startOfWeekDay: weekStart.getDay(),
+        endOfWeekDay: weekEnd.getDay()
+      });
 
       // Fetch today's tasks
       const { data: todayTasksData, error: todayTasksError } = await supabase
@@ -329,6 +360,7 @@ export default function ProfileScreen() {
       if (todayTasksError) {
         console.error('Error fetching today\'s tasks:', todayTasksError);
       } else {
+        console.log('Today\'s tasks fetched:', todayTasksData.length);
         setTodayTodos(todayTasksData.map(task => ({
           ...task,
           date: new Date(task.date)
@@ -347,6 +379,7 @@ export default function ProfileScreen() {
       if (tomorrowTasksError) {
         console.error('Error fetching tomorrow\'s tasks:', tomorrowTasksError);
       } else {
+        console.log('Tomorrow\'s tasks fetched:', tomorrowTasksData.length);
         setTomorrowTodos(tomorrowTasksData.map(task => ({
           ...task,
           date: new Date(task.date)
@@ -359,12 +392,13 @@ export default function ProfileScreen() {
         .select('*')
         .eq('user_id', user.id)
         .gte('date', dayAfterTomorrow.toISOString())
-        .lte('date', endOfWeek.toISOString())
+        .lte('date', weekEnd.toISOString())
         .order('date', { ascending: true });
 
       if (thisWeekTasksError) {
         console.error('Error fetching this week\'s tasks:', thisWeekTasksError);
       } else {
+        console.log('This week\'s tasks fetched:', thisWeekTasksData.length);
         setThisWeekTodos(thisWeekTasksData.map(task => ({
           ...task,
           date: new Date(task.date)
@@ -376,17 +410,18 @@ export default function ProfileScreen() {
         .from('events')
         .select('*')
         .eq('user_id', user.id)
-        .gte('start_time', today.toISOString())
-        .lt('start_time', tomorrow.toISOString())
-        .order('start_time', { ascending: true });
+        .gte('start_datetime', today.toISOString())
+        .lt('start_datetime', tomorrow.toISOString())
+        .order('start_datetime', { ascending: true });
 
       if (todayEventsError) {
         console.error('Error fetching today\'s events:', todayEventsError);
       } else {
+        console.log('Today\'s events fetched:', todayEventsData.length);
         setTodayEvents(todayEventsData.map(event => ({
           ...event,
-          start_time: new Date(event.start_time),
-          end_time: new Date(event.end_time)
+          start_datetime: new Date(event.start_datetime),
+          end_datetime: new Date(event.end_datetime)
         })));
       }
 
@@ -395,36 +430,63 @@ export default function ProfileScreen() {
         .from('events')
         .select('*')
         .eq('user_id', user.id)
-        .gte('start_time', tomorrow.toISOString())
-        .lt('start_time', dayAfterTomorrow.toISOString())
-        .order('start_time', { ascending: true });
+        .gte('start_datetime', tomorrow.toISOString())
+        .lt('start_datetime', dayAfterTomorrow.toISOString())
+        .order('start_datetime', { ascending: true });
 
       if (tomorrowEventsError) {
         console.error('Error fetching tomorrow\'s events:', tomorrowEventsError);
       } else {
+        console.log('Tomorrow\'s events fetched:', tomorrowEventsData.length);
         setTomorrowEvents(tomorrowEventsData.map(event => ({
           ...event,
-          start_time: new Date(event.start_time),
-          end_time: new Date(event.end_time)
+          start_datetime: new Date(event.start_datetime),
+          end_datetime: new Date(event.end_datetime)
         })));
       }
 
-      // Fetch this week's events (excluding today and tomorrow)
+      // Fetch this week's events (including all events from start of week to end of week)
       const { data: thisWeekEventsData, error: thisWeekEventsError } = await supabase
         .from('events')
         .select('*')
         .eq('user_id', user.id)
-        .gte('start_time', dayAfterTomorrow.toISOString())
-        .lte('start_time', endOfWeek.toISOString())
-        .order('start_time', { ascending: true });
+        .gte('start_datetime', weekStart.toISOString())
+        .lte('start_datetime', weekEnd.toISOString())
+        .order('start_datetime', { ascending: true });
 
       if (thisWeekEventsError) {
         console.error('Error fetching this week\'s events:', thisWeekEventsError);
       } else {
-        setThisWeekEvents(thisWeekEventsData.map(event => ({
+        console.log('This week\'s events fetched:', {
+          count: thisWeekEventsData.length,
+          events: thisWeekEventsData.map(event => ({
+            id: event.id,
+            title: event.title,
+            start_datetime: event.start_datetime,
+            end_datetime: event.end_datetime
+          }))
+        });
+        
+        // Filter out today's and tomorrow's events from this week's data
+        const filteredThisWeekEvents = thisWeekEventsData.filter(event => {
+          const eventDate = new Date(event.start_datetime);
+          return eventDate >= dayAfterTomorrow && eventDate <= weekEnd;
+        });
+
+        console.log('Filtered this week\'s events (excluding today and tomorrow):', {
+          count: filteredThisWeekEvents.length,
+          events: filteredThisWeekEvents.map(event => ({
+            id: event.id,
+            title: event.title,
+            start_datetime: event.start_datetime,
+            end_datetime: event.end_datetime
+          }))
+        });
+
+        setThisWeekEvents(filteredThisWeekEvents.map(event => ({
           ...event,
-          start_time: new Date(event.start_time),
-          end_time: new Date(event.end_time)
+          start_datetime: new Date(event.start_datetime),
+          end_datetime: new Date(event.end_datetime)
         })));
       }
     } catch (error) {
@@ -461,70 +523,68 @@ export default function ProfileScreen() {
   );
 
   const renderUpcomingSection = (date: Date, todos: Todo[], events: Event[], isToday: boolean, isThisWeek: boolean = false) => {
-    const dateStr = isToday ? 'Today' : isThisWeek ? 'This Week' : 'Tomorrow';
+    const dateStr = isToday ? 'Today' : isThisWeek ? 'This Week' : format(date, 'EEEE');
     const hasContent = todos.length > 0 || events.length > 0;
 
     return (
-      <View style={styles.upcomingSection}>
-        <Text style={styles.sectionTitle}>{dateStr}</Text>
-        {isLoading ? (
-          <ActivityIndicator style={styles.loader} color="#666" />
-        ) : !hasContent ? (
-          <Text style={styles.emptyText}>No tasks or events scheduled</Text>
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>{dateStr}</Text>
+          {isThisWeek && (
+            <Text style={styles.weekDate}>
+              {format(startOfWeek, 'MMM d')} - {format(endOfWeek, 'MMM d')}
+            </Text>
+          )}
+        </View>
+
+        {!hasContent ? (
+          <Text style={styles.emptyText}>No items</Text>
         ) : (
-          <View>
-            {todos.length > 0 && (
-              <View style={styles.tasksContainer}>
-                <Text style={styles.subsectionTitle}>Tasks</Text>
-                {todos.map(todo => (
-                  <TouchableOpacity
-                    key={todo.id}
-                    style={styles.itemContainer}
-                    onPress={() => router.push('/(tabs)/todo')}
-                  >
-                    <View style={[styles.checkbox, todo.completed && styles.checkboxCompleted]}>
-                      {todo.completed && <Ionicons name="checkmark" size={16} color="#fff" />}
-                    </View>
-                    <View style={styles.itemContent}>
-                      <Text style={[styles.itemText, todo.completed && styles.completedText]}>
-                        {todo.text}
-                      </Text>
-                      {isThisWeek && (
-                        <Text style={styles.itemDate}>
-                          {todo.date.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
-                        </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                ))}
+          <View style={styles.contentContainer}>
+            {todos.map((todo) => (
+              <View key={todo.id} style={styles.itemRow}>
+                <TouchableOpacity
+                  onPress={() => router.push('/(tabs)/todo')}
+                  style={styles.checkboxContainer}
+                >
+                  <View style={[styles.checkbox, todo.completed && styles.checkboxChecked]}>
+                    {todo.completed && <Ionicons name="checkmark" size={12} color="#fff" />}
+                  </View>
+                </TouchableOpacity>
+                <View style={styles.itemContent}>
+                  <Text style={[styles.itemText, todo.completed && styles.itemTextCompleted]}>
+                    {todo.text}
+                  </Text>
+                  {todo.description && (
+                    <Text style={styles.itemDescription} numberOfLines={1}>
+                      {todo.description}
+                    </Text>
+                  )}
+                </View>
               </View>
-            )}
-            {events.length > 0 && (
-              <View style={styles.eventsContainer}>
-                <Text style={styles.subsectionTitle}>Events</Text>
-                {events.map(event => (
-                  <TouchableOpacity
-                    key={event.id}
-                    style={styles.itemContainer}
-                    onPress={() => router.push('/calendar')}
-                  >
-                    <View style={styles.eventTimeContainer}>
-                      <Text style={styles.eventTime}>
-                        {formatTime(event.start_time)}
-                      </Text>
-                    </View>
-                    <View style={styles.itemContent}>
-                      <Text style={styles.itemText}>{event.title}</Text>
-                      {isThisWeek && (
-                        <Text style={styles.itemDate}>
-                          {event.start_time.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
-                        </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
+            ))}
+
+            {events.map((event) => (
+              <TouchableOpacity
+                key={event.id}
+                onPress={() => router.push('/calendar')}
+                style={styles.itemRow}
+              >
+                <View style={styles.eventTimeContainer}>
+                  <Text style={styles.eventTime}>
+                    {format(event.start_datetime, 'h:mm a')}
+                  </Text>
+                </View>
+                <View style={styles.itemContent}>
+                  <Text style={styles.itemText}>{event.title}</Text>
+                  {event.description && (
+                    <Text style={styles.itemDescription} numberOfLines={1}>
+                      {event.description}
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
       </View>
@@ -658,85 +718,111 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   name: {
-    fontSize: 20,
+    fontSize: 18,
     color: '#000',
     fontWeight: '600',
   },
   status: {
     color: '#666',
-    marginTop: 4,
-    fontSize: 14,
+    marginTop: 2,
+    fontSize: 13,
   },
   section: {
-    paddingHorizontal: 16,
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#000',
-    marginBottom: 12,
-  },
-  upcomingSection: {
-    paddingHorizontal: 16,
-    marginBottom: 24,
-  },
-  loader: {
-    marginVertical: 20,
-  },
-  emptyText: {
-    color: '#666',
-    textAlign: 'center',
-    marginVertical: 20,
-  },
-  tasksContainer: {
     marginBottom: 16,
   },
-  eventsContainer: {
-    marginBottom: 16,
-  },
-  subsectionTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 8,
-  },
-  itemContainer: {
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    marginBottom: 8,
+    paddingHorizontal: 16,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#666',
+  },
+  weekDate: {
+    fontSize: 13,
+    color: '#999',
+    marginLeft: 8,
+  },
+  emptyText: {
+    fontSize: 13,
+    color: '#999',
+    fontStyle: 'italic',
+    paddingHorizontal: 16,
+  },
+  contentContainer: {
+    backgroundColor: '#fff',
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#eee',
+  },
+  checkboxContainer: {
+    marginRight: 12,
   },
   checkbox: {
-    width: 20,
-    height: 20,
+    width: 18,
+    height: 18,
     borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#666',
-    marginRight: 12,
-    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#ddd',
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  checkboxCompleted: {
-    backgroundColor: '#34C759',
-    borderColor: '#34C759',
+  checkboxChecked: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  eventTimeContainer: {
+    minWidth: 60,
+    marginRight: 12,
+  },
+  eventTime: {
+    fontSize: 13,
+    color: '#666',
+  },
+  itemContent: {
+    flex: 1,
   },
   itemText: {
     fontSize: 15,
     color: '#000',
-    flex: 1,
   },
-  completedText: {
+  itemTextCompleted: {
+    color: '#999',
     textDecorationLine: 'line-through',
-    color: '#666',
   },
-  eventTimeContainer: {
-    width: 60,
-    marginRight: 12,
-  },
-  eventTime: {
-    fontSize: 14,
+  itemDescription: {
+    fontSize: 13,
     color: '#666',
+    marginTop: 2,
+  },
+  signOutButton: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  signOutText: {
+    color: '#FF3B30',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  signInContainer: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
+  notesButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFF5F3',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   preferenceItem: {
     flexDirection: 'row',
@@ -755,42 +841,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   preferenceLabel: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#000',
     marginLeft: 12,
   },
   preferenceValue: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
     marginRight: 8,
-  },
-  signOutButton: {
-    padding: 16,
-    alignItems: 'center',
-  },
-  signOutText: {
-    color: '#FF3B30',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  signInContainer: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  notesButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFF5F3',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  itemContent: {
-    flex: 1,
-  },
-  itemDate: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
   },
 });

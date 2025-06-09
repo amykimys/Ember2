@@ -22,6 +22,7 @@ import {
   StyleSheet,
   TouchableWithoutFeedback,
   GestureResponderEvent,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -142,32 +143,18 @@ export default function TodoScreen() {
     uncategorized: false
   });
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [hasTriggeredSwipeHaptic, setHasTriggeredSwipeHaptic] = useState(false);
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
-  const [showRepeatOptions, setShowRepeatOptions] = useState(false);
-  const [unitMenuVisible, setUnitMenuVisible] = useState(false);
   const [taskDate, setTaskDate] = useState<Date | null>(null);
-  const [showTaskDatePicker, setShowTaskDatePicker] = useState(false);
   const [repeatEndDate, setRepeatEndDate] = useState<Date | null>(null);
   const [showRepeatEndDatePicker, setShowRepeatEndDatePicker] = useState(false);
-  const [selectedTheme, setSelectedTheme] = useState<keyof typeof THEMES>('pastel');
   const [customRepeatFrequency, setCustomRepeatFrequency] = useState('1');
   const [customRepeatUnit, setCustomRepeatUnit] = useState<'days' | 'weeks' | 'months'>('days');
   const [selectedWeekDays, setSelectedWeekDays] = useState<WeekDay[]>([]);
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
-  const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [swipingTodoId, setSwipingTodoId] = useState<string | null>(null);
-  const [contentHeight, setContentHeight] = useState(0);
   const [isNewTaskModalVisible, setIsNewTaskModalVisible] = useState(false);
-  const [isSettingsModalVisible, setIsSettingsModalVisible] = useState(false);
-  const [isModalTransitioning, setIsModalTransitioning] = useState(false);
-  const [isDatePickerTransitioning, setIsDatePickerTransitioning] = useState(false);
-  const [selectedHour, setSelectedHour] = useState('12');
-  const [selectedMinute, setSelectedMinute] = useState('00');
-  const [selectedAmPm, setSelectedAmPm] = useState('AM');
   const [currentWeek, setCurrentWeek] = useState<Date[]>([]);
-  const [currentWeekIndex, setCurrentWeekIndex] = useState(0);
   const newTodoInputRef = useRef<TextInput | null>(null);
   const newDescriptionInputRef = useRef<TextInput | null>(null);
   const modalAnimation = useRef(new Animated.Value(0)).current;
@@ -180,20 +167,15 @@ export default function TodoScreen() {
   }>({ x: 0, y: 0, width: 0, height: 0 });
   const [showRepeatPicker, setShowRepeatPicker] = useState(false);
   const [calendarDates, setCalendarDates] = useState<Date[]>([]);
-  const [isMonthView, setIsMonthView] = useState(false);
   const calendarStripRef = useRef<any>(null);
   const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
-  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showCategoryBox, setShowCategoryBox] = useState(false);
   const categoryInputRef = useRef<TextInput>(null);
   const [isNewCategoryModalVisible, setIsNewCategoryModalVisible] = useState(false);
-  const [isTestModalVisible, setIsTestModalVisible] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
   const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0'));
   const [selectedDay, setSelectedDay] = useState(new Date().getDate().toString().padStart(2, '0'));
-  const [showCustomDatesPicker, setShowCustomDatesPicker] = useState(false);
   const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
-  const [selectedDateStrings, setSelectedDateStrings] = useState<string[]>([]);
   const [isSwiping, setIsSwiping] = useState(false);
   const repeatButtonRef = useRef<View>(null);
   const [repeatButtonLayout, setRepeatButtonLayout] = useState<{
@@ -202,38 +184,13 @@ export default function TodoScreen() {
     width: number;
     height: number;
   }>({ x: 0, y: 0, width: 0, height: 0 });
-  const [selectedRepeatType, setSelectedRepeatType] = useState<RepeatOption | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateButtonLayout, setDateButtonLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const dateButtonRef = useRef<View>(null);
-  const [showNativeDatePicker, setShowNativeDatePicker] = useState(false);
-  const [showNativeTimePicker, setShowNativeTimePicker] = useState(false);
   const [lastPickerActivity, setLastPickerActivity] = useState<number>(Date.now());
-
-
-
-  const years = Array.from({ length: 100 }, (_, i) => (new Date().getFullYear() + i).toString());
-  const months = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
-  const days = Array.from({ length: 31 }, (_, i) => (i + 1).toString().padStart(2, '0'));
-
-  const today = moment();
-  const todayStr = today.format('YYYY-MM-DD');
-  const isTodaySelected = moment(currentDate).format('YYYY-MM-DD') === todayStr;
-
-
-  const customDatesStyles = [
-    {
-      date: todayStr,
-      dateNameStyle: {
-        color: isTodaySelected ? '#FFB6B9' : '#FFB6B9',
-        fontWeight: 'bold',
-      },
-      dateNumberStyle: {
-        color: isTodaySelected ? '#FFB6B9' : '#FFB6B9',
-        fontWeight: 'bold',
-      },
-    },
-  ];
+  const [isLoading, setIsLoading] = useState(true);
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
+  const [user, setUser] = useState<User | null>(null);
 
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
@@ -322,8 +279,6 @@ export default function TodoScreen() {
 
   const handleSave = async () => {
     if (!newTodo.trim()) return;
-  
-  
     try {
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
@@ -570,9 +525,6 @@ export default function TodoScreen() {
   
     return false;
   };
-  
-  const todayTodos = todos.filter(todo => doesTodoBelongToday(todo, currentDate));
-
 
   const goToToday = () => {
     const today = new Date();
@@ -819,64 +771,141 @@ export default function TodoScreen() {
     return result;
   }, [filteredTodos, categories]);
 
-  // Modify the useEffect for data fetching to be more efficient
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        try {
-          // Fetch categories and tasks in parallel
-          const [categoriesResponse, tasksResponse] = await Promise.all([
-            supabase
-              .from('categories')
-              .select('*')
-              .eq('user_id', session?.user?.id)
-              .eq('type', 'task'),
-            supabase
-              .from('todos')
-              .select('*')
-              .eq('user_id', session?.user?.id)
-          ]);
+  // Add fetchData function to centralize data fetching
+  const fetchData = async () => {
+    if (!user) return;
+    
+    setIsLoading(true);
+    try {
+      // Fetch categories and tasks in parallel
+      const [categoriesResponse, tasksResponse] = await Promise.all([
+        supabase
+          .from('categories')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('type', 'task'),
+        supabase
+          .from('todos')
+          .select('*')
+          .eq('user_id', user.id)
+      ]);
 
-          if (categoriesResponse.error) {
-            console.error('[Todo] Error fetching categories:', categoriesResponse.error);
-            return;
-          }
-
-          if (tasksResponse.error) {
-            console.error('[Todo] Error fetching tasks:', tasksResponse.error);
-            return;
-          }
-
-          // Update categories
-          if (categoriesResponse.data) {
-            setCategories(categoriesResponse.data);
-          }
-
-          // Update tasks with proper date parsing
-          if (tasksResponse.data) {
-            const mappedTasks = tasksResponse.data.map(task => ({
-              ...task,
-              date: new Date(task.date),
-              repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
-              reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
-              categoryId: task.category_id || null,
-              customRepeatDates: task.custom_repeat_dates
-                ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
-                : undefined,
-            }));
-            setTodos(mappedTasks);
-          }
-        } catch (error) {
-          console.error('[Todo] Error in auth state change handler:', error);
-        }
-      } else if (event === 'SIGNED_OUT') {
-        setTodos([]);
-        setCategories([]);
-        resetForm();
+      if (categoriesResponse.error) {
+        console.error('[Todo] Error fetching categories:', categoriesResponse.error);
+        return;
       }
-    });
 
-    return () => subscription.unsubscribe();
+      if (tasksResponse.error) {
+        console.error('[Todo] Error fetching tasks:', tasksResponse.error);
+        return;
+      }
+
+      // Update categories
+      if (categoriesResponse.data) {
+        setCategories(categoriesResponse.data);
+      }
+
+      // Update tasks with proper date parsing
+      if (tasksResponse.data) {
+        const mappedTasks = tasksResponse.data.map(task => ({
+          ...task,
+          date: new Date(task.date),
+          repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+          reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
+          categoryId: task.category_id || null,
+          customRepeatDates: task.custom_repeat_dates
+            ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
+            : undefined,
+        }));
+        setTodos(mappedTasks);
+      }
+
+      setLastRefreshTime(new Date());
+    } catch (error) {
+      console.error('[Todo] Error in fetchData:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Replace the existing useEffect for data fetching with this updated version
+  useEffect(() => {
+    let categoriesSubscription: any;
+    let todosSubscription: any;
+    let refreshInterval: NodeJS.Timeout;
+
+    const setupSubscriptions = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Initial data fetch
+      await fetchData();
+
+      // Set up real-time subscriptions
+      categoriesSubscription = supabase
+        .channel('categories-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'categories',
+            filter: `user_id=eq.${user.id}`,
+          },
+          async () => {
+            console.log('[Todo] Categories changed, refreshing...');
+            await fetchData();
+          }
+        )
+        .subscribe();
+
+      todosSubscription = supabase
+        .channel('todos-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'todos',
+            filter: `user_id=eq.${user.id}`,
+          },
+          async () => {
+            console.log('[Todo] Todos changed, refreshing...');
+            await fetchData();
+          }
+        )
+        .subscribe();
+
+      // Set up periodic refresh every minute
+      refreshInterval = setInterval(fetchData, 60000);
+    };
+
+    setupSubscriptions();
+
+    // Cleanup function
+    return () => {
+      if (categoriesSubscription) {
+        categoriesSubscription.unsubscribe();
+      }
+      if (todosSubscription) {
+        todosSubscription.unsubscribe();
+      }
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+      }
+    };
+  }, [user]); // Only re-run when user changes
+
+  // Add pull-to-refresh functionality
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
   }, []);
 
   // Update the render functions to use the memoized data
@@ -1009,82 +1038,9 @@ export default function TodoScreen() {
     }, 100); // Delay until strip is rendered
   }, []);
 
-  // Add debounce function
-  const debounce = (func: () => void, wait: number) => {
-    let timeout: NodeJS.Timeout;
-    return () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => func(), wait);
-    };
-  };
-
-  // Create debounced handlers
-  const handleCalendarPress = useCallback(
-    debounce(() => {
-      if (isModalTransitioning) return;
-      setIsModalTransitioning(true);
-      setIsNewTaskModalVisible(false);
-      setTimeout(() => {
-        setIsSettingsModalVisible(true);
-        setIsModalTransitioning(false);
-      }, 300);
-    }, 300),
-    [isModalTransitioning]
-  );
-
   const handleCloseNewTaskModal = useCallback(() => {
     hideModal();
   }, []);
-
-  const handleCloseSettingsModal = useCallback(
-    debounce(() => {
-      if (isModalTransitioning) return;
-      setIsModalTransitioning(true);
-      setIsSettingsModalVisible(false);
-      setTimeout(() => {
-        showModal();
-        setIsModalTransitioning(false);
-        // Focus the input after modal transition
-        setTimeout(() => {
-          newTodoInputRef.current?.focus();
-        }, 100);
-      }, 300);
-    }, 300),
-    [isModalTransitioning]
-  );
-
-  
-  const handleCancelFromSettings = () => {
-    setIsSettingsModalVisible(false);
-    // Remove resetForm() to preserve the form data
-    setTimeout(() => {
-      setIsNewTaskModalVisible(true);
-    }, 300);
-  };
-  
-  
-  // Add reminder picker handlers
-  const handleReminderPress = useCallback(() => {
-    setShowReminderPicker(true);
-  }, []);
-
-  const handleReminderConfirm = useCallback(() => {
-    const hours = selectedAmPm === 'PM' ? (parseInt(selectedHour) % 12) + 12 : parseInt(selectedHour) % 12;
-    const time = new Date(
-      parseInt(selectedYear),
-      parseInt(selectedMonth) - 1,
-      parseInt(selectedDay),
-      hours,
-      parseInt(selectedMinute)
-    );
-    setReminderTime(time);
-    setShowReminderPicker(false);
-  }, [selectedHour, selectedMinute, selectedAmPm, selectedYear, selectedMonth, selectedDay]);
-
-  const handleReminderCancel = useCallback(() => {
-    setShowReminderPicker(false);
-  }, []);
-
 
   // Add this useEffect to initialize the current week
   useEffect(() => {
@@ -1105,16 +1061,6 @@ export default function TodoScreen() {
     setCurrentWeek(week);
   }, []);
 
-  // Function to generate week dates
-  const generateWeekDates = (startDate: Date) => {
-    const week = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startDate);
-      date.setDate(startDate.getDate() + i);
-      week.push(date);
-    }
-    return week;
-  };
 
   const onGestureEvent = (event: any) => {
     const { translationX } = event.nativeEvent;
@@ -1213,6 +1159,29 @@ export default function TodoScreen() {
   }, [showReminderPicker, lastPickerActivity]);
   
   
+  // Add useEffect for user state management
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+      } else {
+        setUser(null);
+        setTodos([]);
+        setCategories([]);
+        resetForm();
+      }
+    });
+
+    // Initial user check
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setUser(user);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+  
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -1296,8 +1265,24 @@ export default function TodoScreen() {
           </View>
 
           {/* TASK LIST */}
-          <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
-            {filteredTodos.length === 0 ? (
+          <ScrollView 
+            style={styles.todoList} 
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#FF9A8B"
+                title="Pull to refresh"
+                titleColor="#666"
+              />
+            }
+          >
+            {isLoading ? (
+              <View style={[styles.emptyState, { marginTop: 125 }]}>
+                <ActivityIndicator size="large" color="#FF9A8B" />
+              </View>
+            ) : filteredTodos.length === 0 ? (
               <View style={[styles.emptyState, { 
                 flex: 1, 
                 justifyContent: 'center', 
@@ -1348,7 +1333,8 @@ export default function TodoScreen() {
         >
           <TouchableWithoutFeedback
             onPress={(e) => {
-              if (e.target === e.currentTarget) {
+              // Only dismiss keyboard and hide modal if we're not interacting with the repeat picker
+              if (e.target === e.currentTarget && !showRepeatPicker) {
                 Keyboard.dismiss();
                 hideModal();
               }
@@ -1386,7 +1372,10 @@ export default function TodoScreen() {
                         zIndex: 999,
                       }}
                       activeOpacity={1}
-                      onPress={() => setShowRepeatPicker(false)}
+                      onPress={() => {
+                        // Don't dismiss keyboard when closing repeat picker
+                        setShowRepeatPicker(false);
+                      }}
                     />
                     <View
                       style={{
@@ -1408,7 +1397,10 @@ export default function TodoScreen() {
                         width: 175,
                       }}
                     >
-                      <ScrollView style={{ padding: 6 }}>
+                      <ScrollView 
+                        style={{ padding: 6 }}
+                        keyboardShouldPersistTaps="always"
+                      >
                         {REPEAT_OPTIONS.map((option) => (
                           <TouchableOpacity
                             key={option.value}
@@ -1416,12 +1408,24 @@ export default function TodoScreen() {
                               if (option.value === 'custom') {
                                 setSelectedRepeat(option.value);
                                 setShowRepeatPicker(false);
+                                // Keep keyboard up
+                                if (newTodoInputRef.current) {
+                                  newTodoInputRef.current.focus();
+                                }
                               } else if (option.value === 'none') {
                                 setSelectedRepeat('none');
-                                setRepeatEndDate(null); // Clear any existing end date
+                                setRepeatEndDate(null);
                                 setShowRepeatPicker(false);
+                                // Keep keyboard up
+                                if (newTodoInputRef.current) {
+                                  newTodoInputRef.current.focus();
+                                }
                               } else {
                                 setSelectedRepeat(option.value);
+                                // Keep keyboard up
+                                if (newTodoInputRef.current) {
+                                  newTodoInputRef.current.focus();
+                                }
                               }
                             }}
                             style={{
@@ -1539,8 +1543,8 @@ export default function TodoScreen() {
         minimumDate={new Date()}
         style={{
           position: 'absolute',
-          bottom: dateButtonLayout.height + 18,
-          left: dateButtonLayout.x - 40,
+          bottom: dateButtonLayout.height - 10,
+          left: dateButtonLayout.x - 50,
           backgroundColor: 'white',
           borderRadius: 16,
           shadowColor: '#000',
@@ -1552,8 +1556,9 @@ export default function TodoScreen() {
           shadowRadius: 16,
           elevation: 12,
           zIndex: 1000,
-          width: 200,
-          height: 180,
+          width: 150,
+          height: 130,
+          transform: [{ scale: 0.7 }],
         }}
         textColor="#333"
       />
@@ -1601,8 +1606,8 @@ export default function TodoScreen() {
         minimumDate={new Date()}
         style={{
           position: 'absolute',
-          bottom: reminderButtonLayout.height + 18,
-          left: reminderButtonLayout.x - 40,
+          bottom: reminderButtonLayout.height - 10,
+          left: reminderButtonLayout.x - 50,
           backgroundColor: 'white',
           borderRadius: 16,
           shadowColor: '#000',
@@ -1614,8 +1619,9 @@ export default function TodoScreen() {
           shadowRadius: 16,
           elevation: 12,
           zIndex: 1000,
-          width: 200,
-          height: 180,
+          width: 160,
+          height: 140,
+          transform: [{ scale: 0.7 }],
         }}
         textColor="#333"
       />
@@ -2412,8 +2418,8 @@ export default function TodoScreen() {
             minimumDate={new Date()}
             style={{
               position: 'absolute',
-              bottom: reminderButtonLayout.height + 18,
-              left: reminderButtonLayout.x - 40,
+              bottom: reminderButtonLayout.height - 10,
+              left: reminderButtonLayout.x - 15,
               backgroundColor: 'white',
               borderRadius: 16,
               shadowColor: '#000',
@@ -2425,8 +2431,9 @@ export default function TodoScreen() {
               shadowRadius: 16,
               elevation: 12,
               zIndex: 1000,
-              width: 200,
-              height: 180,
+              width: 160,
+              height: 140,
+              transform: [{ scale: 0.7 }],
             }}
             textColor="#333"
           />

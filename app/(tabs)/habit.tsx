@@ -24,7 +24,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Swipeable, GestureHandlerRootView, PanGestureHandler, State } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import importedStyles from '../../styles/habit.styles';
-import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Calendar } from 'lucide-react-native';
 import BottomSheet from '@gorhom/bottom-sheet';
 import * as Notifications from 'expo-notifications';
@@ -53,6 +53,7 @@ import {
   PinchGestureHandlerGestureEvent,
   PanGestureHandlerGestureEvent,
 } from 'react-native-gesture-handler';
+import { TouchableOpacity as TouchableOpacityType } from 'react-native';
 
 type RepeatOption = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
 type WeekDay = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat';
@@ -363,6 +364,11 @@ export default function HabitScreen() {
   const [showNewCategoryInput, setShowNewCategoryInput] = useState(false);
   // Add new state for time picker visibility
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [reminderButtonLayout, setReminderButtonLayout] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const reminderButtonRef = useRef<View>(null);
+  const [endDateButtonLayout, setEndDateButtonLayout] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const endDateButtonRef = useRef<View>(null);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
 
   // Update the useEffect for progress animations
   useEffect(() => {
@@ -687,8 +693,8 @@ export default function HabitScreen() {
   // Update the getWeeklyCompletionCount function to be more precise
   function getWeeklyCompletionCount(habit: Habit) {
     const today = moment();
-    const startOfWeek = moment(today).startOf('week');
-    const endOfWeek = moment(today).endOf('week');
+    const startOfWeek = moment(today).startOf('isoWeek'); // Use isoWeek to start from Monday
+    const endOfWeek = moment(today).endOf('isoWeek'); // Use isoWeek to end on Sunday
 
     // Convert dates to YYYY-MM-DD format for comparison
     const startDateStr = startOfWeek.format('YYYY-MM-DD');
@@ -748,14 +754,10 @@ const formatDate = (date: Date): string => {
     let streak = 0;
 
     // Start from current week's Monday
-    let currentWeekStart = moment(today).startOf('week');
-    currentWeekStart.add(1, 'days'); // Adjust to Monday
-
-    // Keep track of whether we've met the target in the current week
-    let currentWeekMetTarget = false;
-    let currentWeekCompletions = 0;
+    let currentWeekStart = moment(today).startOf('isoWeek'); // Use isoWeek to start from Monday
 
     // Check current week first
+    let currentWeekCompletions = 0;
     for (let i = 0; i < 7; i++) {
       const date = moment(currentWeekStart).add(i, 'days');
       const dateStr = date.format('YYYY-MM-DD');
@@ -763,17 +765,13 @@ const formatDate = (date: Date): string => {
         currentWeekCompletions++;
       }
     }
-    currentWeekMetTarget = currentWeekCompletions >= habit.targetPerWeek;
-
-    // If we haven't met the target in the current week and we're not in the current week,
-    // don't count it towards the streak
-    if (!currentWeekMetTarget && !currentWeekStart.isSame(moment().startOf('week').add(1, 'days'), 'week')) {
-      return 0;
-    }
-
+    
     // If we've met the target in the current week, start counting the streak
-    if (currentWeekMetTarget) {
+    if (currentWeekCompletions >= habit.targetPerWeek) {
       streak = 1;
+    } else {
+      // If we haven't met the target in the current week, return 0
+      return 0;
     }
 
     // Now check previous weeks
@@ -2679,7 +2677,13 @@ const formatDate = (date: Date): string => {
 
                           {/* Reminder Button */}
                           <TouchableOpacity
-                            onPress={() => setShowTimePicker(!showTimePicker)}
+                            ref={reminderButtonRef}
+                            onPress={() => {
+                              reminderButtonRef.current?.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+                                setReminderButtonLayout({ x: pageX, y: pageY, width, height });
+                                setShowReminderPicker(true);
+                              });
+                            }}
                             style={{
                               flexDirection: 'row',
                               alignItems: 'center',
@@ -2703,7 +2707,7 @@ const formatDate = (date: Date): string => {
                                 fontFamily: 'Onest',
                                 fontWeight: '500'
                               }}>
-                                {reminderTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                {moment(reminderTime).format('h:mm A')}
                               </Text>
                             )}
                           </TouchableOpacity>
@@ -3348,6 +3352,114 @@ const formatDate = (date: Date): string => {
               </View>
             </View>
           </Modal>
+
+          {/* Add the DateTimePicker component */}
+          {showReminderPicker && (
+            <View style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 999,
+            }}>
+              <TouchableOpacity
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                }}
+                activeOpacity={1}
+                onPress={() => {
+                  setShowReminderPicker(false);
+                }}
+              />
+              <DateTimePicker
+                value={reminderTime instanceof Date ? reminderTime : new Date()}
+                mode="datetime"
+                display="spinner"
+                onChange={(event, selectedTime) => {
+                  if (selectedTime) {
+                    if (selectedTime > new Date()) {
+                      setReminderTime(selectedTime);
+                    }
+                  }
+                }}
+                minimumDate={new Date()}
+                style={{
+                  position: 'absolute',
+                  bottom: reminderButtonLayout?.height ? reminderButtonLayout.height - 10 : 0,
+                  left: reminderButtonLayout?.x ? reminderButtonLayout.x - 50 : 0,
+                  backgroundColor: 'white',
+                  borderRadius: 16,
+                  shadowColor: '#000',
+                  shadowOffset: {
+                    width: 0,
+                    height: 8,
+                  },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 16,
+                  elevation: 12,
+                  zIndex: 1000,
+                  width: 160,
+                  height: 140,
+                  transform: [{ scale: 0.7 }],
+                }}
+                textColor="#333"
+              />
+            </View>
+          )}
+
+          {/* Add the DateTimePicker for end date */}
+          {showEndDatePicker && (
+            <View style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 999,
+              pointerEvents: 'box-none', // This allows touches to pass through to the keyboard
+            }}>
+              <DateTimePicker
+                value={repeatEndDate || new Date()}
+                mode="date"
+                display="spinner"
+                onChange={(event, selectedDate) => {
+                  if (selectedDate) {
+                    if (selectedDate > new Date()) {
+                      setRepeatEndDate(selectedDate);
+                    }
+                  }
+                  setShowEndDatePicker(false);
+                }}
+                minimumDate={new Date()}
+                style={{
+                  position: 'absolute',
+                  top: endDateButtonLayout?.y ? endDateButtonLayout.y + endDateButtonLayout.height + 10 : 0,
+                  left: endDateButtonLayout?.x ? endDateButtonLayout.x - 50 : 0,
+                  backgroundColor: 'white',
+                  borderRadius: 16,
+                  shadowColor: '#000',
+                  shadowOffset: {
+                    width: 0,
+                    height: 8,
+                  },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 16,
+                  elevation: 12,
+                  zIndex: 1000,
+                  width: 160,
+                  height: 140,
+                  transform: [{ scale: 0.7 }],
+                }}
+                textColor="#333"
+              />
+            </View>
+          )}
 
         </View>
       </PanGestureHandler>
