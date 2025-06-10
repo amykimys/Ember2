@@ -55,6 +55,7 @@ interface CalendarEvent {
   id: string;
   title: string;
   description?: string;
+  location?: string;
   date: string;
   startDateTime?: Date;
   endDateTime?: Date;
