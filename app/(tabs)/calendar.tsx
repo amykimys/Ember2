@@ -102,10 +102,6 @@ const getCellHeight = (date: Date | null, isCompact: boolean = false) => {
     : BASE_CELL_HEIGHT;
 };
 
-
-const NUM_COLUMNS = 7;
-const NUM_ROWS = 5;
-
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const generateMonthKey = (year: number, month: number) => `${year}-${month}`;
@@ -113,7 +109,7 @@ const generateMonthKey = (year: number, month: number) => `${year}-${month}`;
 const styles = StyleSheet.create({
 
   monthLabel: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
     textAlign: 'center',
     color: '#333',
@@ -128,7 +124,7 @@ const styles = StyleSheet.create({
       backgroundColor: 'white',
       zIndex: 1,
       marginTop: 15,
-      marginBottom: 18
+      marginBottom: 22
   },
   weekRow: {
     flexDirection: 'row',
@@ -141,7 +137,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#333',
     paddingBottom: 7,
-    fontSize: 12,
+    fontSize: 14,
     fontFamily: 'Onest',
   },
   grid: {
@@ -166,9 +162,9 @@ const styles = StyleSheet.create({
     flexDirection: 'column', 
     justifyContent: 'flex-start', 
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: 3,
     width: '100%',
-    paddingHorizontal: 1,
+    paddingHorizontal: 0,
     minHeight: 0,
     flex: 1,
     gap: 2
@@ -196,19 +192,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cellExpanded: {
-    height: BASE_CELL_HEIGHT + 4,
+    height: BASE_CELL_HEIGHT + 3.7,
   },
   cellExpandedSixRows: {
-    height: BASE_CELL_HEIGHT * 0.9 + 6,  // 10% shorter for 6-row months
+    height: BASE_CELL_HEIGHT * 0.9 + 4,  // 10% shorter for 6-row months
   },
   cellCompact: {
-    height: BASE_CELL_HEIGHT * 0.45,
+    height: BASE_CELL_HEIGHT * 0.435,
     marginBottom: 1,
     paddingTop: 1,
   },
   selectedCell: {
     borderColor: '#BF9264',
-    borderWidth: 0,
   },
   todayCell: {
     backgroundColor: 'transparent',
@@ -223,7 +218,7 @@ const styles = StyleSheet.create({
     borderRadius: 12.5,
   },
   dateNumber: {
-    fontSize: 15,
+    fontSize: 17,
     color: '#3A3A3A',
     fontFamily: 'Onest',
     textAlign: 'center',
@@ -237,10 +232,9 @@ const styles = StyleSheet.create({
     height: 8,
   },
   eventDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#A0C3B2',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   todayContainer: {
     backgroundColor: '#FAF9F6',
@@ -329,7 +323,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   eventText: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#3A3A3A',
     flex: 1,
     fontFamily: 'Onest',
@@ -353,12 +347,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
     borderRadius: 12,
   },
-  quickActionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
   inlineSettingRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -366,31 +354,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     alignSelf: 'flex-start',
   },
-  inlineSettingText: {
-    marginLeft: 12,
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-  },
-  inlineSettingTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-    fontFamily: 'Onest',
-  },
-  inlineSettingRowDate: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  inlineSettingTextDate: {
-    fontSize: 14,
-    marginLeft: 8,
-    color: '#666',
-    fontFamily: 'Onest',
-  },
+
   gridCompact: {
     paddingTop: 5,  // Add padding to the top of the grid in compact mode
     height: getCellHeight(new Date()) * 5, // Make it much more compact
@@ -413,254 +377,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
 },
-customTimePicker: {
-  height: 100,
-  overflow: 'hidden',
-  width: '100%',
-  borderRadius: 16,
-  paddingVertical: 8,
-  paddingHorizontal: 16,
-  marginBottom: 4,
-  alignItems: 'center',
-  justifyContent: 'center',
-},
-  addCategoryForm: {
-    backgroundColor: '#fafafa',
-    padding: 2,
-    borderRadius: 12,
-    marginTop: 8,
-    width: '100%',
-  },
-  addCategoryInput: {
-    fontSize: 13,
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    marginBottom: 8,
-  },
   dateTimePicker: {
     marginTop: -55, // Increased negative margin to cut off more of the top
     transform: [{ scale: 0.8 }], // This will make everything smaller including text
-  },
-  eventContainer: {
-    position: 'absolute',
-    left: 2,
-    right: 2,
-    zIndex: 1000,
-  },
-  monthHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  monthButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#A0C3B2',
-    alignItems: 'center',
-  },
-  monthText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    fontFamily: 'Onest',
-  },
-  viewToggleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  viewToggleButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#fafafa',
-    alignItems: 'center',
-  },
-  viewToggleText: {
-    fontSize: 14,
-    color: '#333',
-    fontFamily: 'Onest',
-  },
-  categoryPickerButton: {
-    backgroundColor: '#fafafa',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginTop: 2,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-    marginBottom: 15,
-  },
-  categoryPickerContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 8,
-    width: '100%',
-  },
-  categoryOption: {
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 9,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  categoryDot: {
-    width: 6, 
-    height: 6, 
-    borderRadius: 3, 
-  },
-  categoryText: {
-    fontSize: 12, 
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    fontWeight: '500'
-  },
-  selectedCategoryDot: {
-    width: 8, 
-    height: 8, 
-    borderRadius: 4, 
-    marginRight: 8
-  },
-  selectedCategoryText: {
-    fontSize: 13, 
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    fontWeight: '500'
-  },
-
-  addCategoryButton: {
-    backgroundColor: '#fafafa',
-    paddingVertical: 5,
-    paddingHorizontal: 8,
-    borderRadius: 9,
-    borderWidth: 0,
-    borderColor: '#eee',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  allDayContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  allDayText: {
-    fontSize: 13,
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    marginRight: 20,
-  },
-  dateTimeContainer: {
-    flex:1,
-    marginBottom: 20,
-  },
-  dateTimeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  dateTimeColumn: {
-    flex: 1,
-    marginRight: 12,
-  },
-  dateTimeLabel: {
-    fontSize: 13,
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    marginBottom: 6,
-  },
-  dateTimeButton: {
-    backgroundColor: '#fafafa',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginTop: 2,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  dateTimeText: {
-    fontSize: 13,
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    fontWeight: '500'
-  },
-  pickerContainer: {
-    marginTop: 12,
-  },
-  reminderRepeatContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  reminderRepeatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  reminderRepeatColumn: {
-    flex: 1,
-  },
-  reminderRepeatLabel: {
-    fontSize: 13,
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    marginBottom: 6,
-  },
-  reminderRepeatButton: {
-    backgroundColor: '#fafafa',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginTop: 2,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  reminderRepeatText: {
-    fontSize: 13,
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    fontWeight: '500',
-  },
-  timePicker: {
-    height: 180,
-    width: '100%',
-  },
-  repeatPickerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  repeatOption: {
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    marginBottom: 4,
-  },
-  repeatOptionText: {
-    fontSize: 13,
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    fontWeight: '500',
   },
   deleteButton: {
     backgroundColor: '#FAF9F6',
@@ -691,64 +410,6 @@ customTimePicker: {
     fontFamily: 'Onest',
     fontWeight: '600',
   },
-  featureButton: {
-    backgroundColor: '#fafafa',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginTop: 2,
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  featureButtonText: {
-    fontSize: 12, 
-    color: '#3a3a3a',
-    fontFamily: 'Onest',
-    fontWeight: '500'
-  },
-  customTimeBox: {
-    backgroundColor: '#fafafa',
-    borderRadius: 12,
-    padding: 12,
-    width: '100%',
-    borderWidth: 1,
-    borderColor: '#eee',
-  },
-  selectedTimeBox: {
-    backgroundColor: '#fff',
-    borderColor: '#FF9A8B',
-    borderWidth: 1,
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#f0f0f0',
-  },
-  modalButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  modalButtonText: {
-    fontSize: 14,
-    color: '#333',
-    fontFamily: 'Onest',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
   dateHeader: {
     borderTopWidth: 1,
     borderTopColor: '#eee',
@@ -756,7 +417,7 @@ customTimePicker: {
     paddingTop: 18,
   },
   dateHeaderText: {
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: '500',
     color: '#333',
     paddingLeft: 12,
@@ -881,7 +542,6 @@ const CalendarScreen: React.FC = (): JSX.Element => {
   } | null>(null);
   const [showEditEventModal, setShowEditEventModal] = useState(false);
   const [userChangedEndTime, setUserChangedEndTime] = useState(false);
-  const [userChangedEditedEndTime, setUserChangedEditedEndTime] = useState(false);
   const [showCustomDatesPicker, setShowCustomDatesPicker] = useState(false);
   const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
   const [isEditingEvent, setIsEditingEvent] = useState(false);
@@ -2331,7 +1991,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       {/* Fixed Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => setCalendarMode('week')}>
-          <MaterialIcons name="calendar-view-week" size={20} color="#333" />
+          <MaterialIcons name="calendar-view-week" size={24} color="#333" />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -2382,7 +2042,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             setShowCustomDatesPicker(true);
           }}
         >
-          <MaterialIcons name="add" size={22} color="#3a3a3a" />
+          <MaterialIcons name="add" size={24} color="#3a3a3a" />
         </TouchableOpacity>
       </View>
 
@@ -2446,8 +2106,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         backgroundColor: '#fff',
                         borderRadius: 12,
                         marginTop: 20,
-                        marginBottom: 0,
-                        paddingVertical: 0,
                         paddingHorizontal: 16,
                       }}
                       onPress={() => {
@@ -2482,10 +2140,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       />
                       {/* Event Info */}
                       <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#222', marginBottom: 2 }}>
+                        <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#222', marginBottom: 3.5 }}>
                           {event.title}
                         </Text>
-                        <Text style={{ fontSize: 13, color: '#666', marginBottom: event.description ? 2 : 0 }}>
+                        <Text style={{ fontSize: 15, color: '#666', marginBottom: event.description ? 2 : 0 }}>
                           {event.isAllDay
                             ? 'All day'
                             : `${new Date(event.startDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(event.endDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
@@ -2513,7 +2171,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       {/* Fixed Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => setCalendarMode('month')}>
-          <MaterialIcons name="calendar-view-month" size={20} color="#333" />
+          <MaterialIcons name="calendar-view-month" size={24} color="#333" />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -2576,7 +2234,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             setShowCustomDatesPicker(true);
           }}
         >
-          <MaterialIcons name="add" size={22} color="#3a3a3a" />
+          <MaterialIcons name="add" size={24} color="#3a3a3a" />
         </TouchableOpacity>
       </View>
 
@@ -2654,6 +2312,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         transparent={false}
         visible={showModal}
         onRequestClose={() => setShowModal(false)}
+        presentationStyle="pageSheet"
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
           <View style={{ flex: 1 }}>
@@ -2763,8 +2422,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               
                       <TextInput
                       style={{
-                        fontSize: 15,
-                        color: '#333',
+                        fontSize: 17,
                         fontFamily: 'Onest',
                         fontWeight: '500',
                         marginBottom: 5,
@@ -3617,7 +3275,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     </Text>
                       <TextInput
                       style={{
-                        fontSize: 15,
+                        fontSize: 17,
                         color: '#333',
                         fontFamily: 'Onest',
                         fontWeight: '500',
@@ -3909,493 +3567,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         </SafeAreaView>
         </Modal>
 
-
-        <Modal
-          visible={showCustomDatesPicker}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowCustomDatesPicker(false)}
-        >
-          <View style={{
-              flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-              justifyContent: 'flex-end',
-          }}>
-            <View style={{
-              backgroundColor: '#fff',
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              height: '90%',
-              flexDirection: 'column',
-            }}>
-              <View style={{ 
-                flexDirection: 'row', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                paddingHorizontal: 20,
-                paddingTop: 25,
-                paddingBottom: 15,
-              }}>
-                <Text style={{ 
-                  fontSize: 18, 
-                  fontWeight: '600', 
-                  color: '#3a3a3a',
-                  fontFamily: 'Onest'
-                }}>
-                  {isEditingEvent ? 'Edit Event with Custom Dates' : 'Add Event with Custom Dates'}
-                </Text>
-                <TouchableOpacity 
-                  onPress={() => setShowCustomDatesPicker(false)}
-                >
-                  <Ionicons name="close" size={20} color="#666" />
-                </TouchableOpacity>
-              </View>
-              
-              <ScrollView style={{ flex: 1 }}>
-                <View style={{ padding: 20 }}>
-                  {/* Title and Description Section */}
-                  <View style={{ marginBottom: 24 }}>
-                    <TextInput
-                      style={[styles.inputTitle, { marginBottom: 12 }]}
-                      placeholder="Title"
-                      value={customModalTitle}
-                      onChangeText={setCustomModalTitle}
-                    />
-                    <TextInput
-                      style={[styles.inputDescription, { marginBottom: 12 }]}
-                      placeholder="Description (optional)"
-                      value={customModalDescription}
-                      onChangeText={setCustomModalDescription}
-                      multiline
-                    />
-                  </View>
-
-                     {/* Calendar Section */}
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{ 
-                      fontSize: 15, 
-                      fontWeight: '600', 
-                      color: '#3a3a3a',
-                      marginBottom: 12,
-                      fontFamily: 'Onest'
-                    }}>
-                      {selectedTimeBox ? 'Select Dates' : 'Select Dates'}
-                    </Text>
-                    <RNCalendar
-                      onDayPress={(day: DateData) => {
-                        // Create a date object in the local timezone
-                        const localDate = new Date(day.timestamp);
-                        const dateStr = localDate.toISOString().split('T')[0]; // Get YYYY-MM-DD format
-                        
-                        if (selectedTimeBox) {
-                          // Add date to the selected time box
-                          const updatedCustomDateTimes = { ...customDateTimes };
-                          const timeBox = updatedCustomDateTimes[selectedTimeBox];
-                          
-                          if (!timeBox.dates.includes(dateStr)) {
-                            // Add the date to the time box's dates array
-                            updatedCustomDateTimes[selectedTimeBox] = {
-                              ...timeBox,
-                              dates: [...timeBox.dates, dateStr]
-                            };
-                            setCustomDateTimes(updatedCustomDateTimes);
-                            
-                            // Also update customSelectedDates if needed
-                            if (!customSelectedDates.includes(dateStr)) {
-                              setCustomSelectedDates(prev => [...prev, dateStr]);
-                            }
-                          } else {
-                            // Remove the date from the time box's dates array
-                            updatedCustomDateTimes[selectedTimeBox] = {
-                              ...timeBox,
-                              dates: timeBox.dates.filter(d => d !== dateStr)
-                            };
-                            setCustomDateTimes(updatedCustomDateTimes);
-                            
-                            // Also update customSelectedDates if no other time box has this date
-                            const isDateUsedByOtherTimeBox = Object.entries(updatedCustomDateTimes).some(
-                              ([key, data]) => key !== selectedTimeBox && data.dates.includes(dateStr)
-                            );
-                            if (!isDateUsedByOtherTimeBox) {
-                              setCustomSelectedDates(prev => prev.filter(d => d !== dateStr));
-                            }
-                          }
-                        } else {
-                          // If no time box is selected, create a new one
-                          const timeBoxKey = `time_${Date.now()}`;
-                          const currentTime = new Date();
-                          const newTimeBox: CustomTimeData = {
-                            start: new Date(currentTime),
-                            end: new Date(currentTime.getTime() + 60 * 60 * 1000),
-                            reminder: null,
-                            repeat: 'None',
-                            dates: [dateStr]
-                          };
-
-                          setCustomDateTimes(prev => ({
-                            ...prev,
-                            [timeBoxKey]: newTimeBox
-                          }));
-                          setSelectedTimeBox(timeBoxKey);
-                          setCustomSelectedDates(prev => [...prev, dateStr]);
-                        }
-                      }}
-                      markedDates={(() => {
-                        const marked: { [key: string]: { selected: boolean; selectedColor: string } } = {};
-                        
-                        // Mark all dates that are in any time box
-                        Object.values(customDateTimes).forEach(timeBox => {
-                          timeBox.dates.forEach(date => {
-                            marked[date] = {
-                              selected: true,
-                              selectedColor: selectedTimeBox && customDateTimes[selectedTimeBox]?.dates.includes(date)
-                                ? '#FF9A8B'  // Highlight color for selected time box dates
-                                : '#f0f0f0'  // Default color for other time box dates
-                            };
-                          });
-                        });
-                        
-                        return marked;
-                      })()}
-                      style={{
-                        borderRadius: 12,
-                        marginBottom: 16
-                      }}
-                    />
-                  </View>
-
-
-                  {/* Time Boxes Section */}
-                  <View style={{ marginBottom: 24 }}>
-                    <Text style={{ 
-                      fontSize: 15, 
-                      fontWeight: '600', 
-                      color: '#3a3a3a',
-                      marginBottom: 12,
-                      fontFamily: 'Onest'
-                    }}>
-                      Time Settings
-                    </Text>
-
-                    {Object.entries(customDateTimes).map(([key, timeData]) => {
-                      if (key === 'default') return null;
-
-                      return (
-                        <View key={key} style={timeBoxStyles.container}>
-                          <View style={timeBoxStyles.header}>
-                            <Text style={timeBoxStyles.dateText}>
-                              {timeData.dates.map(date => new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })).join(', ')}
-                            </Text>
-                            <TouchableOpacity
-                              onPress={() => {
-                                const updatedTimes = { ...customDateTimes };
-                                const datesToRemove = timeData.dates;
-                                delete updatedTimes[key];
-                                setCustomDateTimes(updatedTimes);
-                                setCustomSelectedDates(prev => prev.filter(date => !datesToRemove.includes(date)));
-                              }}
-                              style={{ padding: 4 }}
-                            >
-                              <Ionicons name="close-circle" size={20} color="#999" />
-                            </TouchableOpacity>
-                          </View>
-
-                          <View style={timeBoxStyles.timeContainer}>
-                            <TouchableOpacity
-                              onPress={() => handleEditTimeBox(key, 'start')}
-                              style={timeBoxStyles.timeButton}
-                            >
-                              <Text style={timeBoxStyles.timeLabel}>Start</Text>
-                              <Text style={timeBoxStyles.timeValue}>
-                                {timeData.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                              </Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                              onPress={() => handleEditTimeBox(key, 'end')}
-                              style={timeBoxStyles.timeButton}
-                            >
-                              <Text style={timeBoxStyles.timeLabel}>End</Text>
-                              <Text style={timeBoxStyles.timeValue}>
-                                {timeData.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-
-                          {isTimePickerVisible && editingTimeBoxId === key && (
-                            <View style={timeBoxStyles.pickerContainer}>
-                              <Text style={timeBoxStyles.pickerLabel}>
-                                {currentEditingField === 'start' ? 'Set Start Time' : 'Set End Time'}
-                              </Text>
-                              <DateTimePicker
-                                value={timeData[currentEditingField]}
-                                mode="time"
-                                display="spinner"
-                                onChange={(event, selectedDate) => {
-                                  if (selectedDate) {
-                                    handleTimeSelection(selectedDate, currentEditingField);
-                                  }
-                                }}
-                                style={{ height: 150 }}
-                                textColor="#333"
-                              />
-                              <TouchableOpacity
-                                onPress={() => handleTimeBoxSave(key)}
-                                style={timeBoxStyles.doneButton}
-                              >
-                                <Text style={timeBoxStyles.doneButtonText}>Save & Select Dates</Text>
-                              </TouchableOpacity>
-                            </View>
-                          )}
-                        </View>
-                      );
-                    })}
-
-                    {/* Add Custom Time Button */}
-                    {!isTimePickerVisible && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          const timeBoxKey = `time_${Date.now()}`;
-                          const currentTime = new Date();
-                          const newTimeBox: CustomTimeData = {
-                            start: new Date(currentTime),
-                            end: new Date(currentTime.getTime() + 60 * 60 * 1000),
-                            reminder: null,
-                            repeat: 'None',
-                            dates: []
-                          };
-
-                          setCustomDateTimes(prev => ({
-                            ...prev,
-                            [timeBoxKey]: newTimeBox
-                          }));
-
-                          setEditingTimeBoxId(timeBoxKey);
-                          setCurrentEditingField('start');
-                          setIsTimePickerVisible(true);
-                        }}
-                        style={timeBoxStyles.addTimeButton}
-                      >
-                        <Text style={timeBoxStyles.addTimeButtonText}>Add Time</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-
-                  {/* Custom Time Picker */}
-                  {showCustomTimePicker && editingTimeBoxId && (
-                  <View style={{
-                    backgroundColor: '#fff',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 20,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 2,
-                    elevation: 1,
-                  }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                      {/* Start Time */}
-                      <View style={{ flex: 1, marginRight: 12 }}>
-                        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>
-                          Start Time
-                        </Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setCurrentEditingField('start');
-                            setIsTimePickerVisible(true);
-                          }}
-                          style={{
-                            backgroundColor: '#fafafa',
-                            borderRadius: 12,
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            alignItems: 'center',
-                            borderWidth: currentEditingField === 'start' ? 1 : 0,
-                            borderColor: '#FF9A8B',
-                          }}
-                        >
-                          <Text style={{
-                            fontSize: 13,
-                            color: '#3a3a3a',
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
-                            {(tempTimeBox?.start || customDateTimes[editingTimeBoxId]?.start)?.toLocaleTimeString([], {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true
-                            }) || '--:-- --'}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* End Time */}
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 13, color: '#3a3a3a', marginBottom: 6, fontFamily: 'Onest' }}>
-                          End Time
-                        </Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setCurrentEditingField('end');
-                            setIsTimePickerVisible(true);
-                          }}
-                          style={{
-                            backgroundColor: '#fafafa',
-                            borderRadius: 12,
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            alignItems: 'center',
-                            borderWidth: currentEditingField === 'end' ? 1 : 0,
-                            borderColor: '#FF9A8B',
-                          }}
-                        >
-                          <Text style={{
-                            fontSize: 13,
-                            color: '#3a3a3a',
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
-                            {(tempTimeBox?.end || customDateTimes[editingTimeBoxId]?.end)?.toLocaleTimeString([], {
-                              hour: 'numeric',
-                              minute: '2-digit',
-                              hour12: true
-                            }) || '--:-- --'}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-
-                    {/* Time Picker */}
-                    {isTimePickerVisible && (
-                      <View style={{ marginTop: 12 }}>
-                        <DateTimePicker
-                          value={tempTimeBox?.[currentEditingField] || customDateTimes[editingTimeBoxId]?.[currentEditingField] || new Date()}
-                          mode="time"
-                          display="spinner"
-                          onChange={(event, selectedDate) => handleTimeSelection(selectedDate || null, currentEditingField)}
-                          style={{ height: 150, width: '100%' }}
-                          textColor="#333"
-                        />
-
-                        {/* Save and Cancel Buttons */}
-                        <View style={{ 
-                          flexDirection: 'row', 
-                          justifyContent: 'space-between', 
-                          marginTop: 16,
-                          gap: 12
-                        }}>
-                          <TouchableOpacity
-                            onPress={() => setIsTimePickerVisible(false)}
-                            style={{
-                              flex: 1,
-                              backgroundColor: '#f5f5f5',
-                              paddingVertical: 12,
-                              borderRadius: 12,
-                              alignItems: 'center'
-                            }}
-                          >
-                            <Text style={{ 
-                              fontSize: 15, 
-                              color: '#666',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              Cancel
-                            </Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            onPress={() => {
-                              setTempTimeBox(customDateTimes[editingTimeBoxId]);
-                              setIsTimePickerVisible(false);
-                              setCurrentEditingField('start');
-                            }}
-                            style={{
-                              flex: 1,
-                              backgroundColor: '#FF9A8B',
-                              paddingVertical: 12,
-                              borderRadius: 12,
-                              alignItems: 'center'
-                            }}
-                          >
-                            <Text style={{ 
-                              fontSize: 15, 
-                              color: '#fff',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              Save
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                  )}
-
-                  {/* Save and Delete Buttons for Custom Modal */}
-                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
-                    {editingEvent && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          if (selectedEvent?.event.id) {
-                            Alert.alert(
-                              'Delete Event',
-                              'Are you sure you want to delete this event?',
-                              [
-                                {
-                                  text: 'Cancel',
-                                  style: 'cancel'
-                                },
-                                {
-                                  text: 'Delete',
-                                  style: 'destructive',
-                                  onPress: async () => {
-                                    try {
-                                      await handleDeleteEvent(selectedEvent.event.id);
-                                      setShowEditEventModal(false);
-                                      setSelectedEvent(null);
-                                      setEditingEvent(null);
-                                    } catch (error) {
-                                      console.error('Error deleting event:', error);
-                                      Alert.alert('Error', 'Failed to delete event. Please try again.');
-                                    }
-                                  }
-                                }
-                              ]
-                            );
-                          }
-                        }}
-                        style={styles.deleteButton}
-                      >
-                        <Text style={styles.deleteButtonText}>Delete</Text>
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity
-                      onPress={handleEditEvent}
-                      style={styles.saveButton}
-                    >
-                      <Text style={styles.saveButtonText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-        <Toast
-          config={{
-            success: (props) => <CustomToast {...props} />,
-          }}
-        />
-
         {/* Edit Event Modal */}
         <Modal
           animationType="slide"
           transparent={false}
           visible={showEditEventModal}
           onRequestClose={() => setShowEditEventModal(false)}
+          presentationStyle="pageSheet"
         >
           <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
             <View style={{ flex: 1 }}>
@@ -4476,14 +3654,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 }}>
                     <TextInput
                     style={{
-                      fontSize: 15,
+                      fontSize: 17,
                       color: '#333',
                       fontFamily: 'Onest',
                       fontWeight: '500',
                       marginBottom: 5,
                     }}
                     placeholder="Event Title"
-                    placeholderTextColor="#3a3a3a"
+                    placeholderTextColor="#888"
                       value={editedEventTitle}
                       onChangeText={setEditedEventTitle}
                     />
@@ -4884,7 +4062,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     <View style={{
                                       flexDirection: 'row',
                                       flexWrap: 'wrap',
-                          gap: 6,
+                            gap: 6,
                                       marginBottom: 12,
                                     }}>
                                       {CATEGORY_COLORS.map((color) => (

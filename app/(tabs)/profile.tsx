@@ -1,67 +1,103 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput } from 'react-native';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { format } from 'date-fns';
+import * as ImagePicker from 'expo-image-picker';
 
 interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
   notifications_enabled: boolean;
   default_view: 'day' | 'week' | 'month';
+  email_notifications: boolean;
+  push_notifications: boolean;
 }
 
-interface Todo {
+interface UserProfile {
   id: string;
-  text: string;
-  description?: string;
-  completed: boolean;
-  date: Date;
-  category_id: string | null;
+  full_name: string;
+  avatar_url: string;
+  bio: string;
+  timezone: string;
+  username: string;
+  created_at: string;
 }
 
-interface Event {
-  id: string;
-  title: string;
-  description?: string;
-  start_datetime: Date;
-  end_datetime: Date;
-  category_id: string | null;
+interface Friend {
+  friend_id: string;
+  friend_name: string;
+  friend_avatar: string;
+  friend_username: string;
+  friendship_id: string;
+  status: string;
+  created_at: string;
+}
+
+interface FriendRequest {
+  requester_id: string;
+  requester_name: string;
+  requester_avatar: string;
+  requester_username: string;
+  friendship_id: string;
+  created_at: string;
+}
+
+interface SearchResult {
+  user_id: string;
+  full_name: string;
+  avatar_url: string;
+  username: string;
+  is_friend: boolean;
+  friendship_status: string;
 }
 
 export default function ProfileScreen() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [preferences, setPreferences] = useState<UserPreferences>({
     theme: 'system',
     notifications_enabled: true,
-    default_view: 'day'
+    default_view: 'day',
+    email_notifications: true,
+    push_notifications: true
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [todayTodos, setTodayTodos] = useState<Todo[]>([]);
-  const [tomorrowTodos, setTomorrowTodos] = useState<Todo[]>([]);
-  const [todayEvents, setTodayEvents] = useState<Event[]>([]);
-  const [tomorrowEvents, setTomorrowEvents] = useState<Event[]>([]);
-  const [thisWeekTodos, setThisWeekTodos] = useState<Todo[]>([]);
-  const [thisWeekEvents, setThisWeekEvents] = useState<Event[]>([]);
-  const [startOfWeek, setStartOfWeek] = useState<Date>(new Date());
-  const [endOfWeek, setEndOfWeek] = useState<Date>(new Date());
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  
+  // Edit profile form state
+  const [editForm, setEditForm] = useState({
+    full_name: '',
+    bio: '',
+    avatar_url: '',
+    username: ''
+  });
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
 
-  // ✅ Configure Google Sign-In (run once)
+  // Friends state
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [activeFriendsTab, setActiveFriendsTab] = useState<'friends' | 'requests' | 'search'>('friends');
+  const [showFriendsModal, setShowFriendsModal] = useState(false);
+
+  // Configure Google Sign-In
   useEffect(() => {
     GoogleSignin.configure({
       scopes: ['email', 'profile', 'openid'],
       webClientId: '407418160129-v3c55fd6db3f8mv747p9q5tsbcmvnrik.apps.googleusercontent.com',
       iosClientId: '407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds.apps.googleusercontent.com',
       offlineAccess: true,
-      hostedDomain: '', // optional
+      hostedDomain: '',
     });
 
     const checkSession = async () => {
       try {
-        console.log('[Profile] Starting session check...');
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
@@ -69,19 +105,12 @@ export default function ProfileScreen() {
           return;
         }
 
-        console.log('[Profile] Session check result:', {
-          hasSession: !!session,
-          userEmail: session?.user?.email,
-          userId: session?.user?.id,
-          accessToken: session?.access_token ? 'present' : 'missing',
-          refreshToken: session?.refresh_token ? 'present' : 'missing'
-        });
-
-      if (session?.user) {
-          console.log('[Profile] Setting user from session:', session.user.email);
-        setUser(session.user);
-        } else {
-          console.log('[Profile] No user found in session');
+        if (session?.user) {
+          setUser(session.user);
+          await loadUserProfile(session.user.id);
+          await loadUserPreferences(session.user.id);
+          await loadFriends(session.user.id);
+          await loadFriendRequests(session.user.id);
         }
       } catch (error) {
         console.error('[Profile] Error in checkSession:', error);
@@ -90,21 +119,18 @@ export default function ProfileScreen() {
 
     checkSession();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('[Profile] Auth state changed:', {
-        event,
-        userEmail: session?.user?.email,
-        userId: session?.user?.id,
-        hasAccessToken: !!session?.access_token,
-        hasRefreshToken: !!session?.refresh_token
-      });
-
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
-        console.log('[Profile] Setting user from auth state change:', session.user.email);
         setUser(session.user);
+        await loadUserProfile(session.user.id);
+        await loadUserPreferences(session.user.id);
+        await loadFriends(session.user.id);
+        await loadFriendRequests(session.user.id);
       } else {
-        console.log('[Profile] No user in auth state change');
         setUser(null);
+        setProfile(null);
+        setFriends([]);
+        setFriendRequests([]);
       }
     });
 
@@ -113,18 +139,291 @@ export default function ProfileScreen() {
     };
   }, []);
 
+  const loadUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error loading profile:', error);
+        return;
+      }
+
+      if (data) {
+        setProfile(data);
+        // Initialize edit form with current profile data
+        setEditForm({
+          full_name: data.full_name || '',
+          bio: data.bio || '',
+          avatar_url: data.avatar_url || '',
+          username: data.username || ''
+        });
+      } else {
+        // Create default profile
+        const defaultProfile: UserProfile = {
+          id: userId,
+          full_name: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User',
+          avatar_url: user?.user_metadata?.avatar_url || '',
+          bio: '',
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          username: '',
+          created_at: new Date().toISOString()
+        };
+
+        const { error: insertError } = await supabase
+          .from('profiles')
+          .insert(defaultProfile);
+
+        if (!insertError) {
+          setProfile(defaultProfile);
+          setEditForm({
+            full_name: defaultProfile.full_name,
+            bio: defaultProfile.bio,
+            avatar_url: defaultProfile.avatar_url,
+            username: defaultProfile.username
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error in loadUserProfile:', error);
+    }
+  };
+
+  const loadUserPreferences = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_preferences')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error loading preferences:', error);
+        return;
+      }
+
+      if (data) {
+        setPreferences({
+          theme: data.theme || 'system',
+          notifications_enabled: data.notifications_enabled ?? true,
+          default_view: data.default_view || 'day',
+          email_notifications: data.email_notifications ?? true,
+          push_notifications: data.push_notifications ?? true
+        });
+      } else {
+        // Create default preferences
+        const defaultPreferences: UserPreferences = {
+          theme: 'system',
+          notifications_enabled: true,
+          default_view: 'day',
+          email_notifications: true,
+          push_notifications: true
+        };
+
+        const { error: insertError } = await supabase
+          .from('user_preferences')
+          .insert({
+            user_id: userId,
+            ...defaultPreferences,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (!insertError) {
+          setPreferences(defaultPreferences);
+        }
+      }
+    } catch (error) {
+      console.error('Error in loadUserPreferences:', error);
+    }
+  };
+
+  // Friends functions
+  const loadFriends = async (userId: string) => {
+    try {
+      const { data, error } = await supabase.rpc('get_user_friends', {
+        user_uuid: userId
+      });
+
+      if (error) {
+        console.error('Error loading friends:', error);
+        return;
+      }
+
+      setFriends(data || []);
+    } catch (error) {
+      console.error('Error in loadFriends:', error);
+    }
+  };
+
+  const loadFriendRequests = async (userId: string) => {
+    try {
+      const { data, error } = await supabase.rpc('get_pending_friend_requests', {
+        user_uuid: userId
+      });
+
+      if (error) {
+        console.error('Error loading friend requests:', error);
+        return;
+      }
+
+      setFriendRequests(data || []);
+    } catch (error) {
+      console.error('Error in loadFriendRequests:', error);
+    }
+  };
+
+  const searchUsers = async (term: string) => {
+    if (!user || !term.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+      const { data, error } = await supabase.rpc('search_users', {
+        search_term: term.trim(),
+        current_user_id: user.id
+      });
+
+      if (error) {
+        console.error('Error searching users:', error);
+        return;
+      }
+
+      setSearchResults(data || []);
+    } catch (error) {
+      console.error('Error in searchUsers:', error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const sendFriendRequest = async (friendId: string) => {
+    if (!user) return;
+
+    try {
+      const { error } = await supabase
+        .from('friendships')
+        .insert({
+          user_id: user.id,
+          friend_id: friendId,
+          status: 'pending'
+        });
+
+      if (error) {
+        if (error.code === '23505') { // Unique constraint violation
+          Alert.alert('Error', 'Friend request already sent or friendship already exists.');
+        } else {
+          throw error;
+        }
+        return;
+      }
+
+      Alert.alert('Success', 'Friend request sent!');
+      // Refresh search results to update the UI
+      await searchUsers(searchTerm);
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+      Alert.alert('Error', 'Failed to send friend request. Please try again.');
+    }
+  };
+
+  const acceptFriendRequest = async (friendshipId: string) => {
+    try {
+      const { error } = await supabase
+        .from('friendships')
+        .update({ status: 'accepted' })
+        .eq('id', friendshipId);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Friend request accepted!');
+      // Refresh both friends and requests
+      if (user) {
+        await loadFriends(user.id);
+        await loadFriendRequests(user.id);
+      }
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      Alert.alert('Error', 'Failed to accept friend request. Please try again.');
+    }
+  };
+
+  const declineFriendRequest = async (friendshipId: string) => {
+    try {
+      const { error } = await supabase
+        .from('friendships')
+        .delete()
+        .eq('id', friendshipId);
+
+      if (error) throw error;
+
+      Alert.alert('Success', 'Friend request declined.');
+      // Refresh requests
+      if (user) {
+        await loadFriendRequests(user.id);
+      }
+    } catch (error) {
+      console.error('Error declining friend request:', error);
+      Alert.alert('Error', 'Failed to decline friend request. Please try again.');
+    }
+  };
+
+  const removeFriend = async (friendshipId: string) => {
+    Alert.alert(
+      'Remove Friend',
+      'Are you sure you want to remove this friend?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('friendships')
+                .delete()
+                .eq('id', friendshipId);
+
+              if (error) throw error;
+
+              Alert.alert('Success', 'Friend removed.');
+              // Refresh friends
+              if (user) {
+                await loadFriends(user.id);
+              }
+            } catch (error) {
+              console.error('Error removing friend:', error);
+              Alert.alert('Error', 'Failed to remove friend. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSearch = (text: string) => {
+    setSearchTerm(text);
+    if (text.trim()) {
+      searchUsers(text);
+    } else {
+      setSearchResults([]);
+    }
+  };
+
   const handleSignIn = async () => {
     try {
-      console.log('[Profile] Starting sign in process...');
+      setIsLoading(true);
       await GoogleSignin.hasPlayServices();
       const signInResponse = await GoogleSignin.signIn();
-      console.log('[Profile] Google sign in successful:', signInResponse);
       
       const { idToken } = await GoogleSignin.getTokens();
-      console.log('[Profile] Got ID token:', idToken ? 'Yes' : 'No');
   
       if (!idToken) {
-        console.error('[Profile] No ID token present');
         throw new Error('No ID token present');
       }
   
@@ -134,161 +433,51 @@ export default function ProfileScreen() {
       });
   
       if (error) {
-        console.error('[Profile] Supabase sign-in error:', {
-          message: error.message,
-          status: error.status,
-          name: error.name
-        });
         Alert.alert('Error', 'Failed to sign in. Please try again.');
       } else {
-        console.log('[Profile] Sign in successful:', {
-          email: data.user?.email,
-          id: data.user?.id,
-          hasSession: !!data.session,
-          hasAccessToken: !!data.session?.access_token
-        });
         setUser(data.user ?? null);
       }
     } catch (error: any) {
-      console.error('[Profile] Sign in error:', {
-        code: error.code,
-        message: error.message,
-        name: error.name
-      });
+      console.error('[Profile] Sign in error:', error);
       
-      if (error.code === statusCodes.SIGN_IN_CANCELLED) {
-        console.log('[Profile] User cancelled sign-in.');
-      } else if (error.code === statusCodes.IN_PROGRESS) {
-        console.log('[Profile] Sign-in already in progress.');
-      } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
-        console.log('[Profile] Play Services not available.');
-      } else {
+      if (error.code !== statusCodes.SIGN_IN_CANCELLED) {
         Alert.alert('Error', 'An unexpected error occurred during sign in.');
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleSignOut = async () => {
-    try {
-      console.log('Starting sign out process...');
-      
-      // First, revoke Google access and sign out
-      try {
-      await GoogleSignin.revokeAccess();
-      await GoogleSignin.signOut();
-        console.log('Successfully signed out from Google');
-      } catch (googleError) {
-        console.error('Error signing out from Google:', googleError);
-        // Continue with Supabase sign out even if Google sign out fails
-      }
-      
-      // Then sign out from Supabase
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('Error signing out from Supabase:', error.message);
-        throw error;
-      }
-      
-      console.log('Successfully signed out from Supabase');
-        setUser(null);
-      
-      // Force clear any remaining auth state by signing out again
-      try {
-        await GoogleSignin.signOut();
-      } catch (error) {
-        console.log('Second sign out attempt completed');
-      }
-      
-    } catch (error) {
-      console.error('Error in handleSignOut:', error);
-      Alert.alert(
-        'Error',
-        'There was a problem signing out. Please try again.'
-      );
-    }
-  };
-
-  const loadUserPreferences = async () => {
-    if (!user) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from('user_preferences')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // No preferences found, create default preferences
-          const defaultPreferences: UserPreferences = {
-            theme: 'system',
-            notifications_enabled: true,
-            default_view: 'day'
-          };
-
-          const { error: insertError } = await supabase
-            .from('user_preferences')
-            .insert({
-              user_id: user.id,
-              ...defaultPreferences,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
-
-          if (insertError) {
-            console.error('Error creating default preferences:', insertError);
-            return;
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await GoogleSignin.revokeAccess();
+              await GoogleSignin.signOut();
+              
+              const { error } = await supabase.auth.signOut();
+              if (error) {
+                throw error;
+              }
+              
+              setUser(null);
+              setProfile(null);
+            } catch (error) {
+              console.error('Error in handleSignOut:', error);
+              Alert.alert('Error', 'There was a problem signing out. Please try again.');
+            }
           }
-
-          setPreferences(defaultPreferences);
-          return;
         }
-
-        console.error('Error loading preferences:', error);
-        return;
-      }
-
-      if (data) {
-        // Ensure all required fields are present and match the type
-        const preferences: UserPreferences = {
-          theme: (data.theme as 'light' | 'dark' | 'system') || 'system',
-          notifications_enabled: data.notifications_enabled ?? true,
-          default_view: (data.default_view as 'day' | 'week' | 'month') || 'day'
-        };
-        setPreferences(preferences);
-      }
-    } catch (error) {
-      console.error('Error in loadUserPreferences:', error);
-      // Set default preferences if there's an error
-      const defaultPreferences: UserPreferences = {
-        theme: 'system',
-        notifications_enabled: true,
-        default_view: 'day'
-      };
-      setPreferences(defaultPreferences);
-    }
+      ]
+    );
   };
-
-  useEffect(() => {
-    if (user) {
-      loadUserPreferences();
-      fetchUpcomingData(); // Fetch upcoming data when user signs in
-    }
-  }, [user]);
-
-  // Add a periodic refresh for upcoming data
-  useEffect(() => {
-    if (!user) return;
-
-    // Initial fetch
-    fetchUpcomingData();
-
-    // Set up periodic refresh every minute
-    const refreshInterval = setInterval(fetchUpcomingData, 60000);
-
-    return () => clearInterval(refreshInterval);
-  }, [user]);
 
   const handlePreferenceChange = async (key: keyof UserPreferences, value: any) => {
     if (!user) return;
@@ -311,382 +500,740 @@ export default function ProfileScreen() {
     }
   };
 
-  const fetchUpcomingData = async () => {
-    if (!user) return;
-    
-    setIsLoading(true);
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      const dayAfterTomorrow = new Date(tomorrow);
-      dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 1);
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to delete your account? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Delete user data from all tables
+              const { error } = await supabase.rpc('delete_user_data', {
+                user_id: user?.id
+              });
 
-      // Get the start and end of this week (Sunday to Saturday)
-      const weekStart = new Date(today);
-      weekStart.setDate(today.getDate() - today.getDay()); // Start from Sunday
-      weekStart.setHours(0, 0, 0, 0);
+              if (error) throw error;
 
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6); // End on Saturday
-      weekEnd.setHours(23, 59, 59, 999);
-
-      setStartOfWeek(weekStart);
-      setEndOfWeek(weekEnd);
-
-      console.log('Date ranges for fetching:', {
-        today: today.toISOString(),
-        tomorrow: tomorrow.toISOString(),
-        dayAfterTomorrow: dayAfterTomorrow.toISOString(),
-        startOfWeek: weekStart.toISOString(),
-        endOfWeek: weekEnd.toISOString(),
-        todayDay: today.getDay(), // 0 = Sunday, 1 = Monday, etc.
-        startOfWeekDay: weekStart.getDay(),
-        endOfWeekDay: weekEnd.getDay()
-      });
-
-      // Fetch today's tasks
-      const { data: todayTasksData, error: todayTasksError } = await supabase
-        .from('todos')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', today.toISOString())
-        .lt('date', tomorrow.toISOString())
-        .order('date', { ascending: true });
-
-      if (todayTasksError) {
-        console.error('Error fetching today\'s tasks:', todayTasksError);
-      } else {
-        console.log('Today\'s tasks fetched:', todayTasksData.length);
-        setTodayTodos(todayTasksData.map(task => ({
-          ...task,
-          date: new Date(task.date)
-        })));
-      }
-
-      // Fetch tomorrow's tasks
-      const { data: tomorrowTasksData, error: tomorrowTasksError } = await supabase
-        .from('todos')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', tomorrow.toISOString())
-        .lt('date', dayAfterTomorrow.toISOString())
-        .order('date', { ascending: true });
-
-      if (tomorrowTasksError) {
-        console.error('Error fetching tomorrow\'s tasks:', tomorrowTasksError);
-      } else {
-        console.log('Tomorrow\'s tasks fetched:', tomorrowTasksData.length);
-        setTomorrowTodos(tomorrowTasksData.map(task => ({
-          ...task,
-          date: new Date(task.date)
-        })));
-      }
-
-      // Fetch this week's tasks (excluding today and tomorrow)
-      const { data: thisWeekTasksData, error: thisWeekTasksError } = await supabase
-        .from('todos')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', dayAfterTomorrow.toISOString())
-        .lte('date', weekEnd.toISOString())
-        .order('date', { ascending: true });
-
-      if (thisWeekTasksError) {
-        console.error('Error fetching this week\'s tasks:', thisWeekTasksError);
-      } else {
-        console.log('This week\'s tasks fetched:', thisWeekTasksData.length);
-        setThisWeekTodos(thisWeekTasksData.map(task => ({
-          ...task,
-          date: new Date(task.date)
-        })));
-      }
-
-      // Fetch today's events
-      const { data: todayEventsData, error: todayEventsError } = await supabase
-        .from('events')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('start_datetime', today.toISOString())
-        .lt('start_datetime', tomorrow.toISOString())
-        .order('start_datetime', { ascending: true });
-
-      if (todayEventsError) {
-        console.error('Error fetching today\'s events:', todayEventsError);
-      } else {
-        console.log('Today\'s events fetched:', todayEventsData.length);
-        setTodayEvents(todayEventsData.map(event => ({
-          ...event,
-          start_datetime: new Date(event.start_datetime),
-          end_datetime: new Date(event.end_datetime)
-        })));
-      }
-
-      // Fetch tomorrow's events
-      const { data: tomorrowEventsData, error: tomorrowEventsError } = await supabase
-        .from('events')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('start_datetime', tomorrow.toISOString())
-        .lt('start_datetime', dayAfterTomorrow.toISOString())
-        .order('start_datetime', { ascending: true });
-
-      if (tomorrowEventsError) {
-        console.error('Error fetching tomorrow\'s events:', tomorrowEventsError);
-      } else {
-        console.log('Tomorrow\'s events fetched:', tomorrowEventsData.length);
-        setTomorrowEvents(tomorrowEventsData.map(event => ({
-          ...event,
-          start_datetime: new Date(event.start_datetime),
-          end_datetime: new Date(event.end_datetime)
-        })));
-      }
-
-      // Fetch this week's events (including all events from start of week to end of week)
-      const { data: thisWeekEventsData, error: thisWeekEventsError } = await supabase
-        .from('events')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('start_datetime', weekStart.toISOString())
-        .lte('start_datetime', weekEnd.toISOString())
-        .order('start_datetime', { ascending: true });
-
-      if (thisWeekEventsError) {
-        console.error('Error fetching this week\'s events:', thisWeekEventsError);
-      } else {
-        console.log('This week\'s events fetched:', {
-          count: thisWeekEventsData.length,
-          events: thisWeekEventsData.map(event => ({
-            id: event.id,
-            title: event.title,
-            start_datetime: event.start_datetime,
-            end_datetime: event.end_datetime
-          }))
-        });
-        
-        // Filter out today's and tomorrow's events from this week's data
-        const filteredThisWeekEvents = thisWeekEventsData.filter(event => {
-          const eventDate = new Date(event.start_datetime);
-          return eventDate >= dayAfterTomorrow && eventDate <= weekEnd;
-        });
-
-        console.log('Filtered this week\'s events (excluding today and tomorrow):', {
-          count: filteredThisWeekEvents.length,
-          events: filteredThisWeekEvents.map(event => ({
-            id: event.id,
-            title: event.title,
-            start_datetime: event.start_datetime,
-            end_datetime: event.end_datetime
-          }))
-        });
-
-        setThisWeekEvents(filteredThisWeekEvents.map(event => ({
-          ...event,
-          start_datetime: new Date(event.start_datetime),
-          end_datetime: new Date(event.end_datetime)
-        })));
-      }
-    } catch (error) {
-      console.error('Error fetching upcoming data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  const renderPreferenceItem = (
-    icon: string,
-    label: string,
-    value: any,
-    onPress: () => void,
-    color: string = '#666'
-  ) => (
-    <TouchableOpacity
-      style={styles.preferenceItem}
-      onPress={onPress}
-    >
-      <View style={styles.preferenceItemLeft}>
-        <Ionicons name={icon as any} size={22} color={color} />
-        <Text style={styles.preferenceLabel}>{label}</Text>
-      </View>
-      <View style={styles.preferenceItemRight}>
-        <Text style={styles.preferenceValue}>{value}</Text>
-        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-      </View>
-    </TouchableOpacity>
-  );
-
-  const renderUpcomingSection = (date: Date, todos: Todo[], events: Event[], isToday: boolean, isThisWeek: boolean = false) => {
-    const dateStr = isToday ? 'Today' : isThisWeek ? 'This Week' : format(date, 'EEEE');
-    const hasContent = todos.length > 0 || events.length > 0;
-
-    return (
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{dateStr}</Text>
-          {isThisWeek && (
-            <Text style={styles.weekDate}>
-              {format(startOfWeek, 'MMM d')} - {format(endOfWeek, 'MMM d')}
-            </Text>
-          )}
-        </View>
-
-        {!hasContent ? (
-          <Text style={styles.emptyText}>No items</Text>
-        ) : (
-          <View style={styles.contentContainer}>
-            {todos.map((todo) => (
-              <View key={todo.id} style={styles.itemRow}>
-                <TouchableOpacity
-                  onPress={() => router.push('/(tabs)/todo')}
-                  style={styles.checkboxContainer}
-                >
-                  <View style={[styles.checkbox, todo.completed && styles.checkboxChecked]}>
-                    {todo.completed && <Ionicons name="checkmark" size={12} color="#fff" />}
-                  </View>
-                </TouchableOpacity>
-                <View style={styles.itemContent}>
-                  <Text style={[styles.itemText, todo.completed && styles.itemTextCompleted]}>
-                    {todo.text}
-                  </Text>
-                  {todo.description && (
-                    <Text style={styles.itemDescription} numberOfLines={1}>
-                      {todo.description}
-                    </Text>
-                  )}
-                </View>
-              </View>
-            ))}
-
-            {events.map((event) => (
-              <TouchableOpacity
-                key={event.id}
-                onPress={() => router.push('/calendar')}
-                style={styles.itemRow}
-              >
-                <View style={styles.eventTimeContainer}>
-                  <Text style={styles.eventTime}>
-                    {format(event.start_datetime, 'h:mm a')}
-                  </Text>
-                </View>
-                <View style={styles.itemContent}>
-                  <Text style={styles.itemText}>{event.title}</Text>
-                  {event.description && (
-                    <Text style={styles.itemDescription} numberOfLines={1}>
-                      {event.description}
-                    </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </View>
+              // Sign out
+              await supabase.auth.signOut();
+              setUser(null);
+              setProfile(null);
+              
+              Alert.alert('Success', 'Your account has been deleted.');
+            } catch (error) {
+              console.error('Error deleting account:', error);
+              Alert.alert('Error', 'Failed to delete account. Please try again.');
+            }
+          }
+        }
+      ]
     );
   };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        {/* Profile Header */}
-        <View style={styles.header}>
-          <View style={styles.headerLeft} />
-          <View style={styles.profileInfo}>
-            <Text style={styles.name}>
-              {user?.user_metadata?.full_name || user?.email || 'Your Name'}
-            </Text>
-            <Text style={styles.status}>
-              {user ? 'Signed In' : 'Not Signed In'}
-            </Text>
+  const handleEditProfile = () => {
+    // Initialize edit form with current profile data
+    setEditForm({
+      full_name: profile?.full_name || '',
+      bio: profile?.bio || '',
+      avatar_url: profile?.avatar_url || '',
+      username: profile?.username || ''
+    });
+    setIsEditingProfile(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user || !profile) return;
+
+    setIsSavingProfile(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: editForm.full_name.trim(),
+          bio: editForm.bio.trim(),
+          avatar_url: editForm.avatar_url.trim(),
+          username: editForm.username.trim(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setProfile(prev => prev ? {
+        ...prev,
+        full_name: editForm.full_name.trim(),
+        bio: editForm.bio.trim(),
+        avatar_url: editForm.avatar_url.trim(),
+        username: editForm.username.trim()
+      } : null);
+
+      setIsEditingProfile(false);
+      Alert.alert('Success', 'Profile updated successfully!');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      Alert.alert('Error', 'Failed to update profile. Please try again.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    // Reset form to original values
+    setEditForm({
+      full_name: profile?.full_name || '',
+      bio: profile?.bio || '',
+      avatar_url: profile?.avatar_url || '',
+      username: profile?.username || ''
+    });
+    setIsEditingProfile(false);
+  };
+
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Camera permission is required to take photos.');
+      return false;
+    }
+    return true;
+  };
+
+  const requestMediaLibraryPermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Media library permission is required to select photos.');
+      return false;
+    }
+    return true;
+  };
+
+  const handleImagePicker = async (source: 'camera' | 'library') => {
+    try {
+      let permissionGranted = false;
+      
+      if (source === 'camera') {
+        permissionGranted = await requestCameraPermission();
+      } else {
+        permissionGranted = await requestMediaLibraryPermission();
+      }
+
+      if (!permissionGranted) return;
+
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      };
+
+      let result;
+      if (source === 'camera') {
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+
+      if (!result.canceled && result.assets[0]) {
+        await uploadImage(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+    }
+  };
+
+  const uploadImage = async (uri: string) => {
+    if (!user) return;
+
+    setIsUploadingImage(true);
+    try {
+      // Convert image to base64
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      // Create a unique filename
+      const fileExt = uri.split('.').pop() || 'jpg';
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+
+      console.log('Uploading file:', fileName);
+
+      // Upload to Supabase Storage
+      const { data, error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, blob, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw uploadError;
+      }
+
+      console.log('Upload successful:', data);
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName);
+
+      console.log('Public URL:', publicUrl);
+
+      // Update the profile with the new avatar URL
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_url: publicUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('Update error:', updateError);
+        throw updateError;
+      }
+
+      // Update local state
+      setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : null);
+      setEditForm(prev => ({ ...prev, avatar_url: publicUrl }));
+
+      Alert.alert('Success', 'Profile photo updated successfully!');
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      Alert.alert('Error', 'Failed to upload image. Please try again.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const showImagePickerOptions = () => {
+    Alert.alert(
+      'Change Profile Photo',
+      'Choose an option',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Photo', onPress: () => handleImagePicker('camera') },
+        { text: 'Choose from Library', onPress: () => handleImagePicker('library') },
+      ]
+    );
+  };
+
+  const renderProfileHeader = () => (
+    <View style={styles.profileHeader}>
+      <View style={styles.avatarContainer}>
+        {profile?.avatar_url ? (
+          <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarPlaceholder}>
+            <Ionicons name="person" size={40} color="#fff" />
           </View>
-          <View style={styles.headerRight}>
-            {user && (
-              <TouchableOpacity
-                style={styles.notesButton}
-                onPress={() => router.push('/notes')}
-              >
-                <Ionicons name="document-text-outline" size={24} color="#FF9A8B" />
-              </TouchableOpacity>
-            )}
-          </View>
+        )}
+        <TouchableOpacity 
+          style={styles.editAvatarButton}
+          onPress={showImagePickerOptions}
+        >
+          <Ionicons name="camera" size={16} color="#fff" />
+        </TouchableOpacity>
+      </View>
+      
+      <View style={styles.profileInfo}>
+        <Text style={styles.profileName}>
+          {profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}
+        </Text>
+        <Text style={styles.profileEmail}>
+          {user?.email || 'email@example.com'}
+        </Text>
+        {profile?.bio && (
+          <Text style={styles.profileBio}>{profile.bio}</Text>
+        )}
+      </View>
+
+      <TouchableOpacity 
+        style={styles.editProfileButton}
+        onPress={handleEditProfile}
+      >
+        <Ionicons name="pencil" size={16} color="#007AFF" />
+        <Text style={styles.editProfileText}>Edit</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderEditProfileModal = () => (
+    <Modal
+      visible={isEditingProfile}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={handleCancelEdit}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={handleCancelEdit} style={styles.modalCancelButton}>
+            <Text style={styles.modalCancelText}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Edit Profile</Text>
+          <TouchableOpacity 
+            onPress={handleSaveProfile} 
+            style={[styles.modalSaveButton, isSavingProfile && styles.modalSaveButtonDisabled]}
+            disabled={isSavingProfile}
+          >
+            <Text style={[styles.modalSaveText, isSavingProfile && styles.modalSaveTextDisabled]}>
+              {isSavingProfile ? 'Saving...' : 'Save'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Upcoming Section */}
-        {user && (
-          <>
-            {renderUpcomingSection(new Date(), todayTodos, todayEvents, true)}
-            {renderUpcomingSection(new Date(new Date().setDate(new Date().getDate() + 1)), tomorrowTodos, tomorrowEvents, false)}
-            {renderUpcomingSection(new Date(), thisWeekTodos, thisWeekEvents, false, true)}
-          </>
-        )}
-
-        {/* Preferences Section */}
-        {user && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Preferences</Text>
-            {renderPreferenceItem(
-              'color-palette-outline',
-              'Theme',
-              preferences?.theme ? preferences.theme.charAt(0).toUpperCase() + preferences.theme.slice(1) : 'System',
-              () => Alert.alert(
-                'Theme',
-                'Select theme',
-                [
-                  { text: 'Light', onPress: () => handlePreferenceChange('theme', 'light') },
-                  { text: 'Dark', onPress: () => handlePreferenceChange('theme', 'dark') },
-                  { text: 'System', onPress: () => handlePreferenceChange('theme', 'system') },
-                ]
-              )
-            )}
-            {renderPreferenceItem(
-              'notifications-outline',
-              'Notifications',
-              preferences?.notifications_enabled ? 'On' : 'Off',
-              () => handlePreferenceChange('notifications_enabled', !preferences?.notifications_enabled)
-            )}
-            {renderPreferenceItem(
-              'calendar-outline',
-              'Default View',
-              preferences?.default_view ? preferences.default_view.charAt(0).toUpperCase() + preferences.default_view.slice(1) : 'Day',
-              () => Alert.alert(
-                'Default View',
-                'Select default view',
-                [
-                  { text: 'Day', onPress: () => handlePreferenceChange('default_view', 'day') },
-                  { text: 'Week', onPress: () => handlePreferenceChange('default_view', 'week') },
-                  { text: 'Month', onPress: () => handlePreferenceChange('default_view', 'month') },
-                ]
-              )
+        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.editAvatarSection}>
+            <View style={styles.editAvatarContainer}>
+              {editForm.avatar_url ? (
+                <Image source={{ uri: editForm.avatar_url }} style={styles.editAvatar} />
+              ) : (
+                <View style={styles.editAvatarPlaceholder}>
+                  <Ionicons name="person" size={40} color="#fff" />
+                </View>
+              )}
+              <TouchableOpacity 
+                style={styles.editAvatarButton}
+                onPress={showImagePickerOptions}
+              >
+                <Ionicons name="camera" size={16} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.editAvatarLabel}>Profile Picture</Text>
+            {isUploadingImage && (
+              <View style={styles.uploadingContainer}>
+                <ActivityIndicator size="small" color="#007AFF" />
+                <Text style={styles.uploadingText}>Uploading...</Text>
+              </View>
             )}
           </View>
-        )}
 
-        {/* Sign In/Out Section */}
-        <View style={styles.section}>
-          {user ? (
-              <TouchableOpacity
-              style={styles.signOutButton}
-                onPress={handleSignOut}
-              >
-              <Text style={styles.signOutText}>Sign Out</Text>
-              </TouchableOpacity>
-          ) : (
-            <View style={styles.signInContainer}>
-              <GoogleSigninButton
-                size={GoogleSigninButton.Size.Wide}
-                color={GoogleSigninButton.Color.Light}
-                onPress={handleSignIn}
+          <View style={styles.formSection}>
+            <Text style={styles.formLabel}>Full Name</Text>
+            <TextInput
+              style={styles.formInput}
+              value={editForm.full_name}
+              onChangeText={(text) => setEditForm(prev => ({ ...prev, full_name: text }))}
+              placeholder="Enter your full name"
+              placeholderTextColor="#999"
+              maxLength={50}
+            />
+          </View>
+
+          <View style={styles.formSection}>
+            <Text style={styles.formLabel}>Username</Text>
+            <TextInput
+              style={styles.formInput}
+              value={editForm.username}
+              onChangeText={(text) => setEditForm(prev => ({ ...prev, username: text }))}
+              placeholder="Enter your username"
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+
+          <View style={styles.formSection}>
+            <Text style={styles.formLabel}>Bio</Text>
+            <TextInput
+              style={[styles.formInput, styles.bioInput]}
+              value={editForm.bio}
+              onChangeText={(text) => setEditForm(prev => ({ ...prev, bio: text }))}
+              placeholder="Tell us about yourself"
+              placeholderTextColor="#999"
+              multiline
+              numberOfLines={4}
+              maxLength={200}
+            />
+            <Text style={styles.characterCount}>
+              {editForm.bio.length}/200
+            </Text>
+          </View>
+
+          <View style={styles.formSection}>
+            <Text style={styles.formLabel}>Avatar URL (Optional)</Text>
+            <TextInput
+              style={styles.formInput}
+              value={editForm.avatar_url}
+              onChangeText={(text) => setEditForm(prev => ({ ...prev, avatar_url: text }))}
+              placeholder="Enter image URL"
+              placeholderTextColor="#999"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  // Friends rendering functions
+  const renderFriendItem = (friend: Friend, index: number) => (
+    <View key={`friend-${friend.friendship_id}-${index}`} style={styles.friendItem}>
+      <View style={styles.friendInfo}>
+        {friend.friend_avatar ? (
+          <Image source={{ uri: friend.friend_avatar }} style={styles.friendAvatar} />
+        ) : (
+          <View style={styles.friendAvatarPlaceholder}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+        )}
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{friend.friend_name}</Text>
+          <Text style={styles.friendUsername}>@{friend.friend_username || 'no-username'}</Text>
+        </View>
+      </View>
+      <TouchableOpacity
+        style={styles.removeFriendButton}
+        onPress={() => removeFriend(friend.friendship_id)}
+      >
+        <Ionicons name="close" size={16} color="#999" />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderFriendRequestItem = (request: FriendRequest, index: number) => (
+    <View key={`request-${request.friendship_id}-${index}`} style={styles.friendItem}>
+      <View style={styles.friendInfo}>
+        {request.requester_avatar ? (
+          <Image source={{ uri: request.requester_avatar }} style={styles.friendAvatar} />
+        ) : (
+          <View style={styles.friendAvatarPlaceholder}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+        )}
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{request.requester_name}</Text>
+          <Text style={styles.friendUsername}>@{request.requester_username || 'no-username'}</Text>
+        </View>
+      </View>
+      <View style={styles.requestActions}>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.acceptButton]}
+          onPress={() => acceptFriendRequest(request.friendship_id)}
+        >
+          <Ionicons name="checkmark" size={14} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.declineButton]}
+          onPress={() => declineFriendRequest(request.friendship_id)}
+        >
+          <Ionicons name="close" size={14} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderSearchResultItem = (result: SearchResult, index: number) => (
+    <View key={`search-${result.user_id}-${index}`} style={styles.friendItem}>
+      <View style={styles.friendInfo}>
+        {result.avatar_url ? (
+          <Image source={{ uri: result.avatar_url }} style={styles.friendAvatar} />
+        ) : (
+          <View style={styles.friendAvatarPlaceholder}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+        )}
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{result.full_name}</Text>
+          <Text style={styles.friendUsername}>@{result.username || 'no-username'}</Text>
+        </View>
+      </View>
+      {result.is_friend ? (
+        <View style={styles.friendStatus}>
+          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
+          <Text style={styles.friendStatusText}>Friends</Text>
+        </View>
+      ) : result.friendship_status === 'pending' ? (
+        <View style={styles.friendStatus}>
+          <Ionicons name="time" size={16} color="#FF9500" />
+          <Text style={styles.friendStatusText}>Pending</Text>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.addFriendButton}
+          onPress={() => sendFriendRequest(result.user_id)}
+        >
+          <Ionicons name="add" size={16} color="#007AFF" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  const renderFriendsModal = () => (
+    <Modal
+      visible={showFriendsModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowFriendsModal(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowFriendsModal(false)} style={styles.modalCancelButton}>
+            <Text style={styles.modalCancelText}>Close</Text>
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Friends</Text>
+          <View style={styles.modalHeaderSpacer} />
+        </View>
+
+        <View style={styles.friendsTabBar}>
+          <TouchableOpacity
+            style={[styles.friendsTab, activeFriendsTab === 'friends' && styles.activeFriendsTab]}
+            onPress={() => setActiveFriendsTab('friends')}
+          >
+            <Text style={[styles.friendsTabText, activeFriendsTab === 'friends' && styles.activeFriendsTabText]}>
+              Friends
+            </Text>
+            {friends.length > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{friends.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.friendsTab, activeFriendsTab === 'requests' && styles.activeFriendsTab]}
+            onPress={() => setActiveFriendsTab('requests')}
+          >
+            <Text style={[styles.friendsTabText, activeFriendsTab === 'requests' && styles.activeFriendsTabText]}>
+              Requests
+            </Text>
+            {friendRequests.length > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{friendRequests.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.friendsTab, activeFriendsTab === 'search' && styles.activeFriendsTab]}
+            onPress={() => setActiveFriendsTab('search')}
+          >
+            <Text style={[styles.friendsTabText, activeFriendsTab === 'search' && styles.activeFriendsTabText]}>
+              Find Friends
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.friendsContent}>
+          {activeFriendsTab === 'friends' && (
+            <ScrollView style={styles.friendsList} showsVerticalScrollIndicator={false}>
+              {friends.length === 0 ? (
+                <View style={styles.emptyFriendsState}>
+                  <Ionicons name="people-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptyFriendsTitle}>No Friends Yet</Text>
+                  <Text style={styles.emptyFriendsText}>
+                    Start by searching for friends or accepting friend requests!
+                  </Text>
+                </View>
+              ) : (
+                friends.map((friend, index) => renderFriendItem(friend, index))
+              )}
+            </ScrollView>
+          )}
+
+          {activeFriendsTab === 'requests' && (
+            <ScrollView style={styles.friendsList} showsVerticalScrollIndicator={false}>
+              {friendRequests.length === 0 ? (
+                <View style={styles.emptyFriendsState}>
+                  <Ionicons name="mail-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptyFriendsTitle}>No Friend Requests</Text>
+                  <Text style={styles.emptyFriendsText}>
+                    When someone sends you a friend request, it will appear here.
+                  </Text>
+                </View>
+              ) : (
+                friendRequests.map((request, index) => renderFriendRequestItem(request, index))
+              )}
+            </ScrollView>
+          )}
+
+          {activeFriendsTab === 'search' && (
+            <View style={styles.searchContainer}>
+              <TextInput
+                style={styles.searchInput}
+                value={searchTerm}
+                onChangeText={handleSearch}
+                placeholder="Search by name or username..."
+                placeholderTextColor="#999"
+                autoCapitalize="none"
+                autoCorrect={false}
               />
+              {isSearching && (
+                <ActivityIndicator style={styles.searchLoading} color="#007AFF" />
+              )}
+              <ScrollView style={styles.searchResults} showsVerticalScrollIndicator={false}>
+                {searchResults.map((result, index) => renderSearchResultItem(result, index))}
+              </ScrollView>
             </View>
           )}
         </View>
-        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const renderFriendsSection = () => (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Friends</Text>
+        <TouchableOpacity 
+          style={styles.friendsButton}
+          onPress={() => setShowFriendsModal(true)}
+        >
+          <Ionicons name="people" size={20} color="#007AFF" />
+          <Text style={styles.friendsButtonText}>
+            {friends.length} Friends • {friendRequests.length} Requests
+          </Text>
+          <Ionicons name="chevron-forward" size={16} color="#ccc" />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderSettingsSection = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Settings</Text>
+      
+      <TouchableOpacity style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="color-palette-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>Theme</Text>
+        </View>
+        <View style={styles.settingItemRight}>
+          <Text style={styles.settingValue}>
+            {preferences.theme.charAt(0).toUpperCase() + preferences.theme.slice(1)}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color="#ccc" />
+        </View>
+      </TouchableOpacity>
+
+      <View style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="notifications-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>Push Notifications</Text>
+        </View>
+        <Switch
+          value={preferences.push_notifications}
+          onValueChange={(value) => handlePreferenceChange('push_notifications', value)}
+          trackColor={{ false: '#e0e0e0', true: '#007AFF' }}
+          thumbColor="#fff"
+        />
+      </View>
+
+      <View style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="mail-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>Email Notifications</Text>
+        </View>
+        <Switch
+          value={preferences.email_notifications}
+          onValueChange={(value) => handlePreferenceChange('email_notifications', value)}
+          trackColor={{ false: '#e0e0e0', true: '#007AFF' }}
+          thumbColor="#fff"
+        />
+      </View>
+
+      <TouchableOpacity style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="calendar-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>Default View</Text>
+        </View>
+        <View style={styles.settingItemRight}>
+          <Text style={styles.settingValue}>
+            {preferences.default_view.charAt(0).toUpperCase() + preferences.default_view.slice(1)}
+          </Text>
+          <Ionicons name="chevron-forward" size={20} color="#ccc" />
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderAccountSection = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Account</Text>
+      
+      <TouchableOpacity style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="shield-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>Privacy & Security</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="cloud-download-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>Export Data</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="help-circle-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>Help & Support</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color="#ccc" />
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.settingItem}>
+        <View style={styles.settingItemLeft}>
+          <Ionicons name="information-circle-outline" size={22} color="#666" />
+          <Text style={styles.settingLabel}>About</Text>
+        </View>
+        <View style={styles.settingItemRight}>
+          <Text style={styles.settingValue}>v1.0.0</Text>
+          <Ionicons name="chevron-forward" size={20} color="#ccc" />
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderSignOutSection = () => (
+    <View style={styles.section}>
+      {user ? (
+        <>
+          <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+            <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount}>
+            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+            <Text style={styles.deleteAccountText}>Delete Account</Text>
+          </TouchableOpacity>
+        </>
+      ) : (
+        <View style={styles.signInContainer}>
+          <Text style={styles.signInTitle}>Sign in to sync your data</Text>
+          <GoogleSigninButton
+            size={GoogleSigninButton.Size.Wide}
+            color={GoogleSigninButton.Color.Light}
+            onPress={handleSignIn}
+            disabled={isLoading}
+          />
+          {isLoading && (
+            <ActivityIndicator style={styles.loadingIndicator} color="#007AFF" />
+          )}
+        </View>
+      )}
+    </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {user && renderProfileHeader()}
+        {user && renderFriendsSection()}
+        {user && renderSettingsSection()}
+        {user && renderAccountSection()}
+        {renderSignOutSection()}
+      </ScrollView>
+      
+      {renderEditProfileModal()}
+      {renderFriendsModal()}
     </SafeAreaView>
   );
 }
@@ -694,160 +1241,470 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f8f9fa',
   },
   scrollView: {
     flex: 1,
   },
-  header: {
+  profileHeader: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    marginBottom: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 40,
-    paddingBottom: 24,
   },
-  headerLeft: {
-    width: 44, // Same width as notesButton for balance
+  avatarContainer: {
+    position: 'relative',
+    marginRight: 16,
   },
-  headerRight: {
-    width: 44, // Same width as notesButton for balance
+  avatar: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  avatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editAvatarButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#007AFF',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#fff',
   },
   profileInfo: {
-    alignItems: 'center',
     flex: 1,
   },
-  name: {
-    fontSize: 18,
-    color: '#000',
+  profileName: {
+    fontSize: 20,
     fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
   },
-  status: {
+  profileEmail: {
+    fontSize: 14,
     color: '#666',
-    marginTop: 2,
-    fontSize: 13,
+    marginBottom: 4,
+  },
+  profileBio: {
+    fontSize: 14,
+    color: '#666',
+    fontStyle: 'italic',
+  },
+  editProfileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f0f8ff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#007AFF',
+  },
+  editProfileText: {
+    fontSize: 14,
+    color: '#007AFF',
+    fontWeight: '500',
+    marginLeft: 4,
   },
   section: {
+    backgroundColor: '#fff',
     marginBottom: 16,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    overflow: 'hidden',
   },
   sectionHeader: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
-    paddingHorizontal: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
   },
   sectionTitle: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#666',
-  },
-  weekDate: {
-    fontSize: 13,
-    color: '#999',
-    marginLeft: 8,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#999',
-    fontStyle: 'italic',
-    paddingHorizontal: 16,
-  },
-  contentContainer: {
-    backgroundColor: '#fff',
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#eee',
-  },
-  checkboxContainer: {
-    marginRight: 12,
-  },
-  checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: '#ddd',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
-  },
-  eventTimeContainer: {
-    minWidth: 60,
-    marginRight: 12,
-  },
-  eventTime: {
-    fontSize: 13,
-    color: '#666',
-  },
-  itemContent: {
-    flex: 1,
-  },
-  itemText: {
-    fontSize: 15,
+    fontSize: 16,
+    fontWeight: '600',
     color: '#000',
   },
-  itemTextCompleted: {
-    color: '#999',
-    textDecorationLine: 'line-through',
-  },
-  itemDescription: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 2,
-  },
-  signOutButton: {
-    padding: 16,
+  friendsButton: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
-  signOutText: {
-    color: '#FF3B30',
-    fontSize: 15,
-    fontWeight: '600',
+  friendsButtonText: {
+    fontSize: 14,
+    color: '#007AFF',
+    marginLeft: 8,
   },
-  signInContainer: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  notesButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#FFF5F3',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  preferenceItem: {
+  friendItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: '#fff',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#ccc',
+    borderBottomColor: '#f5f5f5',
   },
-  preferenceItemLeft: {
+  friendInfo: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
-  preferenceItemRight: {
-    flexDirection: 'row',
+  friendAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 12,
+  },
+  friendAvatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 12,
   },
-  preferenceLabel: {
+  friendDetails: {
+    flex: 1,
+  },
+  friendName: {
     fontSize: 15,
+    fontWeight: '500',
+    color: '#000',
+    marginBottom: 2,
+  },
+  friendUsername: {
+    fontSize: 13,
+    color: '#999',
+  },
+  removeFriendButton: {
+    padding: 8,
+    borderRadius: 16,
+    backgroundColor: '#f8f8f8',
+  },
+  requestActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  acceptButton: {
+    backgroundColor: '#34C759',
+  },
+  declineButton: {
+    backgroundColor: '#FF3B30',
+  },
+  addFriendButton: {
+    padding: 8,
+    borderRadius: 16,
+    backgroundColor: '#f0f8ff',
+  },
+  friendStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#f8f8f8',
+  },
+  friendStatusText: {
+    fontSize: 11,
+    color: '#666',
+    marginLeft: 4,
+    fontWeight: '500',
+  },
+  friendsTabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  friendsTab: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  activeFriendsTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#007AFF',
+  },
+  friendsTabText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#666',
+  },
+  activeFriendsTabText: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  friendsContent: {
+    flex: 1,
+    backgroundColor: '#fafafa',
+  },
+  friendsList: {
+    flex: 1,
+  },
+  emptyFriendsState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+    paddingHorizontal: 40,
+  },
+  emptyFriendsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyFriendsText: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  searchContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  searchInput: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#000',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginBottom: 20,
+  },
+  searchLoading: {
+    position: 'absolute',
+    right: 32,
+    top: 32,
+  },
+  searchResults: {
+    flex: 1,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e0e0e0',
+  },
+  modalCancelButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  modalCancelText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+  },
+  modalHeaderSpacer: {
+    flex: 1,
+  },
+  modalSaveButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  modalSaveButtonDisabled: {
+    opacity: 0.5,
+  },
+  modalSaveText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  modalSaveTextDisabled: {
+    color: '#999',
+  },
+  modalContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  editAvatarSection: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  editAvatarContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  editAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  editAvatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  editAvatarLabel: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+  },
+  formSection: {
+    marginBottom: 24,
+  },
+  formLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 8,
+  },
+  formInput: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#000',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  bioInput: {
+    height: 100,
+    textAlignVertical: 'top',
+    paddingTop: 12,
+  },
+  characterCount: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'right',
+    marginTop: 4,
+  },
+  uploadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+  },
+  uploadingText: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 8,
+  },
+  settingItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  settingItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  settingItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingLabel: {
+    fontSize: 16,
     color: '#000',
     marginLeft: 12,
   },
-  preferenceValue: {
+  settingValue: {
     fontSize: 14,
     color: '#666',
     marginRight: 8,
+  },
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#f0f0f0',
+  },
+  signOutText: {
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+  },
+  deleteAccountText: {
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  signInContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+  },
+  signInTitle: {
+    fontSize: 16,
+    color: '#666',
+    marginBottom: 16,
+  },
+  loadingIndicator: {
+    marginTop: 16,
+  },
+  tabBadge: {
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 6,
+    minWidth: 18,
+    alignItems: 'center',
+  },
+  tabBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
   },
 });
