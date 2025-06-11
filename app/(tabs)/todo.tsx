@@ -42,6 +42,7 @@ import moment from 'moment';
 import 'moment/locale/en-gb';
 import { Pressable } from 'react-native';
 import MonthlyCalendar from '../components/MonthlyCalendar';
+import { useRouter } from 'expo-router';
 
 
 
@@ -191,6 +192,7 @@ export default function TodoScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
   const [user, setUser] = useState<User | null>(null);
+  const router = useRouter();
 
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
@@ -1190,9 +1192,9 @@ export default function TodoScreen() {
         activeOffsetX={[-20, 20]}
       >
         <View style={styles.container}>
-          {/* Rest of your existing JSX */}
           {/* HEADER */}
           <View style={styles.header}>
+      
             <TouchableOpacity 
               style={styles.menuButton}>              
             </TouchableOpacity>
@@ -1207,20 +1209,30 @@ export default function TodoScreen() {
             paddingHorizontal: 0,
             position: 'relative'
           }}>
-          
-            <TouchableOpacity onPress={goToToday}>
-              <Text style={{ 
-                color: '#3A3A3A', 
-                fontSize: 19, 
-                fontWeight: 'bold', 
-                marginBottom: 0, 
-                textAlign: 'center', 
-                fontFamily: 'Onest' 
-              }}>
-                {moment(currentDate).format('MMMM YYYY')}
-              </Text>
+            {/* Notes Icon on the left */}
+            <TouchableOpacity 
+              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+              onPress={() => router.push('/notes')}
+            >
+              <Ionicons name="document-text-outline" size={24} color="#3A3A3A" />
             </TouchableOpacity>
-            <View style={{ width: 20, position: 'absolute', right: 24 }} />
+            {/* Month Text Centered */}
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }}>
+              <TouchableOpacity onPress={goToToday}>
+                <Text style={{ 
+                  color: '#3A3A3A', 
+                  fontSize: 19, 
+                  fontWeight: 'bold', 
+                  marginBottom: 0, 
+                  textAlign: 'center', 
+                  fontFamily: 'Onest' 
+                }}>
+                  {moment(currentDate).format('MMMM YYYY')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {/* Right side spacer for symmetry */}
+            <View style={{ width: 40 }} />
           </View>
                 <CalendarStrip
                   scrollable

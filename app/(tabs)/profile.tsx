@@ -105,8 +105,8 @@ export default function ProfileScreen() {
           return;
         }
 
-        if (session?.user) {
-          setUser(session.user);
+      if (session?.user) {
+        setUser(session.user);
           await loadUserProfile(session.user.id);
           await loadUserPreferences(session.user.id);
           await loadFriends(session.user.id);
@@ -151,7 +151,7 @@ export default function ProfileScreen() {
         console.error('Error loading profile:', error);
         return;
       }
-
+  
       if (data) {
         setProfile(data);
         // Initialize edit form with current profile data
@@ -171,7 +171,7 @@ export default function ProfileScreen() {
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           username: '',
           created_at: new Date().toISOString()
-        };
+  };
 
         const { error: insertError } = await supabase
           .from('profiles')
@@ -187,7 +187,7 @@ export default function ProfileScreen() {
           });
         }
       }
-    } catch (error) {
+      } catch (error) {
       console.error('Error in loadUserProfile:', error);
     }
   };
@@ -215,22 +215,22 @@ export default function ProfileScreen() {
         });
       } else {
         // Create default preferences
-        const defaultPreferences: UserPreferences = {
-          theme: 'system',
-          notifications_enabled: true,
+          const defaultPreferences: UserPreferences = {
+            theme: 'system',
+            notifications_enabled: true,
           default_view: 'day',
           email_notifications: true,
           push_notifications: true
-        };
+          };
 
-        const { error: insertError } = await supabase
-          .from('user_preferences')
-          .insert({
+          const { error: insertError } = await supabase
+            .from('user_preferences')
+            .insert({
             user_id: userId,
-            ...defaultPreferences,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
+              ...defaultPreferences,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
 
         if (!insertError) {
           setPreferences(defaultPreferences);
@@ -250,8 +250,8 @@ export default function ProfileScreen() {
 
       if (error) {
         console.error('Error loading friends:', error);
-        return;
-      }
+            return;
+          }
 
       setFriends(data || []);
     } catch (error) {
@@ -267,8 +267,8 @@ export default function ProfileScreen() {
 
       if (error) {
         console.error('Error loading friend requests:', error);
-        return;
-      }
+          return;
+        }
 
       setFriendRequests(data || []);
     } catch (error) {
@@ -279,8 +279,8 @@ export default function ProfileScreen() {
   const searchUsers = async (term: string) => {
     if (!user || !term.trim()) {
       setSearchResults([]);
-      return;
-    }
+        return;
+      }
 
     try {
       setIsSearching(true);
@@ -364,7 +364,7 @@ export default function ProfileScreen() {
 
       Alert.alert('Success', 'Friend request declined.');
       // Refresh requests
-      if (user) {
+    if (user) {
         await loadFriendRequests(user.id);
       }
     } catch (error) {
@@ -598,7 +598,7 @@ export default function ProfileScreen() {
     if (status !== 'granted') {
       Alert.alert('Permission needed', 'Camera permission is required to take photos.');
       return false;
-    }
+      }
     return true;
   };
 
@@ -614,7 +614,7 @@ export default function ProfileScreen() {
   const handleImagePicker = async (source: 'camera' | 'library') => {
     try {
       let permissionGranted = false;
-      
+
       if (source === 'camera') {
         permissionGranted = await requestCameraPermission();
       } else {
@@ -682,7 +682,7 @@ export default function ProfileScreen() {
         .getPublicUrl(fileName);
 
       console.log('Public URL:', publicUrl);
-
+        
       // Update the profile with the new avatar URL
       const { error: updateError } = await supabase
         .from('profiles')
@@ -732,10 +732,10 @@ export default function ProfileScreen() {
             <Ionicons name="person" size={40} color="#fff" />
           </View>
         )}
-        <TouchableOpacity 
+    <TouchableOpacity
           style={styles.editAvatarButton}
           onPress={showImagePickerOptions}
-        >
+    >
           <Ionicons name="camera" size={16} color="#fff" />
         </TouchableOpacity>
       </View>
@@ -758,7 +758,7 @@ export default function ProfileScreen() {
       >
         <Ionicons name="pencil" size={16} color="#007AFF" />
         <Text style={styles.editProfileText}>Edit</Text>
-      </TouchableOpacity>
+    </TouchableOpacity>
     </View>
   );
 
@@ -796,12 +796,12 @@ export default function ProfileScreen() {
                   <Ionicons name="person" size={40} color="#fff" />
                 </View>
               )}
-              <TouchableOpacity 
+                <TouchableOpacity
                 style={styles.editAvatarButton}
                 onPress={showImagePickerOptions}
-              >
+                >
                 <Ionicons name="camera" size={16} color="#fff" />
-              </TouchableOpacity>
+                </TouchableOpacity>
             </View>
             <Text style={styles.editAvatarLabel}>Profile Picture</Text>
             {isUploadingImage && (
@@ -809,8 +809,8 @@ export default function ProfileScreen() {
                 <ActivityIndicator size="small" color="#007AFF" />
                 <Text style={styles.uploadingText}>Uploading...</Text>
               </View>
-            )}
-          </View>
+                  )}
+                </View>
 
           <View style={styles.formSection}>
             <Text style={styles.formLabel}>Full Name</Text>
@@ -822,7 +822,7 @@ export default function ProfileScreen() {
               placeholderTextColor="#999"
               maxLength={50}
             />
-          </View>
+              </View>
 
           <View style={styles.formSection}>
             <Text style={styles.formLabel}>Username</Text>
@@ -887,13 +887,13 @@ export default function ProfileScreen() {
           <Text style={styles.friendUsername}>@{friend.friend_username || 'no-username'}</Text>
         </View>
       </View>
-      <TouchableOpacity
+              <TouchableOpacity
         style={styles.removeFriendButton}
         onPress={() => removeFriend(friend.friendship_id)}
-      >
+              >
         <Ionicons name="close" size={16} color="#999" />
       </TouchableOpacity>
-    </View>
+                </View>
   );
 
   const renderFriendRequestItem = (request: FriendRequest, index: number) => (
@@ -909,7 +909,7 @@ export default function ProfileScreen() {
         <View style={styles.friendDetails}>
           <Text style={styles.friendName}>{request.requester_name}</Text>
           <Text style={styles.friendUsername}>@{request.requester_username || 'no-username'}</Text>
-        </View>
+                </View>
       </View>
       <View style={styles.requestActions}>
         <TouchableOpacity
@@ -917,7 +917,7 @@ export default function ProfileScreen() {
           onPress={() => acceptFriendRequest(request.friendship_id)}
         >
           <Ionicons name="checkmark" size={14} color="#fff" />
-        </TouchableOpacity>
+              </TouchableOpacity>
         <TouchableOpacity
           style={[styles.actionButton, styles.declineButton]}
           onPress={() => declineFriendRequest(request.friendship_id)}
@@ -960,9 +960,9 @@ export default function ProfileScreen() {
         >
           <Ionicons name="add" size={16} color="#007AFF" />
         </TouchableOpacity>
-      )}
-    </View>
-  );
+        )}
+      </View>
+    );
 
   const renderFriendsModal = () => (
     <Modal
@@ -1004,17 +1004,17 @@ export default function ProfileScreen() {
             {friendRequests.length > 0 && (
               <View style={styles.tabBadge}>
                 <Text style={styles.tabBadgeText}>{friendRequests.length}</Text>
-              </View>
+          </View>
             )}
           </TouchableOpacity>
-          <TouchableOpacity
+              <TouchableOpacity
             style={[styles.friendsTab, activeFriendsTab === 'search' && styles.activeFriendsTab]}
             onPress={() => setActiveFriendsTab('search')}
-          >
+              >
             <Text style={[styles.friendsTabText, activeFriendsTab === 'search' && styles.activeFriendsTabText]}>
               Find Friends
             </Text>
-          </TouchableOpacity>
+              </TouchableOpacity>
         </View>
 
         <View style={styles.friendsContent}>
@@ -1067,18 +1067,18 @@ export default function ProfileScreen() {
               <ScrollView style={styles.searchResults} showsVerticalScrollIndicator={false}>
                 {searchResults.map((result, index) => renderSearchResultItem(result, index))}
               </ScrollView>
-            </View>
-          )}
+          </View>
+        )}
         </View>
       </SafeAreaView>
     </Modal>
   );
 
   const renderFriendsSection = () => (
-    <View style={styles.section}>
+        <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Friends</Text>
-        <TouchableOpacity 
+              <TouchableOpacity
           style={styles.friendsButton}
           onPress={() => setShowFriendsModal(true)}
         >
@@ -1197,29 +1197,29 @@ export default function ProfileScreen() {
         <>
           <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
             <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
-            <Text style={styles.signOutText}>Sign Out</Text>
-          </TouchableOpacity>
+              <Text style={styles.signOutText}>Sign Out</Text>
+              </TouchableOpacity>
           
           <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount}>
             <Ionicons name="trash-outline" size={20} color="#FF3B30" />
             <Text style={styles.deleteAccountText}>Delete Account</Text>
           </TouchableOpacity>
         </>
-      ) : (
-        <View style={styles.signInContainer}>
+          ) : (
+            <View style={styles.signInContainer}>
           <Text style={styles.signInTitle}>Sign in to sync your data</Text>
-          <GoogleSigninButton
-            size={GoogleSigninButton.Size.Wide}
-            color={GoogleSigninButton.Color.Light}
-            onPress={handleSignIn}
+              <GoogleSigninButton
+                size={GoogleSigninButton.Size.Wide}
+                color={GoogleSigninButton.Color.Light}
+                onPress={handleSignIn}
             disabled={isLoading}
-          />
+              />
           {isLoading && (
             <ActivityIndicator style={styles.loadingIndicator} color="#007AFF" />
           )}
+            </View>
+          )}
         </View>
-      )}
-    </View>
   );
 
   return (
@@ -1230,7 +1230,7 @@ export default function ProfileScreen() {
         {user && renderSettingsSection()}
         {user && renderAccountSection()}
         {renderSignOutSection()}
-      </ScrollView>
+        </ScrollView>
       
       {renderEditProfileModal()}
       {renderFriendsModal()}
