@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions } from 'react-native';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
@@ -53,6 +53,23 @@ interface SearchResult {
   friendship_status: string;
 }
 
+// Memories interfaces
+interface MemoryItem {
+  id: string;
+  photoUri: string;
+  date: string;
+  type: 'habit' | 'event';
+  title: string;
+  description?: string;
+  categoryColor?: string;
+}
+
+interface MemoryGroup {
+  date: string;
+  formattedDate: string;
+  memories: MemoryItem[];
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -86,6 +103,17 @@ export default function ProfileScreen() {
   const [activeFriendsTab, setActiveFriendsTab] = useState<'friends' | 'requests' | 'search'>('friends');
   const [showFriendsModal, setShowFriendsModal] = useState(false);
 
+  // Memories state
+  const [memories, setMemories] = useState<MemoryGroup[]>([]);
+  const [isLoadingMemories, setIsLoadingMemories] = useState(false);
+  const [showMemoriesModal, setShowMemoriesModal] = useState(false);
+  const [selectedMemory, setSelectedMemory] = useState<MemoryItem | null>(null);
+  const [showMemoryDetailModal, setShowMemoryDetailModal] = useState(false);
+  const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+
+  // Settings state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
   // Configure Google Sign-In
   useEffect(() => {
     GoogleSignin.configure({
@@ -111,6 +139,7 @@ export default function ProfileScreen() {
           await loadUserPreferences(session.user.id);
           await loadFriends(session.user.id);
           await loadFriendRequests(session.user.id);
+          await loadMemories(session.user.id);
         }
       } catch (error) {
         console.error('[Profile] Error in checkSession:', error);
@@ -126,11 +155,10 @@ export default function ProfileScreen() {
         await loadUserPreferences(session.user.id);
         await loadFriends(session.user.id);
         await loadFriendRequests(session.user.id);
+        await loadMemories(session.user.id);
       } else {
         setUser(null);
         setProfile(null);
-        setFriends([]);
-        setFriendRequests([]);
       }
     });
 
@@ -244,16 +272,63 @@ export default function ProfileScreen() {
   // Friends functions
   const loadFriends = async (userId: string) => {
     try {
-      const { data, error } = await supabase.rpc('get_user_friends', {
-        user_uuid: userId
-      });
+      // Get all accepted friendships where the current user is involved
+      const { data: friendshipsData, error: friendshipsError } = await supabase
+        .from('friendships')
+        .select('id, user_id, friend_id, status, created_at')
+        .or(`user_id.eq.${userId},friend_id.eq.${userId}`)
+        .eq('status', 'accepted');
 
-      if (error) {
-        console.error('Error loading friends:', error);
+      if (friendshipsError) {
+        console.error('Error loading friendships:', friendshipsError);
             return;
           }
 
-      setFriends(data || []);
+      if (!friendshipsData || friendshipsData.length === 0) {
+        setFriends([]);
+        return;
+      }
+
+      // Get the friend IDs (the other user in each friendship)
+      const friendIds = friendshipsData.map(friendship => 
+        friendship.user_id === userId ? friendship.friend_id : friendship.user_id
+      );
+
+      // Fetch the friend profiles
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, username')
+        .in('id', friendIds);
+
+      if (profilesError) {
+        console.error('Error loading friend profiles:', profilesError);
+        return;
+      }
+
+      // Create a map of profiles by ID for quick lookup
+      const profilesMap = new Map();
+      if (profilesData) {
+        for (const profile of profilesData) {
+          profilesMap.set(profile.id, profile);
+        }
+      }
+
+      // Combine the data
+      const friends: Friend[] = friendshipsData.map(friendship => {
+        const friendId = friendship.user_id === userId ? friendship.friend_id : friendship.user_id;
+        const profile = profilesMap.get(friendId);
+        return {
+          friend_id: friendId,
+          friend_name: profile?.full_name || 'Unknown User',
+          friend_avatar: profile?.avatar_url || '',
+          friend_username: profile?.username || '',
+          friendship_id: friendship.id,
+          status: friendship.status,
+          created_at: friendship.created_at
+        };
+      });
+
+      setFriends(friends);
     } catch (error) {
       console.error('Error in loadFriends:', error);
     }
@@ -261,18 +336,380 @@ export default function ProfileScreen() {
 
   const loadFriendRequests = async (userId: string) => {
     try {
-      const { data, error } = await supabase.rpc('get_pending_friend_requests', {
-        user_uuid: userId
-      });
+      console.log('🔍 Loading friend requests for user:', userId);
+      
+      // First get the friend requests (where current user is the recipient)
+      const { data: requestsData, error: requestsError } = await supabase
+        .from('friendships')
+        .select('id, user_id, friend_id, status, created_at')
+        .eq('friend_id', userId)
+        .eq('status', 'pending');
 
-      if (error) {
-        console.error('Error loading friend requests:', error);
+      if (requestsError) {
+        console.error('Error loading friend requests:', requestsError);
           return;
         }
 
-      setFriendRequests(data || []);
+      console.log('📨 Found friend requests:', requestsData);
+
+      if (!requestsData || requestsData.length === 0) {
+        setFriendRequests([]);
+        return;
+      }
+
+      // Get the requester IDs (user_id is the requester, friend_id is the recipient)
+      const requesterIds = requestsData.map(request => request.user_id);
+      console.log('👥 Requester IDs:', requesterIds);
+
+      // Fetch the requester profiles using direct query
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, username')
+        .in('id', requesterIds);
+
+      if (profilesError) {
+        console.error('Error loading requester profiles:', profilesError);
+        return;
+      }
+
+      console.log('👤 Found profiles:', profilesData);
+
+      // Create a map of profiles by ID for quick lookup
+      const profilesMap = new Map();
+      profilesData?.forEach((profile: any) => {
+        profilesMap.set(profile.id, profile);
+      });
+
+      // Combine the data
+      const requests: FriendRequest[] = requestsData.map(request => {
+        const profile = profilesMap.get(request.user_id);
+        console.log(`🔗 Request ${request.id}: user_id=${request.user_id}, profile=`, profile);
+        return {
+          friendship_id: request.id,
+          requester_id: request.user_id,
+          requester_name: profile?.full_name || 'Unknown User',
+          requester_avatar: profile?.avatar_url || '',
+          requester_username: profile?.username || '',
+          created_at: request.created_at || request.id
+        };
+      });
+
+      console.log('✅ Final friend requests:', requests);
+      setFriendRequests(requests);
     } catch (error) {
       console.error('Error in loadFriendRequests:', error);
+    }
+  };
+
+  const checkSupabaseStorage = async () => {
+    try {
+      console.log('🔍 Checking Supabase storage access...');
+      
+      // Test if we can access the habit-photos bucket
+      const { data: storageData, error: storageError } = await supabase.storage
+        .from('habit-photos')
+        .list('', { limit: 1 });
+
+      if (storageError) {
+        console.error('❌ Supabase storage error:', storageError);
+        return false;
+      }
+
+      console.log('✅ Supabase storage is accessible');
+      console.log('📁 Storage contents:', storageData);
+      return true;
+    } catch (error) {
+      console.error('❌ Error checking Supabase storage:', error);
+      return false;
+    }
+  };
+
+  const cleanupOldLocalPhotos = async (userId: string) => {
+    try {
+      console.log('🧹 Cleaning up old local photos for user:', userId);
+      
+      // Fetch all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for cleanup:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('🧹 No habits with photos found for cleanup');
+        return;
+      }
+
+      console.log(`🧹 Found ${habitsData.length} habits to check for cleanup`);
+
+      let cleanedCount = 0;
+      const updates: any[] = [];
+
+      habitsData.forEach(habit => {
+        console.log(`🧹 Checking habit ${habit.id}:`, habit.photos);
+        
+        if (habit.photos && typeof habit.photos === 'object') {
+          const cleanedPhotos: { [date: string]: string } = {};
+          let hasChanges = false;
+
+          for (const [date, photoUri] of Object.entries(habit.photos)) {
+            if (photoUri && typeof photoUri === 'string') {
+              // More comprehensive check for local file names
+              const isLocalFileName = (
+                !photoUri.includes('/') && 
+                !photoUri.includes('\\') && 
+                photoUri.includes('.') && 
+                !photoUri.startsWith('http') && 
+                !photoUri.startsWith('file://') && 
+                !photoUri.startsWith('data:') &&
+                photoUri.length < 100 // Local file names are typically short
+              );
+              
+              console.log(`🧹 Photo ${date}: ${photoUri} - isLocalFileName: ${isLocalFileName}`);
+              
+              if (isLocalFileName) {
+                console.log(`🧹 Removing local file name from habit ${habit.id}, date ${date}: ${photoUri}`);
+                hasChanges = true;
+                // Don't add this to cleanedPhotos - effectively removing it
+              } else {
+                // Keep valid URLs
+                cleanedPhotos[date] = photoUri;
+                console.log(`🧹 Keeping valid photo for habit ${habit.id}, date ${date}: ${photoUri}`);
+              }
+            }
+          }
+
+          if (hasChanges) {
+            console.log(`🧹 Updating habit ${habit.id} with cleaned photos:`, cleanedPhotos);
+            
+            // If all photos were local file names (cleanedPhotos is empty), remove the photos object entirely
+            const updateData = Object.keys(cleanedPhotos).length > 0 
+              ? { photos: cleanedPhotos }
+              : { photos: null };
+            
+            console.log(`🧹 Final update data for habit ${habit.id}:`, updateData);
+            updates.push({ habitId: habit.id, updateData });
+            cleanedCount++;
+          } else {
+            console.log(`🧹 No changes needed for habit ${habit.id}`);
+          }
+        }
+      });
+
+      if (updates.length > 0) {
+        console.log(`🧹 Applying ${updates.length} updates to clean up local photos`);
+        for (const update of updates) {
+          const { error } = await supabase
+            .from('habits')
+            .update(update.updateData)
+            .eq('id', update.habitId);
+          
+          if (error) {
+            console.error(`🧹 Error updating habit ${update.habitId}:`, error);
+          } else {
+            console.log(`🧹 Successfully updated habit ${update.habitId}`);
+          }
+        }
+        console.log(`🧹 Successfully cleaned up ${cleanedCount} habits with local photos`);
+      } else {
+        console.log('🧹 No local photos found to clean up');
+      }
+    } catch (error) {
+      console.error('Error cleaning up old local photos:', error);
+    }
+  };
+
+  const forceRefreshMemories = async (userId: string) => {
+    try {
+      console.log('🔄 Force refreshing memories for user:', userId);
+      
+      // Clear current memories state
+      setMemories([]);
+      setFailedImages(new Set());
+      
+      // Check Supabase storage first
+      console.log('🔍 Checking Supabase storage before cleanup...');
+      const storageAccessible = await checkSupabaseStorage();
+      
+      // Force cleanup
+      await cleanupOldLocalPhotos(userId);
+      
+      // Wait for database updates
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Check database state
+      await checkDatabaseState(userId);
+      
+      // Force fresh load
+      await loadMemories(userId);
+      
+      console.log('🔄 Force refresh completed');
+      
+      if (!storageAccessible) {
+        console.warn('⚠️ Supabase storage may have issues - this could affect photo loading');
+      }
+    } catch (error) {
+      console.error('Error in force refresh:', error);
+    }
+  };
+
+  const loadMemories = async (userId: string) => {
+    try {
+      setIsLoadingMemories(true);
+      console.log('🖼️ Loading memories for user:', userId);
+
+      // Clear any existing failed images
+      setFailedImages(new Set());
+
+      // First, clean up any old local photos
+      await cleanupOldLocalPhotos(userId);
+      
+      // Add a small delay to ensure database updates are processed
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log('⏳ Waited 500ms for database updates to process');
+
+      const allMemories: MemoryItem[] = [];
+
+      // Fetch habits with photos - force fresh data
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, text, description, photos, category_id, categories(color)')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits with photos:', habitsError);
+        Alert.alert('Error', 'Failed to load memories. Please try again.');
+        return;
+      } else if (habitsData) {
+        console.log('📸 Found habits with photos:', habitsData.length);
+        console.log('📸 Habits data after cleanup:', habitsData);
+        
+        habitsData.forEach(habit => {
+          console.log(`🔍 Processing habit ${habit.id}:`, {
+            text: habit.text,
+            photos: habit.photos,
+            photosType: typeof habit.photos,
+            isObject: typeof habit.photos === 'object'
+          });
+          
+          if (habit.photos && typeof habit.photos === 'object') {
+            console.log(`📷 Photos object for habit ${habit.id}:`, habit.photos);
+            console.log(`📷 Photos object keys:`, Object.keys(habit.photos));
+            
+            for (const [date, photoUri] of Object.entries(habit.photos)) {
+              console.log(`📅 Processing date ${date} with photo:`, photoUri);
+              
+              if (photoUri && typeof photoUri === 'string') {
+                // Check if it's a valid URL or local file path
+                const isValidUrl = photoUri.startsWith('http://') || photoUri.startsWith('https://');
+                const isLocalFile = photoUri.startsWith('file://');
+                const isDataUrl = photoUri.startsWith('data:');
+                const isLocalFileName = !photoUri.includes('/') && !photoUri.includes('\\') && photoUri.includes('.');
+                
+                // For local file names, we need to construct the proper file path
+                let processedUri = photoUri;
+                if (isLocalFileName) {
+                  // This is likely a local file name that needs to be handled differently
+                  // We'll skip these for now as they're not accessible in this context
+                  console.log(`⚠️ Skipping local file name (not accessible): ${photoUri}`);
+                  continue;
+                }
+                
+                if (isValidUrl || isLocalFile || isDataUrl) {
+                  console.log(`✅ Adding memory for date ${date}:`, processedUri);
+                  allMemories.push({
+                    id: `${habit.id}_${date}`,
+                    photoUri: processedUri,
+                    date: date,
+                    type: 'habit',
+                    title: habit.text,
+                    description: habit.description,
+                    categoryColor: habit.categories?.[0]?.color
+                  });
+                } else {
+                  console.log(`❌ Skipping invalid photo URI for date ${date}:`, photoUri);
+                }
+              } else {
+                console.log(`❌ Skipping invalid photo for date ${date}:`, photoUri);
+              }
+            }
+          } else {
+            console.log(`❌ Habit ${habit.id} has no valid photos object:`, habit.photos);
+          }
+        });
+      } else {
+        console.log('📸 No habits with photos found');
+      }
+
+      // Note: Events don't currently have photo support, so we're only fetching from habits
+      // When events get photo support in the future, we can add the events query here
+
+      console.log('📸 Total memories found:', allMemories.length);
+      console.log('📸 All memories:', allMemories);
+
+      // Group memories by date
+      const groupedMemories = allMemories.reduce((groups: { [key: string]: MemoryItem[] }, memory) => {
+        const date = memory.date;
+        if (!groups[date]) {
+          groups[date] = [];
+        }
+        groups[date].push(memory);
+        return groups;
+      }, {});
+
+      console.log('📸 Grouped memories:', groupedMemories);
+
+      // Convert to sorted array format
+      const sortedMemories: MemoryGroup[] = Object.entries(groupedMemories)
+        .map(([date, memories]) => ({
+          date,
+          formattedDate: formatMemoryDate(date),
+          memories: memories.sort((a, b) => b.date.localeCompare(a.date))
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date));
+
+      console.log('📸 Final sorted memories:', sortedMemories);
+      setMemories(sortedMemories);
+      console.log('📸 Memories organized into', sortedMemories.length, 'date groups');
+      
+      if (sortedMemories.length === 0) {
+        console.log('⚠️ No memories found - this might be normal if no photos have been saved yet');
+      }
+    } catch (error) {
+      console.error('Error loading memories:', error);
+      Alert.alert('Error', 'Failed to load memories. Please try again.');
+    } finally {
+      setIsLoadingMemories(false);
+    }
+  };
+
+  const formatMemoryDate = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+
+      if (date.toDateString() === today.toDateString()) {
+        return 'Today';
+      } else if (date.toDateString() === yesterday.toDateString()) {
+        return 'Yesterday';
+      } else {
+        return date.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+      }
+    } catch (error) {
+      return dateString;
     }
   };
 
@@ -724,41 +1161,75 @@ export default function ProfileScreen() {
 
   const renderProfileHeader = () => (
     <View style={styles.profileHeader}>
-      <View style={styles.avatarContainer}>
+      <TouchableOpacity style={styles.avatarContainer} onPress={handleEditProfile}>
         {profile?.avatar_url ? (
           <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
         ) : (
           <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person" size={40} color="#fff" />
+            <Ionicons name="person" size={32} color="#fff" />
           </View>
         )}
-    <TouchableOpacity
-          style={styles.editAvatarButton}
-          onPress={showImagePickerOptions}
-    >
-          <Ionicons name="camera" size={16} color="#fff" />
+        <TouchableOpacity style={styles.editAvatarButton} onPress={showImagePickerOptions}>
+          <Ionicons name="camera" size={14} color="#fff" />
         </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
       
-      <View style={styles.profileInfo}>
-        <Text style={styles.profileName}>
-          {profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}
-        </Text>
-        <Text style={styles.profileEmail}>
-          {user?.email || 'email@example.com'}
-        </Text>
-        {profile?.bio && (
-          <Text style={styles.profileBio}>{profile.bio}</Text>
+      <Text style={styles.profileName}>
+        {profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}
+      </Text>
+      
+      {profile?.bio && (
+        <Text style={styles.profileBio}>{profile.bio}</Text>
+      )}
+      
+      <TouchableOpacity style={styles.friendCountContainer} onPress={() => setShowFriendsModal(true)}>
+        <Ionicons name="people" size={16} color="#8E8E93" />
+        <Text style={styles.friendCountText}>{friends.length} friends</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderFeatureCard = (icon: string, title: string, subtitle: string, count?: number, onPress?: () => void) => (
+    <TouchableOpacity style={styles.featureCard} onPress={onPress}>
+      <View style={styles.featureIcon}>
+        <Ionicons name={icon as any} size={24} color="#007AFF" />
+      </View>
+      <View style={styles.featureContent}>
+        <Text style={styles.featureTitle}>{title}</Text>
+        <Text style={styles.featureSubtitle}>{subtitle}</Text>
+      </View>
+      {count !== undefined && (
+        <View style={styles.featureCount}>
+          <Text style={styles.featureCountText}>{count}</Text>
+        </View>
+      )}
+      <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+    </TouchableOpacity>
+  );
+
+  const renderSettingsItem = (icon: string, title: string, value?: string, onPress?: () => void, isSwitch?: boolean, switchValue?: boolean, onSwitchChange?: (value: boolean) => void) => (
+    <View style={styles.settingsItem}>
+      <View style={styles.settingsItemLeft}>
+        <View style={styles.settingsIcon}>
+          <Ionicons name={icon as any} size={20} color="#8E8E93" />
+        </View>
+        <Text style={styles.settingsLabel}>{title}</Text>
+      </View>
+      <View style={styles.settingsItemRight}>
+        {isSwitch ? (
+          <Switch
+            value={switchValue}
+            onValueChange={onSwitchChange}
+            trackColor={{ false: '#E5E5EA', true: '#007AFF' }}
+            thumbColor="#fff"
+          />
+        ) : (
+          <>
+            {value && <Text style={styles.settingsValue}>{value}</Text>}
+            <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+          </>
         )}
       </View>
-
-      <TouchableOpacity 
-        style={styles.editProfileButton}
-        onPress={handleEditProfile}
-      >
-        <Ionicons name="pencil" size={16} color="#007AFF" />
-        <Text style={styles.editProfileText}>Edit</Text>
-    </TouchableOpacity>
     </View>
   );
 
@@ -796,12 +1267,9 @@ export default function ProfileScreen() {
                   <Ionicons name="person" size={40} color="#fff" />
                 </View>
               )}
-                <TouchableOpacity
-                style={styles.editAvatarButton}
-                onPress={showImagePickerOptions}
-                >
+              <TouchableOpacity style={styles.editAvatarButton} onPress={showImagePickerOptions}>
                 <Ionicons name="camera" size={16} color="#fff" />
-                </TouchableOpacity>
+              </TouchableOpacity>
             </View>
             <Text style={styles.editAvatarLabel}>Profile Picture</Text>
             {isUploadingImage && (
@@ -809,8 +1277,8 @@ export default function ProfileScreen() {
                 <ActivityIndicator size="small" color="#007AFF" />
                 <Text style={styles.uploadingText}>Uploading...</Text>
               </View>
-                  )}
-                </View>
+            )}
+          </View>
 
           <View style={styles.formSection}>
             <Text style={styles.formLabel}>Full Name</Text>
@@ -822,7 +1290,7 @@ export default function ProfileScreen() {
               placeholderTextColor="#999"
               maxLength={50}
             />
-              </View>
+          </View>
 
           <View style={styles.formSection}>
             <Text style={styles.formLabel}>Username</Text>
@@ -849,9 +1317,7 @@ export default function ProfileScreen() {
               numberOfLines={4}
               maxLength={200}
             />
-            <Text style={styles.characterCount}>
-              {editForm.bio.length}/200
-            </Text>
+            <Text style={styles.characterCount}>{editForm.bio.length}/200</Text>
           </View>
 
           <View style={styles.formSection}>
@@ -871,100 +1337,7 @@ export default function ProfileScreen() {
     </Modal>
   );
 
-  // Friends rendering functions
-  const renderFriendItem = (friend: Friend, index: number) => (
-    <View key={`friend-${friend.friendship_id}-${index}`} style={styles.friendItem}>
-      <View style={styles.friendInfo}>
-        {friend.friend_avatar ? (
-          <Image source={{ uri: friend.friend_avatar }} style={styles.friendAvatar} />
-        ) : (
-          <View style={styles.friendAvatarPlaceholder}>
-            <Ionicons name="person" size={16} color="#fff" />
-          </View>
-        )}
-        <View style={styles.friendDetails}>
-          <Text style={styles.friendName}>{friend.friend_name}</Text>
-          <Text style={styles.friendUsername}>@{friend.friend_username || 'no-username'}</Text>
-        </View>
-      </View>
-              <TouchableOpacity
-        style={styles.removeFriendButton}
-        onPress={() => removeFriend(friend.friendship_id)}
-              >
-        <Ionicons name="close" size={16} color="#999" />
-      </TouchableOpacity>
-                </View>
-  );
-
-  const renderFriendRequestItem = (request: FriendRequest, index: number) => (
-    <View key={`request-${request.friendship_id}-${index}`} style={styles.friendItem}>
-      <View style={styles.friendInfo}>
-        {request.requester_avatar ? (
-          <Image source={{ uri: request.requester_avatar }} style={styles.friendAvatar} />
-        ) : (
-          <View style={styles.friendAvatarPlaceholder}>
-            <Ionicons name="person" size={16} color="#fff" />
-          </View>
-        )}
-        <View style={styles.friendDetails}>
-          <Text style={styles.friendName}>{request.requester_name}</Text>
-          <Text style={styles.friendUsername}>@{request.requester_username || 'no-username'}</Text>
-                </View>
-      </View>
-      <View style={styles.requestActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.acceptButton]}
-          onPress={() => acceptFriendRequest(request.friendship_id)}
-        >
-          <Ionicons name="checkmark" size={14} color="#fff" />
-              </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.declineButton]}
-          onPress={() => declineFriendRequest(request.friendship_id)}
-        >
-          <Ionicons name="close" size={14} color="#fff" />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderSearchResultItem = (result: SearchResult, index: number) => (
-    <View key={`search-${result.user_id}-${index}`} style={styles.friendItem}>
-      <View style={styles.friendInfo}>
-        {result.avatar_url ? (
-          <Image source={{ uri: result.avatar_url }} style={styles.friendAvatar} />
-        ) : (
-          <View style={styles.friendAvatarPlaceholder}>
-            <Ionicons name="person" size={16} color="#fff" />
-          </View>
-        )}
-        <View style={styles.friendDetails}>
-          <Text style={styles.friendName}>{result.full_name}</Text>
-          <Text style={styles.friendUsername}>@{result.username || 'no-username'}</Text>
-        </View>
-      </View>
-      {result.is_friend ? (
-        <View style={styles.friendStatus}>
-          <Ionicons name="checkmark-circle" size={16} color="#34C759" />
-          <Text style={styles.friendStatusText}>Friends</Text>
-        </View>
-      ) : result.friendship_status === 'pending' ? (
-        <View style={styles.friendStatus}>
-          <Ionicons name="time" size={16} color="#FF9500" />
-          <Text style={styles.friendStatusText}>Pending</Text>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={styles.addFriendButton}
-          onPress={() => sendFriendRequest(result.user_id)}
-        >
-          <Ionicons name="add" size={16} color="#007AFF" />
-        </TouchableOpacity>
-        )}
-      </View>
-    );
-
-  const renderFriendsModal = () => (
+  const renderFriendsListModal = () => (
     <Modal
       visible={showFriendsModal}
       animationType="slide"
@@ -973,267 +1346,592 @@ export default function ProfileScreen() {
     >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={() => setShowFriendsModal(false)} style={styles.modalCancelButton}>
-            <Text style={styles.modalCancelText}>Close</Text>
+          <TouchableOpacity onPress={() => setShowFriendsModal(false)}>
+            <Ionicons name="close" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Friends</Text>
-          <View style={styles.modalHeaderSpacer} />
+          <TouchableOpacity onPress={() => {
+            setActiveFriendsTab('search');
+            setShowFriendsModal(false);
+            setTimeout(() => setShowFriendsModal(true), 100);
+          }}>
+            <Ionicons name="person-add-outline" size={24} color="#007AFF" />
+          </TouchableOpacity>
         </View>
 
-        <View style={styles.friendsTabBar}>
-          <TouchableOpacity
-            style={[styles.friendsTab, activeFriendsTab === 'friends' && styles.activeFriendsTab]}
-            onPress={() => setActiveFriendsTab('friends')}
-          >
-            <Text style={[styles.friendsTabText, activeFriendsTab === 'friends' && styles.activeFriendsTabText]}>
-              Friends
-            </Text>
-            {friends.length > 0 && (
-              <View style={styles.tabBadge}>
-                <Text style={styles.tabBadgeText}>{friends.length}</Text>
+        <ScrollView style={styles.modalContent}>
+          {friends.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="people-outline" size={64} color="#ccc" />
+              <Text style={styles.emptyText}>No friends yet</Text>
+              <Text style={styles.emptySubtext}>
+                Use the add button to find and connect with friends
+              </Text>
+            </View>
+          ) : (
+            friends.map((friend, index) => (
+              <View key={`friend-${friend.friendship_id}-${index}`} style={styles.friendItem}>
+                <View style={styles.friendInfo}>
+                  {friend.friend_avatar ? (
+                    <Image source={{ uri: friend.friend_avatar }} style={styles.friendAvatar} />
+                  ) : (
+                    <View style={styles.friendAvatarPlaceholder}>
+                      <Ionicons name="person" size={16} color="#fff" />
+                    </View>
+                  )}
+                  <View style={styles.friendDetails}>
+                    <Text style={styles.friendName}>{friend.friend_name}</Text>
+                    <Text style={styles.friendUsername}>@{friend.friend_username || 'no-username'}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.removeFriendButton}
+                  onPress={() => removeFriend(friend.friendship_id)}
+                >
+                  <Ionicons name="close" size={16} color="#999" />
+                </TouchableOpacity>
               </View>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.friendsTab, activeFriendsTab === 'requests' && styles.activeFriendsTab]}
-            onPress={() => setActiveFriendsTab('requests')}
-          >
-            <Text style={[styles.friendsTabText, activeFriendsTab === 'requests' && styles.activeFriendsTabText]}>
-              Requests
-            </Text>
-            {friendRequests.length > 0 && (
-              <View style={styles.tabBadge}>
-                <Text style={styles.tabBadgeText}>{friendRequests.length}</Text>
-          </View>
-            )}
-          </TouchableOpacity>
-              <TouchableOpacity
-            style={[styles.friendsTab, activeFriendsTab === 'search' && styles.activeFriendsTab]}
-            onPress={() => setActiveFriendsTab('search')}
-              >
-            <Text style={[styles.friendsTabText, activeFriendsTab === 'search' && styles.activeFriendsTabText]}>
-              Find Friends
-            </Text>
-              </TouchableOpacity>
-        </View>
-
-        <View style={styles.friendsContent}>
-          {activeFriendsTab === 'friends' && (
-            <ScrollView style={styles.friendsList} showsVerticalScrollIndicator={false}>
-              {friends.length === 0 ? (
-                <View style={styles.emptyFriendsState}>
-                  <Ionicons name="people-outline" size={48} color="#ccc" />
-                  <Text style={styles.emptyFriendsTitle}>No Friends Yet</Text>
-                  <Text style={styles.emptyFriendsText}>
-                    Start by searching for friends or accepting friend requests!
-                  </Text>
-                </View>
-              ) : (
-                friends.map((friend, index) => renderFriendItem(friend, index))
-              )}
-            </ScrollView>
+            ))
           )}
-
-          {activeFriendsTab === 'requests' && (
-            <ScrollView style={styles.friendsList} showsVerticalScrollIndicator={false}>
-              {friendRequests.length === 0 ? (
-                <View style={styles.emptyFriendsState}>
-                  <Ionicons name="mail-outline" size={48} color="#ccc" />
-                  <Text style={styles.emptyFriendsTitle}>No Friend Requests</Text>
-                  <Text style={styles.emptyFriendsText}>
-                    When someone sends you a friend request, it will appear here.
-                  </Text>
-                </View>
-              ) : (
-                friendRequests.map((request, index) => renderFriendRequestItem(request, index))
-              )}
-            </ScrollView>
-          )}
-
-          {activeFriendsTab === 'search' && (
-            <View style={styles.searchContainer}>
-              <TextInput
-                style={styles.searchInput}
-                value={searchTerm}
-                onChangeText={handleSearch}
-                placeholder="Search by name or username..."
-                placeholderTextColor="#999"
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {isSearching && (
-                <ActivityIndicator style={styles.searchLoading} color="#007AFF" />
-              )}
-              <ScrollView style={styles.searchResults} showsVerticalScrollIndicator={false}>
-                {searchResults.map((result, index) => renderSearchResultItem(result, index))}
-              </ScrollView>
-          </View>
-        )}
-        </View>
+        </ScrollView>
       </SafeAreaView>
     </Modal>
   );
 
-  const renderFriendsSection = () => (
-        <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Friends</Text>
-              <TouchableOpacity
-          style={styles.friendsButton}
-          onPress={() => setShowFriendsModal(true)}
-        >
-          <Ionicons name="people" size={20} color="#007AFF" />
-          <Text style={styles.friendsButtonText}>
-            {friends.length} Friends • {friendRequests.length} Requests
-          </Text>
-          <Ionicons name="chevron-forward" size={16} color="#ccc" />
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderSettingsSection = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Settings</Text>
-      
-      <TouchableOpacity style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="color-palette-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>Theme</Text>
-        </View>
-        <View style={styles.settingItemRight}>
-          <Text style={styles.settingValue}>
-            {preferences.theme.charAt(0).toUpperCase() + preferences.theme.slice(1)}
-          </Text>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </View>
-      </TouchableOpacity>
-
-      <View style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="notifications-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>Push Notifications</Text>
-        </View>
-        <Switch
-          value={preferences.push_notifications}
-          onValueChange={(value) => handlePreferenceChange('push_notifications', value)}
-          trackColor={{ false: '#e0e0e0', true: '#007AFF' }}
-          thumbColor="#fff"
-        />
-      </View>
-
-      <View style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="mail-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>Email Notifications</Text>
-        </View>
-        <Switch
-          value={preferences.email_notifications}
-          onValueChange={(value) => handlePreferenceChange('email_notifications', value)}
-          trackColor={{ false: '#e0e0e0', true: '#007AFF' }}
-          thumbColor="#fff"
-        />
-      </View>
-
-      <TouchableOpacity style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="calendar-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>Default View</Text>
-        </View>
-        <View style={styles.settingItemRight}>
-          <Text style={styles.settingValue}>
-            {preferences.default_view.charAt(0).toUpperCase() + preferences.default_view.slice(1)}
-          </Text>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderAccountSection = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>Account</Text>
-      
-      <TouchableOpacity style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="shield-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>Privacy & Security</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="cloud-download-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>Export Data</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="help-circle-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>Help & Support</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.settingItem}>
-        <View style={styles.settingItemLeft}>
-          <Ionicons name="information-circle-outline" size={22} color="#666" />
-          <Text style={styles.settingLabel}>About</Text>
-        </View>
-        <View style={styles.settingItemRight}>
-          <Text style={styles.settingValue}>v1.0.0</Text>
-          <Ionicons name="chevron-forward" size={20} color="#ccc" />
-        </View>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderSignOutSection = () => (
-    <View style={styles.section}>
-      {user ? (
-        <>
-          <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-            <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
-              <Text style={styles.signOutText}>Sign Out</Text>
-              </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount}>
-            <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-            <Text style={styles.deleteAccountText}>Delete Account</Text>
+  const renderMemoriesModal = () => (
+    <Modal
+      visible={showMemoriesModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowMemoriesModal(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowMemoriesModal(false)}>
+            <Ionicons name="close" size={24} color="#000" />
           </TouchableOpacity>
-        </>
+          <Text style={styles.modalTitle}>Memories</Text>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity 
+              onPress={async () => {
+                if (user?.id) {
+                  console.log('🔄 Manual cleanup and reload triggered');
+                  await cleanupOldLocalPhotos(user.id);
+                  await loadMemories(user.id);
+                }
+              }}
+            >
+              <Ionicons name="refresh-circle" size={24} color="#FF9500" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => loadMemories(user?.id || '')}>
+              <Ionicons name="refresh" size={24} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {isLoadingMemories ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingText}>Loading memories...</Text>
+          </View>
+        ) : memories.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="images-outline" size={64} color="#ccc" />
+            <Text style={styles.emptyText}>No memories yet</Text>
+            <Text style={styles.emptySubtext}>
+              Photos from your habits and events will appear here
+            </Text>
+            <TouchableOpacity 
+              style={styles.debugButton} 
+              onPress={() => {
+                console.log('🔍 Debug: Current memories state:', memories);
+                console.log('🔍 Debug: User ID:', user?.id);
+                Alert.alert('Debug Info', `User ID: ${user?.id}\nMemories count: ${memories.length}\nCheck console for more details.`);
+              }}
+            >
+              <Text style={styles.debugButtonText}>Debug Info</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF9500' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('Cleanup', 'This will remove any invalid local photo references. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Cleanup',
+                      onPress: async () => {
+                        await cleanupOldLocalPhotos(user.id);
+                        await loadMemories(user.id);
+                        Alert.alert('Success', 'Cleanup completed! Check the memories again.');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Cleanup Old Photos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#34C759' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  await checkDatabaseState(user.id);
+                  Alert.alert('Database Check', 'Check console for current database state.');
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Check Database</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF3B30' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('⚠️ Force Cleanup', 'This will remove ALL photos from ALL habits. This action cannot be undone. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove All Photos',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await forceCleanupAllPhotos(user.id);
+                        await loadMemories(user.id);
+                        Alert.alert('Success', 'All photos have been removed from habits.');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Remove All Photos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#5856D6' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('Force Refresh', 'This will completely reset and reload memories. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Force Refresh',
+                      onPress: async () => {
+                        await forceRefreshMemories(user.id);
+                        Alert.alert('Success', 'Memories have been force refreshed!');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Force Refresh</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#AF52DE' }]} 
+              onPress={async () => {
+                const isAccessible = await checkSupabaseStorage();
+                Alert.alert('Storage Check', isAccessible ? 'Supabase storage is accessible' : 'Supabase storage has issues. Check console for details.');
+              }}
+            >
+              <Text style={styles.debugButtonText}>Check Storage</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF6B35' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('💪 Aggressive Cleanup', 'This will remove ALL photos from ALL habits. This is the most thorough cleanup option. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Aggressive Cleanup',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await aggressiveCleanup(user.id);
+                        await loadMemories(user.id);
+                        Alert.alert('Success', 'Aggressive cleanup completed! All photos removed.');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Aggressive Cleanup</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <FlatList
+            data={memories}
+            keyExtractor={(item) => item.date}
+            renderItem={({ item: memoryGroup }) => (
+              <View style={styles.memoryGroup}>
+                <Text style={styles.memoryDateHeader}>{memoryGroup.formattedDate}</Text>
+                <View style={styles.memoryGrid}>
+                  {memoryGroup.memories.map((memory) => (
+                    <TouchableOpacity
+                      key={memory.id}
+                      style={styles.memoryItem}
+                      onPress={() => {
+                        setSelectedMemory(memory);
+                        setShowMemoryDetailModal(true);
+                      }}
+                    >
+                      <Image
+                        source={{ uri: memory.photoUri }}
+                        style={styles.memoryImage}
+                        resizeMode="cover"
+                        onError={(error) => {
+                          // Check if this is a local file name error
+                          const errorMessage = error.nativeEvent.error || '';
+                          const isLocalFileError = errorMessage.includes("couldn't be opened because there is no such file") ||
+                                                 errorMessage.includes("Unknown image download error") ||
+                                                 memory.photoUri.includes('.jpg') && !memory.photoUri.includes('/');
+                          
+                          if (isLocalFileError) {
+                            console.log(`⚠️ Local file error for memory ${memory.id}, marking as failed: ${memory.photoUri}`);
+                          } else {
+                            console.error('❌ Image loading error for memory:', memory.id, error.nativeEvent.error);
+                          }
+                          setFailedImages(prev => new Set(prev).add(memory.id));
+                        }}
+                        onLoad={() => {
+                          console.log('✅ Image loaded successfully for memory:', memory.id);
+                          setFailedImages(prev => {
+                            const newSet = new Set(prev);
+                            newSet.delete(memory.id);
+                            return newSet;
+                          });
+                        }}
+                      />
+                      {failedImages.has(memory.id) && (
+                        <View style={styles.memoryImagePlaceholder}>
+                          <Ionicons name="image-outline" size={32} color="#ccc" />
+                          <Text style={styles.memoryImagePlaceholderText}>Image unavailable</Text>
+                        </View>
+                      )}
+                      <View style={styles.memoryOverlay}>
+                        <View style={[
+                          styles.memoryTypeBadge,
+                          { backgroundColor: memory.categoryColor || '#007AFF' }
+                        ]}>
+                          <Text style={styles.memoryTypeText}>
+                            {memory.type === 'habit' ? 'Habit' : 'Event'}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+            contentContainerStyle={styles.memoriesList}
+          />
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const renderMemoryDetailModal = () => (
+    <Modal
+      visible={showMemoryDetailModal}
+      animationType="fade"
+      transparent={true}
+      onRequestClose={() => setShowMemoryDetailModal(false)}
+    >
+      <View style={styles.memoryDetailOverlay}>
+        <TouchableOpacity
+          style={styles.memoryDetailBackground}
+          onPress={() => setShowMemoryDetailModal(false)}
+        />
+        {selectedMemory && (
+          <View style={styles.memoryDetailContainer}>
+            <Image
+              source={{ uri: selectedMemory.photoUri }}
+              style={styles.memoryDetailImage}
+              resizeMode="contain"
+            />
+            <View style={styles.memoryDetailInfo}>
+              <View style={[
+                styles.memoryDetailTypeBadge,
+                { backgroundColor: selectedMemory.categoryColor || '#007AFF' }
+              ]}>
+                <Text style={styles.memoryDetailTypeText}>
+                  {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
+                </Text>
+              </View>
+              <Text style={styles.memoryDetailTitle}>{selectedMemory.title}</Text>
+              {selectedMemory.description && (
+                <Text style={styles.memoryDetailDescription}>
+                  {selectedMemory.description}
+                </Text>
+              )}
+              <Text style={styles.memoryDetailDate}>
+                {formatMemoryDate(selectedMemory.date)}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.memoryDetailCloseButton}
+              onPress={() => setShowMemoryDetailModal(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </Modal>
+  );
+
+  const renderSettingsModal = () => (
+    <Modal
+      visible={showSettingsModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowSettingsModal(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Settings</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.settingsSection}>
+            <Text style={styles.sectionTitle}>Preferences</Text>
+            {renderSettingsItem('color-palette-outline', 'Theme', preferences.theme)}
+            {renderSettingsItem('notifications-outline', 'Push Notifications', undefined, undefined, true, preferences.push_notifications, (value) => handlePreferenceChange('push_notifications', value))}
+            {renderSettingsItem('mail-outline', 'Email Notifications', undefined, undefined, true, preferences.email_notifications, (value) => handlePreferenceChange('email_notifications', value))}
+            {renderSettingsItem('calendar-outline', 'Default View', preferences.default_view)}
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={styles.sectionTitle}>Account</Text>
+            {renderSettingsItem('shield-outline', 'Privacy & Security')}
+            {renderSettingsItem('cloud-download-outline', 'Export Data')}
+            {renderSettingsItem('help-circle-outline', 'Help & Support')}
+            {renderSettingsItem('information-circle-outline', 'About', 'v1.0.0')}
+          </View>
+
+          <View style={styles.settingsSection}>
+            <Text style={styles.sectionTitle}>Actions</Text>
+            <TouchableOpacity style={styles.dangerActionItem} onPress={handleSignOut}>
+              <View style={styles.dangerActionLeft}>
+                <View style={styles.dangerActionIcon}>
+                  <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
+                </View>
+                <Text style={styles.dangerActionLabel}>Sign Out</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.dangerActionItem} onPress={handleDeleteAccount}>
+              <View style={styles.dangerActionLeft}>
+                <View style={styles.dangerActionIcon}>
+                  <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                </View>
+                <Text style={styles.dangerActionLabel}>Delete Account</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const checkDatabaseState = async (userId: string) => {
+    try {
+      console.log('🔍 Checking current database state for user:', userId);
+      
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, text, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error checking database state:', habitsError);
+        return;
+      }
+
+      console.log('🔍 Current habits with photos in database:', habitsData);
+      
+      if (habitsData && habitsData.length > 0) {
+        habitsData.forEach(habit => {
+          console.log(`🔍 Habit ${habit.id} (${habit.text}):`, habit.photos);
+        });
+      } else {
+        console.log('🔍 No habits with photos found in database');
+      }
+    } catch (error) {
+      console.error('Error checking database state:', error);
+    }
+  };
+
+  const forceCleanupAllPhotos = async (userId: string) => {
+    try {
+      console.log('💥 Force cleaning up ALL photos for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for force cleanup:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('💥 No habits with photos found for force cleanup');
+        return;
+      }
+
+      console.log(`💥 Force cleaning up ${habitsData.length} habits`);
+
+      // Remove ALL photos from ALL habits
+      for (const habit of habitsData) {
+        console.log(`💥 Removing all photos from habit ${habit.id}`);
+        const { error } = await supabase
+          .from('habits')
+          .update({ photos: null })
+          .eq('id', habit.id);
+        
+        if (error) {
+          console.error(`💥 Error removing photos from habit ${habit.id}:`, error);
+        } else {
+          console.log(`💥 Successfully removed all photos from habit ${habit.id}`);
+        }
+      }
+
+      console.log('💥 Force cleanup completed - all photos removed');
+    } catch (error) {
+      console.error('Error in force cleanup:', error);
+    }
+  };
+
+  const aggressiveCleanup = async (userId: string) => {
+    try {
+      console.log('💪 Aggressive cleanup for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for aggressive cleanup:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('💪 No habits with photos found for aggressive cleanup');
+        return;
+      }
+
+      console.log(`💪 Aggressively cleaning up ${habitsData.length} habits`);
+
+      // Remove ALL photos from ALL habits - nuclear option
+      for (const habit of habitsData) {
+        console.log(`💪 Removing ALL photos from habit ${habit.id}:`, habit.photos);
+        const { error } = await supabase
+          .from('habits')
+          .update({ photos: null })
+          .eq('id', habit.id);
+        
+        if (error) {
+          console.error(`💪 Error removing photos from habit ${habit.id}:`, error);
+        } else {
+          console.log(`💪 Successfully removed ALL photos from habit ${habit.id}`);
+        }
+      }
+
+      console.log('💪 Aggressive cleanup completed - all photos removed from all habits');
+    } catch (error) {
+      console.error('Error in aggressive cleanup:', error);
+    }
+  };
+
+  const testPhotoUrl = async (photoUrl: string) => {
+    try {
+      console.log('🔍 Testing photo URL:', photoUrl);
+      
+      // Try to fetch the image
+      const response = await fetch(photoUrl);
+      console.log('🔍 Photo URL response status:', response.status);
+      console.log('🔍 Photo URL response headers:', response.headers);
+      
+      if (response.ok) {
+        console.log('✅ Photo URL is accessible');
+        return true;
+      } else {
+        console.log('❌ Photo URL is not accessible:', response.status, response.statusText);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error testing photo URL:', error);
+      return false;
+    }
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {user && (
+        <View style={styles.headerContainer}>
+          <TouchableOpacity style={styles.addFriendsButton} onPress={() => {
+            setActiveFriendsTab('search');
+            setShowFriendsModal(true);
+          }}>
+            <Ionicons name="person-add-outline" size={20} color="#007AFF" />
+          </TouchableOpacity>
+          <View style={styles.headerSpacer} />
+          <TouchableOpacity style={styles.settingsButton} onPress={() => setShowSettingsModal(true)}>
+            <Ionicons name="settings-outline" size={20} color="#007AFF" />
+          </TouchableOpacity>
+        </View>
+      )}
+      
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {user && renderProfileHeader()}
+        
+        {user && (
+          <View style={styles.featuresSection}>
+            {renderFeatureCard(
+              'images',
+              'Memories',
+              'Your photo moments',
+              memories.reduce((total, group) => total + group.memories.length, 0),
+              () => setShowMemoriesModal(true)
+            )}
+          </View>
+        )}
+
+        <View style={styles.accountSection}>
+          {user ? (
+            <View style={styles.signInContainer}>
+              <Text style={styles.signInTitle}>Account Settings</Text>
+              <Text style={styles.signInSubtitle}>Tap the settings icon to manage your account</Text>
+            </View>
           ) : (
             <View style={styles.signInContainer}>
-          <Text style={styles.signInTitle}>Sign in to sync your data</Text>
+              <Text style={styles.signInTitle}>Sign in to sync your data</Text>
               <GoogleSigninButton
                 size={GoogleSigninButton.Size.Wide}
                 color={GoogleSigninButton.Color.Light}
                 onPress={handleSignIn}
-            disabled={isLoading}
+                disabled={isLoading}
               />
-          {isLoading && (
-            <ActivityIndicator style={styles.loadingIndicator} color="#007AFF" />
-          )}
+              {isLoading && <ActivityIndicator style={styles.loadingIndicator} color="#007AFF" />}
             </View>
           )}
         </View>
-  );
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {user && renderProfileHeader()}
-        {user && renderFriendsSection()}
-        {user && renderSettingsSection()}
-        {user && renderAccountSection()}
-        {renderSignOutSection()}
-        </ScrollView>
+      </ScrollView>
       
       {renderEditProfileModal()}
-      {renderFriendsModal()}
+      {renderFriendsListModal()}
+      {renderMemoriesModal()}
+      {renderMemoryDetailModal()}
+      {renderSettingsModal()}
     </SafeAreaView>
   );
 }
@@ -1241,22 +1939,36 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#F8F9FA',
   },
   scrollView: {
     flex: 1,
   },
-  profileHeader: {
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    marginBottom: 16,
+  headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#fff',
+  },
+  headerSpacer: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+    fontFamily: 'Onest',
+  },
+  profileHeader: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    backgroundColor: '#fff',
+    marginBottom: 16,
   },
   avatarContainer: {
     position: 'relative',
-    marginRight: 16,
+    marginBottom: 16,
   },
   avatar: {
     width: 80,
@@ -1276,243 +1988,222 @@ const styles = StyleSheet.create({
     bottom: 0,
     right: 0,
     backgroundColor: '#007AFF',
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#fff',
-  },
-  profileInfo: {
-    flex: 1,
   },
   profileName: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 24,
+    fontWeight: '700',
     color: '#000',
     marginBottom: 4,
+    fontFamily: 'Onest',
   },
   profileEmail: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
+    fontSize: 16,
+    color: '#8E8E93',
+    marginBottom: 8,
+    fontFamily: 'Onest',
   },
   profileBio: {
     fontSize: 14,
     color: '#666',
-    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 16,
+    fontFamily: 'Onest',
   },
   editProfileButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f0f8ff',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#007AFF',
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
   },
   editProfileText: {
     fontSize: 14,
-    color: '#007AFF',
-    fontWeight: '500',
-    marginLeft: 4,
-  },
-  section: {
-    backgroundColor: '#fff',
-    marginBottom: 16,
-    borderRadius: 12,
-    marginHorizontal: 16,
-    overflow: 'hidden',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f0f0f0',
-  },
-  sectionTitle: {
-    fontSize: 16,
+    color: '#fff',
     fontWeight: '600',
-    color: '#000',
+    fontFamily: 'Onest',
   },
-  friendsButton: {
+  featuresSection: {
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  featureCard: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  friendsButtonText: {
-    fontSize: 14,
-    color: '#007AFF',
-    marginLeft: 8,
-  },
-  friendItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
     backgroundColor: '#fff',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f5f5f5',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  friendInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  friendAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 12,
-  },
-  friendAvatarPlaceholder: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f0f0f0',
+  featureIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F0F8FF',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
-  friendDetails: {
+  featureContent: {
     flex: 1,
   },
-  friendName: {
-    fontSize: 15,
-    fontWeight: '500',
+  featureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
     color: '#000',
     marginBottom: 2,
+    fontFamily: 'Onest',
   },
-  friendUsername: {
-    fontSize: 13,
-    color: '#999',
+  featureSubtitle: {
+    fontSize: 14,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
   },
-  removeFriendButton: {
-    padding: 8,
-    borderRadius: 16,
-    backgroundColor: '#f8f8f8',
-  },
-  requestActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  acceptButton: {
-    backgroundColor: '#34C759',
-  },
-  declineButton: {
-    backgroundColor: '#FF3B30',
-  },
-  addFriendButton: {
-    padding: 8,
-    borderRadius: 16,
-    backgroundColor: '#f0f8ff',
-  },
-  friendStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  featureCount: {
+    backgroundColor: '#007AFF',
+    borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: '#f8f8f8',
+    marginRight: 8,
   },
-  friendStatusText: {
-    fontSize: 11,
-    color: '#666',
-    marginLeft: 4,
-    fontWeight: '500',
-  },
-  friendsTabBar: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f0f0f0',
-  },
-  friendsTab: {
-    flex: 1,
-    paddingVertical: 16,
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
-  activeFriendsTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#007AFF',
-  },
-  friendsTabText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#666',
-  },
-  activeFriendsTabText: {
-    color: '#007AFF',
+  featureCountText: {
+    fontSize: 12,
+    color: '#fff',
     fontWeight: '600',
+    fontFamily: 'Onest',
   },
-  friendsContent: {
-    flex: 1,
-    backgroundColor: '#fafafa',
+  settingsSection: {
+    marginBottom: 24,
   },
-  friendsList: {
-    flex: 1,
-  },
-  emptyFriendsState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 80,
-    paddingHorizontal: 40,
-  },
-  emptyFriendsTitle: {
+  sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#666',
-    marginTop: 16,
+    fontWeight: '700',
+    color: '#000',
     marginBottom: 8,
+    fontFamily: 'Onest',
   },
-  emptyFriendsText: {
-    fontSize: 14,
-    color: '#999',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  searchContainer: {
-    flex: 1,
-    padding: 20,
-  },
-  searchInput: {
+  settingsItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     backgroundColor: '#fff',
+    padding: 16,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  settingsItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  settingsItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  settingsIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8F9FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  settingsLabel: {
     fontSize: 16,
     color: '#000',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    fontFamily: 'Onest',
+  },
+  settingsValue: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginRight: 8,
+    fontFamily: 'Onest',
+  },
+  accountSection: {
+    paddingHorizontal: 16,
+    marginBottom: 32,
+  },
+  signOutButton: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  signOutText: {
+    fontSize: 16,
+    color: '#FF3B30',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+  },
+  deleteAccountButton: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  deleteAccountText: {
+    fontSize: 16,
+    color: '#FF3B30',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+  },
+  signInContainer: {
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  signInTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
     marginBottom: 20,
+    textAlign: 'center',
+    fontFamily: 'Onest',
   },
-  searchLoading: {
-    position: 'absolute',
-    right: 32,
-    top: 32,
+  signInSubtitle: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginTop: 10,
+    textAlign: 'center',
+    fontFamily: 'Onest',
   },
-  searchResults: {
-    flex: 1,
+  loadingIndicator: {
+    marginTop: 16,
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -1520,9 +2211,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e0e0e0',
   },
   modalCancelButton: {
     paddingVertical: 8,
@@ -1530,15 +2218,14 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontSize: 16,
-    color: '#666',
+    color: '#8E8E93',
+    fontFamily: 'Onest',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
-  },
-  modalHeaderSpacer: {
-    flex: 1,
+    fontFamily: 'Onest',
   },
   modalSaveButton: {
     paddingVertical: 8,
@@ -1551,14 +2238,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#007AFF',
     fontWeight: '600',
+    fontFamily: 'Onest',
   },
   modalSaveTextDisabled: {
-    color: '#999',
+    color: '#8E8E93',
   },
   modalContent: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 20,
   },
   editAvatarSection: {
     alignItems: 'center',
@@ -1583,8 +2270,9 @@ const styles = StyleSheet.create({
   },
   editAvatarLabel: {
     fontSize: 16,
-    color: '#666',
+    color: '#8E8E93',
     fontWeight: '500',
+    fontFamily: 'Onest',
   },
   formSection: {
     marginBottom: 24,
@@ -1594,16 +2282,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#000',
     marginBottom: 8,
+    fontFamily: 'Onest',
   },
   formInput: {
-    backgroundColor: '#fff',
+    backgroundColor: '#F8F9FA',
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
     color: '#000',
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
+    fontFamily: 'Onest',
   },
   bioInput: {
     height: 100,
@@ -1612,9 +2300,10 @@ const styles = StyleSheet.create({
   },
   characterCount: {
     fontSize: 12,
-    color: '#999',
+    color: '#8E8E93',
     textAlign: 'right',
     marginTop: 4,
+    fontFamily: 'Onest',
   },
   uploadingContainer: {
     flexDirection: 'row',
@@ -1624,87 +2313,306 @@ const styles = StyleSheet.create({
   },
   uploadingText: {
     fontSize: 14,
-    color: '#666',
+    color: '#8E8E93',
     marginLeft: 8,
+    fontFamily: 'Onest',
   },
-  settingItem: {
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E5EA',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#007AFF',
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  activeTabText: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginTop: 16,
+    fontFamily: 'Onest',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 80,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginTop: 16,
+    fontFamily: 'Onest',
+  },
+  emptySubtext: {
+    fontSize: 12,
+    color: '#C7C7CC',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+  },
+  memoryGroup: {
+    marginBottom: 20,
+  },
+  memoryDateHeader: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 8,
+    fontFamily: 'Onest',
+  },
+  memoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  memoryItem: {
+    width: '50%',
+    height: 200,
+    position: 'relative',
+  },
+  memoryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  memoryOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memoryTypeBadge: {
+    padding: 4,
+    borderRadius: 4,
+  },
+  memoryTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+    fontFamily: 'Onest',
+  },
+  memoryDetailOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  memoryDetailBackground: {
+    flex: 1,
+  },
+  memoryDetailContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: 20,
+    backgroundColor: '#fff',
+  },
+  memoryDetailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  memoryDetailInfo: {
+    marginTop: 20,
+  },
+  memoryDetailTypeBadge: {
+    padding: 4,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  memoryDetailTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+    fontFamily: 'Onest',
+  },
+  memoryDetailTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 8,
+    fontFamily: 'Onest',
+  },
+  memoryDetailDescription: {
+    fontSize: 14,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  memoryDetailDate: {
+    fontSize: 12,
+    color: '#C7C7CC',
+    marginTop: 8,
+    fontFamily: 'Onest',
+  },
+  memoryDetailCloseButton: {
+    position: 'absolute',
+    top: 20,
+    right: 20,
+  },
+  memoriesList: {
+    padding: 20,
+  },
+  friendItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12,
     paddingHorizontal: 20,
+    backgroundColor: '#fff',
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#F5F5F5',
   },
-  settingItemLeft: {
+  friendInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-  settingItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  friendAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 12,
   },
-  settingLabel: {
-    fontSize: 16,
+  friendAvatarPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F8F9FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  friendDetails: {
+    flex: 1,
+  },
+  friendName: {
+    fontSize: 15,
+    fontWeight: '500',
     color: '#000',
-    marginLeft: 12,
+    marginBottom: 2,
+    fontFamily: 'Onest',
   },
-  settingValue: {
-    fontSize: 14,
-    color: '#666',
-    marginRight: 8,
+  friendUsername: {
+    fontSize: 13,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
   },
-  signOutButton: {
+  removeFriendButton: {
+    padding: 8,
+    borderRadius: 16,
+    backgroundColor: '#F8F9FA',
+  },
+  requestActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 8,
+  },
+  actionButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
-    paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#f0f0f0',
-  },
-  signOutText: {
-    color: '#FF3B30',
-    fontSize: 16,
-    fontWeight: '500',
-    marginLeft: 8,
-  },
-  deleteAccountButton: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
   },
-  deleteAccountText: {
-    color: '#FF3B30',
-    fontSize: 16,
-    fontWeight: '500',
-    marginLeft: 8,
+  acceptButton: {
+    backgroundColor: '#34C759',
   },
-  signInContainer: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  signInTitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 16,
-  },
-  loadingIndicator: {
-    marginTop: 16,
-  },
-  tabBadge: {
+  declineButton: {
     backgroundColor: '#FF3B30',
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    marginLeft: 6,
-    minWidth: 18,
+  },
+  addFriendsButton: {
+    padding: 12,
+    borderRadius: 20,
+  },
+  friendCountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  friendCountText: {
+    fontSize: 17,
+    color: '#8E8E93',
+    marginLeft: 4,
+    fontFamily: 'Onest',
+  },
+  dangerActionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F5F5F5',
+  },
+  dangerActionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  dangerActionIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#F8F9FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  dangerActionLabel: {
+    fontSize: 16,
+    color: '#FF3B30',
+    fontWeight: '500',
+    fontFamily: 'Onest',
+  },
+  settingsButton: {
+    padding: 12,
+    borderRadius: 20,
+  },
+  debugButton: {
+    backgroundColor: '#007AFF',
+    padding: 12,
+    borderRadius: 20,
+  },
+  debugButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+  },
+  memoryImagePlaceholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  tabBadgeText: {
-    fontSize: 11,
+  memoryImagePlaceholderText: {
+    fontSize: 14,
+    color: '#8E8E93',
     fontWeight: '600',
-    color: '#fff',
+    fontFamily: 'Onest',
   },
 });

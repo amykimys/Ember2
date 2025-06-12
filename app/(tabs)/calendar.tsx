@@ -29,6 +29,7 @@ import CustomToast from '../../components/CustomToast';
 import WeeklyCalendarView, { WeeklyCalendarViewRef } from '../../components/WeeklyCalendar'; 
 import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
+import { useFocusEffect } from '@react-navigation/native';
 
 
 // Add type definitions for custom times
@@ -682,42 +683,155 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   useEffect(() => {
     const fetchUser = async () => {
+      console.log('🔍 Starting fetchUser...');
+      try {
       const { data, error } = await supabase.auth.getUser();
+      console.log('👤 Auth data:', data);
+      console.log('❌ Auth error if any:', error);
+      
       if (error) {
-        console.error('Error fetching user:', error);
-      } else {
+        console.error('❌ Error fetching user:', error);
+          return;
+        }
+        
+        if (data?.user) {
+        console.log('✅ User fetched successfully:', data.user);
         setUser(data.user);
+        
+          // Test database connection
+          console.log('🔍 Testing database connection...');
+          
+          // Test events table connection
+          const { data: eventsTest, error: eventsError } = await supabase
+            .from('events')
+            .select('count')
+            .limit(1);
+          
+          console.log('📊 Events table test result:', eventsTest);
+          console.log('❌ Events table test error:', eventsError);
+          
+          if (eventsError) {
+            console.error('❌ Events table connection failed:', eventsError);
+          } else {
+            console.log('✅ Events table connection successful');
+          }
+        } else {
+          console.log('❌ No user found in auth data');
+        }
+      } catch (error) {
+        console.error('💥 Error in fetchUser:', error);
       }
     };
   
     fetchUser();
+  }, []);
+
+  // Add auth state change listener
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔐 Auth state changed:', event, session?.user?.id);
+      
+      if (event === 'SIGNED_IN' && session?.user) {
+        console.log('✅ User signed in, setting user and fetching events');
+        setUser(session.user);
+        // Add a small delay to ensure user state is set, then fetch events
+        setTimeout(() => {
+          console.log('🔄 Triggering event fetch after sign in');
+          refreshEvents();
+        }, 100);
+      } else if (event === 'SIGNED_OUT') {
+        console.log('🚪 User signed out, clearing user and events');
+        setUser(null);
+        setEvents({});
+      } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+        console.log('🔄 Token refreshed, updating user');
+        setUser(session.user);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
   
 
   useEffect(() => {
     const fetchEvents = async () => {
       try {
+        console.log('🔍 Starting fetchEvents...');
+        console.log('👤 Current user:', user);
+        
         if (!user?.id) {
+          console.log('❌ No user ID, skipping fetch');
           return;
         }
 
+        // Check session before fetching
+        const sessionValid = await checkAndRefreshSession();
+        if (!sessionValid) {
+          console.log('❌ Session invalid, skipping fetch');
+          return;
+        }
+
+        console.log('🔍 Fetching events for user:', user.id);
+        
+        // First, let's check if the events table exists and is accessible
+        const { data: tableCheck, error: tableError } = await supabase
+          .from('events')
+          .select('id')
+          .limit(1);
+
+        if (tableError) {
+          console.error('❌ Events table access error:', tableError);
+          handleDatabaseError(tableError);
+          return;
+        }
+
+        console.log('✅ Events table is accessible');
+
+        // Now fetch all events for the user
         const { data: eventsData, error } = await supabase
           .from('events')
           .select('*')
-          .eq('user_id', user.id);
+          .eq('user_id', user.id)
+          .order('date', { ascending: true });
+
+        console.log('📊 Raw events data:', eventsData);
+        console.log('❌ Error if any:', error);
 
         if (error) {
-          console.error('Error fetching events:', error);
+          console.error('❌ Error fetching events:', error);
+          handleDatabaseError(error);
           return;
         }
 
+        if (!eventsData || eventsData.length === 0) {
+          console.log('📭 No events found in database');
+          setEvents({});
+          return;
+        }
+
+        console.log(`✅ Found ${eventsData.length} events in database`);
+
         // Transform the events data into our local format
-        const transformedEvents = eventsData?.reduce((acc, event) => {
-          // Parse UTC dates
+        const transformedEvents = eventsData.reduce((acc, event) => {
+          console.log('🔄 Processing event:', event);
+          
+          // Parse UTC dates with better error handling
           const parseDate = (dateStr: string | null) => {
             if (!dateStr) return null;
-            // Create date object from UTC string
-            return new Date(dateStr);
+            try {
+              // Handle both ISO strings and other formats
+              const date = new Date(dateStr);
+              if (isNaN(date.getTime())) {
+                console.warn('⚠️ Invalid date string:', dateStr);
+                return null;
+              }
+              return date;
+            } catch (error) {
+              console.error('❌ Error parsing date:', dateStr, error);
+              return null;
+            }
           };
 
           const startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
@@ -725,9 +839,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           const reminderTime = event.reminder_time ? parseDate(event.reminder_time) : null;
           const repeatEndDate = event.repeat_end_date ? parseDate(event.repeat_end_date) : null;
 
+          console.log('📅 Parsed dates:', {
+            startDateTime,
+            endDateTime,
+            reminderTime,
+            repeatEndDate
+          });
+
           // Convert custom times if they exist
           let customTimes;
-          if (event.custom_times) {
+          if (event.custom_times && typeof event.custom_times === 'object') {
+            console.log('🕐 Processing custom times:', event.custom_times);
+            try {
             customTimes = Object.entries(event.custom_times).reduce((acc, [date, times]: [string, any]) => ({
               ...acc,
               [date]: {
@@ -737,11 +860,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 repeat: times.repeat
               }
             }), {});
+            } catch (error) {
+              console.error('❌ Error processing custom times:', error);
+              customTimes = {};
+            }
           }
 
           const transformedEvent = {
             id: event.id,
-            title: event.title,
+            title: event.title || 'Untitled Event',
             description: event.description,
             location: event.location,
             date: event.date,
@@ -750,15 +877,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             categoryName: event.category_name,
             categoryColor: event.category_color,
             reminderTime,
-            repeatOption: event.repeat_option,
+            repeatOption: event.repeat_option || 'None',
             repeatEndDate,
-            customDates: event.custom_dates,
+            customDates: event.custom_dates || [],
             customTimes,
-            isAllDay: event.is_all_day
+            isAllDay: event.is_all_day || false
           };
+
+          console.log('✅ Transformed event:', transformedEvent);
 
           // For custom events, add to all custom dates
           if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
+            console.log('📅 Adding custom event to dates:', transformedEvent.customDates);
             transformedEvent.customDates.forEach((date: string) => {
               if (!acc[date]) {
                 acc[date] = [];
@@ -767,6 +897,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             });
           } else {
             // For regular events, add to the primary date
+            console.log('📅 Adding regular event to date:', transformedEvent.date);
             if (!acc[transformedEvent.date]) {
               acc[transformedEvent.date] = [];
             }
@@ -776,13 +907,86 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return acc;
         }, {} as { [date: string]: CalendarEvent[] });
 
+        console.log('🎯 Final transformed events:', transformedEvents);
         setEvents(transformedEvents);
+        
       } catch (error) {
-        console.error('Error in fetchEvents:', error);
+        console.error('💥 Error in fetchEvents:', error);
       }
     };
+    
     fetchEvents();
   }, [user]);
+
+  // Add a function to refresh events
+  const refreshEvents = async () => {
+    console.log('🔄 Refreshing events...');
+    if (user?.id) {
+      const { data: eventsData, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: true });
+
+      if (error) {
+        console.error('❌ Error refreshing events:', error);
+        return;
+      }
+
+      if (!eventsData || eventsData.length === 0) {
+        setEvents({});
+        return;
+      }
+
+      const transformedEvents = eventsData.reduce((acc, event) => {
+        const parseDate = (dateStr: string | null) => {
+          if (!dateStr) return null;
+          try {
+            const date = new Date(dateStr);
+            return isNaN(date.getTime()) ? null : date;
+          } catch (error) {
+            return null;
+          }
+        };
+
+        const transformedEvent = {
+          id: event.id,
+          title: event.title || 'Untitled Event',
+          description: event.description,
+          location: event.location,
+          date: event.date,
+          startDateTime: event.start_datetime ? parseDate(event.start_datetime) : undefined,
+          endDateTime: event.end_datetime ? parseDate(event.end_datetime) : undefined,
+          categoryName: event.category_name,
+          categoryColor: event.category_color,
+          reminderTime: event.reminder_time ? parseDate(event.reminder_time) : null,
+          repeatOption: event.repeat_option || 'None',
+          repeatEndDate: event.repeat_end_date ? parseDate(event.repeat_end_date) : null,
+          customDates: event.custom_dates || [],
+          customTimes: event.custom_times || {},
+          isAllDay: event.is_all_day || false
+        };
+
+        if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
+          transformedEvent.customDates.forEach((date: string) => {
+            if (!acc[date]) {
+              acc[date] = [];
+            }
+            acc[date].push(transformedEvent);
+          });
+        } else {
+          if (!acc[transformedEvent.date]) {
+            acc[transformedEvent.date] = [];
+          }
+          acc[transformedEvent.date].push(transformedEvent);
+        }
+
+        return acc;
+      }, {} as { [date: string]: CalendarEvent[] });
+
+      setEvents(transformedEvents);
+    }
+  };
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -943,13 +1147,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   
   const handleDeleteEvent = async (eventId: string) => {
     try {
+      console.log('🗑️ Deleting event with ID:', eventId);
+      
       // Delete from database
       const { error } = await supabase
         .from('events')
         .delete()
         .eq('id', eventId);
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error deleting event from database:', error);
+        throw error;
+      }
+
+      console.log('✅ Event deleted from database successfully');
 
       // Update local state
       setEvents(prevEvents => {
@@ -973,9 +1184,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         position: 'bottom',
         visibilityTime: 2000,
       });
+
+      // Refresh events to ensure consistency
+      setTimeout(() => {
+        refreshEvents();
+      }, 500);
     } catch (error) {
       console.error('Error deleting event:', error);
-      throw error;
+      Alert.alert('Error', 'Failed to delete event. Please try again.');
     }
   };
 
@@ -1010,6 +1226,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleSaveEvent = async (customEvent?: CalendarEvent, originalEvent?: CalendarEvent): Promise<void> => {
     try {
+      // First, check and refresh session if needed
+      const sessionValid = await checkAndRefreshSession();
+      if (!sessionValid) {
+        Alert.alert('Session Error', 'Please log in again to save events.');
+        return;
+      }
+
+      // Then verify user authentication
+      console.log('🔐 Verifying user authentication...');
+      const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) {
+        console.error('❌ Authentication error:', authError);
+        Alert.alert('Authentication Error', 'Please log in again to save events.');
+        return;
+      }
+
+      if (!currentUser?.id) {
+        console.error('❌ No authenticated user found');
+        Alert.alert('Authentication Error', 'Please log in to save events.');
+        return;
+      }
+
+      console.log('✅ User authenticated:', currentUser.id);
+
       // Format date to UTC ISO string
       const formatDateToUTC = (date: Date): string => {
         // Get UTC components
@@ -1194,8 +1435,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }
           }), {}) : null,
         is_all_day: event.isAllDay,
-        user_id: user?.id
+        user_id: currentUser.id // Use the verified current user ID
       }));
+
+      console.log('📊 Prepared events for database:', dbEvents);
 
       let dbError;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
@@ -1267,7 +1510,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             .from('events')
             .select('*')
             .eq('title', eventToDelete?.title || '')
-            .eq('user_id', user?.id);
+            .eq('user_id', currentUser.id);
 
           console.log('Found events to delete:', eventsToDelete);
           
@@ -1292,6 +1535,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
 
         // Insert the updated event
+        console.log('Inserting updated event...');
         const { error: insertError } = await supabase
           .from('events')
           .insert(dbEvents);
@@ -1299,6 +1543,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         dbError = insertError;
       } else {
         // Insert all new events
+        console.log('Inserting new events...');
         const { error: insertError } = await supabase
           .from('events')
           .insert(dbEvents);
@@ -1308,8 +1553,30 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       if (dbError) {
         console.error('Event Save - Database Error:', dbError);
+        
+        // Check if it's an RLS policy error
+        if (dbError.code === '42501') {
+          console.error('❌ RLS Policy Error - User may not be properly authenticated');
+          Alert.alert(
+            'Authentication Error', 
+            'Unable to save event. Please try logging out and logging back in.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  // You might want to redirect to login here
+                  console.log('Redirecting to login...');
+                }
+              }
+            ]
+          );
+        } else {
         throw dbError;
+        }
+        return;
       }
+
+      console.log('✅ Events saved successfully to database');
 
       // Update local state with all events
       setEvents(prev => {
@@ -1341,11 +1608,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setShowCustomDatesPicker(false);
       setEditingEvent(null);
 
+      // Show success message
       Toast.show({
         type: 'success',
         text1: editingEvent ? 'Event updated successfully' : 'Event created successfully',
         position: 'bottom',
       });
+
+      // Refresh events from database to ensure consistency
+      setTimeout(() => {
+        refreshEvents();
+      }, 500);
     } catch (error) {
       console.error('Error saving event:', error);
       Alert.alert('Error', 'Failed to save event. Please try again.');
@@ -1983,6 +2256,174 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [reminderOffset, setReminderOffset] = useState<number>(-1);
   const [showReminderOptions, setShowReminderOptions] = useState(false);
 
+  // Add real-time subscription to events
+  useEffect(() => {
+    if (!user?.id) return;
+
+    console.log('🔌 Setting up real-time subscription for events...');
+
+    const subscription = supabase
+      .channel('events_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'events',
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('🔄 Real-time event change:', payload);
+          
+          // Refresh events when there are changes
+          refreshEvents();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('🔌 Cleaning up real-time subscription...');
+      subscription.unsubscribe();
+    };
+  }, [user?.id]);
+
+  // Add a function to handle database connection issues
+  const handleDatabaseError = (error: any) => {
+    console.error('❌ Database error:', error);
+    
+    // Check if it's an authentication error
+    if (error?.message?.includes('JWT') || error?.message?.includes('auth')) {
+      Alert.alert(
+        'Authentication Error',
+        'Please log in again to continue using the calendar.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // You might want to redirect to login here
+              console.log('Redirecting to login...');
+            }
+          }
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Connection Error',
+        'Unable to connect to the database. Please check your internet connection and try again.',
+        [
+          {
+            text: 'Retry',
+            onPress: () => refreshEvents()
+          },
+          {
+            text: 'OK',
+            style: 'cancel'
+          }
+        ]
+      );
+    }
+  };
+
+  // Add session check and refresh mechanism
+  const checkAndRefreshSession = async () => {
+    try {
+      console.log('🔐 Checking Supabase session...');
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('❌ Session check error:', error);
+        return false;
+      }
+
+      if (!session) {
+        console.log('❌ No active session found');
+        return false;
+      }
+
+      // Check if session is expired or about to expire
+      const now = new Date();
+      const expiresAt = new Date(session.expires_at! * 1000);
+      const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+      
+      console.log('📅 Session expires at:', expiresAt);
+      console.log('⏰ Time until expiry:', timeUntilExpiry / 1000 / 60, 'minutes');
+
+      // If session expires in less than 5 minutes, refresh it
+      if (timeUntilExpiry < 5 * 60 * 1000) {
+        console.log('🔄 Refreshing session...');
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError) {
+          console.error('❌ Session refresh error:', refreshError);
+          return false;
+        }
+
+        if (refreshData.session) {
+          console.log('✅ Session refreshed successfully');
+          return true;
+        } else {
+          console.log('❌ No session returned from refresh');
+          return false;
+        }
+      }
+
+      console.log('✅ Session is valid');
+      return true;
+    } catch (error) {
+      console.error('💥 Error checking session:', error);
+      return false;
+    }
+  };
+
+  // Add a simple authentication test function
+  const testAuthentication = async () => {
+    try {
+      console.log('🧪 Testing authentication...');
+      
+      // Test 1: Get current user
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      console.log('👤 Current user:', user);
+      console.log('❌ User error:', userError);
+      
+      // Test 2: Get current session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      console.log('🔐 Current session:', session);
+      console.log('❌ Session error:', sessionError);
+      
+      // Test 3: Try a simple database query
+      if (user?.id) {
+        const { data: testData, error: testError } = await supabase
+          .from('events')
+          .select('count')
+          .eq('user_id', user.id)
+          .limit(1);
+        
+        console.log('📊 Test query result:', testData);
+        console.log('❌ Test query error:', testError);
+        
+        if (testError) {
+          console.error('❌ Database access failed:', testError);
+          return false;
+        } else {
+          console.log('✅ Database access successful');
+          return true;
+        }
+      } else {
+        console.log('❌ No user ID available for testing');
+        return false;
+      }
+    } catch (error) {
+      console.error('💥 Authentication test error:', error);
+      return false;
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshEvents();
+    }, [])
+  );
+
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
@@ -2016,6 +2457,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </Text>
         </TouchableOpacity>
 
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <TouchableOpacity
           onPress={() => {
             resetEventForm();
@@ -2044,6 +2486,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         >
           <MaterialIcons name="add" size={24} color="#3a3a3a" />
         </TouchableOpacity>
+        </View>
       </View>
 
       {/* Calendar and Event List Container */}
@@ -2208,6 +2651,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </Text>
         </TouchableOpacity>
 
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <TouchableOpacity
           onPress={() => {
             resetEventForm();
@@ -2236,6 +2680,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         >
           <MaterialIcons name="add" size={24} color="#3a3a3a" />
         </TouchableOpacity>
+        </View>
       </View>
 
       <WeeklyCalendarView

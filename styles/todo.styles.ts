@@ -38,7 +38,7 @@ const styles = StyleSheet.create({
       textAlign: 'center',
     },
     categoryContainer: {
-      marginBottom: 20,
+      marginBottom: 26,
     },
     categoryHeader: {
       flexDirection: 'row',
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     addButton: {
       position: 'absolute',
       right: 24,
-      bottom: 80,
+      bottom: 100,
       width: 50,
       height: 50,
       borderRadius: 25,

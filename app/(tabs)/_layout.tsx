@@ -18,13 +18,20 @@ export default function TabLayout() {
         tabBarInactiveTintColor: '#666',
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarShowLabel: false,
+        tabBarShowLabel: true,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontFamily: 'Onest',
+          fontWeight: '500',
+          marginTop: 2,
+        },
         tabBarStyle: {
           borderTopWidth: 0,
           borderTopColor: 'transparent',
           backgroundColor: '#FFFFFF',
-          height: 55,
-          paddingBottom: 6,
+          height: 70,
+          paddingBottom: 8,
+          paddingTop: 8,
           elevation: 0,
           shadowOpacity: 0,
           shadowColor: 'transparent',
@@ -42,29 +49,29 @@ export default function TabLayout() {
         },
       }}>
       <Tabs.Screen
+        name="calendar"
+        options={{
+          title: 'Calendar',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="calendar-number-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="todo"
         options={{
-          title: 'Tasks',
+          title: 'Todo',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="list" size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="habit"
+        name="notes"
         options={{
-          title: 'Habits',
+          title: 'Notes',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="flash-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="calendar"
-        options={{
-          title: 'Calendar',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="calendar-number-outline" size={size} color={color} />
+            <Ionicons name="document-text-outline" size={size} color={color} />
           ),
         }}
       />
