@@ -100,8 +100,9 @@ export default function ProfileScreen() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [activeFriendsTab, setActiveFriendsTab] = useState<'friends' | 'requests' | 'search'>('friends');
+  const [activeFriendsTab, setActiveFriendsTab] = useState<'friends' | 'requests' | 'search'>('search');
   const [showFriendsModal, setShowFriendsModal] = useState(false);
+  const [showSimpleFriendsModal, setShowSimpleFriendsModal] = useState(false);
 
   // Memories state
   const [memories, setMemories] = useState<MemoryGroup[]>([]);
@@ -461,13 +462,18 @@ export default function ProfileScreen() {
             if (photoUri && typeof photoUri === 'string') {
               // More comprehensive check for local file names
               const isLocalFileName = (
-                !photoUri.includes('/') && 
-                !photoUri.includes('\\') && 
-                photoUri.includes('.') && 
-                !photoUri.startsWith('http') && 
-                !photoUri.startsWith('file://') && 
-                !photoUri.startsWith('data:') &&
-                photoUri.length < 100 // Local file names are typically short
+                // Check for UUID-like patterns (common in iOS file names)
+                /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}\.[a-zA-Z]+$/.test(photoUri) ||
+                // Check for simple file names without paths
+                (!photoUri.includes('/') && 
+                 !photoUri.includes('\\') && 
+                 photoUri.includes('.') && 
+                 !photoUri.startsWith('http') && 
+                 !photoUri.startsWith('file://') && 
+                 !photoUri.startsWith('data:') &&
+                 photoUri.length < 100) ||
+                // Check for base64 data URLs that might be corrupted
+                (photoUri.startsWith('data:') && photoUri.length < 100)
               );
               
               console.log(`🧹 Photo ${date}: ${photoUri} - isLocalFileName: ${isLocalFileName}`);
@@ -508,8 +514,8 @@ export default function ProfileScreen() {
             .from('habits')
             .update(update.updateData)
             .eq('id', update.habitId);
-          
-          if (error) {
+
+      if (error) {
             console.error(`🧹 Error updating habit ${update.habitId}:`, error);
           } else {
             console.log(`🧹 Successfully updated habit ${update.habitId}`);
@@ -566,12 +572,15 @@ export default function ProfileScreen() {
       // Clear any existing failed images
       setFailedImages(new Set());
 
-      // First, clean up any old local photos
-      await cleanupOldLocalPhotos(userId);
+      // First, run comprehensive cleanup of all problematic photos
+      console.log('🧹 Running comprehensive photo cleanup...');
+      await cleanupProblematicPhotos(userId);
+      await cleanupTimeoutPronePhotos(userId);
+      await fixUUIDFileNames(userId); // Add specific UUID fix
       
-      // Add a small delay to ensure database updates are processed
-      await new Promise(resolve => setTimeout(resolve, 500));
-      console.log('⏳ Waited 500ms for database updates to process');
+      // Add a longer delay to ensure database updates are processed
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('⏳ Waited 1000ms for database updates to process');
 
       const allMemories: MemoryItem[] = [];
 
@@ -585,7 +594,7 @@ export default function ProfileScreen() {
       if (habitsError) {
         console.error('Error fetching habits with photos:', habitsError);
         Alert.alert('Error', 'Failed to load memories. Please try again.');
-        return;
+          return;
       } else if (habitsData) {
         console.log('📸 Found habits with photos:', habitsData.length);
         console.log('📸 Habits data after cleanup:', habitsData);
@@ -606,26 +615,50 @@ export default function ProfileScreen() {
               console.log(`📅 Processing date ${date} with photo:`, photoUri);
               
               if (photoUri && typeof photoUri === 'string') {
+                // Enhanced check for local file names (same logic as cleanup function)
+                const isLocalFileName = (
+                  // Check for UUID-like patterns (common in iOS file names)
+                  /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}\.[a-zA-Z]+$/.test(photoUri) ||
+                  // Check for simple file names without paths
+                  (!photoUri.includes('/') && 
+                   !photoUri.includes('\\') && 
+                   photoUri.includes('.') && 
+                   !photoUri.startsWith('http') && 
+                   !photoUri.startsWith('file://') && 
+                   !photoUri.startsWith('data:') &&
+                   photoUri.length < 100) ||
+                  // Check for base64 data URLs that might be corrupted
+                  (photoUri.startsWith('data:') && photoUri.length < 100)
+                );
+                
+                // Additional checks for problematic URLs
+                const isProblematicUrl = (
+                  // Supabase URLs that might be broken or timeout-prone
+                  (photoUri.startsWith('https://') && photoUri.includes('supabase.co') && photoUri.includes('habit-photos')) ||
+                  // Very long URLs that might timeout
+                  (photoUri.startsWith('http') && photoUri.length > 500) ||
+                  // URLs with suspicious patterns
+                  (photoUri.includes('localhost') || photoUri.includes('127.0.0.1')) ||
+                  // URLs with complex query parameters that might be slow
+                  (photoUri.includes('?') && photoUri.includes('&') && photoUri.length > 300)
+                );
+                
                 // Check if it's a valid URL or local file path
                 const isValidUrl = photoUri.startsWith('http://') || photoUri.startsWith('https://');
                 const isLocalFile = photoUri.startsWith('file://');
-                const isDataUrl = photoUri.startsWith('data:');
-                const isLocalFileName = !photoUri.includes('/') && !photoUri.includes('\\') && photoUri.includes('.');
+                const isDataUrl = photoUri.startsWith('data:') && photoUri.length > 100; // Valid data URLs are longer
                 
-                // For local file names, we need to construct the proper file path
-                let processedUri = photoUri;
-                if (isLocalFileName) {
-                  // This is likely a local file name that needs to be handled differently
-                  // We'll skip these for now as they're not accessible in this context
-                  console.log(`⚠️ Skipping local file name (not accessible): ${photoUri}`);
+                // For local file names or problematic URLs, we'll skip these
+                if (isLocalFileName || isProblematicUrl) {
+                  console.log(`⚠️ Skipping problematic photo (${isLocalFileName ? 'local file' : 'problematic URL'}): ${photoUri}`);
                   continue;
                 }
                 
                 if (isValidUrl || isLocalFile || isDataUrl) {
-                  console.log(`✅ Adding memory for date ${date}:`, processedUri);
+                  console.log(`✅ Adding memory for date ${date}:`, photoUri);
                   allMemories.push({
                     id: `${habit.id}_${date}`,
-                    photoUri: processedUri,
+                    photoUri: photoUri,
                     date: date,
                     type: 'habit',
                     title: habit.text,
@@ -1174,19 +1207,19 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </TouchableOpacity>
       
-      <Text style={styles.profileName}>
-        {profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}
-      </Text>
+        <Text style={styles.profileName}>
+          {profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}
+        </Text>
       
-      {profile?.bio && (
-        <Text style={styles.profileBio}>{profile.bio}</Text>
-      )}
+        {profile?.bio && (
+          <Text style={styles.profileBio}>{profile.bio}</Text>
+        )}
       
-      <TouchableOpacity style={styles.friendCountContainer} onPress={() => setShowFriendsModal(true)}>
+      <TouchableOpacity style={styles.friendCountContainer} onPress={() => setShowSimpleFriendsModal(true)}>
         <Ionicons name="people" size={16} color="#8E8E93" />
         <Text style={styles.friendCountText}>{friends.length} friends</Text>
       </TouchableOpacity>
-    </View>
+      </View>
   );
 
   const renderFeatureCard = (icon: string, title: string, subtitle: string, count?: number, onPress?: () => void) => (
@@ -1269,7 +1302,7 @@ export default function ProfileScreen() {
               )}
               <TouchableOpacity style={styles.editAvatarButton} onPress={showImagePickerOptions}>
                 <Ionicons name="camera" size={16} color="#fff" />
-              </TouchableOpacity>
+                </TouchableOpacity>
             </View>
             <Text style={styles.editAvatarLabel}>Profile Picture</Text>
             {isUploadingImage && (
@@ -1277,8 +1310,8 @@ export default function ProfileScreen() {
                 <ActivityIndicator size="small" color="#007AFF" />
                 <Text style={styles.uploadingText}>Uploading...</Text>
               </View>
-            )}
-          </View>
+                  )}
+                </View>
 
           <View style={styles.formSection}>
             <Text style={styles.formLabel}>Full Name</Text>
@@ -1290,7 +1323,7 @@ export default function ProfileScreen() {
               placeholderTextColor="#999"
               maxLength={50}
             />
-          </View>
+              </View>
 
           <View style={styles.formSection}>
             <Text style={styles.formLabel}>Username</Text>
@@ -1350,13 +1383,215 @@ export default function ProfileScreen() {
             <Ionicons name="close" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Friends</Text>
-          <TouchableOpacity onPress={() => {
-            setActiveFriendsTab('search');
-            setShowFriendsModal(false);
-            setTimeout(() => setShowFriendsModal(true), 100);
-          }}>
-            <Ionicons name="person-add-outline" size={24} color="#007AFF" />
+          <View style={{ width: 24 }} />
+        </View>
+
+        {/* Tab Navigation */}
+        <View style={styles.tabContainer}>
+          <TouchableOpacity 
+            style={[styles.tab, activeFriendsTab === 'search' && styles.activeTab]}
+            onPress={() => setActiveFriendsTab('search')}
+          >
+            <Text style={[styles.tabText, activeFriendsTab === 'search' && styles.activeTabText]}>
+              Find Friends
+            </Text>
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tab, activeFriendsTab === 'requests' && styles.activeTab]}
+            onPress={() => setActiveFriendsTab('requests')}
+          >
+            <Text style={[styles.tabText, activeFriendsTab === 'requests' && styles.activeTabText]}>
+              Requests ({friendRequests.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tab, activeFriendsTab === 'friends' && styles.activeTab]}
+            onPress={() => setActiveFriendsTab('friends')}
+          >
+            <Text style={[styles.tabText, activeFriendsTab === 'friends' && styles.activeTabText]}>
+              Friends ({friends.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Tab Content */}
+        <ScrollView style={styles.modalContent}>
+          {activeFriendsTab === 'friends' && (
+            <>
+              {friends.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="people-outline" size={64} color="#ccc" />
+                  <Text style={styles.emptyText}>No friends yet</Text>
+                  <Text style={styles.emptySubtext}>
+                    Use the Find Friends tab to connect with others
+                  </Text>
+                </View>
+              ) : (
+                friends.map((friend, index) => (
+    <View key={`friend-${friend.friendship_id}-${index}`} style={styles.friendItem}>
+      <View style={styles.friendInfo}>
+        {friend.friend_avatar ? (
+          <Image source={{ uri: friend.friend_avatar }} style={styles.friendAvatar} />
+        ) : (
+          <View style={styles.friendAvatarPlaceholder}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+        )}
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{friend.friend_name}</Text>
+          <Text style={styles.friendUsername}>@{friend.friend_username || 'no-username'}</Text>
+        </View>
+      </View>
+              <TouchableOpacity
+        style={styles.removeFriendButton}
+        onPress={() => removeFriend(friend.friendship_id)}
+              >
+        <Ionicons name="close" size={16} color="#999" />
+      </TouchableOpacity>
+                </View>
+                ))
+              )}
+            </>
+          )}
+
+          {activeFriendsTab === 'requests' && (
+            <>
+              {friendRequests.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="mail-outline" size={64} color="#ccc" />
+                  <Text style={styles.emptyText}>No friend requests</Text>
+                  <Text style={styles.emptySubtext}>
+                    When someone sends you a friend request, it will appear here
+                  </Text>
+                </View>
+              ) : (
+                friendRequests.map((request, index) => (
+    <View key={`request-${request.friendship_id}-${index}`} style={styles.friendItem}>
+      <View style={styles.friendInfo}>
+        {request.requester_avatar ? (
+          <Image source={{ uri: request.requester_avatar }} style={styles.friendAvatar} />
+        ) : (
+          <View style={styles.friendAvatarPlaceholder}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+        )}
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{request.requester_name}</Text>
+          <Text style={styles.friendUsername}>@{request.requester_username || 'no-username'}</Text>
+                </View>
+      </View>
+      <View style={styles.requestActions}>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.acceptButton]}
+          onPress={() => acceptFriendRequest(request.friendship_id)}
+        >
+                        <Ionicons name="checkmark" size={16} color="#fff" />
+              </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionButton, styles.declineButton]}
+          onPress={() => declineFriendRequest(request.friendship_id)}
+        >
+                        <Ionicons name="close" size={16} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </View>
+                ))
+              )}
+            </>
+          )}
+
+          {activeFriendsTab === 'search' && (
+            <>
+              <View style={styles.searchContainer}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Search by name or username..."
+                  value={searchTerm}
+                  onChangeText={handleSearch}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                {isSearching && <ActivityIndicator size="small" color="#007AFF" style={styles.searchLoading} />}
+              </View>
+
+              {searchResults.length === 0 && searchTerm.trim() ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="search-outline" size={64} color="#ccc" />
+                  <Text style={styles.emptyText}>No users found</Text>
+                  <Text style={styles.emptySubtext}>
+                    Try searching with a different name or username
+                  </Text>
+                </View>
+              ) : searchResults.length > 0 ? (
+                searchResults.map((result, index) => (
+    <View key={`search-${result.user_id}-${index}`} style={styles.friendItem}>
+      <View style={styles.friendInfo}>
+        {result.avatar_url ? (
+          <Image source={{ uri: result.avatar_url }} style={styles.friendAvatar} />
+        ) : (
+          <View style={styles.friendAvatarPlaceholder}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+        )}
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{result.full_name}</Text>
+          <Text style={styles.friendUsername}>@{result.username || 'no-username'}</Text>
+        </View>
+      </View>
+        <TouchableOpacity
+                      style={[
+                        styles.actionButton,
+                        result.is_friend 
+                          ? { backgroundColor: '#34C759' }
+                          : { backgroundColor: '#007AFF' }
+                      ]}
+                      onPress={() => {
+                        if (result.is_friend) {
+                          Alert.alert('Already Friends', 'You are already friends with this user.');
+                        } else {
+                          sendFriendRequest(result.user_id);
+                        }
+                      }}
+                      disabled={result.is_friend}
+        >
+                      <Ionicons 
+                        name={result.is_friend ? "checkmark" : "person-add"} 
+                        size={16} 
+                        color="#fff" 
+                      />
+        </TouchableOpacity>
+      </View>
+                ))
+              ) : (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="search-outline" size={64} color="#ccc" />
+                  <Text style={styles.emptyText}>Search for friends</Text>
+                  <Text style={styles.emptySubtext}>
+                    Enter a name or username to find people to connect with
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+    );
+
+  const renderSimpleFriendsModal = () => (
+    <Modal
+      visible={showSimpleFriendsModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowSimpleFriendsModal(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowSimpleFriendsModal(false)}>
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>My Friends</Text>
+          <View style={{ width: 24 }} />
         </View>
 
         <ScrollView style={styles.modalContent}>
@@ -1365,32 +1600,32 @@ export default function ProfileScreen() {
               <Ionicons name="people-outline" size={64} color="#ccc" />
               <Text style={styles.emptyText}>No friends yet</Text>
               <Text style={styles.emptySubtext}>
-                Use the add button to find and connect with friends
-              </Text>
+                Tap the add friends icon to find and connect with others
+            </Text>
             </View>
           ) : (
             friends.map((friend, index) => (
-              <View key={`friend-${friend.friendship_id}-${index}`} style={styles.friendItem}>
+              <View key={`simple-friend-${friend.friendship_id}-${index}`} style={styles.friendItem}>
                 <View style={styles.friendInfo}>
                   {friend.friend_avatar ? (
                     <Image source={{ uri: friend.friend_avatar }} style={styles.friendAvatar} />
                   ) : (
                     <View style={styles.friendAvatarPlaceholder}>
                       <Ionicons name="person" size={16} color="#fff" />
-                    </View>
-                  )}
+              </View>
+            )}
                   <View style={styles.friendDetails}>
                     <Text style={styles.friendName}>{friend.friend_name}</Text>
                     <Text style={styles.friendUsername}>@{friend.friend_username || 'no-username'}</Text>
                   </View>
                 </View>
-                <TouchableOpacity
+          <TouchableOpacity
                   style={styles.removeFriendButton}
                   onPress={() => removeFriend(friend.friendship_id)}
                 >
                   <Ionicons name="close" size={16} color="#999" />
                 </TouchableOpacity>
-              </View>
+          </View>
             ))
           )}
         </ScrollView>
@@ -1412,7 +1647,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Memories</Text>
           <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity 
+              <TouchableOpacity
               onPress={async () => {
                 if (user?.id) {
                   console.log('🔄 Manual cleanup and reload triggered');
@@ -1420,13 +1655,13 @@ export default function ProfileScreen() {
                   await loadMemories(user.id);
                 }
               }}
-            >
+              >
               <Ionicons name="refresh-circle" size={24} color="#FF9500" />
             </TouchableOpacity>
             <TouchableOpacity onPress={() => loadMemories(user?.id || '')}>
               <Ionicons name="refresh" size={24} color="#007AFF" />
-            </TouchableOpacity>
-          </View>
+              </TouchableOpacity>
+      </View>
         </View>
 
         {isLoadingMemories ? (
@@ -1440,8 +1675,8 @@ export default function ProfileScreen() {
             <Text style={styles.emptyText}>No memories yet</Text>
             <Text style={styles.emptySubtext}>
               Photos from your habits and events will appear here
-            </Text>
-            <TouchableOpacity 
+                  </Text>
+        <TouchableOpacity
               style={styles.debugButton} 
               onPress={() => {
                 console.log('🔍 Debug: Current memories state:', memories);
@@ -1450,7 +1685,7 @@ export default function ProfileScreen() {
               }}
             >
               <Text style={styles.debugButtonText}>Debug Info</Text>
-            </TouchableOpacity>
+        </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF9500' }]} 
               onPress={async () => {
@@ -1470,8 +1705,8 @@ export default function ProfileScreen() {
               }}
             >
               <Text style={styles.debugButtonText}>Cleanup Old Photos</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
+          </TouchableOpacity>
+          <TouchableOpacity
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#34C759' }]} 
               onPress={async () => {
                 if (user?.id) {
@@ -1481,18 +1716,18 @@ export default function ProfileScreen() {
               }}
             >
               <Text style={styles.debugButtonText}>Check Database</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
+          </TouchableOpacity>
+          <TouchableOpacity
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF3B30' }]} 
               onPress={async () => {
                 if (user?.id) {
-                  Alert.alert('⚠️ Force Cleanup', 'This will remove ALL photos from ALL habits. This action cannot be undone. Continue?', [
+                  Alert.alert('💥 Remove All Photos', 'This will remove ALL photos from ALL habits. This action cannot be undone. Continue?', [
                     { text: 'Cancel', style: 'cancel' },
                     {
                       text: 'Remove All Photos',
                       style: 'destructive',
                       onPress: async () => {
-                        await forceCleanupAllPhotos(user.id);
+                        await removeAllPhotoReferences(user.id);
                         await loadMemories(user.id);
                         Alert.alert('Success', 'All photos have been removed from habits.');
                       }
@@ -1502,6 +1737,26 @@ export default function ProfileScreen() {
               }}
             >
               <Text style={styles.debugButtonText}>Remove All Photos</Text>
+          </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#007AFF' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('🔧 Fix UUID File Names', 'This will specifically remove UUID file names (like B6493FFC-B852-4FF9-B914-DE7E34E43F17.jpg) while keeping other photos. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Fix UUID Files',
+                      onPress: async () => {
+                        await fixUUIDFileNames(user.id);
+                        await loadMemories(user.id);
+                        Alert.alert('Success', 'UUID file names have been fixed!');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Fix UUID File Names</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#5856D6' }]} 
@@ -1551,9 +1806,70 @@ export default function ProfileScreen() {
               }}
             >
               <Text style={styles.debugButtonText}>Aggressive Cleanup</Text>
+              </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#34C759' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('🔧 Cleanup Problematic Photos', 'This will remove problematic photo references (local files, broken URLs, etc.) while keeping valid photos. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Cleanup Problematic',
+                      onPress: async () => {
+                        await cleanupProblematicPhotos(user.id);
+                        await loadMemories(user.id);
+                        Alert.alert('Success', 'Problematic photos have been cleaned up!');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Cleanup Problematic Photos</Text>
             </TouchableOpacity>
-          </View>
-        ) : (
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF9500' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('⏰ Cleanup Timeout-Prone Photos', 'This will remove timeout-prone photo references (Supabase URLs, very long URLs, etc.) while keeping valid photos. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Cleanup Timeout-Prone',
+                      onPress: async () => {
+                        await cleanupTimeoutPronePhotos(user.id);
+                        await loadMemories(user.id);
+                        Alert.alert('Success', 'Timeout-prone photos have been cleaned up!');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Cleanup Timeout-Prone Photos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF3B30' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  Alert.alert('💥 Remove All Photos', 'This will remove ALL photos from ALL habits. This action cannot be undone. Continue?', [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Remove All Photos',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await removeAllPhotoReferences(user.id);
+                        await loadMemories(user.id);
+                        Alert.alert('Success', 'All photos have been removed from habits.');
+                      }
+                    }
+                  ]);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Remove All Photos</Text>
+            </TouchableOpacity>
+                </View>
+              ) : (
           <FlatList
             data={memories}
             keyExtractor={(item) => item.date}
@@ -1575,14 +1891,26 @@ export default function ProfileScreen() {
                         style={styles.memoryImage}
                         resizeMode="cover"
                         onError={(error) => {
-                          // Check if this is a local file name error
+                          // Enhanced error detection for different types of image loading failures
                           const errorMessage = error.nativeEvent.error || '';
                           const isLocalFileError = errorMessage.includes("couldn't be opened because there is no such file") ||
                                                  errorMessage.includes("Unknown image download error") ||
                                                  memory.photoUri.includes('.jpg') && !memory.photoUri.includes('/');
                           
+                          const isTimeoutError = errorMessage.includes("timed out") ||
+                                                errorMessage.includes("timeout") ||
+                                                errorMessage.includes("network error");
+                          
+                          const isNetworkError = errorMessage.includes("network") ||
+                                                errorMessage.includes("connection") ||
+                                                errorMessage.includes("failed to load");
+                          
                           if (isLocalFileError) {
                             console.log(`⚠️ Local file error for memory ${memory.id}, marking as failed: ${memory.photoUri}`);
+                          } else if (isTimeoutError) {
+                            console.log(`⏰ Timeout error for memory ${memory.id}, marking as failed: ${memory.photoUri}`);
+                          } else if (isNetworkError) {
+                            console.log(`🌐 Network error for memory ${memory.id}, marking as failed: ${memory.photoUri}`);
                           } else {
                             console.error('❌ Image loading error for memory:', memory.id, error.nativeEvent.error);
                           }
@@ -1601,7 +1929,7 @@ export default function ProfileScreen() {
                         <View style={styles.memoryImagePlaceholder}>
                           <Ionicons name="image-outline" size={32} color="#ccc" />
                           <Text style={styles.memoryImagePlaceholderText}>Image unavailable</Text>
-                        </View>
+                </View>
                       )}
                       <View style={styles.memoryOverlay}>
                         <View style={[
@@ -1610,8 +1938,8 @@ export default function ProfileScreen() {
                         ]}>
                           <Text style={styles.memoryTypeText}>
                             {memory.type === 'habit' ? 'Habit' : 'Event'}
-                          </Text>
-                        </View>
+                  </Text>
+                </View>
                       </View>
                     </TouchableOpacity>
                   ))}
@@ -1671,7 +1999,7 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
         )}
-      </View>
+        </View>
     </Modal>
   );
 
@@ -1681,15 +2009,15 @@ export default function ProfileScreen() {
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={() => setShowSettingsModal(false)}
-    >
+        >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
             <Ionicons name="close" size={24} color="#000" />
-          </TouchableOpacity>
+        </TouchableOpacity>
           <Text style={styles.modalTitle}>Settings</Text>
           <View style={{ width: 24 }} />
-        </View>
+      </View>
 
         <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
           <View style={styles.settingsSection}>
@@ -1698,7 +2026,7 @@ export default function ProfileScreen() {
             {renderSettingsItem('notifications-outline', 'Push Notifications', undefined, undefined, true, preferences.push_notifications, (value) => handlePreferenceChange('push_notifications', value))}
             {renderSettingsItem('mail-outline', 'Email Notifications', undefined, undefined, true, preferences.email_notifications, (value) => handlePreferenceChange('email_notifications', value))}
             {renderSettingsItem('calendar-outline', 'Default View', preferences.default_view)}
-          </View>
+        </View>
 
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Account</Text>
@@ -1706,7 +2034,7 @@ export default function ProfileScreen() {
             {renderSettingsItem('cloud-download-outline', 'Export Data')}
             {renderSettingsItem('help-circle-outline', 'Help & Support')}
             {renderSettingsItem('information-circle-outline', 'About', 'v1.0.0')}
-          </View>
+      </View>
 
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Actions</Text>
@@ -1714,22 +2042,22 @@ export default function ProfileScreen() {
               <View style={styles.dangerActionLeft}>
                 <View style={styles.dangerActionIcon}>
                   <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
-                </View>
+        </View>
                 <Text style={styles.dangerActionLabel}>Sign Out</Text>
-              </View>
+      </View>
               <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
             </TouchableOpacity>
-            
+
             <TouchableOpacity style={styles.dangerActionItem} onPress={handleDeleteAccount}>
               <View style={styles.dangerActionLeft}>
                 <View style={styles.dangerActionIcon}>
                   <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-                </View>
+        </View>
                 <Text style={styles.dangerActionLabel}>Delete Account</Text>
-              </View>
+        </View>
               <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
-            </TouchableOpacity>
-          </View>
+      </TouchableOpacity>
+    </View>
         </ScrollView>
       </SafeAreaView>
     </Modal>
@@ -1852,6 +2180,118 @@ export default function ProfileScreen() {
     }
   };
 
+  // Add a new function to specifically clean up problematic photo references
+  const cleanupProblematicPhotos = async (userId: string) => {
+    try {
+      console.log('🔧 Cleaning up problematic photos for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for problematic photo cleanup:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('🔧 No habits with photos found for cleanup');
+        return;
+      }
+
+      console.log(`🔧 Found ${habitsData.length} habits to check for problematic photos`);
+
+      let cleanedCount = 0;
+      const updates: any[] = [];
+
+      habitsData.forEach(habit => {
+        console.log(`🔧 Checking habit ${habit.id}:`, habit.photos);
+        
+        if (habit.photos && typeof habit.photos === 'object') {
+          const cleanedPhotos: { [date: string]: string } = {};
+          let hasChanges = false;
+
+          for (const [date, photoUri] of Object.entries(habit.photos)) {
+            if (photoUri && typeof photoUri === 'string') {
+              // Check for problematic photo references
+              const isProblematic = (
+                // UUID-like patterns (common in iOS file names)
+                /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}\.[a-zA-Z]+$/.test(photoUri) ||
+                // Simple file names without paths
+                (!photoUri.includes('/') && 
+                 !photoUri.includes('\\') && 
+                 photoUri.includes('.') && 
+                 !photoUri.startsWith('http') && 
+                 !photoUri.startsWith('file://') && 
+                 !photoUri.startsWith('data:') &&
+                 photoUri.length < 100) ||
+                // Corrupted data URLs
+                (photoUri.startsWith('data:') && photoUri.length < 100) ||
+                // Supabase URLs that might be broken or timeout-prone
+                (photoUri.startsWith('https://') && photoUri.includes('supabase.co') && photoUri.includes('habit-photos')) ||
+                // Any URL that looks like it might be problematic (very long URLs, etc.)
+                (photoUri.startsWith('http') && photoUri.length > 500) ||
+                // URLs with suspicious patterns
+                (photoUri.includes('localhost') || photoUri.includes('127.0.0.1'))
+              );
+              
+              console.log(`🔧 Photo ${date}: ${photoUri} - isProblematic: ${isProblematic}`);
+              
+              if (isProblematic) {
+                console.log(`🔧 Removing problematic photo from habit ${habit.id}, date ${date}: ${photoUri}`);
+                hasChanges = true;
+                // Don't add this to cleanedPhotos - effectively removing it
+              } else {
+                // Keep only valid, non-problematic URLs
+                cleanedPhotos[date] = photoUri;
+                console.log(`🔧 Keeping valid photo for habit ${habit.id}, date ${date}: ${photoUri}`);
+              }
+            }
+          }
+
+          if (hasChanges) {
+            console.log(`🔧 Updating habit ${habit.id} with cleaned photos:`, cleanedPhotos);
+            
+            // If all photos were problematic (cleanedPhotos is empty), remove the photos object entirely
+            const updateData = Object.keys(cleanedPhotos).length > 0 
+              ? { photos: cleanedPhotos }
+              : { photos: null };
+            
+            console.log(`🔧 Final update data for habit ${habit.id}:`, updateData);
+            updates.push({ habitId: habit.id, updateData });
+            cleanedCount++;
+          } else {
+            console.log(`🔧 No changes needed for habit ${habit.id}`);
+          }
+        }
+      });
+
+      if (updates.length > 0) {
+        console.log(`🔧 Applying ${updates.length} updates to clean up problematic photos`);
+        for (const update of updates) {
+          const { error } = await supabase
+            .from('habits')
+            .update(update.updateData)
+            .eq('id', update.habitId);
+
+          if (error) {
+            console.error(`🔧 Error updating habit ${update.habitId}:`, error);
+          } else {
+            console.log(`🔧 Successfully updated habit ${update.habitId}`);
+          }
+        }
+        console.log(`🔧 Successfully cleaned up ${cleanedCount} habits with problematic photos`);
+      } else {
+        console.log('🔧 No problematic photos found to clean up');
+      }
+    } catch (error) {
+      console.error('Error cleaning up problematic photos:', error);
+    }
+  };
+
   const testPhotoUrl = async (photoUrl: string) => {
     try {
       console.log('🔍 Testing photo URL:', photoUrl);
@@ -1874,6 +2314,249 @@ export default function ProfileScreen() {
     }
   };
 
+  // Add a new function to specifically clean up timeout-prone URLs
+  const cleanupTimeoutPronePhotos = async (userId: string) => {
+    try {
+      console.log('⏰ Cleaning up timeout-prone photos for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for timeout cleanup:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('⏰ No habits with photos found for timeout cleanup');
+        return;
+      }
+
+      console.log(`⏰ Found ${habitsData.length} habits to check for timeout-prone photos`);
+
+      let cleanedCount = 0;
+      const updates: any[] = [];
+
+      habitsData.forEach(habit => {
+        console.log(`⏰ Checking habit ${habit.id}:`, habit.photos);
+        
+        if (habit.photos && typeof habit.photos === 'object') {
+          const cleanedPhotos: { [date: string]: string } = {};
+          let hasChanges = false;
+
+          for (const [date, photoUri] of Object.entries(habit.photos)) {
+            if (photoUri && typeof photoUri === 'string') {
+              // Check for timeout-prone photo references
+              const isTimeoutProne = (
+                // Supabase URLs that are likely to timeout
+                (photoUri.startsWith('https://') && photoUri.includes('supabase.co') && photoUri.includes('habit-photos')) ||
+                // Very long URLs that might timeout
+                (photoUri.startsWith('http') && photoUri.length > 500) ||
+                // URLs with complex query parameters
+                (photoUri.includes('?') && photoUri.includes('&') && photoUri.length > 300) ||
+                // URLs pointing to external services that might be slow
+                (photoUri.includes('cloudinary.com') || photoUri.includes('imgur.com') || photoUri.includes('amazonaws.com'))
+              );
+              
+              console.log(`⏰ Photo ${date}: ${photoUri} - isTimeoutProne: ${isTimeoutProne}`);
+              
+              if (isTimeoutProne) {
+                console.log(`⏰ Removing timeout-prone photo from habit ${habit.id}, date ${date}: ${photoUri}`);
+                hasChanges = true;
+                // Don't add this to cleanedPhotos - effectively removing it
+              } else {
+                // Keep only fast-loading URLs
+                cleanedPhotos[date] = photoUri;
+                console.log(`⏰ Keeping fast photo for habit ${habit.id}, date ${date}: ${photoUri}`);
+              }
+            }
+          }
+
+          if (hasChanges) {
+            console.log(`⏰ Updating habit ${habit.id} with cleaned photos:`, cleanedPhotos);
+            
+            // If all photos were timeout-prone (cleanedPhotos is empty), remove the photos object entirely
+            const updateData = Object.keys(cleanedPhotos).length > 0 
+              ? { photos: cleanedPhotos }
+              : { photos: null };
+            
+            console.log(`⏰ Final update data for habit ${habit.id}:`, updateData);
+            updates.push({ habitId: habit.id, updateData });
+            cleanedCount++;
+          } else {
+            console.log(`⏰ No changes needed for habit ${habit.id}`);
+          }
+        }
+      });
+
+      if (updates.length > 0) {
+        console.log(`⏰ Applying ${updates.length} updates to clean up timeout-prone photos`);
+        for (const update of updates) {
+          const { error } = await supabase
+            .from('habits')
+            .update(update.updateData)
+            .eq('id', update.habitId);
+
+          if (error) {
+            console.error(`⏰ Error updating habit ${update.habitId}:`, error);
+          } else {
+            console.log(`⏰ Successfully updated habit ${update.habitId}`);
+          }
+        }
+        console.log(`⏰ Successfully cleaned up ${cleanedCount} habits with timeout-prone photos`);
+      } else {
+        console.log('⏰ No timeout-prone photos found to clean up');
+      }
+    } catch (error) {
+      console.error('Error cleaning up timeout-prone photos:', error);
+    }
+  };
+
+  // Add a new function to immediately remove ALL photo references
+  const removeAllPhotoReferences = async (userId: string) => {
+    try {
+      console.log('💥 Removing ALL photo references for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for photo removal:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('💥 No habits with photos found for removal');
+        return;
+      }
+
+      console.log(`💥 Found ${habitsData.length} habits to remove ALL photos from`);
+
+      let removedCount = 0;
+
+      // Remove ALL photos from ALL habits
+      for (const habit of habitsData) {
+        console.log(`💥 Removing ALL photos from habit ${habit.id}:`, habit.photos);
+        const { error } = await supabase
+          .from('habits')
+          .update({ photos: null })
+          .eq('id', habit.id);
+        
+        if (error) {
+          console.error(`💥 Error removing photos from habit ${habit.id}:`, error);
+        } else {
+          console.log(`💥 Successfully removed ALL photos from habit ${habit.id}`);
+          removedCount++;
+        }
+      }
+
+      console.log(`💥 Successfully removed ALL photos from ${removedCount} habits`);
+    } catch (error) {
+      console.error('Error removing all photo references:', error);
+    }
+  };
+
+  // Add a function to immediately fix the specific UUID file name issue
+  const fixUUIDFileNames = async (userId: string) => {
+    try {
+      console.log('🔧 Fixing UUID file names for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for UUID fix:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('🔧 No habits with photos found for UUID fix');
+        return;
+      }
+
+      console.log(`🔧 Found ${habitsData.length} habits to check for UUID file names`);
+
+      let fixedCount = 0;
+      const updates: any[] = [];
+
+      habitsData.forEach(habit => {
+        console.log(`🔧 Checking habit ${habit.id}:`, habit.photos);
+        
+        if (habit.photos && typeof habit.photos === 'object') {
+          const cleanedPhotos: { [date: string]: string } = {};
+          let hasChanges = false;
+
+          for (const [date, photoUri] of Object.entries(habit.photos)) {
+            if (photoUri && typeof photoUri === 'string') {
+              // Check specifically for UUID-like patterns
+              const isUUIDFileName = /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}\.[a-zA-Z]+$/.test(photoUri);
+              
+              console.log(`🔧 Photo ${date}: ${photoUri} - isUUIDFileName: ${isUUIDFileName}`);
+              
+              if (isUUIDFileName) {
+                console.log(`🔧 Removing UUID file name from habit ${habit.id}, date ${date}: ${photoUri}`);
+                hasChanges = true;
+                // Don't add this to cleanedPhotos - effectively removing it
+              } else {
+                // Keep non-UUID photos
+                cleanedPhotos[date] = photoUri;
+                console.log(`🔧 Keeping non-UUID photo for habit ${habit.id}, date ${date}: ${photoUri}`);
+              }
+            }
+          }
+
+          if (hasChanges) {
+            console.log(`🔧 Updating habit ${habit.id} with cleaned photos:`, cleanedPhotos);
+            
+            // If all photos were UUID file names (cleanedPhotos is empty), remove the photos object entirely
+            const updateData = Object.keys(cleanedPhotos).length > 0 
+              ? { photos: cleanedPhotos }
+              : { photos: null };
+            
+            console.log(`🔧 Final update data for habit ${habit.id}:`, updateData);
+            updates.push({ habitId: habit.id, updateData });
+            fixedCount++;
+          } else {
+            console.log(`🔧 No UUID file names found in habit ${habit.id}`);
+          }
+        }
+      });
+
+      if (updates.length > 0) {
+        console.log(`🔧 Applying ${updates.length} updates to fix UUID file names`);
+        for (const update of updates) {
+          const { error } = await supabase
+            .from('habits')
+            .update(update.updateData)
+            .eq('id', update.habitId);
+
+          if (error) {
+            console.error(`🔧 Error updating habit ${update.habitId}:`, error);
+          } else {
+            console.log(`🔧 Successfully updated habit ${update.habitId}`);
+          }
+        }
+        console.log(`🔧 Successfully fixed UUID file names in ${fixedCount} habits`);
+      } else {
+        console.log('🔧 No UUID file names found to fix');
+      }
+    } catch (error) {
+      console.error('Error fixing UUID file names:', error);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {user && (
@@ -1887,8 +2570,8 @@ export default function ProfileScreen() {
           <View style={styles.headerSpacer} />
           <TouchableOpacity style={styles.settingsButton} onPress={() => setShowSettingsModal(true)}>
             <Ionicons name="settings-outline" size={20} color="#007AFF" />
-          </TouchableOpacity>
-        </View>
+      </TouchableOpacity>
+    </View>
       )}
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -1914,21 +2597,22 @@ export default function ProfileScreen() {
             </View>
           ) : (
             <View style={styles.signInContainer}>
-              <Text style={styles.signInTitle}>Sign in to sync your data</Text>
+          <Text style={styles.signInTitle}>Sign in to sync your data</Text>
               <GoogleSigninButton
                 size={GoogleSigninButton.Size.Wide}
                 color={GoogleSigninButton.Color.Light}
                 onPress={handleSignIn}
-                disabled={isLoading}
+            disabled={isLoading}
               />
               {isLoading && <ActivityIndicator style={styles.loadingIndicator} color="#007AFF" />}
             </View>
           )}
         </View>
-      </ScrollView>
+        </ScrollView>
       
       {renderEditProfileModal()}
       {renderFriendsListModal()}
+      {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
       {renderMemoryDetailModal()}
       {renderSettingsModal()}
@@ -2614,5 +3298,29 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     fontWeight: '600',
     fontFamily: 'Onest',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#000',
+    fontFamily: 'Onest',
+    marginRight: 8,
+  },
+  searchLoading: {
+    marginLeft: 8,
   },
 });

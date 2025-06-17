@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Modal,
   ActivityIndicator,
   RefreshControl,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
@@ -42,69 +43,257 @@ export default function NotesScreen() {
   const [noteContent, setNoteContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [cachedUser, setCachedUser] = useState<any>(null);
+  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const lastFetchRef = useRef<number>(0);
 
-  useEffect(() => {
-    fetchNotes();
+  // Memoize user to prevent unnecessary re-renders
+  const user = useMemo(() => cachedUser, [cachedUser]);
+
+  // Add session check and refresh mechanism
+  const checkAndRefreshSession = useCallback(async () => {
+    try {
+      console.log('🔐 Checking Supabase session...');
+      const { data: { session }, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('❌ Session check error:', error);
+        return false;
+      }
+
+      if (!session) {
+        console.log('❌ No active session found');
+        return false;
+      }
+
+      // Check if session is expired or about to expire
+      const now = new Date();
+      const expiresAt = new Date(session.expires_at! * 1000);
+      const timeUntilExpiry = expiresAt.getTime() - now.getTime();
+      
+      console.log('📅 Session expires at:', expiresAt);
+      console.log('⏰ Time until expiry:', timeUntilExpiry / 1000 / 60, 'minutes');
+
+      // If session expires in less than 5 minutes, refresh it
+      if (timeUntilExpiry < 5 * 60 * 1000) {
+        console.log('🔄 Refreshing session...');
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError) {
+          console.error('❌ Session refresh error:', refreshError);
+          return false;
+        }
+
+        if (refreshData.session) {
+          console.log('✅ Session refreshed successfully');
+          return true;
+        } else {
+          console.log('❌ No session returned from refresh');
+          return false;
+        }
+      }
+
+      console.log('✅ Session is valid');
+      return true;
+    } catch (error) {
+      console.error('💥 Error checking session:', error);
+      return false;
+    }
   }, []);
 
-  const fetchNotes = async () => {
+  // Add a function to handle database connection issues
+  const handleDatabaseError = useCallback((error: any) => {
+    console.error('❌ Database error:', error);
+    
+    // Check if it's an authentication error
+    if (error?.message?.includes('JWT') || error?.message?.includes('auth')) {
+      Alert.alert(
+        'Authentication Error',
+        'Please log in again to continue using notes.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              router.replace('/');
+            }
+          }
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Connection Error',
+        'Unable to connect to the database. Please check your internet connection and try again.',
+        [
+          {
+            text: 'Retry',
+            onPress: () => {
+              // We'll handle this in the fetchNotes function
+              console.log('Retry requested');
+            }
+          },
+          {
+            text: 'OK',
+            style: 'cancel'
+          }
+        ]
+      );
+    }
+  }, [router]);
+
+  // Optimized fetch function with caching
+  const fetchNotes = useCallback(async (forceRefresh = false) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.log('No user found, redirecting to home');
+      console.log('🔍 Starting fetchNotes...');
+      
+      // Prevent rapid successive calls
+      const now = Date.now();
+      if (!forceRefresh && now - lastFetchRef.current < 2000) {
+        console.log('⏭️ Skipping fetch - too soon since last fetch');
+        return;
+      }
+      lastFetchRef.current = now;
+      
+      // Check if we have a cached user and if we should skip fetch
+      if (!forceRefresh && !isInitialLoad && user && Date.now() - lastFetchTime < 30000) {
+        console.log('⏭️ Skipping fetch - using cached data');
+        return;
+      }
+
+      // Check and refresh session if needed
+      const sessionValid = await checkAndRefreshSession();
+      if (!sessionValid) {
+        console.log('❌ Session invalid, redirecting to home');
         router.replace('/');
         return;
       }
 
-      // Cache the user to avoid repeated auth calls
-      setCachedUser(user);
-
-      console.log('Fetching notes for user:', user.id);
-      const { data, error } = await supabase
-        .from('notes')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false });
-
-      if (error) {
-        console.error('Supabase error:', error);
-        throw error;
+      console.log('🔐 Getting current user...');
+      const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) {
+        console.error('❌ Auth error:', authError);
+        handleDatabaseError(authError);
+        return;
       }
       
-      console.log('Fetched notes:', data);
+      if (!currentUser) {
+        console.log('❌ No user found, redirecting to home');
+        router.replace('/');
+        return;
+      }
+
+      console.log('✅ User authenticated:', currentUser.id);
+
+      // Cache the user to avoid repeated auth calls
+      setCachedUser(currentUser);
+
+      console.log('📊 Fetching notes for user:', currentUser.id);
+      
+      // Check if notes table exists and is accessible
+      const { data: tableCheck, error: tableError } = await supabase
+        .from('notes')
+        .select('id')
+        .limit(1);
+
+      if (tableError) {
+        console.error('❌ Notes table access error:', tableError);
+        handleDatabaseError(tableError);
+        return;
+      }
+
+      console.log('✅ Notes table is accessible');
+      
+      // Use a more efficient query with specific columns
+      const { data, error } = await supabase
+        .from('notes')
+        .select('id, title, content, user_id, created_at, updated_at')
+        .eq('user_id', currentUser.id)
+        .order('updated_at', { ascending: false })
+        .limit(50); // Limit initial load for better performance
+
+      if (error) {
+        console.error('❌ Supabase error:', error);
+        handleDatabaseError(error);
+        return;
+      }
+      
+      console.log('✅ Fetched notes:', data?.length || 0);
+      console.log('📝 Notes data:', data);
+      
       setNotes(data || []);
+      setLastFetchTime(Date.now());
+      setIsInitialLoad(false);
     } catch (error) {
-      console.error('Error fetching notes:', error);
-      Alert.alert('Error', 'Failed to load notes');
+      console.error('💥 Error fetching notes:', error);
+      handleDatabaseError(error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user, lastFetchTime, isInitialLoad, router, checkAndRefreshSession, handleDatabaseError]);
+
+  // Optimized useEffect with better dependency management
+  useEffect(() => {
+    console.log('🔄 Setting up notes component...');
+    fetchNotes(true);
+    
+    // Set up real-time subscription for notes changes
+    if (user?.id) {
+      console.log('🔌 Setting up real-time subscription for notes...');
+      const notesSubscription = supabase
+        .channel('notes-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notes',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('🔄 Notes real-time update:', payload);
+            // Only fetch if we have a user and it's not the initial load
+            // Add debouncing to prevent constant refreshing
+            if (user && !isInitialLoad && !isLoading) {
+              // Debounce the fetch to prevent rapid successive calls
+              const timeoutId = setTimeout(() => {
+                fetchNotes(true);
+              }, 1000); // Wait 1 second before fetching
+              
+              // Clean up timeout if component unmounts
+              return () => clearTimeout(timeoutId);
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log('🔌 Real-time subscription status:', status);
+        });
+
+      return () => {
+        console.log('🔌 Cleaning up real-time subscription...');
+        notesSubscription.unsubscribe();
+      };
+    }
+  }, [user?.id]); // Remove fetchNotes and isInitialLoad from dependencies to prevent re-subscription
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchNotes();
+    await fetchNotes(true);
     setRefreshing(false);
-  }, []);
+  }, [fetchNotes]);
 
-  // Helper function to split content into title and body
-  const splitContent = (content: string) => {
+  // Memoized helper function to split content
+  const splitContent = useCallback((content: string) => {
     const lines = content.split('\n');
     const title = lines[0] || 'Untitled Note';
     const body = lines.slice(1).join('\n');
     return { title, body };
-  };
+  }, []);
 
-  // Optimized debounced save function with faster response
+  // Optimized debounced save function with better error handling
   const debouncedSave = useCallback(
     debounce(async (content: string, note: Note | null) => {
-      if (!content.trim()) return;
-
-      const user = cachedUser;
-      if (!user) {
-        console.error('No cached user found');
-        return;
-      }
+      if (!content.trim() || !user) return;
 
       setIsSaving(true);
       try {
@@ -122,7 +311,7 @@ export default function NotesScreen() {
           setNotes(prevNotes =>
             prevNotes.map(n =>
               n.id === note.id ? optimisticNote : n
-            )
+            ).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
           );
 
           // Update in database
@@ -138,11 +327,11 @@ export default function NotesScreen() {
 
           if (error) {
             // Revert optimistic update on error
-          setNotes(prevNotes =>
-            prevNotes.map(n =>
+            setNotes(prevNotes =>
+              prevNotes.map(n =>
                 n.id === note.id ? note : n
-            )
-          );
+              ).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+            );
             throw error;
           }
         } else {
@@ -196,18 +385,17 @@ export default function NotesScreen() {
       } finally {
         setIsSaving(false);
       }
-    }, 500), // Reduced from 1000ms to 500ms for faster saves
-    [cachedUser]
+    }, 300), // Reduced debounce time for faster saves
+    [user, splitContent]
   );
 
-  const handleContentChange = (text: string) => {
+  const handleContentChange = useCallback((text: string) => {
     setNoteContent(text);
     debouncedSave(text, currentNote);
-  };
+  }, [debouncedSave, currentNote]);
 
-  const handleDeleteNote = async (noteId: string) => {
+  const handleDeleteNote = useCallback(async (noteId: string) => {
     try {
-      const user = cachedUser;
       if (!user) {
         console.error('No cached user found');
         return;
@@ -247,33 +435,39 @@ export default function NotesScreen() {
       console.error('Error deleting note:', error);
       Alert.alert('Error', 'Failed to delete note');
     }
-  };
+  }, [user, notes, currentNote]);
 
-  const handleOpenNote = (note: Note) => {
+  const handleOpenNote = useCallback((note: Note) => {
     setCurrentNote(note);
     setNoteContent(note.title !== 'Untitled Note' ? note.title + '\n' + note.content : note.content);
     setShowNoteModal(true);
-  };
+    setIsEditing(false);
+  }, []);
 
-  const handleNewNote = () => {
+  const handleNewNote = useCallback(() => {
     setCurrentNote(null);
     setNoteContent('');
     setShowNoteModal(true);
-  };
+    setIsEditing(true);
+  }, []);
 
-  const handleCloseNote = () => {
+  const handleCloseNote = useCallback(() => {
     setShowNoteModal(false);
-    // Don't clear the content immediately to avoid visual flicker
-    // The content will be cleared when the modal fully closes
-  };
+    setIsEditing(false);
+  }, []);
 
-  const handleModalClose = () => {
-    // This function will be called when the modal is fully closed
+  const handleModalClose = useCallback(() => {
     setCurrentNote(null);
     setNoteContent('');
-  };
+    setIsEditing(false);
+  }, []);
 
-  const renderNoteItem = (note: Note) => {
+  const handleStartEditing = useCallback(() => {
+    setIsEditing(true);
+  }, []);
+
+  // Memoized note item renderer for better performance
+  const renderNoteItem = useCallback(({ item: note }: { item: Note }) => {
     const renderRightActions = () => {
       return (
         <TouchableOpacity
@@ -308,28 +502,28 @@ export default function NotesScreen() {
         rightThreshold={40}
       >
         <TouchableOpacity
-        style={styles.noteItem}
-        onPress={() => handleOpenNote(note)}
-        onLongPress={() => {
-          if (Platform.OS !== 'web') {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-          }
-          Alert.alert(
-            'Delete Note',
-            'Are you sure you want to delete this note?',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: () => handleDeleteNote(note.id),
-              },
-            ]
-          );
-        }}
-        delayLongPress={500}
-      >
-        <View style={styles.noteContent}>
+          style={styles.noteItem}
+          onPress={() => handleOpenNote(note)}
+          onLongPress={() => {
+            if (Platform.OS !== 'web') {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+            Alert.alert(
+              'Delete Note',
+              'Are you sure you want to delete this note?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete',
+                  style: 'destructive',
+                  onPress: () => handleDeleteNote(note.id),
+                },
+              ]
+            );
+          }}
+          delayLongPress={500}
+        >
+          <View style={styles.noteContent}>
             <Text style={styles.notePreviewTitle} numberOfLines={1}>
               {note.title}
             </Text>
@@ -338,14 +532,27 @@ export default function NotesScreen() {
                 {note.content}
               </Text>
             ) : null}
-          <Text style={styles.noteDate}>
-            {moment(note.updated_at).fromNow()}
-          </Text>
-        </View>
-      </TouchableOpacity>
+            <Text style={styles.noteDate}>
+              {moment(note.updated_at).fromNow()}
+            </Text>
+          </View>
+        </TouchableOpacity>
       </Swipeable>
     );
-  };
+  }, [handleDeleteNote, handleOpenNote]);
+
+  // Memoized key extractor for FlatList
+  const keyExtractor = useCallback((item: Note) => item.id, []);
+
+  // Memoized empty state component
+  const EmptyState = useMemo(() => (
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyStateTitle}>No notes</Text>
+      <Text style={styles.emptyStateSubtitle}>
+        Create your first note
+      </Text>
+    </View>
+  ), []);
 
   return (
     <>
@@ -362,34 +569,40 @@ export default function NotesScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Notes List */}
+        {/* Notes List - Using FlatList for better performance */}
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <ScrollView 
-            style={styles.notesList} 
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor="#666"
-                title="Pull to refresh"
-                titleColor="#666"
-              />
-            }
-          >
-          {isLoading ? (
-            <ActivityIndicator style={styles.loader} color="#666" />
-          ) : notes.length === 0 ? (
-            <View style={styles.emptyState}>
-                <Text style={styles.emptyStateTitle}>No notes</Text>
-              <Text style={styles.emptyStateSubtitle}>
-                  Create your first note
-              </Text>
+          {isLoading && isInitialLoad ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#666" />
             </View>
           ) : (
-            notes.map(renderNoteItem)
+            <FlatList
+              data={notes}
+              renderItem={renderNoteItem}
+              keyExtractor={keyExtractor}
+              style={styles.notesList}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor="#666"
+                  title="Pull to refresh"
+                  titleColor="#666"
+                />
+              }
+              ListEmptyComponent={EmptyState}
+              removeClippedSubviews={true}
+              maxToRenderPerBatch={10}
+              windowSize={10}
+              initialNumToRender={10}
+              getItemLayout={(data, index) => ({
+                length: 80, // Approximate height of each note item
+                offset: 80 * index,
+                index,
+              })}
+            />
           )}
-        </ScrollView>
         </GestureHandlerRootView>
 
         {/* Note Modal */}
@@ -427,15 +640,31 @@ export default function NotesScreen() {
               </View>
 
               {/* Note Editor */}
-              <TextInput
-                style={styles.noteEditor}
-                placeholder="Start writing..."
-                value={noteContent}
-                onChangeText={handleContentChange}
-                multiline
-                textAlignVertical="top"
-                autoFocus
-              />
+              {isEditing ? (
+                <TextInput
+                  style={styles.noteEditor}
+                  placeholder="Start writing..."
+                  value={noteContent}
+                  onChangeText={handleContentChange}
+                  multiline
+                  textAlignVertical="top"
+                  autoFocus
+                />
+              ) : (
+                <TouchableOpacity
+                  style={styles.noteEditorContainer}
+                  onPress={handleStartEditing}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.noteEditorPlaceholder}>
+                    {noteContent ? (
+                      <Text style={styles.noteEditorContent}>
+                        {noteContent}
+                      </Text>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              )}
             </SafeAreaView>
           </KeyboardAvoidingView>
         </Modal>
@@ -474,6 +703,11 @@ const styles = StyleSheet.create({
   },
   loader: {
     marginTop: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   emptyState: {
     flex: 1,
@@ -575,5 +809,21 @@ const styles = StyleSheet.create({
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  noteEditorContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  noteEditorPlaceholder: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+  },
+  noteEditorContent: {
+    fontSize: 18,
+    color: '#000',
+    lineHeight: 26,
+    fontFamily: 'Onest',
+    flex: 1,
   },
 }); 

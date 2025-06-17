@@ -14,33 +14,25 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for hour label
 const GRID_ROWS = Array.from({ length: 24 }, (_, i) => i); // 0 to 23 for grid rows
 const CELL_HEIGHT = 45; // Height of each hour cell (reduced from 55)
 
-// Add current time line component
+// Simple current time line component
 const CurrentTimeLine = () => {
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [position, setPosition] = useState(0);
 
   useEffect(() => {
     const updateTime = () => {
-      const now = new Date();
-      setCurrentTime(now);
-      
-      // Calculate position based on current time
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      const totalMinutes = hours * 60 + minutes;
-      const cellHeight = 45; // Updated from 55
-      const position = (totalMinutes / 60) * cellHeight;
-      setPosition(position);
+      setCurrentTime(new Date());
     };
 
     updateTime();
-    const interval = setInterval(updateTime, 60000);
+    const interval = setInterval(updateTime, 60000); // Update every minute
     return () => clearInterval(interval);
   }, []);
 
-  // Only show the line if we're viewing today
-  const isToday = currentTime.toDateString() === new Date().toDateString();
-  if (!isToday) return null;
+  // Calculate position based on current time
+  const hours = currentTime.getHours();
+  const minutes = currentTime.getMinutes();
+  const totalMinutes = hours * 60 + minutes;
+  const position = (totalMinutes / 60) * CELL_HEIGHT;
 
   return (
     <View style={[styles.currentTimeLine, { top: position }]}>
@@ -121,10 +113,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 }, ref) => {
     const baseDate = new Date(selectedDate);
     const flatListRef = useRef<FlatList>(null);
+    const timeScrollViewRef = useRef<ScrollView>(null);
     const [clickedCell, setClickedCell] = useState<{ dayIndex: number; hourIndex: number } | null>(null);
     const clickTimeoutRef = useRef<NodeJS.Timeout>();
     
-
     // Regenerate weeks array whenever selectedDate changes
     const weeks = useMemo(() => {
         const date = new Date(selectedDate);
@@ -355,23 +347,30 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     return (
       <View style={{ flex: 1 }}>
         {/* Date Headers */}
-        <View style={styles.headerContainer}>
+        <View 
+          style={styles.headerContainer}
+        >
           <View style={styles.timeColumnHeader} />
           {weekDates.map((date, idx) => (
             <View key={idx} style={styles.dateHeader}>
               <Text style={[styles.weekdayText, isToday(date) && styles.todayText]}>
-                {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                {date.toLocaleDateString('en-US', { weekday: 'short' }).charAt(0)}
               </Text>
-              <Text style={[styles.dateText, isToday(date) && styles.todayText]}>
+              <Text style={[styles.dateText, isToday(date) && styles.todayDateText]}>
                 {date.getDate()}
               </Text>
             </View>
           ))}
         </View>
         {/* Sticky All-Day Row */}
-        {allDayRow}
+        <View >
+          {allDayRow}
+        </View>
         {/* Time Grid */}
-        <ScrollView style={{ flex: 1 }}>
+        <ScrollView 
+          ref={timeScrollViewRef}
+          style={{ flex: 1 }}
+        >
           <View style={{ flexDirection: 'row' }}>
             {/* Time Column */}
             <View style={styles.timeColumn}>
@@ -565,36 +564,63 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     }
   }, [weeks, setSelectedDate]);
 
-  // Add this function to scroll to today's week
-  const scrollToToday = useCallback(() => {
-    const today = new Date();
-    scrollToWeek(today);
-  }, [scrollToWeek]);
-
-  // Expose the scrollToWeek function to the parent component
-  React.useImperativeHandle(ref, () => ({
-    scrollToWeek
-  }));
-
-  // Add useEffect to clear the clicked cell state after animation
-  useEffect(() => {
-    return () => {
-        if (clickTimeoutRef.current) {
-            clearTimeout(clickTimeoutRef.current);
-        }
-    };
+  // Simple function to scroll to current time
+  const scrollToCurrentTime = useCallback(() => {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const totalMinutes = hours * 60 + minutes;
+    const currentTimePosition = (totalMinutes / 60) * CELL_HEIGHT;
+    
+    // Scroll to show current time at the top with a small offset
+    const scrollPosition = Math.max(0, currentTimePosition - 50);
+    
+    timeScrollViewRef.current?.scrollTo({
+      y: scrollPosition,
+      animated: true
+    });
   }, []);
+
+  // Auto-scroll to current time when viewing today
+  useEffect(() => {
+    const today = new Date();
+    const weekStart = getWeekStartDate();
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    
+    // Check if today is in the current week
+    const isTodayInWeek = today >= weekStart && today <= weekEnd;
+    
+    if (isTodayInWeek) {
+      const currentHour = today.getHours();
+      const currentMinute = today.getMinutes();
+      
+      // Calculate scroll position (each hour is 60px, each minute is 1px)
+      const scrollPosition = (currentHour - 6) * 60 + currentMinute;
+      
+      // Scroll to current time with offset for header
+      timeScrollViewRef.current?.scrollTo({
+        y: Math.max(0, scrollPosition - 100),
+        animated: true
+      });
+    }
+  }, [selectedDate]);
 
   return (
     <View style={{ flex: 1 }}>
       {!hideHeader && (
-        <View style={styles.weekStrip}>
+        <TouchableOpacity 
+          style={styles.weekStrip}
+          onPress={() => {
+            scrollToWeek(new Date());
+          }}
+        >
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Text style={styles.monthLabel}>
               {visibleWeekMonthText}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
       )}
       <FlatList
       ref={flatListRef} 
@@ -629,7 +655,7 @@ const styles = StyleSheet.create({
   weekStrip: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 16,
+    paddingTop: 0,
     paddingBottom: 8,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
@@ -642,20 +668,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     marginLeft: 30,
   },
-  dateText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    fontFamily: 'Onest',
-  },
   headerContainer: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderColor: '#EEEEEE',
     backgroundColor: 'white',
-    paddingTop: 8,
+    paddingTop: 2,
     paddingBottom: 8,
-    marginTop: 5
+    borderBottomWidth: 0.5,
+    borderColor: '#E5E5E5',
   },
   timeColumnHeader: {
     width: TIME_COLUMN_WIDTH,
@@ -664,18 +683,17 @@ const styles = StyleSheet.create({
     width: DAY_COLUMN_WIDTH,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -10,
   },
   weekdayText: {
-    fontSize: 14,
-    color: '#3a3a3a',
+    fontSize: 12,
+    color: '#999999',
     fontWeight: '400',
     fontFamily: 'Onest',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   todayText: {
     color: '#A0C3B2',
-    fontWeight: '700',
+    fontWeight: '500',
   },
   timeColumn: {
     width: TIME_COLUMN_WIDTH,
@@ -770,30 +788,6 @@ const styles = StyleSheet.create({
     color: '#666',
     fontFamily: 'Onest',
   },
-  currentTimeLine: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: '#EA4335',
-    zIndex: 3,
-  },
-  currentTimeDot: {
-    position: 'absolute',
-    left: -4,
-    top: -3,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EA4335',
-  },
-  currentTimeLineContent: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: '#EA4335',
-  },
   allDayEventBox: {
     borderRadius: 1,
     paddingHorizontal: 0,
@@ -808,6 +802,40 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: 'Onest',
     textAlign: 'center',
+  },
+  currentTimeLine: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#FF3B30',
+    zIndex: 10,
+  },
+  currentTimeDot: {
+    position: 'absolute',
+    left: -4,
+    top: -3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#FF3B30',
+  },
+  currentTimeLineContent: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: '#FF3B30',
+  },
+  dateText: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: '#333333',
+    fontFamily: 'Onest',
+  },
+  todayDateText: {
+    color: '#A0C3B2',
+    fontWeight: '600',
   },
 });
 

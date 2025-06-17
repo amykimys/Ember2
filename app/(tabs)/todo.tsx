@@ -25,6 +25,7 @@ import {
   GestureResponderEvent,
   RefreshControl,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -135,6 +136,7 @@ interface Todo {
   customRepeatDates?: Date[];
   repeatEndDate?: Date | null;
   reminderTime?: Date | null;
+  photo?: string; // Add photo field
 }
 
 function darkenColor(hex: string, amount = 0.2): string {
@@ -264,6 +266,7 @@ export default function TodoScreen() {
   const router = useRouter();
   const [showInlineEndDatePicker, setShowInlineEndDatePicker] = useState(false);
   const [showRepeatPicker, setShowRepeatPicker] = useState(false);
+  const [taskPhoto, setTaskPhoto] = useState<string | null>(null);
 
   // Habit modal state
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
@@ -276,6 +279,38 @@ export default function TodoScreen() {
   const [habitRequirePhoto, setHabitRequirePhoto] = useState(false);
   const [habitTargetPerWeek, setHabitTargetPerWeek] = useState(7);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
+  
+  // Add ref for habit title input
+  const newHabitInputRef = useRef<TextInput>(null);
+
+  // Add state for notes modal
+  const [isNotesModalVisible, setIsNotesModalVisible] = useState(false);
+  const [selectedHabitForNotes, setSelectedHabitForNotes] = useState<Habit | null>(null);
+  const [noteText, setNoteText] = useState('');
+
+  // Add state for photo modal
+  const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false);
+  const [selectedHabitForPhoto, setSelectedHabitForPhoto] = useState<Habit | null>(null);
+
+  // Add state for photo viewing modal
+  const [isPhotoViewerVisible, setIsPhotoViewerVisible] = useState(false);
+  const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ habit: Habit; photoUrl: string; date: string; formattedDate: string } | null>(null);
+
+  // Add state for progress tracker modal
+  const [isProgressModalVisible, setIsProgressModalVisible] = useState(false);
+  const [selectedHabitForProgress, setSelectedHabitForProgress] = useState<Habit | null>(null);
+  const [progressViewMode, setProgressViewMode] = useState<'weekly' | 'monthly'>('weekly');
+
+  // Add state for weekly statistics modal
+  const [isWeeklyStatsModalVisible, setIsWeeklyStatsModalVisible] = useState(false);
+  const [selectedHabitForWeeklyStats, setSelectedHabitForWeeklyStats] = useState<Habit | null>(null);
+
+  // Add state for monthly statistics modal
+  const [isMonthlyStatsModalVisible, setIsMonthlyStatsModalVisible] = useState(false);
+
+  // Add state for task photo viewing
+  const [isTaskPhotoViewerVisible, setIsTaskPhotoViewerVisible] = useState(false);
+  const [selectedTaskForPhotoViewing, setSelectedTaskForPhotoViewing] = useState<Todo | null>(null);
 
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
@@ -299,6 +334,15 @@ export default function TodoScreen() {
       }, 150);
     }
   }, [isNewTaskModalVisible]);
+
+  // Add useEffect for habit title input focus
+  useEffect(() => {
+    if (isNewHabitModalVisible && newHabitInputRef.current) {
+      setTimeout(() => {
+        newHabitInputRef.current?.focus();
+      }, 150);
+    }
+  }, [isNewHabitModalVisible]);
 
   const resetForm = () => {
     setNewTodo('');
@@ -596,6 +640,7 @@ export default function TodoScreen() {
   };
 
   const toggleHabit = async (habitId: string) => {
+    console.log('🔍 toggleHabit called with habitId:', habitId);
     try {
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
@@ -612,14 +657,28 @@ export default function TodoScreen() {
         return;
       }
 
+      console.log('🔍 Found habit:', habitToToggle.text);
+      console.log('🔍 Current completedDays:', habitToToggle.completedDays);
+
       const today = moment().format('YYYY-MM-DD');
       const currentCompletedDays = habitToToggle.completedDays || [];
       const isCompletedToday = currentCompletedDays.includes(today);
       
+      console.log('🔍 Today:', today);
+      console.log('🔍 Is completed today:', isCompletedToday);
+      
+      // If already completed today, don't do anything
+      if (isCompletedToday) {
+        console.log('🔍 Habit already completed today, doing nothing');
+        return;
+      }
+      
       // If trying to complete a habit that requires photo, check if photo exists
-      if (!isCompletedToday && habitToToggle.requirePhoto) {
+      if (habitToToggle.requirePhoto) {
+        console.log('🔍 Habit requires photo, checking...');
         const currentPhotos = habitToToggle.photos || {};
         if (!currentPhotos[today]) {
+          console.log('🔍 No photo for today, showing photo prompt');
           Alert.alert(
             'Photo Required',
             'This habit requires a photo to be completed.',
@@ -684,30 +743,10 @@ export default function TodoScreen() {
         }
       }
 
-      // If completing a habit (not uncompleting), ask for notes
-      if (!isCompletedToday) {
-        Alert.prompt(
-          'Add a note (optional)',
-          'How did it go today?',
-          [
-            { text: 'Skip', style: 'cancel' },
-            {
-              text: 'Complete',
-              onPress: (noteText) => {
-                if (noteText && noteText.trim()) {
-                  completeHabitWithNote(habitId, today, noteText.trim());
-                } else {
-                  completeHabit(habitId, today, isCompletedToday);
-                }
-              },
-            },
-          ],
-          'plain-text'
-        );
-      } else {
-        // Regular habit completion (no photo required or photo already exists)
-        await completeHabit(habitId, today, isCompletedToday);
-      }
+      console.log('🔍 Completing habit for today...');
+      // Complete the habit for today
+      await completeHabit(habitId, today, false);
+      console.log('🔍 Habit completed successfully!');
     } catch (error) {
       console.error('Error in toggleHabit:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
@@ -715,20 +754,23 @@ export default function TodoScreen() {
   };
 
   const completeHabit = async (habitId: string, today: string, isCompletedToday: boolean) => {
+    console.log('🔍 completeHabit called with:', { habitId, today, isCompletedToday });
     try {
       const habitToToggle = habits.find(habit => habit.id === habitId);
-      if (!habitToToggle) return;
+      if (!habitToToggle) {
+        console.error('🔍 Habit not found in completeHabit');
+        return;
+      }
+
+      console.log('🔍 Found habit in completeHabit:', habitToToggle.text);
+      console.log('🔍 Current completedDays:', habitToToggle.completedDays);
 
       const currentCompletedDays = habitToToggle.completedDays || [];
-      let newCompletedDays;
       
-      if (isCompletedToday) {
-        // Remove today from completed days
-        newCompletedDays = currentCompletedDays.filter(date => date !== today);
-      } else {
-        // Add today to completed days
-        newCompletedDays = [...currentCompletedDays, today];
-      }
+      // Always add today to completed days (no more toggling)
+      const newCompletedDays = [...currentCompletedDays, today];
+      
+      console.log('🔍 New completedDays:', newCompletedDays);
 
       // Update in Supabase
       const { error } = await supabase
@@ -738,29 +780,40 @@ export default function TodoScreen() {
         .eq('user_id', user?.id);
 
       if (error) {
-        console.error('Error updating habit in Supabase:', error);
+        console.error('🔍 Error updating habit in Supabase:', error);
         Alert.alert('Error', 'Failed to update habit. Please try again.');
         return;
       }
 
+      console.log('🔍 Supabase update successful');
+
       // Update local state
-      setHabits(prev => prev.map(habit => 
-        habit.id === habitId 
-          ? { 
-              ...habit, 
-              completedDays: newCompletedDays,
-              completedToday: !isCompletedToday,
-              streak: calculateCurrentStreak(newCompletedDays)
-            } 
-          : habit
-      ));
+      setHabits(prev => {
+        console.log('🔍 Updating local state, prev habits count:', prev.length);
+        const updatedHabits = prev.map(habit => 
+          habit.id === habitId 
+            ? { 
+                ...habit, 
+                completedDays: newCompletedDays,
+                completedToday: true,
+                streak: calculateCurrentStreak(newCompletedDays)
+              } 
+            : habit
+        );
+        console.log('🔍 Updated habits count:', updatedHabits.length);
+        return updatedHabits;
+      });
+      
+      console.log('🔍 Local state updated');
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
+      
+      console.log('🔍 completeHabit finished successfully');
     } catch (error) {
-      console.error('Error in completeHabit:', error);
+      console.error('🔍 Error in completeHabit:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
@@ -911,6 +964,55 @@ export default function TodoScreen() {
     }
   };
 
+  const addNoteToHabit = async (habitId: string, today: string, noteText: string) => {
+    try {
+      const habitToToggle = habits.find(habit => habit.id === habitId);
+      if (!habitToToggle) return;
+
+      // Update notes without completing the habit
+      const currentNotes = habitToToggle.notes || {};
+      const updatedNotes = {
+        ...currentNotes,
+        [today]: noteText
+      };
+
+      // Update in Supabase
+      const { error } = await supabase
+        .from('habits')
+        .update({ 
+          notes: updatedNotes
+        })
+        .eq('id', habitId)
+        .eq('user_id', user?.id);
+
+      if (error) {
+        console.error('Error adding note to habit in Supabase:', error);
+        Alert.alert('Error', 'Failed to save note. Please try again.');
+        return;
+      }
+
+      // Update local state
+      setHabits(prev => prev.map(habit => 
+        habit.id === habitId 
+          ? { 
+              ...habit, 
+              notes: updatedNotes
+            } 
+          : habit
+      ));
+      
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+
+      Alert.alert('Success', 'Note added successfully!');
+    } catch (error) {
+      console.error('Error in addNoteToHabit:', error);
+      Alert.alert('Error', 'Failed to save note. Please try again.');
+    }
+  };
+
   const toggleCategoryCollapse = (categoryId: string) => {
     setCollapsedCategories(prev => ({
       ...prev,
@@ -1025,6 +1127,32 @@ export default function TodoScreen() {
         </View>
       );
     };
+
+    const renderLeftActions = (_: any, dragX: any, swipeAnimatedValue: any) => {
+      const category = categories.find(c => c.id === todo.categoryId);
+      const baseColor = category?.color || '#007AFF';
+      const lightColor = baseColor + '20';
+  
+      return (
+        <View style={[styles.leftAction, { backgroundColor: lightColor }]}>
+          <TouchableOpacity 
+            onPress={() => {
+              console.log('🔍 Photo button pressed for task:', todo.id);
+              handlePhotoAttachment(todo.id);
+            }} 
+            style={[styles.photoIconContainer, { 
+              backgroundColor: 'rgba(255, 255, 255, 0.3)',
+              borderRadius: 8,
+              padding: 12,
+            }]}
+            activeOpacity={0.5}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="camera" size={24} color={baseColor} />
+          </TouchableOpacity>
+        </View>
+      );
+    };
   
     const handleEdit = () => {
       if (Platform.OS !== 'web') {
@@ -1094,6 +1222,29 @@ export default function TodoScreen() {
               {todo.description}
             </Text>
           )}
+          {todo.photo && (
+            <View style={{
+              marginTop: 8,
+              borderRadius: 8,
+              overflow: 'hidden',
+              width: 60,
+              height: 60,
+            }}>
+              <TouchableOpacity
+                onPress={() => viewTaskPhoto(todo)}
+                activeOpacity={0.7}
+              >
+                <Image
+                  source={{ uri: todo.photo }}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                  }}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -1103,16 +1254,20 @@ export default function TodoScreen() {
       <Swipeable
         key={todo.id}
         renderRightActions={renderRightActions}
+        renderLeftActions={renderLeftActions}
         onSwipeableWillOpen={() => setSwipingTodoId(todo.id)}
         onSwipeableClose={() => {
           requestAnimationFrame(() => {
             setSwipingTodoId(null);
           });
         }}        
-        onSwipeableOpen={handleDelete}
+        onSwipeableRightOpen={handleDelete}
+        onSwipeableLeftOpen={() => handlePhotoAttachment(todo.id)}
         friction={1.5}
         overshootRight={false}
+        overshootLeft={false}
         rightThreshold={30}
+        leftThreshold={30}
       >
         {swipingTodoId === todo.id ? (
           <View style={{ borderRadius: 12, overflow: 'hidden' }}>
@@ -1254,7 +1409,7 @@ export default function TodoScreen() {
         setCategories(categoriesResponse.data);
       }
 
-      // Update tasks with proper date parsing
+      // Update tasks with proper date parsing and photo field
       if (tasksResponse.data) {
         const mappedTasks = tasksResponse.data.map(task => ({
           ...task,
@@ -1262,6 +1417,7 @@ export default function TodoScreen() {
           repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
           reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
           categoryId: task.category_id || null,
+          photo: task.photo || null,
           customRepeatDates: task.custom_repeat_dates
             ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
             : undefined,
@@ -1283,7 +1439,15 @@ export default function TodoScreen() {
           targetPerWeek: habit.target_per_week || 7,
           streak: calculateCurrentStreak(habit.completed_days || []),
         }));
-        setHabits(mappedHabits);
+        
+        // Sort habits by creation date (created_at) to maintain stable order
+        const sortedHabits = mappedHabits.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0);
+          const dateB = new Date(b.created_at || 0);
+          return dateA.getTime() - dateB.getTime();
+        });
+        
+        setHabits(sortedHabits);
       }
 
       setLastRefreshTime(new Date());
@@ -1484,7 +1648,7 @@ export default function TodoScreen() {
     const isCollapsed = collapsedCategories['completed'];
 
     return (
-      <View style={[styles.categoryContainer, { marginTop: 16 }]}>
+      <View style={[styles.categoryContainer]}>
         <TouchableOpacity
           style={styles.categoryHeader}
           onPress={() => toggleCategoryCollapse('completed')}
@@ -1820,26 +1984,565 @@ export default function TodoScreen() {
 
   const viewHabitNotes = (habit: Habit) => {
     const notes = habit.notes || {};
+    const photos = habit.photos || {};
     const noteEntries = Object.entries(notes);
+    const photoEntries = Object.entries(photos);
     
-    if (noteEntries.length === 0) {
-      Alert.alert('No Notes', 'This habit has no notes yet.');
+    if (noteEntries.length === 0 && photoEntries.length === 0) {
+      Alert.alert('No Logs', 'This habit has no logs yet.');
       return;
     }
 
-    const noteList = noteEntries
-      .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
-      .map(([date, note]) => {
+    const options = [];
+    if (noteEntries.length > 0 || photoEntries.length > 0) {
+      options.push('View Logs');
+    }
+    
+    Alert.alert(
+      `Log for "${habit.text}"`,
+      'What would you like to do?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Take Photo',
+          onPress: () => addHabitPhoto(habit),
+        },
+        ...(noteEntries.length > 0 || photoEntries.length > 0 ? [{
+          text: 'View Logs',
+          onPress: () => viewHabitLogs(habit),
+        }] : []),
+      ]
+    );
+  };
+
+  const addPhotoToHabit = async (habitId: string, today: string, photoUri: string) => {
+    try {
+      const habitToToggle = habits.find(habit => habit.id === habitId);
+      if (!habitToToggle) return;
+
+      // Upload photo to Supabase Storage first
+      const uploadedPhotoUrl = await uploadHabitPhoto(photoUri, habitId, today);
+
+      // Store the uploaded photo URL in the photos object
+      const currentPhotos = habitToToggle.photos || {};
+      const updatedPhotos = {
+        ...currentPhotos,
+        [today]: uploadedPhotoUrl
+      };
+
+      // Update in Supabase
+      const { error } = await supabase
+        .from('habits')
+        .update({ 
+          photos: updatedPhotos
+        })
+        .eq('id', habitId)
+        .eq('user_id', user?.id);
+
+      if (error) {
+        console.error('Error adding photo to habit in Supabase:', error);
+        Alert.alert('Error', 'Failed to save photo. Please try again.');
+        return;
+      }
+
+      // Update local state
+      setHabits(prev => prev.map(habit => 
+        habit.id === habitId 
+          ? { 
+              ...habit, 
+              photos: updatedPhotos
+            } 
+          : habit
+      ));
+      
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+
+      Alert.alert('Success', 'Photo added successfully!');
+    } catch (error) {
+      console.error('Error in addPhotoToHabit:', error);
+      Alert.alert('Error', 'Failed to upload photo. Please try again.');
+    }
+  };
+
+  const addHabitPhoto = async (habit: Habit) => {
+    Alert.alert(
+      'Add Photo',
+      'Choose how you want to add a photo',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
+                return;
+              }
+
+              const result = await ImagePicker.launchCameraAsync({
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+
+              if (!result.canceled && result.assets[0]) {
+                const today = moment().format('YYYY-MM-DD');
+                await addPhotoToHabit(habit.id, today, result.assets[0].uri);
+              }
+            } catch (error) {
+              console.error('Error taking photo:', error);
+              Alert.alert('Error', 'Failed to take photo. Please try again.');
+            }
+          },
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Required', 'Media library permission is required to select an image.');
+                return;
+              }
+
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+
+              if (!result.canceled && result.assets[0]) {
+                const today = moment().format('YYYY-MM-DD');
+                await addPhotoToHabit(habit.id, today, result.assets[0].uri);
+              }
+            } catch (error) {
+              console.error('Error selecting image:', error);
+              Alert.alert('Error', 'Failed to select image. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const viewHabitLogs = (habit: Habit) => {
+    const notes = habit.notes || {};
+    const photos = habit.photos || {};
+    const noteEntries = Object.entries(notes);
+    const photoEntries = Object.entries(photos);
+    
+    if (noteEntries.length === 0 && photoEntries.length === 0) {
+      Alert.alert('No Logs', 'This habit has no logs yet.');
+      return;
+    }
+
+    // Combine and sort all entries by date
+    const allEntries = [
+      ...noteEntries.map(([date, note]) => ({ date, type: 'note', content: note })),
+      ...photoEntries.map(([date, photo]) => ({ date, type: 'photo', content: photo }))
+    ].sort((a, b) => b.date.localeCompare(a.date));
+
+    const logList = allEntries
+      .map(({ date, type, content }) => {
         const formattedDate = moment(date).format('MMM D, YYYY');
-        return `${formattedDate}:\n${note}`;
+        if (type === 'note') {
+          return `${formattedDate} (Note):\n${content}`;
+        } else {
+          return `${formattedDate} (Photo):\n[Photo attached]`;
+        }
       })
       .join('\n\n');
 
     Alert.alert(
-      `Notes for "${habit.text}"`,
-      noteList,
+      `Logs for "${habit.text}"`,
+      logList,
       [{ text: 'OK', style: 'default' }]
     );
+  };
+
+  const uploadTaskPhoto = async (photoUri: string, taskId: string): Promise<string> => {
+    console.log('🔍 uploadTaskPhoto called with:', { photoUri, taskId });
+    try {
+      // Convert image to blob
+      console.log('🔍 Converting image to blob...');
+      const response = await fetch(photoUri);
+      const blob = await response.blob();
+      console.log('🔍 Blob created, size:', blob.size);
+      
+      // Create a unique filename
+      const fileExt = photoUri.split('.').pop() || 'jpg';
+      const fileName = `tasks/${taskId}/task_${Date.now()}.${fileExt}`;
+      console.log('🔍 Uploading to filename:', fileName);
+      
+      // Upload to Supabase Storage using the existing habit-photos bucket
+      const { data, error: uploadError } = await supabase.storage
+        .from('habit-photos')
+        .upload(fileName, blob, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('📸 Upload error:', uploadError);
+        throw uploadError;
+      }
+      
+      console.log('🔍 Upload successful, getting public URL...');
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('habit-photos')
+        .getPublicUrl(fileName);
+
+      console.log('🔍 Public URL obtained:', publicUrl);
+      return publicUrl;
+    } catch (error) {
+      console.error('📸 Error uploading task photo:', error);
+      throw error;
+    }
+  };
+
+  const attachPhotoToTask = async (taskId: string, photoUri: string) => {
+    console.log('🔍 attachPhotoToTask called with:', { taskId, photoUri });
+    try {
+      // Get the current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('No user logged in');
+        Alert.alert('Error', 'You must be logged in to attach photos.');
+        return;
+      }
+
+      console.log('🔍 User authenticated, uploading photo...');
+      // Upload photo to Supabase Storage first
+      const uploadedPhotoUrl = await uploadTaskPhoto(photoUri, taskId);
+      console.log('🔍 Photo uploaded successfully:', uploadedPhotoUrl);
+
+      // Update task in Supabase with photo URL
+      const { error } = await supabase
+        .from('todos')
+        .update({ photo: uploadedPhotoUrl })
+        .eq('id', taskId)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error updating task with photo in Supabase:', error);
+        Alert.alert('Error', 'Failed to attach photo. Please try again.');
+        return;
+      }
+
+      console.log('🔍 Task updated in database successfully');
+      // Update local state
+      setTodos(prev => prev.map(todo => 
+        todo.id === taskId 
+          ? { ...todo, photo: uploadedPhotoUrl }
+          : todo
+      ));
+
+      Alert.alert('Success', 'Photo attached successfully!');
+    } catch (error) {
+      console.error('Error in attachPhotoToTask:', error);
+      Alert.alert('Error', 'Failed to upload photo. Please try again.');
+    }
+  };
+
+  const handlePhotoAttachment = (taskId: string) => {
+    console.log('🔍 handlePhotoAttachment called for task:', taskId);
+    Alert.alert(
+      'Attach Photo',
+      'Choose how you want to add a photo',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Take Photo',
+          onPress: async () => {
+            console.log('📸 Take Photo option selected');
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              console.log('📸 Camera permission status:', status);
+              if (status !== 'granted') {
+                Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
+                return;
+              }
+
+              const result = await ImagePicker.launchCameraAsync({
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+
+              console.log('📸 Camera result:', result);
+              if (!result.canceled && result.assets[0]) {
+                console.log('📸 Photo taken, uploading...');
+                await attachPhotoToTask(taskId, result.assets[0].uri);
+              }
+            } catch (error) {
+              console.error('Error taking photo:', error);
+              Alert.alert('Error', 'Failed to take photo. Please try again.');
+            }
+          },
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: async () => {
+            console.log('📸 Choose from Gallery option selected');
+            try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              console.log('📸 Media library permission status:', status);
+              if (status !== 'granted') {
+                Alert.alert('Permission Required', 'Media library permission is required to select an image.');
+                return;
+              }
+
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+
+              console.log('📸 Gallery result:', result);
+              if (!result.canceled && result.assets[0]) {
+                console.log('📸 Photo selected, uploading...');
+                await attachPhotoToTask(taskId, result.assets[0].uri);
+              }
+            } catch (error) {
+              console.error('Error selecting image:', error);
+              Alert.alert('Error', 'Failed to select image. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+  
+  // Add this function to view habit photos
+  const viewHabitPhotos = (habit: Habit) => {
+    const photos = habit.photos || {};
+    const photoEntries = Object.entries(photos);
+    
+    if (photoEntries.length === 0) {
+      Alert.alert('No Photos', 'This habit has no photos yet.');
+      return;
+    }
+
+    // Sort photos by date (most recent first)
+    const sortedPhotos = photoEntries
+      .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
+      .map(([date, photoUrl]) => ({
+        date,
+        photoUrl,
+        formattedDate: moment(date).format('MMM D, YYYY')
+      }));
+
+    // Show photo list
+    const photoList = sortedPhotos
+      .map(({ date, formattedDate }) => `${formattedDate}`)
+      .join('\n');
+
+    Alert.alert(
+      `Photos for "${habit.text}"`,
+      `Select a photo to view:\n\n${photoList}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        ...sortedPhotos.map(({ date, photoUrl, formattedDate }) => ({
+          text: formattedDate,
+          onPress: () => {
+            setSelectedPhotoForViewing({ habit, photoUrl, date, formattedDate });
+            setIsPhotoViewerVisible(true);
+          },
+        })),
+      ]
+    );
+  };
+
+  // Add function to view task photos
+  const viewTaskPhoto = (task: Todo) => {
+    if (!task.photo) {
+      Alert.alert('No Photo', 'This task has no photo attached.');
+      return;
+    }
+    
+    setSelectedTaskForPhotoViewing(task);
+    setIsTaskPhotoViewerVisible(true);
+  };
+  
+  // Add function to calculate detailed progress statistics
+  const calculateHabitProgress = (habit: Habit, mode: 'weekly' | 'monthly') => {
+    const completedDays = habit.completedDays || [];
+    const today = moment();
+    
+    if (mode === 'weekly') {
+      const weekStart = moment().startOf('isoWeek');
+      const weekEnd = moment().endOf('isoWeek');
+      
+      const completedThisWeek = completedDays.filter(date => {
+        const habitDate = moment(date, 'YYYY-MM-DD');
+        return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
+      }).length;
+      
+      const target = habit.targetPerWeek || 7;
+      const percentage = Math.min((completedThisWeek / target) * 100, 100);
+      
+      // Calculate daily breakdown for the week
+      const dailyBreakdown = [];
+      for (let i = 0; i < 7; i++) {
+        const date = moment(weekStart).add(i, 'days');
+        const dateStr = date.format('YYYY-MM-DD');
+        const isCompleted = completedDays.includes(dateStr);
+        const isToday = date.isSame(today, 'day');
+        
+        dailyBreakdown.push({
+          date: date.toDate(),
+          dateStr,
+          dayName: date.format('ddd'),
+          isCompleted,
+          isToday,
+          hasPhoto: habit.photos?.[dateStr] || null,
+          hasNote: habit.notes?.[dateStr] || null,
+        });
+      }
+      
+      return {
+        mode: 'weekly',
+        period: `${weekStart.format('MMM D')} - ${weekEnd.format('MMM D, YYYY')}`,
+        completed: completedThisWeek,
+        target,
+        percentage,
+        dailyBreakdown,
+        streak: calculateCurrentStreak(completedDays),
+        averagePerWeek: Math.round((completedDays.length / Math.max(1, Math.ceil(moment().diff(moment(completedDays[0] || today), 'weeks')))) * 10) / 10,
+      };
+    } else {
+      // Monthly view
+      const monthStart = moment().startOf('month');
+      const monthEnd = moment().endOf('month');
+      
+      const completedThisMonth = completedDays.filter(date => {
+        const habitDate = moment(date, 'YYYY-MM-DD');
+        return habitDate.isBetween(monthStart, monthEnd, 'day', '[]');
+      }).length;
+      
+      const daysInMonth = monthEnd.diff(monthStart, 'days') + 1;
+      const percentage = Math.min((completedThisMonth / daysInMonth) * 100, 100);
+      
+      // Calculate weekly breakdown for the month
+      const weeklyBreakdown = [];
+      const weeksInMonth = Math.ceil(daysInMonth / 7);
+      
+      for (let week = 0; week < weeksInMonth; week++) {
+        const weekStart = moment(monthStart).add(week, 'weeks');
+        const weekEnd = moment.min(moment(weekStart).endOf('isoWeek'), monthEnd);
+        
+        const weekCompleted = completedDays.filter(date => {
+          const habitDate = moment(date, 'YYYY-MM-DD');
+          return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
+        }).length;
+        
+        const weekDays = weekEnd.diff(weekStart, 'days') + 1;
+        const weekPercentage = Math.min((weekCompleted / weekDays) * 100, 100);
+        
+        weeklyBreakdown.push({
+          weekNumber: week + 1,
+          weekStart: weekStart.toDate(),
+          weekEnd: weekEnd.toDate(),
+          period: `${weekStart.format('MMM D')} - ${weekEnd.format('MMM D')}`,
+          completed: weekCompleted,
+          totalDays: weekDays,
+          percentage: weekPercentage,
+        });
+      }
+      
+      return {
+        mode: 'monthly',
+        period: monthStart.format('MMMM YYYY'),
+        completed: completedThisMonth,
+        target: daysInMonth,
+        percentage,
+        weeklyBreakdown,
+        streak: calculateCurrentStreak(completedDays),
+        averagePerMonth: Math.round((completedDays.length / Math.max(1, Math.ceil(moment().diff(moment(completedDays[0] || today), 'months')))) * 10) / 10,
+      };
+    }
+  };
+  
+  // Add function to calculate weekly statistics
+  const calculateWeeklyStats = (habit: Habit) => {
+    const completedDays = habit.completedDays || [];
+    const today = moment();
+    const weekStart = moment().startOf('isoWeek');
+    const weekEnd = moment().endOf('isoWeek');
+    
+    const completedThisWeek = completedDays.filter(date => {
+      const habitDate = moment(date, 'YYYY-MM-DD');
+      return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
+    }).length;
+    
+    const target = habit.targetPerWeek || 7;
+    const percentage = Math.min((completedThisWeek / target) * 100, 100);
+    
+    // Calculate daily breakdown for the week
+    const dailyBreakdown = [];
+    for (let i = 0; i < 7; i++) {
+      const date = moment(weekStart).add(i, 'days');
+      const dateStr = date.format('YYYY-MM-DD');
+      const isCompleted = completedDays.includes(dateStr);
+      const isToday = date.isSame(today, 'day');
+      
+      dailyBreakdown.push({
+        date: date.toDate(),
+        dateStr,
+        dayName: date.format('ddd'),
+        isCompleted,
+        isToday,
+        hasPhoto: habit.photos?.[dateStr] || null,
+        hasNote: habit.notes?.[dateStr] || null,
+      });
+    }
+    
+    // Calculate weekly trends (last 4 weeks)
+    const weeklyTrends = [];
+    for (let week = 0; week < 4; week++) {
+      const weekStartDate = moment().subtract(week, 'weeks').startOf('isoWeek');
+      const weekEndDate = moment().subtract(week, 'weeks').endOf('isoWeek');
+      
+      const weekCompleted = completedDays.filter(date => {
+        const habitDate = moment(date, 'YYYY-MM-DD');
+        return habitDate.isBetween(weekStartDate, weekEndDate, 'day', '[]');
+      }).length;
+      
+      const weekTarget = habit.targetPerWeek || 7;
+      const weekPercentage = Math.min((weekCompleted / weekTarget) * 100, 100);
+      
+      weeklyTrends.push({
+        weekNumber: week + 1,
+        period: `${weekStartDate.format('MMM D')} - ${weekEndDate.format('MMM D')}`,
+        completed: weekCompleted,
+        target: weekTarget,
+        percentage: weekPercentage,
+        isCurrentWeek: week === 0,
+      });
+    }
+    
+    return {
+      period: `${weekStart.format('MMM D')} - ${weekEnd.format('MMM D, YYYY')}`,
+      completed: completedThisWeek,
+      target,
+      percentage,
+      dailyBreakdown,
+      weeklyTrends,
+      streak: calculateCurrentStreak(completedDays),
+      averagePerWeek: Math.round((completedDays.length / Math.max(1, Math.ceil(moment().diff(moment(completedDays[0] || today), 'weeks')))) * 10) / 10,
+      bestDay: dailyBreakdown.reduce((best, day) => day.isCompleted ? best : day, dailyBreakdown[0]),
+      mostProductiveDay: dailyBreakdown.filter(day => day.isCompleted).length > 0 ? 
+        dailyBreakdown.filter(day => day.isCompleted).sort((a, b) => 
+          moment(a.date).diff(moment(b.date))
+        )[0] : null,
+    };
   };
   
   return (
@@ -1856,6 +2559,7 @@ export default function TodoScreen() {
             <TouchableOpacity 
               style={styles.menuButton}>              
             </TouchableOpacity>
+            
           </View>
 
           {/* Date Header */}
@@ -2046,6 +2750,7 @@ export default function TodoScreen() {
                 <>
                   {categories.map(category => renderCategory(category))}
                   {renderUncategorizedTodos()}
+                  <View style={{ height: 20 }} />
                   {renderCompletedTodos()}
                 </>
               )
@@ -2093,11 +2798,39 @@ export default function TodoScreen() {
                           </View>
                         </TouchableOpacity>
                       )}
-                      onSwipeableOpen={() => {
+                      renderLeftActions={() => (
+                        <View style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          backgroundColor: `${habit.color}20`,
+                          paddingHorizontal: 8,
+                        }}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (Platform.OS !== 'web') {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              }
+                              setSelectedHabitForPhoto(habit);
+                              setIsPhotoModalVisible(true);
+                            }}
+                            style={{
+                              backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                              borderRadius: 8,
+                              padding: 12,
+                            }}
+                          >
+                            <Ionicons name="camera" size={24} color={habit.color} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      onSwipeableRightOpen={() => {
                         if (Platform.OS !== 'web') {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                      }
+                        }
                         deleteHabit(habit.id);
+                      }}
+                      onSwipeableLeftOpen={() => {
+                        // This will be handled by individual button presses
                       }}
                       containerStyle={{
                         marginVertical: 4,
@@ -2164,56 +2897,15 @@ export default function TodoScreen() {
                               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                             }
                             
-                            // Show options menu
-                            const options = ['Edit Habit'];
-                            if (Object.keys(habit.notes || {}).length > 0) {
-                              options.push('View Notes');
-                            }
-                            options.push('Delete Habit');
-                            
-                            Alert.alert(
-                              'Habit Options',
-                              'What would you like to do?',
-                              [
-                                { text: 'Cancel', style: 'cancel' },
-                                {
-                                  text: 'Edit Habit',
-                                  onPress: () => {
-                                    // Set up the edit form with current habit data
-                                    setNewHabit(habit.text);
-                                    setNewHabitDescription(habit.description || '');
-                                    setNewHabitColor(habit.color);
-                                    setHabitReminderTime(habit.reminderTime ? new Date(habit.reminderTime) : null);
-                                    setHabitRequirePhoto(habit.requirePhoto);
-                                    setHabitTargetPerWeek(habit.targetPerWeek);
-                                    setEditingHabit(habit);
-                                    setIsNewHabitModalVisible(true);
-                                  },
-                                },
-                                ...(Object.keys(habit.notes || {}).length > 0 ? [{
-                                  text: 'View Notes',
-                                  onPress: () => viewHabitNotes(habit),
-                                }] : []),
-                                {
-                                  text: 'Delete Habit',
-                                  style: 'destructive',
-                                  onPress: () => {
-                                    Alert.alert(
-                                      'Delete Habit',
-                                      'Are you sure you want to delete this habit? This action cannot be undone.',
-                                      [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        {
-                                          text: 'Delete',
-                                          style: 'destructive',
-                                          onPress: () => deleteHabit(habit.id),
-                                        },
-                                      ]
-                                    );
-                                  },
-                                },
-                              ]
-                            );
+                            // Set up the edit form with current habit data
+                            setNewHabit(habit.text);
+                            setNewHabitDescription(habit.description || '');
+                            setNewHabitColor(habit.color);
+                            setHabitReminderTime(habit.reminderTime ? new Date(habit.reminderTime) : null);
+                            setHabitRequirePhoto(habit.requirePhoto);
+                            setHabitTargetPerWeek(habit.targetPerWeek);
+                            setEditingHabit(habit);
+                            setIsNewHabitModalVisible(true);
                           }}
                           delayLongPress={500}
                           activeOpacity={0.9}
@@ -2412,6 +3104,129 @@ export default function TodoScreen() {
                                   </Text>
                                 </View>
                               )}
+
+                              {/* Show today's logs indicators */}
+                              {(() => {
+                                const today = moment().format('YYYY-MM-DD');
+                                const hasNoteToday = habit.notes?.[today];
+                                const hasPhotoToday = habit.photos?.[today];
+                                
+                                if (hasNoteToday || hasPhotoToday) {
+                                  return (
+                                    <View style={{
+                                      flexDirection: 'row',
+                                      alignItems: 'center',
+                                      gap: 4
+                                    }}>
+                                      {hasNoteToday && (
+                                        <View style={{
+                                          flexDirection: 'row',
+                                          alignItems: 'center',
+                                          backgroundColor: '#E3F2FD',
+                                          paddingHorizontal: 4,
+                                          paddingVertical: 2,
+                                          borderRadius: 8
+                                        }}>
+                                          <Ionicons name="document-text" size={8} color="#1976D2" style={{ marginRight: 2 }} />
+                                          <Text style={{
+                                            fontSize: 8,
+                                            color: '#1976D2',
+                                            fontWeight: '500',
+                                            fontFamily: 'Onest'
+                                          }}>
+                                            Note
+                                          </Text>
+                                        </View>
+                                      )}
+                                      {hasPhotoToday && (
+                                        <TouchableOpacity
+                                          onPress={() => {
+                                            setSelectedPhotoForViewing({ 
+                                              habit, 
+                                              photoUrl: hasPhotoToday, 
+                                              date: today, 
+                                              formattedDate: moment(today).format('MMM D, YYYY') 
+                                            });
+                                            setIsPhotoViewerVisible(true);
+                                          }}
+                                          style={{
+                                            flexDirection: 'row',
+                                            alignItems: 'center',
+                                            backgroundColor: '#E8F5E9',
+                                            paddingHorizontal: 4,
+                                            paddingVertical: 2,
+                                            borderRadius: 8
+                                          }}
+                                        >
+                                          <Ionicons name="camera" size={8} color="#4CAF50" style={{ marginRight: 2 }} />
+                                          <Text style={{
+                                            fontSize: 8,
+                                            color: '#4CAF50',
+                                            fontWeight: '500',
+                                            fontFamily: 'Onest'
+                                          }}>
+                                            Photo
+                                          </Text>
+                                        </TouchableOpacity>
+                                      )}
+                                    </View>
+                                  );
+                                }
+                                return null;
+                              })()}
+                              
+                              {/* Progress Tracker Button */}
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setSelectedHabitForProgress(habit);
+                                  setProgressViewMode('weekly');
+                                  setIsProgressModalVisible(true);
+                                }}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: habit.color + '20',
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 3,
+                                  borderRadius: 12
+                                }}
+                              >
+                                <Ionicons name="analytics" size={10} color={habit.color} style={{ marginRight: 3 }} />
+                                <Text style={{
+                                  fontSize: 10,
+                                  color: habit.color,
+                                  fontWeight: '600',
+                                  fontFamily: 'Onest'
+                                }}>
+                                  Progress
+                                </Text>
+                              </TouchableOpacity>
+                              
+                              {/* Weekly Statistics Button */}
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setSelectedHabitForWeeklyStats(habit);
+                                  setIsWeeklyStatsModalVisible(true);
+                                }}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: '#F0F8FF',
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 3,
+                                  borderRadius: 12
+                                }}
+                              >
+                                <Ionicons name="bar-chart" size={10} color="#4169E1" style={{ marginRight: 3 }} />
+                                <Text style={{
+                                  fontSize: 10,
+                                  color: '#4169E1',
+                                  fontWeight: '600',
+                                  fontFamily: 'Onest'
+                                }}>
+                                  Weekly
+                                </Text>
+                              </TouchableOpacity>
                             </View>
                           </View>
                         </TouchableOpacity>
@@ -2525,9 +3340,16 @@ export default function TodoScreen() {
             {/* Content */}
             <ScrollView 
               style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 20 }}
+              contentContainerStyle={{ 
+                padding: 16, 
+                paddingBottom: 100, // Increased bottom padding for better scrolling
+                minHeight: '100%' // Ensures content is scrollable even when short
+              }}
               keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={true} // Show scroll indicator
+              bounces={true} // Enable bounce effect
+              alwaysBounceVertical={true} // Always allow vertical bounce
+              scrollEventThrottle={16} // Smooth scrolling
             >
               {/* Task Title Card */}
               <View style={{
@@ -2601,6 +3423,7 @@ export default function TodoScreen() {
                 <TouchableOpacity
                   onPress={() => {
                     setShowDatePicker(prev => !prev);
+                    Keyboard.dismiss();
                   }}
                   style={{
                     backgroundColor: '#f8f9fa',
@@ -2655,6 +3478,7 @@ export default function TodoScreen() {
                         const selectedDate = new Date(day.dateString + 'T00:00:00');
                         setTaskDate(selectedDate);
                         setShowDatePicker(false);
+                        Keyboard.dismiss();
                       }}
                       markedDates={{
                         [taskDate ? moment(taskDate).format('YYYY-MM-DD') : '']: {
@@ -2721,7 +3545,17 @@ export default function TodoScreen() {
                 </Text>
                 <TouchableOpacity
                   onPress={() => {
-                    setShowCategoryBox(prev => !prev);
+                    if (categories.length === 0) {
+                      // If no categories exist, automatically show new category input
+                      setShowNewCategoryInput(true);
+                      setNewCategoryName('');
+                      setNewCategoryColor('#BF9264');
+                      setShowCategoryBox(false);
+                    } else {
+                      // If categories exist, toggle the category box
+                      setShowCategoryBox(prev => !prev);
+                    }
+                    Keyboard.dismiss();
                   }}
                   style={{
                     backgroundColor: '#f8f9fa',
@@ -2779,6 +3613,7 @@ export default function TodoScreen() {
                           onPress={() => {
                             setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
                             setShowCategoryBox(false);
+                            Keyboard.dismiss();
                           }}
                           onLongPress={() => {
                             Alert.alert(
@@ -2826,6 +3661,7 @@ export default function TodoScreen() {
                           setShowNewCategoryInput(true);
                           setNewCategoryName('');
                           setNewCategoryColor('#BF9264');
+                          Keyboard.dismiss();
                         }}
                         style={{
                           backgroundColor: '#f8f9fa',
@@ -3025,6 +3861,7 @@ export default function TodoScreen() {
                       <TouchableOpacity
                         onPress={() => {
                           setShowReminderPicker(prev => !prev);
+                          Keyboard.dismiss();
                         }}
                         style={{
                           backgroundColor: '#f8f9fa',
@@ -3086,6 +3923,7 @@ export default function TodoScreen() {
                               const now = new Date();
                               const in15Min = new Date(now.getTime() + 15 * 60000);
                               setReminderTime(in15Min);
+                              Keyboard.dismiss();
                               // Don't close the picker
                             }}
                             style={{
@@ -3110,6 +3948,7 @@ export default function TodoScreen() {
                               const now = new Date();
                               const in1Hour = new Date(now.getTime() + 60 * 60000);
                               setReminderTime(in1Hour);
+                              Keyboard.dismiss();
                               // Don't close the picker
                             }}
                             style={{
@@ -3134,6 +3973,7 @@ export default function TodoScreen() {
                               const now = new Date();
                               const tomorrow = new Date(now.getTime() + 24 * 60 * 60000);
                               setReminderTime(tomorrow);
+                              Keyboard.dismiss();
                               // Don't close the picker
                             }}
                             style={{
@@ -3157,6 +3997,7 @@ export default function TodoScreen() {
                             onPress={() => {
                               setReminderTime(null);
                               setShowReminderPicker(false);
+                              Keyboard.dismiss();
                             }}
                             style={{
                               backgroundColor: 'transparent',
@@ -3198,6 +4039,7 @@ export default function TodoScreen() {
                       <TouchableOpacity
                         onPress={() => {
                           setShowRepeatPicker(prev => !prev);
+                          Keyboard.dismiss();
                         }}
                         style={{
                           backgroundColor: '#f8f9fa',
@@ -3241,13 +4083,16 @@ export default function TodoScreen() {
                                 if (option.value === 'custom') {
                                   setSelectedRepeat(option.value);
                                   setShowRepeatPicker(false);
+                                  Keyboard.dismiss();
                                 } else if (option.value === 'none') {
                                   setSelectedRepeat('none');
                                   setRepeatEndDate(null);
                                   setShowRepeatPicker(false);
+                                  Keyboard.dismiss();
                                 } else {
                                   setSelectedRepeat(option.value);
                                   setShowRepeatPicker(false);
+                                  Keyboard.dismiss();
                                 }
                               }}
                               style={{
@@ -3285,6 +4130,7 @@ export default function TodoScreen() {
                             <TouchableOpacity
                               onPress={() => {
                                 setShowInlineEndDatePicker(prev => !prev);
+                                Keyboard.dismiss();
                               }}
                               style={{
                                 backgroundColor: repeatEndDate ? '#f0f0f0' : 'transparent',
@@ -3363,6 +4209,7 @@ export default function TodoScreen() {
                                     const selectedDate = new Date(day.dateString + 'T00:00:00');
                                     setRepeatEndDate(selectedDate);
                                     setShowInlineEndDatePicker(false);
+                                    Keyboard.dismiss();
                                   }}
                                   markedDates={{
                                     [repeatEndDate ? moment(repeatEndDate).format('YYYY-MM-DD') : '']: {
@@ -3549,6 +4396,7 @@ export default function TodoScreen() {
                       setCategories(prev => [...prev, savedCategory]);
                       setSelectedCategoryId(savedCategory.id);
                       setNewCategoryName('');
+                      setShowNewCategoryInput(false);
                       
                       // Close category modal and show task modal
                       setIsNewCategoryModalVisible(false);
@@ -3648,9 +4496,9 @@ export default function TodoScreen() {
             {/* Content */}
             <ScrollView 
               style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 20 }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 100, minHeight: '100%' }}
               keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={true}
             >
               {/* Habit Title Card */}
               <View style={{
@@ -3665,6 +4513,7 @@ export default function TodoScreen() {
                 elevation: 1,
               }}>
                 <TextInput
+                  ref={newHabitInputRef}
                   style={{
                     fontSize: 17,
                     fontFamily: 'Onest',
@@ -3735,7 +4584,10 @@ export default function TodoScreen() {
                   {[1, 2, 3, 4, 5, 6, 7].map((goal) => (
                     <TouchableOpacity
                       key={goal}
-                      onPress={() => setHabitTargetPerWeek(goal)}
+                      onPress={() => {
+                        setHabitTargetPerWeek(goal);
+                        Keyboard.dismiss();
+                      }}
                       style={{
                         backgroundColor: habitTargetPerWeek === goal ? '#A0C3B2' : '#f8f9fa',
                         paddingVertical: 8,
@@ -3795,7 +4647,10 @@ export default function TodoScreen() {
                   {['#FF9A8B', '#FF6B6B', '#A0C3B2', '#BF9264', '#6F826A', '#BBD8A3', '#D8BFD8', '#B0E0E6', '#FFE5B4', '#FADADD', '#C1E1C1', '#F0D9FF', '#D0F0C0', '#FFFACD', '#E4D6A7', '#FFCFCF'].map((color) => (
                     <TouchableOpacity
                       key={color}
-                      onPress={() => setNewHabitColor(color)}
+                      onPress={() => {
+                        setNewHabitColor(color);
+                        Keyboard.dismiss();
+                      }}
                       style={{
                         width: 32,
                         height: 32,
@@ -3849,6 +4704,7 @@ export default function TodoScreen() {
                 <TouchableOpacity
                   onPress={() => {
                           setShowHabitReminderPicker(prev => !prev);
+                          Keyboard.dismiss();
                   }}
                   style={{
                     backgroundColor: '#f8f9fa',
@@ -3909,6 +4765,7 @@ export default function TodoScreen() {
                               const now = new Date();
                               const in15Min = new Date(now.getTime() + 15 * 60000);
                               setHabitReminderTime(in15Min);
+                              Keyboard.dismiss();
                           }}
                             style={{
                               backgroundColor: '#007AFF',
@@ -3932,6 +4789,7 @@ export default function TodoScreen() {
                               const now = new Date();
                               const in1Hour = new Date(now.getTime() + 60 * 60000);
                               setHabitReminderTime(in1Hour);
+                              Keyboard.dismiss();
                         }}
                         style={{
                               backgroundColor: '#007AFF',
@@ -3955,6 +4813,7 @@ export default function TodoScreen() {
                               const now = new Date();
                               const tomorrow = new Date(now.getTime() + 24 * 60 * 60000);
                               setHabitReminderTime(tomorrow);
+                              Keyboard.dismiss();
                           }}
                           style={{
                               backgroundColor: '#007AFF',
@@ -3977,6 +4836,7 @@ export default function TodoScreen() {
                             onPress={() => {
                               setHabitReminderTime(null);
                               setShowHabitReminderPicker(false);
+                              Keyboard.dismiss();
                           }}
                           style={{
                               backgroundColor: 'transparent',
@@ -4025,7 +4885,10 @@ export default function TodoScreen() {
                         </Text>
                       </View>
                       <TouchableOpacity
-                        onPress={() => setHabitRequirePhoto(prev => !prev)}
+                        onPress={() => {
+                          setHabitRequirePhoto(prev => !prev);
+                          Keyboard.dismiss();
+                        }}
                         style={{
                           width: 44,
                           height: 24,
@@ -4064,6 +4927,1253 @@ export default function TodoScreen() {
         onCancel={() => setShowRepeatEndDatePicker(false)}
         minimumDate={new Date()}
       />
+
+      {/* Notes Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isNotesModalVisible}
+        onRequestClose={() => {
+          setIsNotesModalVisible(false);
+          setSelectedHabitForNotes(null);
+          setNoteText('');
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            height: '50%',
+            backgroundColor: '#fafafa',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              paddingTop: 20,
+              backgroundColor: selectedHabitForNotes ? `${selectedHabitForNotes.color}60` : '#ffffff',
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsNotesModalVisible(false);
+                  setSelectedHabitForNotes(null);
+                  setNoteText('');
+                }}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons name="close" size={16} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{ 
+                fontSize: 16, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                {selectedHabitForNotes ? `Notes for "${selectedHabitForNotes.text}"` : 'Notes'}
+              </Text>
+              
+              <TouchableOpacity 
+                onPress={async () => {
+                  if (noteText.trim() && selectedHabitForNotes) {
+                    const today = moment().format('YYYY-MM-DD');
+                    await addNoteToHabit(selectedHabitForNotes.id, today, noteText.trim());
+                    setNoteText('');
+                  }
+                }}
+                disabled={!noteText.trim()}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: noteText.trim() ? '#A0C3B2' : '#ffffff',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons 
+                  name="checkmark" 
+                  size={16} 
+                  color={noteText.trim() ? 'white' : '#999'} 
+                />
+              </TouchableOpacity>
+            </View>
+
+            {/* Content */}
+            <ScrollView 
+              style={{ flex: 1 }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 20 }}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Add Note Section */}
+              <View style={{
+                backgroundColor: 'white',
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 18,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 1,
+              }}>
+                <Text style={{
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: '#333',
+                  marginBottom: 12,
+                  fontFamily: 'Onest'
+                }}>
+                  Add Note for Today
+                </Text>
+                <TextInput
+                  style={{
+                    fontSize: 16,
+                    fontFamily: 'Onest',
+                    color: '#333',
+                    minHeight: 80,
+                    textAlignVertical: 'top',
+                    padding: 12,
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: '#e0e0e0',
+                  }}
+                  placeholder="Write your note here..."
+                  placeholderTextColor="#999"
+                  value={noteText}
+                  onChangeText={setNoteText}
+                  multiline
+                  numberOfLines={3}
+                  autoFocus
+                />
+              </View>
+
+              {/* Previous Notes Section */}
+              {selectedHabitForNotes && Object.keys(selectedHabitForNotes.notes || {}).length > 0 && (
+                <View style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 18,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
+                }}>
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '600',
+                    color: '#333',
+                    marginBottom: 12,
+                    fontFamily: 'Onest'
+                  }}>
+                    Previous Notes
+                  </Text>
+                  {Object.entries(selectedHabitForNotes.notes || {})
+                    .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
+                    .slice(0, 3) // Only show last 3 notes to fit in 50% screen
+                    .map(([date, note]) => (
+                      <View key={date} style={{
+                        padding: 12,
+                        backgroundColor: '#f8f9fa',
+                        borderRadius: 8,
+                        marginBottom: 8,
+                      }}>
+                        <Text style={{
+                          fontSize: 12,
+                          color: '#666',
+                          fontFamily: 'Onest',
+                          fontWeight: '500',
+                          marginBottom: 4,
+                        }}>
+                          {moment(date).format('MMM D, YYYY')}
+                        </Text>
+                        <Text style={{
+                          fontSize: 14,
+                          color: '#333',
+                          fontFamily: 'Onest',
+                          lineHeight: 20,
+                        }}>
+                          {note}
+                        </Text>
+                      </View>
+                    ))}
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Photo Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isPhotoModalVisible}
+        onRequestClose={() => {
+          setIsPhotoModalVisible(false);
+          setSelectedHabitForPhoto(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            backgroundColor: '#fafafa',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+            paddingBottom: 20,
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              paddingTop: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsPhotoModalVisible(false);
+                  setSelectedHabitForPhoto(null);
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{ 
+                fontSize: 16, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                Add Photo
+              </Text>
+              
+              <View style={{ width: 28 }} />
+            </View>
+
+            {/* Content */}
+            <View style={{ padding: 20 }}>
+              <View style={{ gap: 12 }}>
+                <TouchableOpacity
+                  onPress={async () => {
+                    try {
+                      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                      if (status !== 'granted') {
+                        Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
+                        return;
+                      }
+
+                      const result = await ImagePicker.launchCameraAsync({
+                        allowsEditing: true,
+                        aspect: [4, 3],
+                        quality: 0.8,
+                      });
+
+                      if (!result.canceled && result.assets[0] && selectedHabitForPhoto) {
+                        const today = moment().format('YYYY-MM-DD');
+                        await addPhotoToHabit(selectedHabitForPhoto.id, today, result.assets[0].uri);
+                        setIsPhotoModalVisible(false);
+                        setSelectedHabitForPhoto(null);
+                      }
+                    } catch (error) {
+                      console.error('Error taking photo:', error);
+                      Alert.alert('Error', 'Failed to take photo. Please try again.');
+                    }
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    backgroundColor: 'white',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#e0e0e0',
+                  }}
+                >
+                  <Ionicons name="camera" size={24} color="#007AFF" style={{ marginRight: 12 }} />
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: '500',
+                    color: '#333',
+                    fontFamily: 'Onest',
+                  }}>
+                    Take Photo
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={async () => {
+                    try {
+                      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (status !== 'granted') {
+                        Alert.alert('Permission Required', 'Media library permission is required to select an image.');
+                        return;
+                      }
+
+                      const result = await ImagePicker.launchImageLibraryAsync({
+                        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                        allowsEditing: true,
+                        aspect: [4, 3],
+                        quality: 0.8,
+                      });
+
+                      if (!result.canceled && result.assets[0] && selectedHabitForPhoto) {
+                        const today = moment().format('YYYY-MM-DD');
+                        await addPhotoToHabit(selectedHabitForPhoto.id, today, result.assets[0].uri);
+                        setIsPhotoModalVisible(false);
+                        setSelectedHabitForPhoto(null);
+                      }
+                    } catch (error) {
+                      console.error('Error selecting image:', error);
+                      Alert.alert('Error', 'Failed to select image. Please try again.');
+                    }
+                  }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 16,
+                    backgroundColor: 'white',
+                    borderRadius: 12,
+                    borderWidth: 1,
+                    borderColor: '#e0e0e0',
+                  }}
+                >
+                  <Ionicons name="images" size={24} color="#4CAF50" style={{ marginRight: 12 }} />
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: '500',
+                    color: '#333',
+                    fontFamily: 'Onest',
+                  }}>
+                    Choose from Gallery
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Photo Viewer Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isPhotoViewerVisible}
+        onRequestClose={() => {
+          setIsPhotoViewerVisible(false);
+          setSelectedPhotoForViewing(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            backgroundColor: '#fafafa',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+            paddingBottom: 20,
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              paddingTop: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsPhotoViewerVisible(false);
+                  setSelectedPhotoForViewing(null);
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{ 
+                fontSize: 16, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                View Photo
+              </Text>
+              
+              <View style={{ width: 28 }} />
+            </View>
+
+            {/* Content */}
+            <View style={{ padding: 20 }}>
+              <View style={{ gap: 12 }}>
+                <Image
+                  source={{ uri: selectedPhotoForViewing?.photoUrl }}
+                  style={{ width: '100%', height: 300, borderRadius: 10 }}
+                />
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                  {selectedPhotoForViewing?.habit.text}
+                </Text>
+                <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                  {selectedPhotoForViewing?.formattedDate}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Progress Tracker Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isProgressModalVisible}
+        onRequestClose={() => {
+          setIsProgressModalVisible(false);
+          setSelectedHabitForProgress(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            backgroundColor: '#fafafa',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+            paddingBottom: 20,
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              paddingTop: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsProgressModalVisible(false);
+                  setSelectedHabitForProgress(null);
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{ 
+                fontSize: 16, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                Progress Tracker
+              </Text>
+              
+              <View style={{ width: 28 }} />
+            </View>
+
+            {/* Content */}
+            <ScrollView style={{ padding: 20 }}>
+              {selectedHabitForProgress && (() => {
+                const progressData = calculateHabitProgress(selectedHabitForProgress, progressViewMode);
+                return (
+                  <View style={{ gap: 16 }}>
+                    {/* Header Info */}
+                    <View style={{ gap: 8 }}>
+                      <Text style={{ fontSize: 18, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                        {selectedHabitForProgress.text}
+                      </Text>
+                      <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                        {progressData.period}
+                      </Text>
+                    </View>
+
+                    {/* Statistics */}
+                    <View style={{ 
+                      backgroundColor: 'white', 
+                      borderRadius: 12, 
+                      padding: 16,
+                      gap: 8
+                    }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                          Completed
+                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                          {progressData.completed}/{progressData.target}
+                        </Text>
+                      </View>
+                      
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                          Current Streak
+                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                          {progressData.streak} days
+                        </Text>
+                      </View>
+                      
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                          Average per {progressViewMode === 'weekly' ? 'week' : 'month'}
+                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                          {progressViewMode === 'weekly' ? progressData.averagePerWeek : progressData.averagePerMonth}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Progress Bar */}
+                    <View style={{ 
+                      backgroundColor: 'white', 
+                      borderRadius: 12, 
+                      padding: 16,
+                      gap: 8
+                    }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                          Progress
+                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: '600', color: selectedHabitForProgress.color, fontFamily: 'Onest' }}>
+                          {Math.round(progressData.percentage)}%
+                        </Text>
+                      </View>
+                      
+                      <View style={{ 
+                        height: 8, 
+                        backgroundColor: '#f0f0f0', 
+                        borderRadius: 4,
+                        overflow: 'hidden'
+                      }}>
+                        <View style={{ 
+                          height: '100%', 
+                          width: `${progressData.percentage}%`, 
+                          backgroundColor: selectedHabitForProgress.color,
+                          borderRadius: 4,
+                        }} />
+                      </View>
+                    </View>
+
+                    {/* View Toggle */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                        {progressViewMode === 'weekly' ? 'Daily Breakdown' : 'Weekly Breakdown'}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => setProgressViewMode(prev => prev === 'weekly' ? 'monthly' : 'weekly')}
+                        style={{
+                          paddingHorizontal: 16,
+                          paddingVertical: 8,
+                          backgroundColor: selectedHabitForProgress.color + '20',
+                          borderRadius: 20,
+                        }}
+                      >
+                        <Text style={{ 
+                          fontSize: 14, 
+                          color: selectedHabitForProgress.color, 
+                          fontFamily: 'Onest', 
+                          fontWeight: '600' 
+                        }}>
+                          {progressViewMode === 'weekly' ? 'Monthly' : 'Weekly'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Breakdown */}
+                    {progressViewMode === 'weekly' ? (
+                      <View style={{ gap: 8 }}>
+                        {progressData.dailyBreakdown?.map((day, index) => (
+                          <View key={index} style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            padding: 16,
+                            backgroundColor: 'white',
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: day.isToday ? selectedHabitForProgress.color : '#f0f0f0',
+                          }}>
+                            <View style={{ width: 70 }}>
+                              <Text style={{ 
+                                fontSize: 14, 
+                                fontWeight: '600',
+                                color: '#333', 
+                                fontFamily: 'Onest'
+                              }}>
+                                {day.dayName}
+                              </Text>
+                              <Text style={{ 
+                                fontSize: 12, 
+                                color: '#666', 
+                                fontFamily: 'Onest'
+                              }}>
+                                {moment(day.date).format('MMM D')}
+                              </Text>
+                            </View>
+                            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <View style={{
+                                width: 24,
+                                height: 24,
+                                borderRadius: 12,
+                                backgroundColor: day.isCompleted ? selectedHabitForProgress.color : '#f0f0f0',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                              }}>
+                                {day.isCompleted && (
+                                  <Ionicons name="checkmark" size={14} color="white" />
+                                )}
+                              </View>
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
+                                {day.hasPhoto && (
+                                  <View style={{
+                                    backgroundColor: '#E8F5E9',
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                    borderRadius: 8,
+                                  }}>
+                                    <Ionicons name="camera" size={12} color="#4CAF50" />
+                                  </View>
+                                )}
+                                {day.hasNote && (
+                                  <View style={{
+                                    backgroundColor: '#E3F2FD',
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                    borderRadius: 8,
+                                  }}>
+                                    <Ionicons name="document-text" size={12} color="#1976D2" />
+                                  </View>
+                                )}
+                              </View>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View style={{ gap: 8 }}>
+                        {progressData.weeklyBreakdown?.map((week, index) => (
+                          <View key={index} style={{
+                            padding: 16,
+                            backgroundColor: 'white',
+                            borderRadius: 12,
+                            borderWidth: 1,
+                            borderColor: '#f0f0f0',
+                          }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                              <Text style={{ 
+                                fontSize: 16, 
+                                fontWeight: '600', 
+                                color: '#333', 
+                                fontFamily: 'Onest'
+                              }}>
+                                Week {week.weekNumber}
+                              </Text>
+                              <Text style={{ 
+                                fontSize: 14, 
+                                fontWeight: '600',
+                                color: selectedHabitForProgress.color, 
+                                fontFamily: 'Onest'
+                              }}>
+                                {week.completed}/{week.totalDays}
+                              </Text>
+                            </View>
+                            <Text style={{ 
+                              fontSize: 12, 
+                              color: '#666', 
+                              fontFamily: 'Onest',
+                              marginBottom: 12
+                            }}>
+                              {week.period}
+                            </Text>
+                            <View style={{ 
+                              height: 8, 
+                              backgroundColor: '#f0f0f0', 
+                              borderRadius: 4,
+                              overflow: 'hidden'
+                            }}>
+                              <View style={{ 
+                                height: '100%', 
+                                width: `${week.percentage}%`, 
+                                backgroundColor: selectedHabitForProgress.color,
+                                borderRadius: 4,
+                              }} />
+                            </View>
+                            <Text style={{ 
+                              fontSize: 12, 
+                              color: '#999', 
+                              fontFamily: 'Onest',
+                              textAlign: 'center',
+                              marginTop: 4
+                            }}>
+                              {Math.round(week.percentage)}% complete
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                );
+              })()}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Weekly Statistics Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isWeeklyStatsModalVisible}
+        onRequestClose={() => {
+          setIsWeeklyStatsModalVisible(false);
+          setSelectedHabitForWeeklyStats(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            backgroundColor: '#fafafa',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+            paddingBottom: 20,
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              paddingTop: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsWeeklyStatsModalVisible(false);
+                  setSelectedHabitForWeeklyStats(null);
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{ 
+                fontSize: 16, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                Weekly Statistics
+              </Text>
+              
+              <View style={{ width: 28 }} />
+            </View>
+
+            {/* Content */}
+            <ScrollView style={{ padding: 20 }}>
+              <View style={{ gap: 20 }}>
+                {/* Simple Header */}
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  <Text style={{ fontSize: 20, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
+                    This Week
+                  </Text>
+                  <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                    {moment().startOf('isoWeek').format('MMM D')} - {moment().endOf('isoWeek').format('MMM D')}
+                  </Text>
+                </View>
+
+                {/* Key Metrics */}
+                <View style={{ gap: 12 }}>
+                  {/* Total Completions */}
+                  <View style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: 16, 
+                    padding: 20,
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}>
+                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
+                      {habits.reduce((total, habit) => {
+                        const completedThisWeek = (habit.completedDays || []).filter(date => {
+                          const habitDate = moment(date, 'YYYY-MM-DD');
+                          return habitDate.isBetween(moment().startOf('isoWeek'), moment().endOf('isoWeek'), 'day', '[]');
+                        }).length;
+                        return total + completedThisWeek;
+                      }, 0)}
+                    </Text>
+                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                      completions
+                    </Text>
+                  </View>
+
+                  {/* Completion Rate */}
+                  <View style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: 16, 
+                    padding: 20,
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}>
+                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#4169E1', fontFamily: 'Onest' }}>
+                      {habits.length > 0 ? Math.round((habits.reduce((total, habit) => {
+                        const completedThisWeek = (habit.completedDays || []).filter(date => {
+                          const habitDate = moment(date, 'YYYY-MM-DD');
+                          return habitDate.isBetween(moment().startOf('isoWeek'), moment().endOf('isoWeek'), 'day', '[]');
+                        }).length;
+                        const target = habit.targetPerWeek || 7;
+                        return total + (completedThisWeek / target);
+                      }, 0) / habits.length) * 100) : 0}%
+                    </Text>
+                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                      completion rate
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Simple Habit List */}
+                <View style={{ gap: 8 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest', marginBottom: 8 }}>
+                    Habits
+                  </Text>
+                  {habits.map((habit) => {
+                    const completedThisWeek = (habit.completedDays || []).filter(date => {
+                      const habitDate = moment(date, 'YYYY-MM-DD');
+                      return habitDate.isBetween(moment().startOf('isoWeek'), moment().endOf('isoWeek'), 'day', '[]');
+                    }).length;
+                    const target = habit.targetPerWeek || 7;
+                    const percentage = Math.min((completedThisWeek / target) * 100, 100);
+                    
+                    return (
+                      <View key={habit.id} style={{
+                        backgroundColor: 'white',
+                        borderRadius: 12,
+                        padding: 16,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.05,
+                        shadowRadius: 4,
+                        elevation: 1,
+                      }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <Text style={{ 
+                            fontSize: 16, 
+                            fontWeight: '600', 
+                            color: '#333', 
+                            fontFamily: 'Onest',
+                            flex: 1,
+                          }}>
+                            {habit.text}
+                          </Text>
+                          <Text style={{ 
+                            fontSize: 14, 
+                            fontWeight: '600',
+                            color: habit.color, 
+                            fontFamily: 'Onest'
+                          }}>
+                            {completedThisWeek}/{target}
+                          </Text>
+                        </View>
+                        
+                        <View style={{ 
+                          height: 4, 
+                          backgroundColor: '#f0f0f0', 
+                          borderRadius: 2,
+                          overflow: 'hidden'
+                        }}>
+                          <View style={{ 
+                            height: '100%', 
+                            width: `${percentage}%`, 
+                            backgroundColor: habit.color,
+                            borderRadius: 2,
+                          }} />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Simple Streak Info */}
+                {habits.length > 0 && (
+                  <View style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: 16, 
+                    padding: 20,
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}>
+                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#FF6B6B', fontFamily: 'Onest' }}>
+                      {Math.max(...habits.map(habit => calculateCurrentStreak(habit.completedDays || [])))}
+                    </Text>
+                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                      day streak
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Monthly Statistics Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isMonthlyStatsModalVisible}
+        onRequestClose={() => {
+          setIsMonthlyStatsModalVisible(false);
+          setSelectedHabitForWeeklyStats(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            backgroundColor: '#fafafa',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+            paddingBottom: 20,
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              paddingTop: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsMonthlyStatsModalVisible(false);
+                  setSelectedHabitForWeeklyStats(null);
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{ 
+                fontSize: 16, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                Monthly Statistics
+              </Text>
+              
+              <View style={{ width: 28 }} />
+            </View>
+
+            {/* Content */}
+            <ScrollView style={{ padding: 20 }}>
+              <View style={{ gap: 20 }}>
+                {/* Simple Header */}
+                <View style={{ alignItems: 'center', gap: 4 }}>
+                  <Text style={{ fontSize: 20, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
+                    This Month
+                  </Text>
+                  <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                    {moment().startOf('month').format('MMMM YYYY')}
+                  </Text>
+                </View>
+
+                {/* Key Metrics */}
+                <View style={{ gap: 12 }}>
+                  {/* Total Completions */}
+                  <View style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: 16, 
+                    padding: 20,
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}>
+                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
+                      {habits.reduce((total, habit) => {
+                        const completedThisMonth = (habit.completedDays || []).filter((date: string) => {
+                          const habitDate = moment(date, 'YYYY-MM-DD');
+                          return habitDate.isBetween(moment().startOf('month'), moment().endOf('month'), 'day', '[]');
+                        }).length;
+                        return total + completedThisMonth;
+                      }, 0)}
+                    </Text>
+                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                      completions
+                    </Text>
+                  </View>
+
+                  {/* Completion Rate */}
+                  <View style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: 16, 
+                    padding: 20,
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}>
+                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#4169E1', fontFamily: 'Onest' }}>
+                      {habits.length > 0 ? Math.round((habits.reduce((total, habit) => {
+                        const completedThisMonth = (habit.completedDays || []).filter((date: string) => {
+                          const habitDate = moment(date, 'YYYY-MM-DD');
+                          return habitDate.isBetween(moment().startOf('month'), moment().endOf('month'), 'day', '[]');
+                        }).length;
+                        const daysInMonth = moment().endOf('month').diff(moment().startOf('month'), 'days') + 1;
+                        return total + (completedThisMonth / daysInMonth);
+                      }, 0) / habits.length) * 100) : 0}%
+                    </Text>
+                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                      completion rate
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Simple Habit List */}
+                <View style={{ gap: 8 }}>
+                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest', marginBottom: 8 }}>
+                    Habits
+                  </Text>
+                  {habits.map((habit) => {
+                    const completedThisMonth = (habit.completedDays || []).filter((date: string) => {
+                      const habitDate = moment(date, 'YYYY-MM-DD');
+                      return habitDate.isBetween(moment().startOf('month'), moment().endOf('month'), 'day', '[]');
+                    }).length;
+                    const target = habit.targetPerWeek || 7;
+                    const percentage = Math.min((completedThisMonth / target) * 100, 100);
+                    
+                    return (
+                      <View key={habit.id} style={{
+                        backgroundColor: 'white',
+                        borderRadius: 12,
+                        padding: 16,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.05,
+                        shadowRadius: 4,
+                        elevation: 1,
+                      }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                          <Text style={{ 
+                            fontSize: 16, 
+                            fontWeight: '600', 
+                            color: '#333', 
+                            fontFamily: 'Onest',
+                            flex: 1,
+                          }}>
+                            {habit.text}
+                          </Text>
+                          <Text style={{ 
+                            fontSize: 14, 
+                            fontWeight: '600',
+                            color: habit.color, 
+                            fontFamily: 'Onest'
+                          }}>
+                            {completedThisMonth}/{target}
+                          </Text>
+                        </View>
+                        
+                        <View style={{ 
+                          height: 4, 
+                          backgroundColor: '#f0f0f0', 
+                          borderRadius: 2,
+                          overflow: 'hidden'
+                        }}>
+                          <View style={{ 
+                            height: '100%', 
+                            width: `${percentage}%`, 
+                            backgroundColor: habit.color,
+                            borderRadius: 2,
+                          }} />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Simple Streak Info */}
+                {habits.length > 0 && (
+                  <View style={{ 
+                    backgroundColor: 'white', 
+                    borderRadius: 16, 
+                    padding: 20,
+                    alignItems: 'center',
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 8,
+                    elevation: 2,
+                  }}>
+                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#FF6B6B', fontFamily: 'Onest' }}>
+                      {Math.max(...habits.map(habit => calculateCurrentStreak(habit.completedDays || [])))}
+                    </Text>
+                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                      day streak
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Task Photo Viewer Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isTaskPhotoViewerVisible}
+        onRequestClose={() => {
+          setIsTaskPhotoViewerVisible(false);
+          setSelectedTaskForPhotoViewing(null);
+        }}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            backgroundColor: '#fafafa',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+            paddingBottom: 20,
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              paddingTop: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsTaskPhotoViewerVisible(false);
+                  setSelectedTaskForPhotoViewing(null);
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{ 
+                fontSize: 16, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                View Task Photo
+              </Text>
+              
+              <View style={{ width: 28 }} />
+            </View>
+
+            {/* Content */}
+            <View style={{ padding: 20 }}>
+              <View style={{ gap: 12 }}>
+                <Image
+                  source={{ uri: selectedTaskForPhotoViewing?.photo }}
+                  style={{ width: '100%', height: 300, borderRadius: 10 }}
+                />
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
+                  {selectedTaskForPhotoViewing?.text}
+                </Text>
+                <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
+                  {selectedTaskForPhotoViewing?.date.toLocaleString()}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
     </GestureHandlerRootView>
   );

@@ -159,8 +159,25 @@ const styles = StyleSheet.create({
       borderRadius: 0,
     },
     
+    leftAction: {
+      backgroundColor: '#007AFF',
+      justifyContent: 'center',
+      alignItems: 'center',
+      width: 64,
+      flex: 1, // ✅ fill parent height
+      borderRadius: 0,
+    },
+    
     trashIconContainer: {
       padding: 9,
+    },
+
+    photoIconContainer: {
+      padding: 12,
+      justifyContent: 'center',
+      alignItems: 'center',
+      minWidth: 44,
+      minHeight: 44,
     },
 
     stickyFooter: {

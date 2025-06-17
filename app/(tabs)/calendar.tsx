@@ -15,7 +15,9 @@ import {
   Alert,
   Pressable,
   Switch,
-  PanResponder
+  PanResponder,
+  Image,
+  ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native';
@@ -30,6 +32,9 @@ import WeeklyCalendarView, { WeeklyCalendarViewRef } from '../../components/Week
 import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as FileSystem from 'expo-file-system';
 
 
 // Add type definitions for custom times
@@ -62,6 +67,7 @@ interface CalendarEvent {
   customTimes?: { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } };
   isContinued?: boolean;
   isAllDay?: boolean;
+  photo?: string;
 }
 
 interface WeeklyCalendarViewProps {
@@ -103,7 +109,7 @@ const getCellHeight = (date: Date | null, isCompact: boolean = false) => {
     : BASE_CELL_HEIGHT;
 };
 
-const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 const generateMonthKey = (year: number, month: number) => `${year}-${month}`;
 
@@ -129,15 +135,13 @@ const styles = StyleSheet.create({
   },
   weekRow: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderColor: '#eee',
     backgroundColor: 'white',
   },
   weekday: {
     width: CELL_WIDTH,
     textAlign: 'center',
     color: '#333',
-    paddingBottom: 7,
+    paddingBottom: 4,
     fontSize: 14,
     fontFamily: 'Onest',
   },
@@ -180,7 +184,7 @@ const styles = StyleSheet.create({
   },
   cell: {
     width: CELL_WIDTH,
-    paddingTop: 6,
+    paddingTop: 2,
     paddingLeft: 2,
     paddingRight: 2,
     borderColor: '#eee',
@@ -211,7 +215,7 @@ const styles = StyleSheet.create({
   },
   dateContainer: {
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: 0,
     height: 25,
     width: 25,
     justifyContent: 'center',
@@ -219,7 +223,7 @@ const styles = StyleSheet.create({
     borderRadius: 12.5,
   },
   dateNumber: {
-    fontSize: 17,
+    fontSize: 15,
     color: '#3A3A3A',
     fontFamily: 'Onest',
     textAlign: 'center',
@@ -484,6 +488,9 @@ const CalendarScreen: React.FC = (): JSX.Element => {
   const flatListRef = useRef<FlatList>(null);
   const weeklyCalendarRef = useRef<WeeklyCalendarViewRef>(null);
 
+  // Add ref for the event title input
+  const eventTitleInputRef = useRef<TextInput>(null);
+
   // Add nextTimeBoxId state
   const [nextTimeBoxId, setNextTimeBoxId] = useState<number>(1);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
@@ -595,6 +602,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [isAllDay, setIsAllDay] = useState(false);
   // Add state for editedIsAllDay for the edit modal
   const [isEditedAllDay, setIsEditedAllDay] = useState(false);
+  
+  // Photo-related state variables
+  const [eventPhoto, setEventPhoto] = useState<string | null>(null);
+  const [editedEventPhoto, setEditedEventPhoto] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [showPhotoViewer, setShowPhotoViewer] = useState(false);
+  const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ event: CalendarEvent; photoUrl: string } | null>(null);
+  
   const autoCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Add these refs for debouncing
@@ -881,7 +896,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             repeatEndDate,
             customDates: event.custom_dates || [],
             customTimes,
-            isAllDay: event.is_all_day || false
+            isAllDay: event.is_all_day || false,
+            photo: event.photo || null
           };
 
           console.log('✅ Transformed event:', transformedEvent);
@@ -1221,6 +1237,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     setCustomEndTime(new Date(new Date().getTime() + 60 * 60 * 1000));
     setUserChangedEndTime(false);
     setIsAllDay(false);
+    setEventPhoto(null);
     resetToggleStates();
   };
 
@@ -1629,6 +1646,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Make vertical scrolling much more sensitive than horizontal
+        const verticalThreshold = 10; // Very low threshold for vertical
+        const horizontalThreshold = 50; // Higher threshold for horizontal
+        
+        const isVertical = Math.abs(gestureState.dy) > verticalThreshold;
+        const isHorizontal = Math.abs(gestureState.dx) > horizontalThreshold;
+        
+        // Prioritize vertical gestures when in compact mode
+        if (isMonthCompact) {
+          return isVertical && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+        }
+        
+        // Default behavior for expanded mode
         return Math.abs(gestureState.dy) > 20;
       },
       onPanResponderRelease: (_, gestureState) => {
@@ -2418,11 +2448,212 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
+  // Add useEffect to focus the title input when modal opens
+  useEffect(() => {
+    if (showModal) {
+      // Add a small delay to ensure the modal is fully rendered
+      const timer = setTimeout(() => {
+        eventTitleInputRef.current?.focus();
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [showModal]);
+
   useFocusEffect(
     useCallback(() => {
       refreshEvents();
     }, [])
   );
+
+  // Photo-related functions
+  const uploadEventPhoto = async (photoUri: string, eventId: string): Promise<string> => {
+    try {
+      console.log('📸 Uploading event photo for event:', eventId);
+      console.log('📸 Photo URI:', photoUri);
+      
+      // Use expo-file-system to read the file
+      const fileInfo = await FileSystem.getInfoAsync(photoUri);
+      console.log('📸 File info:', fileInfo);
+      
+      if (!fileInfo.exists) {
+        throw new Error('File does not exist');
+      }
+      
+      if (fileInfo.size === 0) {
+        throw new Error('File is empty');
+      }
+      
+      console.log('📸 File size:', fileInfo.size);
+      
+      // Read the file as base64
+      const base64Data = await FileSystem.readAsStringAsync(photoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      console.log('📸 Base64 data length:', base64Data.length);
+      
+      // Convert base64 to Uint8Array
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      console.log('📸 Bytes length:', bytes.length);
+      
+      // Create a unique filename
+      const fileExt = photoUri.split('.').pop() || 'jpg';
+      const fileName = `events/${eventId}/event_${Date.now()}.${fileExt}`;
+      
+      console.log('📸 Uploading to filename:', fileName);
+      
+      // Upload to Supabase Storage using Uint8Array
+      const { data, error: uploadError } = await supabase.storage
+        .from('habit-photos')
+        .upload(fileName, bytes, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: 'image/jpeg'
+        });
+
+      if (uploadError) {
+        console.error('📸 Upload error:', uploadError);
+        throw uploadError;
+      }
+      
+      console.log('📸 Upload successful, data:', data);
+      
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('habit-photos')
+        .getPublicUrl(fileName);
+
+      console.log('📸 Photo uploaded successfully:', publicUrl);
+      return publicUrl;
+    } catch (error) {
+      console.error('📸 Error uploading event photo:', error);
+      throw error;
+    }
+  };
+
+  const handleEventPhotoPicker = async (source: 'camera' | 'library', eventId?: string) => {
+    try {
+      let permissionGranted = false;
+
+      if (source === 'camera') {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        permissionGranted = status === 'granted';
+        if (!permissionGranted) {
+          Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
+          return;
+        }
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        permissionGranted = status === 'granted';
+        if (!permissionGranted) {
+          Alert.alert('Permission Required', 'Media library permission is required to select an image.');
+          return;
+        }
+      }
+
+      const options: ImagePicker.ImagePickerOptions = {
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      };
+
+      let result;
+      if (source === 'camera') {
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+
+      if (!result.canceled && result.assets[0]) {
+        setIsUploadingPhoto(true);
+        try {
+          const photoUrl = await uploadEventPhoto(result.assets[0].uri, eventId || 'temp');
+          
+          if (eventId) {
+            // Update existing event with photo
+            await updateEventPhoto(eventId, photoUrl);
+          } else {
+            // Set photo for new event
+            setEventPhoto(photoUrl);
+          }
+          
+          Toast.show({
+            type: 'success',
+            text1: 'Photo added successfully',
+            position: 'bottom',
+          });
+        } catch (error) {
+          console.error('Error uploading photo:', error);
+          Alert.alert('Error', 'Failed to upload photo. Please try again.');
+        } finally {
+          setIsUploadingPhoto(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const updateEventPhoto = async (eventId: string, photoUrl: string) => {
+    try {
+      console.log('📸 Updating event photo in database:', { eventId, photoUrl });
+      
+      const { error } = await supabase
+        .from('events')
+        .update({ photo: photoUrl })
+        .eq('id', eventId);
+
+      if (error) {
+        console.error('❌ Error updating event photo:', error);
+        throw error;
+      }
+
+      console.log('✅ Event photo updated in database successfully');
+
+      // Update local state
+      setEvents(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(date => {
+          updated[date] = updated[date].map(event => 
+            event.id === eventId ? { ...event, photo: photoUrl } : event
+          );
+        });
+        return updated;
+      });
+
+      console.log('✅ Local state updated with photo');
+      
+      // Refresh events to ensure UI is updated
+      setTimeout(() => {
+        console.log('🔄 Refreshing events after photo update...');
+        refreshEvents();
+      }, 500);
+    } catch (error) {
+      console.error('❌ Error updating event photo:', error);
+      throw error;
+    }
+  };
+
+  const showEventPhotoOptions = (eventId?: string) => {
+    Alert.alert(
+      'Add Photo to Event',
+      'Choose how you want to add a photo',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Photo', onPress: () => handleEventPhotoPicker('camera', eventId) },
+        { text: 'Choose from Gallery', onPress: () => handleEventPhotoPicker('library', eventId) },
+      ]
+    );
+  };
 
   return (
     <>
@@ -2528,82 +2759,159 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             </View>
             <ScrollView
               style={{ paddingHorizontal: 16 }}
-              contentContainerStyle={{ paddingBottom: 16 }}
+              contentContainerStyle={{ paddingBottom: 16, paddingTop: 10 }}
               showsVerticalScrollIndicator={false}
             >
-              {events[getLocalDateString(selectedDate)]?.length ? (
-                events[getLocalDateString(selectedDate)]
-                  .sort((a, b) => {
-                    // Sort by start time, all-day events first
-                    if (a.isAllDay && !b.isAllDay) return -1;
-                    if (!a.isAllDay && b.isAllDay) return 1;
-                    if (!a.startDateTime || !b.startDateTime) return 0;
-                    return a.startDateTime.getTime() - b.startDateTime.getTime();
-                  })
-                  .map((event, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        backgroundColor: '#fff',
-                        borderRadius: 12,
-                        marginTop: 20,
-                        paddingHorizontal: 16,
-                      }}
-                      onPress={() => {
-                        const selectedEventData = { event, dateKey: event.date, index };
-                        setSelectedEvent(selectedEventData);
-                        setEditingEvent(event);
-                        setEditedEventTitle(event.title);
-                        setEditedEventDescription(event.description ?? '');
-                        setEditedStartDateTime(new Date(event.startDateTime!));
-                        setEditedEndDateTime(new Date(event.endDateTime!));
-                        setEditedSelectedCategory(
-                          event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null
-                        );
-                        setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                        setEditedRepeatOption(event.repeatOption || 'None');
-                        setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                        setCustomSelectedDates(event.customDates || []);
-                        setIsEditedAllDay(event.isAllDay || false);
-                        setShowEditEventModal(true);
-                      }}
-                      onLongPress={() => handleLongPress(event)}
-                    >
-                      {/* Category Color Bar */}
-                      <View
-                        style={{
-                          width: 5.5,
-                          height: 46,
-                          borderRadius: 3,
-                          backgroundColor: event.categoryColor || '#A0C3B2',
-                          marginRight: 14,
-                        }}
-                      />
-                      {/* Event Info */}
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#222', marginBottom: 3.5 }}>
-                          {event.title}
-                        </Text>
-                        <Text style={{ fontSize: 15, color: '#666', marginBottom: event.description ? 2 : 0 }}>
-                          {event.isAllDay
-                            ? 'All day'
-                            : `${new Date(event.startDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(event.endDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
-                        </Text>
-                        {event.description ? (
-                          <Text style={{ fontSize: 12, color: '#999' }} numberOfLines={2}>
-                            {event.description}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </TouchableOpacity>
-                  ))
-              ) : (
-                <Text style={{ textAlign: 'center', color: '#666', marginTop: 20 }}>
-                  No events
-                </Text>
-              )}
+              <GestureHandlerRootView>
+                {events[getLocalDateString(selectedDate)]?.length ? (
+                  events[getLocalDateString(selectedDate)]
+                    .sort((a, b) => {
+                      // Sort by start time, all-day events first
+                      if (a.isAllDay && !b.isAllDay) return -1;
+                      if (!a.isAllDay && b.isAllDay) return 1;
+                      if (!a.startDateTime || !b.startDateTime) return 0;
+                      return a.startDateTime.getTime() - b.startDateTime.getTime();
+                    })
+                    .map((event, index) => (
+                      <Swipeable
+                        key={index}
+                        renderRightActions={() => (
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: '#FF6B6B',
+                              width: 80,
+                              height: '100%',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: 8,
+                            }}
+                            onPress={() => {
+                              Alert.alert(
+                                'Delete Event',
+                                'Are you sure you want to delete this event?',
+                                [
+                                  { text: 'Cancel', style: 'cancel' },
+                                  {
+                                    text: 'Delete',
+                                    style: 'destructive',
+                                    onPress: () => handleDeleteEvent(event.id),
+                                  },
+                                ]
+                              );
+                            }}
+                          >
+                            <Ionicons name="trash" size={20} color="white" />
+                          </TouchableOpacity>
+                        )}
+                        rightThreshold={40}
+                      >
+                        <TouchableOpacity
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: '#fff',
+                            borderRadius: 12,
+                            paddingVertical: 8,
+                            paddingHorizontal: 16,
+                          }}
+                          onPress={() => {
+                            const selectedEventData = { event, dateKey: event.date, index };
+                            setSelectedEvent(selectedEventData);
+                            setEditingEvent(event);
+                            setEditedEventTitle(event.title);
+                            setEditedEventDescription(event.description ?? '');
+                            setEditedEventLocation(event.location ?? '');
+                            setEditedStartDateTime(new Date(event.startDateTime!));
+                            setEditedEndDateTime(new Date(event.endDateTime!));
+                            setEditedSelectedCategory(
+                              event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null
+                            );
+                            setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                            setEditedRepeatOption(event.repeatOption || 'None');
+                            setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                            setCustomSelectedDates(event.customDates || []);
+                            setIsEditedAllDay(event.isAllDay || false);
+                            setShowEditEventModal(true);
+                          }}
+                          onLongPress={() => handleLongPress(event)}
+                        >
+                          {/* Category Color Bar */}
+                          <View
+                            style={{
+                              width: 5.5,
+                              height: 46,
+                              borderRadius: 3,
+                              backgroundColor: event.categoryColor || '#A0C3B2',
+                              marginRight: 14,
+                            }}
+                          />
+                          {/* Event Info */}
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#222', marginBottom: 3.5 }}>
+                              {event.title}
+                            </Text>
+                            <Text style={{ fontSize: 15, color: '#666', marginBottom: event.description ? 2 : 0 }}>
+                              {event.isAllDay
+                                ? 'All day'
+                                : `${new Date(event.startDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(event.endDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                            </Text>
+                            {event.description ? (
+                              <Text style={{ fontSize: 12, color: '#999' }} numberOfLines={2}>
+                                {event.description}
+                              </Text>
+                            ) : null}
+                          </View>
+                          
+                          {/* Photo Section */}
+                          <View style={{ alignItems: 'flex-end', gap: 8 }}>
+                            {event.photo ? (
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setSelectedPhotoForViewing({ event, photoUrl: event.photo! });
+                                  setShowPhotoViewer(true);
+                                }}
+                                style={{
+                                  width: 40,
+                                  height: 40,
+                                  borderRadius: 8,
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                <Image
+                                  source={{ uri: event.photo }}
+                                  style={{ width: '100%', height: '100%' }}
+                                  resizeMode="cover"
+                                />
+                              </TouchableOpacity>
+                            ) : null}
+                            
+                            <TouchableOpacity
+                              onPress={() => showEventPhotoOptions(event.id)}
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 16,
+                                backgroundColor: '#f0f0f0',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                              }}
+                            >
+                              {isUploadingPhoto ? (
+                                <ActivityIndicator size="small" color="#007AFF" />
+                              ) : (
+                                <Ionicons name="camera" size={16} color="#666" />
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        </TouchableOpacity>
+                      </Swipeable>
+                    ))
+                ) : (
+                  <Text style={{ textAlign: 'center', color: '#666', marginTop: 20 }}>
+                    No events
+                  </Text>
+                )}
+              </GestureHandlerRootView>
             </ScrollView>
           </View>
         )}
@@ -2769,7 +3077,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               paddingHorizontal: 16,
               paddingVertical: 12,
               paddingTop: 40,
-              backgroundColor: 'white',
+              backgroundColor: selectedCategory?.color ? selectedCategory.color + '40' : 'white',
             }}>
               <TouchableOpacity 
                 onPress={() => {
@@ -2876,6 +3184,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       placeholderTextColor="#888"
                         value={newEventTitle}
                         onChangeText={setNewEventTitle}
+                        ref={eventTitleInputRef}
                       />
   
                       <TextInput
@@ -2979,6 +3288,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 setShowStartPicker(true);
                                 setShowEndPicker(false);
                               }
+                              Keyboard.dismiss();
                             }}
                             style={{
                               backgroundColor: '#f8f9fa',
@@ -3026,6 +3336,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           </Text>
                           <TouchableOpacity
                             onPress={() => {
+                              Keyboard.dismiss();
                               if (showEndPicker) {
                                 setShowEndPicker(false);
                               } else {
@@ -3068,7 +3379,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       <View style={{
                         backgroundColor: '#f8f9fa',
                         borderRadius: 8,
-                        paddingHorizontal: 12,
+                        paddingHorizontal: 6,
                         marginTop: 10,
                       }}>
                         <DateTimePicker
@@ -3121,6 +3432,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     </Text>
                     <TouchableOpacity
                       onPress={() => {
+                        Keyboard.dismiss();
                         setShowCategoryPicker(prev => !prev);
                         if (showCategoryPicker) {
                           setShowAddCategoryForm(false);
@@ -3207,7 +3519,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 color: '#333', 
                                     fontSize: 12, 
                                     fontFamily: 'Onest',
-                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500'
+                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500',
                                   }}>
                                     {cat.name}
                                   </Text>
@@ -3603,7 +3915,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       <View style={{
                         backgroundColor: '#f8f9fa',
                         borderRadius: 8,
-                        paddingHorizontal: 12,
+                        paddingHorizontal: 6,
                         marginTop: 8,
                       }}>
                             <DateTimePicker
@@ -3685,7 +3997,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               fontSize: 14, 
                               color: '#333',
                                   fontFamily: 'Onest',
-                              fontWeight: (option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? '600' : '500'
+                              fontWeight: (option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? '600' : '500',
                                 }}>
                                   {option}
                                 </Text>
@@ -3747,6 +4059,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     </Text>
                         <TouchableOpacity
                           onPress={() => {
+                            Keyboard.dismiss();
                             setShowCategoryPicker(prev => !prev);
                             if (showCategoryPicker) {
                               setShowAddCategoryForm(false);
@@ -3823,7 +4136,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 color: '#333', 
                                     fontSize: 12, 
                                     fontFamily: 'Onest',
-                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500'
+                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500',
                                   }}>
                                     {cat.name}
                                   </Text>
@@ -4030,7 +4343,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 paddingHorizontal: 16,
                 paddingVertical: 12,
                 paddingTop: 40,
-                backgroundColor: 'white',
+                backgroundColor: editedSelectedCategory?.color ? editedSelectedCategory.color + '40' : 'white',
               }}>
                         <TouchableOpacity 
                           onPress={() => {
@@ -4300,7 +4613,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     <View style={{
                       backgroundColor: '#f8f9fa',
                       borderRadius: 8,
-                      paddingHorizontal: 12,
+                      paddingHorizontal: 6,
                       marginTop: 10,
                     }}>
                           <DateTimePicker
@@ -4353,6 +4666,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 </Text>
                         <TouchableOpacity
                           onPress={() => {
+                            Keyboard.dismiss();
                             setShowCategoryPicker(prev => !prev);
                             if (showCategoryPicker) {
                               setShowAddCategoryForm(false);
@@ -4439,7 +4753,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               color: '#333', 
                                     fontSize: 12, 
                                     fontFamily: 'Onest',
-                              fontWeight: editedSelectedCategory?.name === cat.name ? '600' : '500'
+                              fontWeight: editedSelectedCategory?.name === cat.name ? '600' : '500',
                                   }}>
                                     {cat.name}
                                   </Text>
@@ -4502,8 +4816,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           fontWeight: '500',
                           marginBottom: 6,
                                     }}>
-                                      Color
-                                    </Text>
+                                    Color
+                                  </Text>
                                     <View style={{
                                       flexDirection: 'row',
                                       flexWrap: 'wrap',
@@ -4837,7 +5151,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             fontSize: 14, 
                             color: '#333',
                             fontFamily: 'Onest',
-                            fontWeight: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '600' : '500'
+                            fontWeight: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '600' : '500',
                           }}>
                             {option}
                           </Text>
@@ -4850,7 +5164,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     <View style={{
                       backgroundColor: '#f8f9fa',
                       borderRadius: 8,
-                      paddingHorizontal: 12,
+                      paddingHorizontal: 6,
                       marginTop: 8,
                     }}>
                       <DateTimePicker
