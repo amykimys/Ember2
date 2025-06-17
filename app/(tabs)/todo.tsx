@@ -824,12 +824,13 @@ export default function TodoScreen() {
       const response = await fetch(photoUri);
       const blob = await response.blob();
       
-      // Create a unique filename
+      // Create a unique filename with habits category
       const fileExt = photoUri.split('.').pop() || 'jpg';
-      const fileName = `${habitId}/${date}_${Date.now()}.${fileExt}`;
-      // Upload to Supabase Storage
+      const fileName = `habits/${habitId}/${date}_${Date.now()}.${fileExt}`;
+      
+      // Upload to Supabase Storage - use memories bucket
       const { data, error: uploadError } = await supabase.storage
-        .from('habit-photos')
+        .from('memories')
         .upload(fileName, blob, {
           cacheControl: '3600',
           upsert: true
@@ -839,9 +840,10 @@ export default function TodoScreen() {
         console.error('📸 Upload error:', uploadError);
         throw uploadError;
       }
+      
       // Get the public URL
       const { data: { publicUrl } } = supabase.storage
-        .from('habit-photos')
+        .from('memories')
         .getPublicUrl(fileName);
 
       return publicUrl;
@@ -2174,14 +2176,14 @@ export default function TodoScreen() {
       const blob = await response.blob();
       console.log('🔍 Blob created, size:', blob.size);
       
-      // Create a unique filename
+      // Create a unique filename with tasks category
       const fileExt = photoUri.split('.').pop() || 'jpg';
       const fileName = `tasks/${taskId}/task_${Date.now()}.${fileExt}`;
       console.log('🔍 Uploading to filename:', fileName);
       
-      // Upload to Supabase Storage using the existing habit-photos bucket
+      // Upload to Supabase Storage using the memories bucket
       const { data, error: uploadError } = await supabase.storage
-        .from('habit-photos')
+        .from('memories')
         .upload(fileName, blob, {
           cacheControl: '3600',
           upsert: true
@@ -2195,7 +2197,7 @@ export default function TodoScreen() {
       console.log('🔍 Upload successful, getting public URL...');
       // Get the public URL
       const { data: { publicUrl } } = supabase.storage
-        .from('habit-photos')
+        .from('memories')
         .getPublicUrl(fileName);
 
       console.log('🔍 Public URL obtained:', publicUrl);

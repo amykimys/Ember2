@@ -58,6 +58,7 @@ interface CalendarEvent {
   repeatEndDate?: Date | null;
   isContinued?: boolean;
   isAllDay?: boolean;
+  photos?: string[];
 }
 
 export interface WeeklyCalendarViewRef {
@@ -81,6 +82,7 @@ interface WeeklyCalendarViewProps {
     setEditedReminderTime: React.Dispatch<React.SetStateAction<Date | null>>;
     setEditedRepeatOption: React.Dispatch<React.SetStateAction<'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'>>;
     setEditedRepeatEndDate: React.Dispatch<React.SetStateAction<Date | null>>;
+    setEditedEventPhotos: React.Dispatch<React.SetStateAction<string[]>>;
     setShowEditEventModal: (show: boolean) => void;
     hideHeader?: boolean;
     setVisibleWeekMonth: (date: Date) => void;
@@ -105,6 +107,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     setEditedReminderTime,
     setEditedRepeatOption,
     setEditedRepeatEndDate,
+    setEditedEventPhotos,
     setShowEditEventModal,
     hideHeader = false,
     setVisibleWeekMonth,
@@ -325,6 +328,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                     setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                     setEditedRepeatOption(event.repeatOption || 'None');
                     setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                    setEditedEventPhotos(event.photos || []);
                     setShowEditEventModal(true);
                   }}
                   style={[
@@ -509,6 +513,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
         setEditedRepeatOption(event.repeatOption || 'None');
         setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+        setEditedEventPhotos(event.photos || []);
         setShowEditEventModal(true);
       }}
       onLongPress={() => {

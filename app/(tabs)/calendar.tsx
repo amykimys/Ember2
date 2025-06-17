@@ -2,15 +2,12 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   Dimensions,
   TouchableOpacity,
   FlatList,
   Modal,
   TextInput,
-  Platform, 
   Keyboard,
-  TouchableWithoutFeedback,
   ScrollView,
   Alert,
   Pressable,
@@ -20,21 +17,17 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView } from 'react-native';
-import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Animated } from 'react-native';
 import { supabase } from '../../supabase'; 
 import { Swipeable } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
-import CustomToast from '../../components/CustomToast';
 import WeeklyCalendarView, { WeeklyCalendarViewRef } from '../../components/WeeklyCalendar'; 
-import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
-import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as FileSystem from 'expo-file-system';
+import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles';
 
 
 // Add type definitions for custom times
@@ -67,7 +60,7 @@ interface CalendarEvent {
   customTimes?: { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } };
   isContinued?: boolean;
   isAllDay?: boolean;
-  photo?: string;
+  photos?: string[];
 }
 
 interface WeeklyCalendarViewProps {
@@ -80,354 +73,19 @@ interface WeeklyCalendarViewProps {
 
 type RepeatOption = 'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom';
 
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const TOTAL_HORIZONTAL_PADDING = 16; // 8 left + 8 right
-const SIDE_PADDING = TOTAL_HORIZONTAL_PADDING / 2; // 8px left or right individually
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-const BASE_CELL_HEIGHT = Math.max((SCREEN_HEIGHT - 180) / 6, 100);
-const CELL_WIDTH = (SCREEN_WIDTH - TOTAL_HORIZONTAL_PADDING) / 7;
-
-// Function to determine if a month needs 6 rows
-const needsSixRows = (year: number, month: number) => {
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDayOfMonth = new Date(year, month, 1).getDay();
-  return daysInMonth + firstDayOfMonth > 35;
-};
-
-
-// Get cell height based on whether the month needs 6 rows
-const getCellHeight = (date: Date | null, isCompact: boolean = false) => {
-  if (!date) return BASE_CELL_HEIGHT;
-
-  if (isCompact) {
-    return BASE_CELL_HEIGHT * 0.45;
-  }
-
-  return needsSixRows(date.getFullYear(), date.getMonth())
-    ? BASE_CELL_HEIGHT * 0.7  // 30% shorter for 6-row months in expanded view
-    : BASE_CELL_HEIGHT;
-};
+// Destructure constants from the imported stylesheet
+const {
+  SCREEN_WIDTH,
+  SIDE_PADDING,
+  needsSixRows,
+} = CALENDAR_CONSTANTS;
 
 const weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 const generateMonthKey = (year: number, month: number) => `${year}-${month}`;
 
-const styles = StyleSheet.create({
-
-  monthLabel: {
-    fontSize: 18,
-    fontWeight: '700',
-    textAlign: 'center',
-    color: '#333',
-    fontFamily: 'Onest',
-  },
-  headerRow: { 
-      flexDirection: 'row', 
-      alignItems: 'center', 
-      justifyContent: 'space-between', 
-      paddingHorizontal: 23,
-      marginVertical: 1,
-      backgroundColor: 'white',
-      zIndex: 1,
-      marginTop: 15,
-      marginBottom: 22
-  },
-  weekRow: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-  },
-  weekday: {
-    width: CELL_WIDTH,
-    textAlign: 'center',
-    color: '#333',
-    paddingBottom: 4,
-    fontSize: 14,
-    fontFamily: 'Onest',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    backgroundColor: 'white',
-    paddingHorizontal: 0,
-    position: 'relative',
-    overflow: 'visible',
-    rowGap: 12,
-  },
-  gridSixRows: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    backgroundColor: 'white',
-    paddingHorizontal: 0,
-    position: 'relative',
-    overflow: 'visible',
-    rowGap: 0,  // Even smaller gap for 6-row months
-  },
-  eventBox: {
-    flexDirection: 'column', 
-    justifyContent: 'flex-start', 
-    alignItems: 'center',
-    marginTop: 3,
-    width: '100%',
-    paddingHorizontal: 0,
-    minHeight: 0,
-    flex: 1,
-    gap: 2
-  },
-  eventBoxText: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%',
-    borderRadius: 4,
-    paddingVertical: 2,
-    paddingHorizontal: 4,
-  },
-  cell: {
-    width: CELL_WIDTH,
-    paddingTop: 2,
-    paddingLeft: 2,
-    paddingRight: 2,
-    borderColor: '#eee',
-    backgroundColor: 'white',
-    overflow: 'visible',
-    zIndex: 0,
-  },
-  cellContent: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  cellExpanded: {
-    height: BASE_CELL_HEIGHT + 3.7,
-  },
-  cellExpandedSixRows: {
-    height: BASE_CELL_HEIGHT * 0.9 + 4,  // 10% shorter for 6-row months
-  },
-  cellCompact: {
-    height: BASE_CELL_HEIGHT * 0.435,
-    marginBottom: 1,
-    paddingTop: 1,
-  },
-  selectedCell: {
-    borderColor: '#BF9264',
-  },
-  todayCell: {
-    backgroundColor: 'transparent',
-  },
-  dateContainer: {
-    alignItems: 'center',
-    marginBottom: 0,
-    height: 25,
-    width: 25,
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderRadius: 12.5,
-  },
-  dateNumber: {
-    fontSize: 15,
-    color: '#3A3A3A',
-    fontFamily: 'Onest',
-    textAlign: 'center',
-  },
-  eventDotsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 2,
-    marginTop: 1,
-    height: 8,
-  },
-  eventDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  todayContainer: {
-    backgroundColor: '#FAF9F6',
-  },
-  selectedContainer: {
-    backgroundColor: '#A0C3B2',
-  },
-  todayText: {
-    color: '#A0C3B2',
-    fontWeight: '500',
-  },
-  selectedText: {
-    color: '#FFFFFF',
-    fontWeight: '500',
-  },
-  adjacentMonthDate: {
-    color: '#CCCCCC',
-  },
-  invisibleText: {
-    color: 'transparent',
-  },
-  addButton: {
-    position: 'absolute',
-    right: 16,
-    top: 58,
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addIcon: {
-    fontSize: 24,
-    color: '#333',
-  },
-  modalOverlay: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
-  modalContent: {
-    width: '85%',
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 24,
-    paddingBottom: 4,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 4,
-    fontFamily: 'Onest',
-    color: '#333',
-  },
-  modalSubtitle: {
-    fontSize: 14,
-    color: '#A0C3B2',
-    marginBottom: 8,
-    fontFamily: 'Onest',
-  },
-  input: {
-    borderWidth: 0.5,
-    borderColor: '#ccc',
-    borderRadius: 6,
-    padding: 10,
-    marginBottom: 12,
-    fontFamily: 'Onest',
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 0,
-    paddingTop: 0,
-  },
-  cancel: {
-    fontSize: 15,
-    color: '#666',
-    fontFamily: 'Onest',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  save: {
-    fontSize: 15,
-    color: '#A0C3B2',
-    fontWeight: '600',
-    fontFamily: 'Onest',
-  },
-  eventText: {
-    fontSize: 12,
-    color: '#3A3A3A',
-    flex: 1,
-    fontFamily: 'Onest',
-    textAlign: 'center',
-  },
-  inputTitle: {
-    fontSize: 15,
-    padding: 12,
-    marginBottom: 10,
-    fontFamily: 'Onest',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-  },
-  inputDescription: {
-    fontSize: 13,
-    padding: 12,
-    height: 85,
-    textAlignVertical: 'top',
-    marginBottom: 16,
-    fontFamily: 'Onest',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-  },
-  inlineSettingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingVertical: 4,
-    alignSelf: 'flex-start',
-  },
-
-  gridCompact: {
-    paddingTop: 5,  // Add padding to the top of the grid in compact mode
-    height: getCellHeight(new Date()) * 5, // Make it much more compact
-    overflow: 'hidden',
-  }, 
-  dateTimePickerContainer: {
-    height: 100, // Reduced height to cut off more
-    overflow: 'hidden',
-    marginTop: 16,
-    backgroundColor: '#fafafa',
-    borderRadius: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    marginBottom: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-},
-  dateTimePicker: {
-    marginTop: -55, // Increased negative margin to cut off more of the top
-    transform: [{ scale: 0.8 }], // This will make everything smaller including text
-  },
-  deleteButton: {
-    backgroundColor: '#FAF9F6',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    width: '48%',
-    marginRight: 12,
-  },
-  deleteButtonText: {
-    color: '#FF6B6B',
-    fontSize: 16,
-    fontFamily: 'Onest',
-    fontWeight: '600',
-  },
-  saveButton: {
-    backgroundColor: '#FF6B6B',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    width: '48%',
-  },
-  saveButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontFamily: 'Onest',
-    fontWeight: '600',
-  },
-  dateHeader: {
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingHorizontal: 16,
-    paddingTop: 18,
-  },
-  dateHeaderText: {
-    fontSize: 24,
-    fontWeight: '500',
-    color: '#333',
-    paddingLeft: 12,
-  },
-});
+// Use imported styles
+const styles = calendarStyles;
 
 // Add this array of predefined colors near the top of the file, after the imports
 const CATEGORY_COLORS = [
@@ -492,7 +150,6 @@ const CalendarScreen: React.FC = (): JSX.Element => {
   const eventTitleInputRef = useRef<TextInput>(null);
 
   // Add nextTimeBoxId state
-  const [nextTimeBoxId, setNextTimeBoxId] = useState<number>(1);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
   const getLocalDateString = (date: Date) => {
@@ -588,7 +245,6 @@ const [customTimePickerTimeout, setCustomTimePickerTimeout] = useState<NodeJS.Ti
   const [showCustomTimeReminderPicker, setShowCustomTimeReminderPicker] = useState(false);
   const [showCustomTimeRepeatPicker, setShowCustomTimeRepeatPicker] = useState(false);
   const [showCustomTimeInline, setShowCustomTimeInline] = useState(false);
-  const [selectedTimeBox, setSelectedTimeBox] = useState<string | null>(null);
   const [selectedDateForCustomTime, setSelectedDateForCustomTime] = useState<Date | null>(null);
   const [customStartTime, setCustomStartTime] = useState<Date>(new Date());
   const [customEndTime, setCustomEndTime] = useState<Date>(new Date(new Date().getTime() + 60 * 60 * 1000));
@@ -604,11 +260,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [isEditedAllDay, setIsEditedAllDay] = useState(false);
   
   // Photo-related state variables
-  const [eventPhoto, setEventPhoto] = useState<string | null>(null);
-  const [editedEventPhoto, setEditedEventPhoto] = useState<string | null>(null);
+  const [eventPhotos, setEventPhotos] = useState<string[]>([]);
+  const [editedEventPhotos, setEditedEventPhotos] = useState<string[]>([]);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ event: CalendarEvent; photoUrl: string } | null>(null);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
   const autoCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -619,8 +276,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const repeatPickerTimeoutRef = useRef<NodeJS.Timeout>();
   const endDatePickerTimeoutRef = useRef<NodeJS.Timeout>();
 
-  const customTimeStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const customTimeEndTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const customTimeReminderTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Add timeout refs for debouncing picker closes
@@ -661,32 +316,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }, 1500); // 2 second delay
   };
 
-  useEffect(() => {
-    return () => {
-      if (customTimeReminderTimeoutRef.current) {
-        clearTimeout(customTimeReminderTimeoutRef.current);
-      }
-    };
-  }, []);
-  
-  useEffect(() => {
-    return () => {
-      if (customTimeStartTimeoutRef.current) clearTimeout(customTimeStartTimeoutRef.current);
-      if (customTimeEndTimeoutRef.current) clearTimeout(customTimeEndTimeoutRef.current);
-    };
-  }, []);
-  
   // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
+      if (customTimeReminderTimeoutRef.current) clearTimeout(customTimeReminderTimeoutRef.current);
       if (startPickerTimeoutRef.current) clearTimeout(startPickerTimeoutRef.current);
       if (endPickerTimeoutRef.current) clearTimeout(endPickerTimeoutRef.current);
       if (reminderPickerTimeoutRef.current) clearTimeout(reminderPickerTimeoutRef.current);
       if (repeatPickerTimeoutRef.current) clearTimeout(repeatPickerTimeoutRef.current);
       if (endDatePickerTimeoutRef.current) clearTimeout(endDatePickerTimeoutRef.current);
+      if (autoCloseTimeoutRef.current) clearTimeout(autoCloseTimeoutRef.current);
     };
   }, []);
-
+  
   useEffect(() => {
     return () => {
       if (autoCloseTimeoutRef.current) {
@@ -698,23 +340,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   useEffect(() => {
     const fetchUser = async () => {
-      console.log('🔍 Starting fetchUser...');
       try {
       const { data, error } = await supabase.auth.getUser();
-      console.log('👤 Auth data:', data);
-      console.log('❌ Auth error if any:', error);
       
       if (error) {
-        console.error('❌ Error fetching user:', error);
           return;
         }
         
         if (data?.user) {
-        console.log('✅ User fetched successfully:', data.user);
         setUser(data.user);
         
           // Test database connection
-          console.log('🔍 Testing database connection...');
           
           // Test events table connection
           const { data: eventsTest, error: eventsError } = await supabase
@@ -722,19 +358,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             .select('count')
             .limit(1);
           
-          console.log('📊 Events table test result:', eventsTest);
-          console.log('❌ Events table test error:', eventsError);
-          
           if (eventsError) {
-            console.error('❌ Events table connection failed:', eventsError);
-          } else {
-            console.log('✅ Events table connection successful');
           }
-        } else {
-          console.log('❌ No user found in auth data');
         }
       } catch (error) {
-        console.error('💥 Error in fetchUser:', error);
       }
     };
   
@@ -744,22 +371,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Add auth state change listener
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔐 Auth state changed:', event, session?.user?.id);
       
       if (event === 'SIGNED_IN' && session?.user) {
-        console.log('✅ User signed in, setting user and fetching events');
         setUser(session.user);
         // Add a small delay to ensure user state is set, then fetch events
         setTimeout(() => {
-          console.log('🔄 Triggering event fetch after sign in');
           refreshEvents();
         }, 100);
       } else if (event === 'SIGNED_OUT') {
-        console.log('🚪 User signed out, clearing user and events');
         setUser(null);
         setEvents({});
       } else if (event === 'TOKEN_REFRESHED' && session?.user) {
-        console.log('🔄 Token refreshed, updating user');
         setUser(session.user);
       }
     });
@@ -773,22 +395,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   useEffect(() => {
     const fetchEvents = async () => {
       try {
-        console.log('🔍 Starting fetchEvents...');
-        console.log('👤 Current user:', user);
         
         if (!user?.id) {
-          console.log('❌ No user ID, skipping fetch');
           return;
         }
 
         // Check session before fetching
         const sessionValid = await checkAndRefreshSession();
         if (!sessionValid) {
-          console.log('❌ Session invalid, skipping fetch');
           return;
         }
 
-        console.log('🔍 Fetching events for user:', user.id);
         
         // First, let's check if the events table exists and is accessible
         const { data: tableCheck, error: tableError } = await supabase
@@ -797,12 +414,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .limit(1);
 
         if (tableError) {
-          console.error('❌ Events table access error:', tableError);
           handleDatabaseError(tableError);
           return;
         }
-
-        console.log('✅ Events table is accessible');
 
         // Now fetch all events for the user
         const { data: eventsData, error } = await supabase
@@ -811,26 +425,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .eq('user_id', user.id)
           .order('date', { ascending: true });
 
-        console.log('📊 Raw events data:', eventsData);
-        console.log('❌ Error if any:', error);
-
         if (error) {
-          console.error('❌ Error fetching events:', error);
           handleDatabaseError(error);
           return;
         }
 
         if (!eventsData || eventsData.length === 0) {
-          console.log('📭 No events found in database');
           setEvents({});
           return;
         }
 
-        console.log(`✅ Found ${eventsData.length} events in database`);
-
         // Transform the events data into our local format
         const transformedEvents = eventsData.reduce((acc, event) => {
-          console.log('🔄 Processing event:', event);
           
           // Parse UTC dates with better error handling
           const parseDate = (dateStr: string | null) => {
@@ -839,12 +445,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               // Handle both ISO strings and other formats
               const date = new Date(dateStr);
               if (isNaN(date.getTime())) {
-                console.warn('⚠️ Invalid date string:', dateStr);
                 return null;
               }
               return date;
             } catch (error) {
-              console.error('❌ Error parsing date:', dateStr, error);
               return null;
             }
           };
@@ -854,17 +458,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           const reminderTime = event.reminder_time ? parseDate(event.reminder_time) : null;
           const repeatEndDate = event.repeat_end_date ? parseDate(event.repeat_end_date) : null;
 
-          console.log('📅 Parsed dates:', {
-            startDateTime,
-            endDateTime,
-            reminderTime,
-            repeatEndDate
-          });
-
           // Convert custom times if they exist
           let customTimes;
           if (event.custom_times && typeof event.custom_times === 'object') {
-            console.log('🕐 Processing custom times:', event.custom_times);
             try {
             customTimes = Object.entries(event.custom_times).reduce((acc, [date, times]: [string, any]) => ({
               ...acc,
@@ -876,7 +472,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               }
             }), {});
             } catch (error) {
-              console.error('❌ Error processing custom times:', error);
               customTimes = {};
             }
           }
@@ -897,14 +492,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             customDates: event.custom_dates || [],
             customTimes,
             isAllDay: event.is_all_day || false,
-            photo: event.photo || null
+            photos: event.photos || []
           };
-
-          console.log('✅ Transformed event:', transformedEvent);
 
           // For custom events, add to all custom dates
           if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
-            console.log('📅 Adding custom event to dates:', transformedEvent.customDates);
             transformedEvent.customDates.forEach((date: string) => {
               if (!acc[date]) {
                 acc[date] = [];
@@ -913,7 +505,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             });
           } else {
             // For regular events, add to the primary date
-            console.log('📅 Adding regular event to date:', transformedEvent.date);
             if (!acc[transformedEvent.date]) {
               acc[transformedEvent.date] = [];
             }
@@ -923,11 +514,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return acc;
         }, {} as { [date: string]: CalendarEvent[] });
 
-        console.log('🎯 Final transformed events:', transformedEvents);
         setEvents(transformedEvents);
         
       } catch (error) {
-        console.error('💥 Error in fetchEvents:', error);
       }
     };
     
@@ -936,7 +525,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   // Add a function to refresh events
   const refreshEvents = async () => {
-    console.log('🔄 Refreshing events...');
     if (user?.id) {
       const { data: eventsData, error } = await supabase
         .from('events')
@@ -945,7 +533,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .order('date', { ascending: true });
 
       if (error) {
-        console.error('❌ Error refreshing events:', error);
         return;
       }
 
@@ -980,7 +567,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           repeatEndDate: event.repeat_end_date ? parseDate(event.repeat_end_date) : null,
           customDates: event.custom_dates || [],
           customTimes: event.custom_times || {},
-          isAllDay: event.is_all_day || false
+          isAllDay: event.is_all_day || false,
+          photos: event.photos || []
         };
 
         if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
@@ -1017,7 +605,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .eq('type', 'calendar'); // Only fetch calendar categories
 
         if (error) {
-          console.error('Error fetching categories:', error);
           return;
         }
 
@@ -1029,7 +616,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           })));
         }
       } catch (error) {
-        console.error('Error in fetchCategories:', error);
       }
     };
   
@@ -1058,7 +644,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 .eq('category_id', cat.id);
 
               if (eventsError) {
-                console.error('Error checking events:', eventsError);
                 Alert.alert('Error', 'Failed to check if category is in use. Please try again.');
                 return;
               }
@@ -1080,7 +665,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 .eq('type', 'calendar'); // Only delete calendar categories
 
               if (error) {
-                console.error('Error deleting category:', error);
                 Alert.alert('Error', 'Failed to delete category. Please try again.');
                 return;
               }
@@ -1097,7 +681,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               }
 
             } catch (error) {
-              console.error('Error in category deletion:', error);
               Alert.alert('Error', 'An unexpected error occurred. Please try again.');
             }
           },
@@ -1163,8 +746,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   
   const handleDeleteEvent = async (eventId: string) => {
     try {
-      console.log('🗑️ Deleting event with ID:', eventId);
-      
       // Delete from database
       const { error } = await supabase
         .from('events')
@@ -1172,11 +753,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .eq('id', eventId);
 
       if (error) {
-        console.error('❌ Error deleting event from database:', error);
         throw error;
       }
-
-      console.log('✅ Event deleted from database successfully');
 
       // Update local state
       setEvents(prevEvents => {
@@ -1206,7 +784,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         refreshEvents();
       }, 500);
     } catch (error) {
-      console.error('Error deleting event:', error);
       Alert.alert('Error', 'Failed to delete event. Please try again.');
     }
   };
@@ -1237,7 +814,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     setCustomEndTime(new Date(new Date().getTime() + 60 * 60 * 1000));
     setUserChangedEndTime(false);
     setIsAllDay(false);
-    setEventPhoto(null);
+    setEventPhotos([]);
+    setEditedEventPhotos([]);
     resetToggleStates();
   };
 
@@ -1251,22 +829,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       // Then verify user authentication
-      console.log('🔐 Verifying user authentication...');
       const { data: { user: currentUser }, error: authError } = await supabase.auth.getUser();
       
       if (authError) {
-        console.error('❌ Authentication error:', authError);
         Alert.alert('Authentication Error', 'Please log in again to save events.');
         return;
       }
 
       if (!currentUser?.id) {
-        console.error('❌ No authenticated user found');
         Alert.alert('Authentication Error', 'Please log in to save events.');
         return;
       }
-
-      console.log('✅ User authenticated:', currentUser.id);
 
       // Format date to UTC ISO string
       const formatDateToUTC = (date: Date): string => {
@@ -1286,6 +859,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         description: newEventDescription,
         location: newEventLocation,
         date: getLocalDateString(startDateTime),
+        startDateTime: new Date(startDateTime),
+        endDateTime: new Date(endDateTime),
         categoryName: selectedCategory?.name,
         categoryColor: selectedCategory?.color,
         reminderTime: reminderTime ? new Date(reminderTime) : null,
@@ -1304,7 +879,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           });
           return acc;
         }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } }),
-        isAllDay: isAllDay
+        isAllDay: isAllDay,
+        photos: eventPhotos
       };
 
       // For all-day events, we only store the date without time components
@@ -1421,7 +997,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             events.push(createEventForDate(new Date(currentDate)));
           }
         }
-
         return events;
       };
 
@@ -1452,22 +1027,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }
           }), {}) : null,
         is_all_day: event.isAllDay,
+        photos: event.photos || [],
         user_id: currentUser.id // Use the verified current user ID
       }));
-
-      console.log('📊 Prepared events for database:', dbEvents);
 
       let dbError;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
       if (eventToSave.id && (editingEvent || originalEvent)) {
         const eventToDelete = originalEvent || editingEvent;
-        console.log('Editing event with ID:', eventToDelete?.id);
-        console.log('Event to delete details:', {
-          id: eventToDelete?.id,
-          title: eventToDelete?.title,
-          date: eventToDelete?.date,
-          startDateTime: eventToDelete?.startDateTime
-        });
         
         // First remove the old event from all its dates in local state
         setEvents(prev => {
@@ -1492,13 +1059,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .delete()
             .eq('id', eventToDelete.id);
 
-          console.log('Delete by ID result:', { error: deleteError });
-          
           if (!deleteError) {
             deleteSuccess = true;
-            console.log('Successfully deleted event by ID');
-          } else {
-            console.error('Error deleting existing event by ID:', deleteError);
           }
         }
 
@@ -1510,27 +1072,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             .eq('title', eventToDelete.title)
             .eq('date', eventToDelete.date);
 
-          console.log('Delete by title/date result:', { error: fallbackDeleteError });
-          
           if (!fallbackDeleteError) {
             deleteSuccess = true;
-            console.log('Successfully deleted event by title/date');
-          } else {
-            console.error('Error deleting existing event by fallback:', fallbackDeleteError);
           }
         }
 
         // Approach 3: If still not successful, try to find and delete by multiple criteria
         if (!deleteSuccess) {
-          console.log('Trying to find event to delete...');
           const { data: eventsToDelete, error: findError } = await supabase
             .from('events')
             .select('*')
             .eq('title', eventToDelete?.title || '')
             .eq('user_id', currentUser.id);
 
-          console.log('Found events to delete:', eventsToDelete);
-          
           if (!findError && eventsToDelete && eventsToDelete.length > 0) {
             const eventIds = eventsToDelete.map(e => e.id);
             const { error: bulkDeleteError } = await supabase
@@ -1540,19 +1094,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
             if (!bulkDeleteError) {
               deleteSuccess = true;
-              console.log('Successfully deleted events by bulk delete');
-            } else {
-              console.error('Error in bulk delete:', bulkDeleteError);
             }
           }
         }
 
-        if (!deleteSuccess) {
-          console.error('Failed to delete original event after multiple attempts');
-        }
-
         // Insert the updated event
-        console.log('Inserting updated event...');
         const { error: insertError } = await supabase
           .from('events')
           .insert(dbEvents);
@@ -1560,7 +1106,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         dbError = insertError;
       } else {
         // Insert all new events
-        console.log('Inserting new events...');
         const { error: insertError } = await supabase
           .from('events')
           .insert(dbEvents);
@@ -1569,11 +1114,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       if (dbError) {
-        console.error('Event Save - Database Error:', dbError);
-        
         // Check if it's an RLS policy error
         if (dbError.code === '42501') {
-          console.error('❌ RLS Policy Error - User may not be properly authenticated');
           Alert.alert(
             'Authentication Error', 
             'Unable to save event. Please try logging out and logging back in.',
@@ -1582,7 +1124,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 text: 'OK',
                 onPress: () => {
                   // You might want to redirect to login here
-                  console.log('Redirecting to login...');
                 }
               }
             ]
@@ -1592,8 +1133,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
         return;
       }
-
-      console.log('✅ Events saved successfully to database');
 
       // Update local state with all events
       setEvents(prev => {
@@ -1637,7 +1176,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         refreshEvents();
       }, 500);
     } catch (error) {
-      console.error('Error saving event:', error);
       Alert.alert('Error', 'Failed to save event. Please try again.');
     }
   };
@@ -1781,6 +1319,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                                   setCustomSelectedDates(event.customDates || []);
                                   setIsEditedAllDay(event.isAllDay || false);
+                                  setEditedEventPhotos(event.photos || []);
                                   setShowEditEventModal(true);
                                 }}
                                 onLongPress={() => handleLongPress(event)}
@@ -1871,20 +1410,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
     setCustomSelectedDates(event.customDates || []);
     setIsEditedAllDay(event.isAllDay || false);
+    setEditedEventPhotos(event.photos || []);
       setShowEditEventModal(true);
   };
 
-  // Add this effect to reset the time picker state when opening the custom modal
-  useEffect(() => {
-    if (showCustomDatesPicker) {
-      setShowCustomTimePicker(false);
-      setEditingTimeBoxId(null);
-      setEditingField('start');
-    }
-  }, [showCustomDatesPicker]);
 
   // Add these state variables near the top of the component
-  const [tempTimeBox, setTempTimeBox] = useState<CustomTimeData | null>(null);
   const [isTimePickerVisible, setIsTimePickerVisible] = useState(false);
   const [currentEditingField, setCurrentEditingField] = useState<'start' | 'end'>('start');
 
@@ -1929,95 +1460,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   };
 
   // Add styles for the time box components
-  const timeBoxStyles = StyleSheet.create({
-    container: {
-      marginBottom: 16,
-      backgroundColor: '#fafafa',
-      borderRadius: 12,
-      padding: 12
-    },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 8
-    },
-    dateText: {
-      fontSize: 13,
-      color: '#666',
-      fontFamily: 'Onest'
-    },
-    timeContainer: {
-      flexDirection: 'row',
-      gap: 12
-    },
-    timeButton: {
-      flex: 1,
-      backgroundColor: '#fff',
-      padding: 8,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: '#eee'
-    },
-    timeLabel: {
-      fontSize: 12,
-      color: '#666',
-      marginBottom: 4,
-      fontFamily: 'Onest'
-    },
-    timeValue: {
-      fontSize: 14,
-      color: '#333',
-      fontFamily: 'Onest'
-    },
-    pickerContainer: {
-      marginTop: 12,
-      backgroundColor: '#fff',
-      borderRadius: 12,
-      padding: 12
-    },
-    pickerLabel: {
-      fontSize: 13,
-      color: '#666',
-      marginBottom: 8,
-      fontFamily: 'Onest'
-    },
-    doneButton: {
-      backgroundColor: '#f5f5f5',
-      paddingVertical: 12,
-      borderRadius: 12,
-      alignItems: 'center',
-      marginTop: 12
-    },
-    doneButtonText: {
-      fontSize: 15,
-      color: '#666',
-      fontFamily: 'Onest',
-      fontWeight: '500'
-    },
-    addTimeButton: {
-      backgroundColor: '#f5f5f5',
-      paddingVertical: 12,
-      borderRadius: 12,
-      alignItems: 'center',
-      marginTop: 8
-    },
-    addTimeButtonText: {
-      fontSize: 15,
-      color: '#666',
-      fontFamily: 'Onest',
-      fontWeight: '500'
-    }
-  });
 
   // Update the time box rendering with proper styles
   {Object.entries(customDateTimes).map(([key, timeData]) => {
     if (key === 'default') return null;
 
     return (
-      <View key={key} style={timeBoxStyles.container}>
-        <View style={timeBoxStyles.header}>
-          <Text style={timeBoxStyles.dateText}>
+      <View key={key} style={styles.timeBoxContainer}>
+        <View style={styles.timeBoxHeader}>
+          <Text style={styles.timeBoxDateText}>
             {timeData.dates.map(date => new Date(date).toLocaleDateString([], { month: 'short', day: 'numeric' })).join(', ')}
           </Text>
           <TouchableOpacity
@@ -2034,31 +1485,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </TouchableOpacity>
         </View>
 
-        <View style={timeBoxStyles.timeContainer}>
+        <View style={styles.timeBoxTimeContainer}>
           <TouchableOpacity
             onPress={() => handleEditTimeBox(key, 'start')}
-            style={timeBoxStyles.timeButton}
+            style={styles.timeBoxTimeButton}
           >
-            <Text style={timeBoxStyles.timeLabel}>Start</Text>
-            <Text style={timeBoxStyles.timeValue}>
+            <Text style={styles.timeBoxTimeLabel}>Start</Text>
+            <Text style={styles.timeBoxTimeValue}>
               {timeData.start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             onPress={() => handleEditTimeBox(key, 'end')}
-            style={timeBoxStyles.timeButton}
+            style={styles.timeBoxTimeButton}
           >
-            <Text style={timeBoxStyles.timeLabel}>End</Text>
-            <Text style={timeBoxStyles.timeValue}>
+            <Text style={styles.timeBoxTimeLabel}>End</Text>
+            <Text style={styles.timeBoxTimeValue}>
               {timeData.end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
             </Text>
           </TouchableOpacity>
         </View>
 
         {isTimePickerVisible && editingTimeBoxId === key && (
-          <View style={timeBoxStyles.pickerContainer}>
-            <Text style={timeBoxStyles.pickerLabel}>
+          <View style={styles.timeBoxPickerContainer}>
+            <Text style={styles.timeBoxPickerLabel}>
               {currentEditingField === 'start' ? 'Set Start Time' : 'Set End Time'}
             </Text>
             <DateTimePicker
@@ -2075,9 +1526,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             />
             <TouchableOpacity
               onPress={() => handleTimeBoxSave(key)}
-              style={timeBoxStyles.doneButton}
+              style={styles.timeBoxDoneButton}
             >
-              <Text style={timeBoxStyles.doneButtonText}>Save & Select Dates</Text>
+              <Text style={styles.timeBoxDoneButtonText}>Save & Select Dates</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -2108,9 +1559,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setCurrentEditingField('start');
         setIsTimePickerVisible(true);
       }}
-      style={timeBoxStyles.addTimeButton}
+      style={styles.timeBoxAddButton}
     >
-      <Text style={timeBoxStyles.addTimeButtonText}>Add Time</Text>
+      <Text style={styles.timeBoxAddButtonText}>Add Time</Text>
     </TouchableOpacity>
   )}
 
@@ -2123,11 +1574,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
     try {
       const originalEvent = selectedEvent.event;
-      console.log('Starting edit process for event:', {
-        id: originalEvent.id,
-        title: originalEvent.title,
-        date: originalEvent.date
-      });
       
       // Step 1: Find the event in database by title and date (more reliable than ID)
       const { data: existingEvents, error: findError } = await supabase
@@ -2138,16 +1584,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .eq('user_id', user?.id);
 
       if (findError) {
-        console.error('Error finding event to delete:', findError);
         throw new Error('Failed to find event in database');
       }
 
       if (!existingEvents || existingEvents.length === 0) {
-        console.error('No events found with title and date:', originalEvent.title, originalEvent.date);
         throw new Error('Event not found in database');
       }
-
-      console.log('Found events to delete:', existingEvents);
 
       // Step 2: Delete all matching events
       const eventIds = existingEvents.map(e => e.id);
@@ -2157,11 +1599,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .in('id', eventIds);
 
       if (deleteError) {
-        console.error('Failed to delete events:', deleteError);
         throw new Error('Failed to delete original event');
       }
-
-      console.log('Successfully deleted original events from database');
 
       // Step 3: Verify deletion by trying to find the events again
       const { data: verifyEvents, error: verifyError } = await supabase
@@ -2170,11 +1609,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .in('id', eventIds);
 
       if (!verifyError && verifyEvents && verifyEvents.length > 0) {
-        console.error('Events still exist after deletion!');
         throw new Error('Events were not properly deleted');
       }
-
-      console.log('Verified events were deleted successfully');
 
       // Step 4: Remove from local state
       setEvents(prev => {
@@ -2187,8 +1623,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         });
         return updated;
       });
-
-      console.log('Removed event from local state');
 
       // Step 5: Create the new event data
       const newEventData = {
@@ -2206,10 +1640,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         custom_dates: editedRepeatOption === 'Custom' ? customSelectedDates : null,
         custom_times: editedRepeatOption === 'Custom' ? customDateTimes : null,
         is_all_day: isEditedAllDay,
+        photos: editedEventPhotos,
         user_id: user?.id
       };
-
-      console.log('New event data:', newEventData);
 
       // Step 6: Insert the new event
       const { data: insertedEvent, error: insertError } = await supabase
@@ -2219,11 +1652,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .single();
 
       if (insertError) {
-        console.error('Failed to insert new event:', insertError);
         throw new Error('Failed to save edited event');
       }
-
-      console.log('Successfully inserted new event:', insertedEvent);
 
       // Step 7: Update local state with new event
       const newEvent: CalendarEvent = {
@@ -2241,7 +1671,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         repeatEndDate: insertedEvent.repeat_end_date ? new Date(insertedEvent.repeat_end_date) : null,
         customDates: insertedEvent.custom_dates,
         customTimes: insertedEvent.custom_times,
-        isAllDay: insertedEvent.is_all_day
+        isAllDay: insertedEvent.is_all_day,
+        photos: insertedEvent.photos || []
       };
 
       setEvents(prev => {
@@ -2253,8 +1684,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         updated[dateKey].push(newEvent);
         return updated;
       });
-
-      console.log('Updated local state with new event');
 
       // Step 8: Close modal and show success message
       setShowEditEventModal(false);
@@ -2268,7 +1697,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       });
 
     } catch (error) {
-      console.error('Error editing event:', error);
       Alert.alert('Error', 'Failed to edit event. Please try again.');
     }
   };
@@ -2290,8 +1718,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   useEffect(() => {
     if (!user?.id) return;
 
-    console.log('🔌 Setting up real-time subscription for events...');
-
     const subscription = supabase
       .channel('events_changes')
       .on(
@@ -2303,8 +1729,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          console.log('🔄 Real-time event change:', payload);
-          
           // Refresh events when there are changes
           refreshEvents();
         }
@@ -2312,15 +1736,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       .subscribe();
 
     return () => {
-      console.log('🔌 Cleaning up real-time subscription...');
       subscription.unsubscribe();
     };
   }, [user?.id]);
 
   // Add a function to handle database connection issues
   const handleDatabaseError = (error: any) => {
-    console.error('❌ Database error:', error);
-    
     // Check if it's an authentication error
     if (error?.message?.includes('JWT') || error?.message?.includes('auth')) {
       Alert.alert(
@@ -2331,7 +1752,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             text: 'OK',
             onPress: () => {
               // You might want to redirect to login here
-              console.log('Redirecting to login...');
             }
           }
         ]
@@ -2357,16 +1777,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Add session check and refresh mechanism
   const checkAndRefreshSession = async () => {
     try {
-      console.log('🔐 Checking Supabase session...');
       const { data: { session }, error } = await supabase.auth.getSession();
       
       if (error) {
-        console.error('❌ Session check error:', error);
         return false;
       }
 
       if (!session) {
-        console.log('❌ No active session found');
         return false;
       }
 
@@ -2374,33 +1791,24 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       const now = new Date();
       const expiresAt = new Date(session.expires_at! * 1000);
       const timeUntilExpiry = expiresAt.getTime() - now.getTime();
-      
-      console.log('📅 Session expires at:', expiresAt);
-      console.log('⏰ Time until expiry:', timeUntilExpiry / 1000 / 60, 'minutes');
 
       // If session expires in less than 5 minutes, refresh it
       if (timeUntilExpiry < 5 * 60 * 1000) {
-        console.log('🔄 Refreshing session...');
         const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
         
         if (refreshError) {
-          console.error('❌ Session refresh error:', refreshError);
           return false;
         }
 
         if (refreshData.session) {
-          console.log('✅ Session refreshed successfully');
           return true;
         } else {
-          console.log('❌ No session returned from refresh');
           return false;
         }
       }
 
-      console.log('✅ Session is valid');
       return true;
     } catch (error) {
-      console.error('💥 Error checking session:', error);
       return false;
     }
   };
@@ -2408,17 +1816,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Add a simple authentication test function
   const testAuthentication = async () => {
     try {
-      console.log('🧪 Testing authentication...');
-      
       // Test 1: Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser();
-      console.log('👤 Current user:', user);
-      console.log('❌ User error:', userError);
       
       // Test 2: Get current session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      console.log('🔐 Current session:', session);
-      console.log('❌ Session error:', sessionError);
       
       // Test 3: Try a simple database query
       if (user?.id) {
@@ -2428,22 +1830,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .eq('user_id', user.id)
           .limit(1);
         
-        console.log('📊 Test query result:', testData);
-        console.log('❌ Test query error:', testError);
-        
         if (testError) {
-          console.error('❌ Database access failed:', testError);
           return false;
         } else {
-          console.log('✅ Database access successful');
           return true;
         }
       } else {
-        console.log('❌ No user ID available for testing');
         return false;
       }
     } catch (error) {
-      console.error('💥 Authentication test error:', error);
       return false;
     }
   };
@@ -2469,70 +1864,54 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Photo-related functions
   const uploadEventPhoto = async (photoUri: string, eventId: string): Promise<string> => {
     try {
-      console.log('📸 Uploading event photo for event:', eventId);
-      console.log('📸 Photo URI:', photoUri);
-      
-      // Use expo-file-system to read the file
+      // First, let's check if the file exists and get its info
       const fileInfo = await FileSystem.getInfoAsync(photoUri);
-      console.log('📸 File info:', fileInfo);
       
       if (!fileInfo.exists) {
-        throw new Error('File does not exist');
+        throw new Error('Photo file does not exist');
       }
       
-      if (fileInfo.size === 0) {
-        throw new Error('File is empty');
-      }
-      
-      console.log('📸 File size:', fileInfo.size);
+      // Create a unique filename with events category
+      const fileExt = photoUri.split('.').pop() || 'jpg';
+      const safeEventId = eventId || `temp_${Date.now()}`;
+      const fileName = `events/${safeEventId}/event_${Date.now()}.${fileExt}`;
       
       // Read the file as base64
       const base64Data = await FileSystem.readAsStringAsync(photoUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
       
-      console.log('📸 Base64 data length:', base64Data.length);
+      if (base64Data.length === 0) {
+        throw new Error('Base64 data is empty');
+      }
       
-      // Convert base64 to Uint8Array
+      // Convert base64 to Uint8Array for React Native compatibility
       const binaryString = atob(base64Data);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       
-      console.log('📸 Bytes length:', bytes.length);
-      
-      // Create a unique filename
-      const fileExt = photoUri.split('.').pop() || 'jpg';
-      const fileName = `events/${eventId}/event_${Date.now()}.${fileExt}`;
-      
-      console.log('📸 Uploading to filename:', fileName);
-      
       // Upload to Supabase Storage using Uint8Array
       const { data, error: uploadError } = await supabase.storage
-        .from('habit-photos')
+        .from('memories')
         .upload(fileName, bytes, {
+          contentType: 'image/jpeg',
           cacheControl: '3600',
-          upsert: true,
-          contentType: 'image/jpeg'
+          upsert: true
         });
 
       if (uploadError) {
-        console.error('📸 Upload error:', uploadError);
         throw uploadError;
       }
       
-      console.log('📸 Upload successful, data:', data);
-      
       // Get the public URL
       const { data: { publicUrl } } = supabase.storage
-        .from('habit-photos')
+        .from('memories')
         .getPublicUrl(fileName);
 
-      console.log('📸 Photo uploaded successfully:', publicUrl);
       return publicUrl;
     } catch (error) {
-      console.error('📸 Error uploading event photo:', error);
       throw error;
     }
   };
@@ -2557,18 +1936,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
       }
 
-      const options: ImagePicker.ImagePickerOptions = {
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.8,
-      };
-
       let result;
       if (source === 'camera') {
-        result = await ImagePicker.launchCameraAsync(options);
+        result = await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.8,
+        });
       } else {
-        result = await ImagePicker.launchImageLibraryAsync(options);
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          aspect: [4, 3],
+          quality: 0.8,
+        });
       }
 
       if (!result.canceled && result.assets[0]) {
@@ -2581,7 +1962,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             await updateEventPhoto(eventId, photoUrl);
           } else {
             // Set photo for new event
-            setEventPhoto(photoUrl);
+            setEventPhotos(prev => [...prev, photoUrl]);
           }
           
           Toast.show({
@@ -2590,14 +1971,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             position: 'bottom',
           });
         } catch (error) {
-          console.error('Error uploading photo:', error);
           Alert.alert('Error', 'Failed to upload photo. Please try again.');
         } finally {
           setIsUploadingPhoto(false);
         }
       }
     } catch (error) {
-      console.error('Error picking image:', error);
       Alert.alert('Error', 'Failed to select image. Please try again.');
       setIsUploadingPhoto(false);
     }
@@ -2605,40 +1984,46 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const updateEventPhoto = async (eventId: string, photoUrl: string) => {
     try {
-      console.log('📸 Updating event photo in database:', { eventId, photoUrl });
-      
+      // Get the current event to see existing photos
+      const { data: currentEvent, error: fetchError } = await supabase
+        .from('events')
+        .select('photos')
+        .eq('id', eventId)
+        .single();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      // Append the new photo to existing photos
+      const currentPhotos = currentEvent?.photos || [];
+      const updatedPhotos = [...currentPhotos, photoUrl];
+
       const { error } = await supabase
         .from('events')
-        .update({ photo: photoUrl })
+        .update({ photos: updatedPhotos })
         .eq('id', eventId);
 
       if (error) {
-        console.error('❌ Error updating event photo:', error);
         throw error;
       }
-
-      console.log('✅ Event photo updated in database successfully');
 
       // Update local state
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
           updated[date] = updated[date].map(event => 
-            event.id === eventId ? { ...event, photo: photoUrl } : event
+            event.id === eventId ? { ...event, photos: updatedPhotos } : event
           );
         });
         return updated;
       });
-
-      console.log('✅ Local state updated with photo');
       
       // Refresh events to ensure UI is updated
       setTimeout(() => {
-        console.log('🔄 Refreshing events after photo update...');
         refreshEvents();
       }, 500);
     } catch (error) {
-      console.error('❌ Error updating event photo:', error);
       throw error;
     }
   };
@@ -2653,6 +2038,53 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         { text: 'Choose from Gallery', onPress: () => handleEventPhotoPicker('library', eventId) },
       ]
     );
+  };
+
+  const removeEventPhoto = async (eventId: string, photoUrlToRemove: string) => {
+    try {
+      // Get the current event to see existing photos
+      const { data: currentEvent, error: fetchError } = await supabase
+        .from('events')
+        .select('photos')
+        .eq('id', eventId)
+        .single();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      // Remove the specific photo from the array
+      const currentPhotos = currentEvent?.photos || [];
+      const updatedPhotos = currentPhotos.filter((photo: string) => photo !== photoUrlToRemove);
+
+      const { error } = await supabase
+        .from('events')
+        .update({ photos: updatedPhotos })
+        .eq('id', eventId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update local state
+      setEvents(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(date => {
+          updated[date] = updated[date].map(event => 
+            event.id === eventId ? { ...event, photos: updatedPhotos } : event
+          );
+        });
+        return updated;
+      });
+      
+      Toast.show({
+        type: 'success',
+        text1: 'Photo removed successfully',
+        position: 'bottom',
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to remove photo. Please try again.');
+    }
   };
 
   return (
@@ -2688,7 +2120,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </Text>
         </TouchableOpacity>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={styles.modalRowGap}>
         <TouchableOpacity
           onPress={() => {
             resetEventForm();
@@ -2803,7 +2235,23 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             <Ionicons name="trash" size={20} color="white" />
                           </TouchableOpacity>
                         )}
+                        renderLeftActions={() => (
+                          <TouchableOpacity
+                            style={{
+                              backgroundColor: '#007AFF',
+                              width: 80,
+                              height: '100%',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: 8,
+                            }}
+                            onPress={() => showEventPhotoOptions(event.id)}
+                          >
+                            <Ionicons name="camera" size={20} color="white" />
+                          </TouchableOpacity>
+                        )}
                         rightThreshold={40}
+                        leftThreshold={40}
                       >
                         <TouchableOpacity
                           style={{
@@ -2823,14 +2271,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             setEditedEventLocation(event.location ?? '');
                             setEditedStartDateTime(new Date(event.startDateTime!));
                             setEditedEndDateTime(new Date(event.endDateTime!));
-                            setEditedSelectedCategory(
-                              event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null
-                            );
+                            setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                             setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                             setEditedRepeatOption(event.repeatOption || 'None');
                             setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                             setCustomSelectedDates(event.customDates || []);
                             setIsEditedAllDay(event.isAllDay || false);
+                            setEditedEventPhotos(event.photos || []);
                             setShowEditEventModal(true);
                           }}
                           onLongPress={() => handleLongPress(event)}
@@ -2863,45 +2310,75 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           </View>
                           
                           {/* Photo Section */}
-                          <View style={{ alignItems: 'flex-end', gap: 8 }}>
-                            {event.photo ? (
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setSelectedPhotoForViewing({ event, photoUrl: event.photo! });
-                                  setShowPhotoViewer(true);
-                                }}
-                                style={{
-                                  width: 40,
-                                  height: 40,
-                                  borderRadius: 8,
-                                  overflow: 'hidden',
-                                }}
-                              >
-                                <Image
-                                  source={{ uri: event.photo }}
-                                  style={{ width: '100%', height: '100%' }}
-                                  resizeMode="cover"
-                                />
-                              </TouchableOpacity>
-                            ) : null}
-                            
-                            <TouchableOpacity
-                              onPress={() => showEventPhotoOptions(event.id)}
-                              style={{
-                                width: 32,
-                                height: 32,
-                                borderRadius: 16,
-                                backgroundColor: '#f0f0f0',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                              }}
-                            >
-                              {isUploadingPhoto ? (
-                                <ActivityIndicator size="small" color="#007AFF" />
-                              ) : (
-                                <Ionicons name="camera" size={16} color="#666" />
-                              )}
-                            </TouchableOpacity>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            {event.photos && event.photos.length > 0 && (
+                              <View style={{ 
+                                position: 'relative',
+                                width: 45 + (event.photos.length > 1 ? 8 : 0), // Account for stacking offset
+                                height: 45 + (Math.min(event.photos.length, 3) - 1) * 8, // Account for vertical stacking
+                              }}>
+                                {event.photos.slice(0, 3).map((photoUrl, photoIndex) => (
+                                  <TouchableOpacity
+                                    key={photoIndex}
+                                    onPress={() => {
+                                      setSelectedPhotoForViewing({ event, photoUrl });
+                                      setShowPhotoViewer(true);
+                                    }}
+                                    onLongPress={() => {
+                                      Alert.alert(
+                                        'Remove Photo',
+                                        'Do you want to remove this photo?',
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          { 
+                                            text: 'Remove', 
+                                            style: 'destructive',
+                                            onPress: () => removeEventPhoto(event.id, photoUrl)
+                                          }
+                                        ]
+                                      );
+                                    }}
+                                    style={{
+                                      width: 45,
+                                      height: 45,
+                                      borderRadius: 10,
+                                      overflow: 'hidden',
+                                      position: 'absolute',
+                                      top: photoIndex * 4, // Minimal stack offset
+                                      left: photoIndex * 2, // Minimal horizontal offset
+                                      zIndex: event.photos!.length - photoIndex, // Higher photos on top
+                                    }}
+                                  >
+                                    <Image
+                                      source={{ uri: photoUrl }}
+                                      style={{ width: '100%', height: '100%' }}
+                                      resizeMode="cover"
+                                    />
+                                  </TouchableOpacity>
+                                ))}
+                                {/* Show count indicator if more than 3 photos */}
+                                {event.photos.length > 3 && (
+                                  <View style={{
+                                    position: 'absolute',
+                                    top: 2 * 4 + 45, // Position below the stacked photos
+                                    left: 2 * 2,
+                                    backgroundColor: 'rgba(0,0,0,0.7)',
+                                    borderRadius: 12,
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                    zIndex: 10,
+                                  }}>
+                                    <Text style={{ 
+                                      color: 'white', 
+                                      fontSize: 10, 
+                                      fontWeight: 'bold' 
+                                    }}>
+                                      +{event.photos.length - 3}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            )}                        
                           </View>
                         </TouchableOpacity>
                       </Swipeable>
@@ -2959,7 +2436,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </Text>
         </TouchableOpacity>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={styles.modalRowGap}>
         <TouchableOpacity
           onPress={() => {
             resetEventForm();
@@ -3009,6 +2486,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setEditedReminderTime={setEditedReminderTime}
         setEditedRepeatOption={setEditedRepeatOption}
         setEditedRepeatEndDate={setEditedRepeatEndDate}
+        setEditedEventPhotos={setEditedEventPhotos}
         setShowEditEventModal={setShowEditEventModal}
         hideHeader={true}
         setVisibleWeekMonth={setVisibleWeekMonth}
@@ -3084,45 +2562,30 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   setShowModal(false);
                   resetEventForm();
                 }}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
+                style={styles.modalHeaderButton}
               >
                 <Ionicons name="close" size={16} color="#666" />
               </TouchableOpacity>
               
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
+              <Text style={styles.modalHeaderTitle}>
                 New Event
               </Text>
               
-                    <TouchableOpacity 
+              <TouchableOpacity 
                 onPress={() => handleSaveEvent()}
                 disabled={!newEventTitle.trim()}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: newEventTitle.trim() ? '#007AFF' : '#ffffff',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
+                style={[
+                  styles.modalHeaderButton,
+                  { backgroundColor: newEventTitle.trim() ? '#007AFF' : '#ffffff' }
+                ]}
               >
                 <Ionicons 
                   name="checkmark" 
                   size={16} 
                   color={newEventTitle.trim() ? 'white' : '#999'} 
                 />
-                    </TouchableOpacity>
-                  </View>
+              </TouchableOpacity>
+            </View>
 
             {/* Content */}
             <ScrollView 
@@ -3161,25 +2624,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   {repeatOption !== 'Custom' ? (
                     <>
                   {/* Event Title Card */}
-                  <View style={{
-                    backgroundColor: 'white',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 18,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 4,
-                    elevation: 1,
-                  }}>
+                  <View style={styles.modalCard}>
               
                       <TextInput
-                      style={{
-                        fontSize: 17,
-                        fontFamily: 'Onest',
-                        fontWeight: '500',
-                        marginBottom: 5,
-                      }}
+                      style={styles.modalInput}
                       placeholder="Event Title"
                       placeholderTextColor="#888"
                         value={newEventTitle}
@@ -3188,16 +2636,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       />
   
                       <TextInput
-                        style={{
-                          fontSize: 13,
-                          color: '#666',
-                          fontFamily: 'Onest',
-                          fontWeight: '400',
-                          marginTop: 5,
-                          paddingVertical: 2,
-                          paddingHorizontal: 0,
-                          textAlignVertical: 'top',
-                        }}
+                        style={styles.modalInputDescription}
                         placeholder="Description"
                         placeholderTextColor="#999"
                         value={newEventDescription}
@@ -3207,15 +2646,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       />
 
                       <TextInput
-                        style={{
-                          fontSize: 13,
-                          color: '#666',
-                          fontFamily: 'Onest',
-                          fontWeight: '400',
-                          marginTop: 8,
-                          paddingVertical: 2,
-                          paddingHorizontal: 0,
-                        }}
+                        style={styles.modalInputLocation}
                         placeholder="Location"
                         placeholderTextColor="#999"
                         value={newEventLocation}
@@ -3224,33 +2655,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   </View>
 
                   {/* Time & Date Card */}
-                  <View style={{
-                    backgroundColor: 'white',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 18,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 4,
-                    elevation: 1,
-                  }}>
+                  <View style={styles.modalCard}>
                     
                     {/* All Day Toggle */}
-                    <View style={{ 
-                      flexDirection: 'row', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      marginTop: -5,
-                      marginBottom: 12,
-                      paddingVertical: 0,
-                    }}>
-                      <Text style={{ 
-                        fontSize: 14, 
-                        color: '#333', 
-                        fontFamily: 'Onest', 
-                        fontWeight: '500'
-                      }}>
+                    <View style={styles.modalToggleRow}>
+                      <Text style={styles.modalLabel}>
                         All-day event
                       </Text>
                       <View style={{ transform: [{ scale: 0.8 }] }}>
@@ -3264,20 +2673,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     </View>
 
                     {/* Start & End Time */}
-                    <View style={{ gap: 8 }}>
+                    <View style={styles.modalGapContainer}>
                       <View>
-                        <View style={{ 
-                          flexDirection: 'row', 
-                          alignItems: 'center', 
-                          justifyContent: 'space-between',
-                          marginBottom: 0,
-                        }}>
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: '#333', 
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
+                        <View style={styles.modalTimeRow}>
+                          <Text style={styles.modalLabel}>
                             Starts
                           </Text>
                           <TouchableOpacity
@@ -3290,21 +2689,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               }
                               Keyboard.dismiss();
                             }}
-                            style={{
-                              backgroundColor: '#f8f9fa',
-                              borderRadius: 8,
-                              paddingVertical: 8,
-                              paddingHorizontal: 12,
-                              borderWidth: 1,
-                              borderColor: showStartPicker ? '#007AFF' : '#f0f0f0',
-                            }}
+                            style={showStartPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                           >
-                            <Text style={{
-                              fontSize: 14,
-                              color: '#333',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.modalTimeText}>
                               {startDateTime.toLocaleString([], {
                                 month: 'short',
                                 day: 'numeric',
@@ -3320,18 +2707,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       </View>
 
                       <View>
-                        <View style={{ 
-                          flexDirection: 'row', 
-                              alignItems: 'center',
-                          justifyContent: 'space-between',
-                          marginBottom: 0,
-                        }}>
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: '#333', 
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
+                        <View style={styles.modalTimeRow}>
+                          <Text style={styles.modalLabel}>
                             Ends
                           </Text>
                           <TouchableOpacity
@@ -3344,21 +2721,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 setShowStartPicker(false);
                               }
                             }}
-                            style={{
-                              backgroundColor: '#f8f9fa',
-                              borderRadius: 8,
-                              paddingVertical: 8,
-                              paddingHorizontal: 12,
-                              borderWidth: 1,
-                              borderColor: showEndPicker ? '#007AFF' : '#f0f0f0',
-                            }}
+                            style={showEndPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                           >
-                            <Text style={{
-                              fontSize: 14,
-                              color: '#333',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.modalTimeText}>
                               {endDateTime.toLocaleString([], {
                                 month: 'short',
                                 day: 'numeric',
@@ -3376,12 +2741,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
                     {/* Date/Time Picker */}
                     {(showStartPicker || showEndPicker) && (
-                      <View style={{
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        paddingHorizontal: 6,
-                        marginTop: 10,
-                      }}>
+                      <View style={styles.modalPickerContainer}>
                         <DateTimePicker
                           value={showStartPicker ? startDateTime : endDateTime}
                           mode={isAllDay ? "date" : "datetime"}
@@ -3410,24 +2770,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   </View>
 
                   {/* Category Card */}
-                  <View style={{
-                    backgroundColor: 'white',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 18,
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                    shadowRadius: 4,
-                              elevation: 1,
-                  }}>
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: '#333',
-                      marginBottom: 12,
-                      fontFamily: 'Onest'
-                    }}>
+                  <View style={styles.modalCard}>
+                    <Text style={styles.modalSectionHeader}>
                       Category
                     </Text>
                     <TouchableOpacity
@@ -3440,370 +2784,202 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           setNewCategoryColor(null);
                         }
                       }}
-                      style={{
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
-                        borderWidth: 1,
-                        borderColor: showCategoryPicker ? '#007AFF' : '#f0f0f0',
-                            }}
-                          >
-                            {!showCategoryPicker ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                              {selectedCategory ? (
-                                <>
-                                  <View style={{ 
-                                      width: 8, 
-                                      height: 8, 
-                                      borderRadius: 4, 
-                                    backgroundColor: selectedCategory.color,
-                                    marginRight: 8
-                                  }} />
-                                  <Text style={{ 
-                                  fontSize: 14, 
-                                  color: '#333',
-                                    fontFamily: 'Onest',
-                                    fontWeight: '500'
-                                  }}>
-                                    {selectedCategory.name}
-                                  </Text>
-                                </>
-                              ) : (
-                                <Text style={{ 
-                                fontSize: 14, 
-                                color: '#999',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
-                                Choose category
+                      style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
+                    >
+                      {!showCategoryPicker ? (
+                        <View style={styles.modalRowBetween}>
+                          <View style={styles.modalRow}>
+                            {selectedCategory ? (
+                              <>
+                                <View style={[
+                                  styles.modalCategoryDotLarge,
+                                  { backgroundColor: selectedCategory.color }
+                                ]} />
+                                <Text style={styles.modalCategoryText}>
+                                  {selectedCategory.name}
                                 </Text>
-                              )}
+                              </>
+                            ) : (
+                              <Text style={styles.modalCategoryPlaceholder}>
+                                Choose category
+                              </Text>
+                            )}
                           </View>
                           <Ionicons name="chevron-down" size={12} color="#999" />
-                            </View>
-                            ) : (
-                              <View style={{ 
-                              flexDirection: 'row', 
-                              flexWrap: 'wrap', 
-                          justifyContent: 'flex-start',
-                          gap: 6,
-                            }}>
-                              {categories.map((cat, idx) => (
-                                  <Pressable
-                                  key={idx}
-                                  onPress={() => {
-                                    setSelectedCategory(cat);
-                                    setShowCategoryPicker(false);
-                                    setShowAddCategoryForm(false);
-                                  }}
-                                  onLongPress={() => handleCategoryLongPress(cat)}
-                                  style={({ pressed }) => ({
-                                backgroundColor: selectedCategory?.name === cat.name ? cat.color + '20' : '#f8f9fa',
-                                paddingVertical: 6,
-                                paddingHorizontal: 10,
-                                borderRadius: 16,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                gap: 4,
-                                  })}
-                                >
-                                  <View style={{ 
-                                      width: 6, 
-                                      height: 6, 
-                                      borderRadius: 3, 
-                                      backgroundColor: cat.color,
-                                    }} />
-                                  <Text style={{ 
-                                color: '#333', 
-                                    fontSize: 12, 
-                                    fontFamily: 'Onest',
-                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500',
-                                  }}>
-                                    {cat.name}
-                                  </Text>
-                                </Pressable>
-                              ))}
-                              <TouchableOpacity
-                                onPress={() => setShowAddCategoryForm(true)}
-                                style={{
-                              backgroundColor: '#f8f9fa',
-                              paddingVertical: 6,
-                              paddingHorizontal: 10,
-                              borderRadius: 16,
-                        
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                              gap: 4,
-                                }}
-                              >
+                        </View>
+                      ) : (
+                        <View style={styles.modalWrapContainer}>
+                          {categories.map((cat, idx) => (
+                            <Pressable
+                              key={idx}
+                              onPress={() => {
+                                setSelectedCategory(cat);
+                                setShowCategoryPicker(false);
+                                setShowAddCategoryForm(false);
+                              }}
+                              onLongPress={() => handleCategoryLongPress(cat)}
+                              style={[
+                                selectedCategory?.name === cat.name ? styles.modalCategoryChipSelected : styles.modalCategoryChip,
+                                { backgroundColor: selectedCategory?.name === cat.name ? cat.color + '20' : '#f8f9fa' }
+                              ]}
+                            >
+                              <View style={[
+                                styles.modalCategoryDot,
+                                { backgroundColor: cat.color }
+                              ]} />
+                              <Text style={selectedCategory?.name === cat.name ? styles.modalCategoryChipTextSelected : styles.modalCategoryChipText}>
+                                {cat.name}
+                              </Text>
+                            </Pressable>
+                          ))}
+                          <TouchableOpacity
+                            onPress={() => setShowAddCategoryForm(true)}
+                            style={styles.modalAddButton}
+                          >
                             <Ionicons name="add" size={12} color="#666" />
-                              </TouchableOpacity>
+                          </TouchableOpacity>
                         </View>
                       )}
 
-                                {showAddCategoryForm && (
-                                  <View style={{
-                          backgroundColor: '#f8f9fa',
-                          padding: 12,
-                          borderRadius: 8,
-                                    marginTop: 8,
-                    
-                                  }}>
-                                    <Text style={{
-                            fontSize: 14,
-                            color: '#333',
-                                      fontFamily: 'Onest',
-                            fontWeight: '600',
-                                      marginBottom: 8,
-                                    }}>
-                                      New Category
-                                    </Text>
-                                    <TextInput
-                                      style={{
-                                        backgroundColor: 'white',
-                              padding: 8,
-                              borderRadius: 6,
-                              marginBottom: 8,
-                              fontSize: 14,
-                                        fontFamily: 'Onest',
-                              borderWidth: 1,
-                              borderColor: '#e0e0e0',
-                                      }}
-                                      placeholder="Category name"
-                                      value={newCategoryName}
-                                      onChangeText={setNewCategoryName}
-                                    />
-                                    
+                      {showAddCategoryForm && (
+                        <View style={styles.modalAddCategoryForm}>
+                          <Text style={styles.modalFormSectionTitle}>
+                            New Category
+                          </Text>
+                          <TextInput
+                            style={styles.modalAddCategoryInput}
+                            placeholder="Category name"
+                            value={newCategoryName}
+                            onChangeText={setNewCategoryName}
+                          />
+                          
                           {/* Color Picker */}
-                                    <Text style={{
-                            fontSize: 12,
-                            color: '#666',
-                                      fontFamily: 'Onest',
-                            fontWeight: '500',
-                            marginBottom: 6,
-                                    }}>
-                                      Color
-                                    </Text>
-                                    <View style={{
-                                      flexDirection: 'row',
-                                      flexWrap: 'wrap',
-                            gap: 6,
-                                      marginBottom: 12,
-                                    }}>
-                                      {CATEGORY_COLORS.map((color) => (
-                                        <TouchableOpacity
-                                          key={color}
-                                          onPress={() => setNewCategoryColor(color)}
-                                          style={{
-                                            width: 24,
-                                            height: 24,
-                                            borderRadius: 12,
-                                            backgroundColor: color,
-                                  borderWidth: newCategoryColor === color ? 2 : 0,
-                                  borderColor: '#333',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                }}
+                          <Text style={styles.modalFormSubtitle}>
+                            Color
+                          </Text>
+                          <View style={styles.modalColorPicker}>
+                            {CATEGORY_COLORS.map((color) => (
+                              <TouchableOpacity
+                                key={color}
+                                onPress={() => setNewCategoryColor(color)}
+                                style={newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption}
                               >
                                 {newCategoryColor === color && (
                                   <Ionicons name="checkmark" size={12} color="white" />
-                                          )}
-                                        </TouchableOpacity>
-                                      ))}
-                                    </View>
+                                )}
+                              </TouchableOpacity>
+                            ))}
+                          </View>
 
-                          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
-                                      <TouchableOpacity
-                                        onPress={() => {
-                                          setShowAddCategoryForm(false);
-                                          setNewCategoryName('');
-                                setNewCategoryColor(null);
-                                        }}
-                                        style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 12,
-                                borderRadius: 6,
-                                        }}
-                                      >
-                                        <Text style={{
-                                          color: '#666',
-                                fontSize: 14,
-                                          fontFamily: 'Onest',
-                                fontWeight: '500',
-                                        }}>
-                                          Cancel
-                                        </Text>
-                                      </TouchableOpacity>
-                                      <TouchableOpacity
-                                        onPress={async () => {
-                                          if (newCategoryName.trim()) {
-                                            const { data, error } = await supabase
-                                              .from('categories')
-                                              .insert([
-                                                {
-                                                  label: newCategoryName.trim(),
-                                                  color: newCategoryColor,
-                                                  user_id: user?.id,
-                                        type: 'calendar'
-                                                }
-                                              ])
-                                              .select();
-
-                                            if (error) {
-                                              console.error('Error creating category:', error);
-                                              return;
-                                            }
-
-                                            if (data) {
-                                              const newCategory = {
-                                                id: data[0].id,
-                                                name: data[0].label,
-                                                color: data[0].color,
-                                              };
-                                              setCategories(prev => [...prev, newCategory]);
-                                              setSelectedCategory(newCategory);
-                                              setShowAddCategoryForm(false);
-                                              setNewCategoryName('');
-                                              setNewCategoryColor(null);
-                                            }
-                                          }
-                                        }}
-                                        style={{
-                                backgroundColor: '#007AFF',
-                                          paddingVertical: 6,
-                                          paddingHorizontal: 12,
-                                borderRadius: 6,
-                                        }}
-                                      >
-                                        <Text style={{
-                                          color: 'white',
-                                fontSize: 14,
-                                          fontFamily: 'Onest',
-                                          fontWeight: '600',
-                                        }}>
-                                          Add
-                                        </Text>
-                                      </TouchableOpacity>
-                                    </View>
-                              </View>
-                            )}
-                          </TouchableOpacity>
-                        </View>
-
-                  {/* Options Card */}
-                  <View style={{
-                    backgroundColor: 'white',
-                                borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 18,
-                                shadowColor: '#000',
-                                shadowOffset: { width: 0, height: 1 },
-                                shadowOpacity: 0.05,
-                    shadowRadius: 4,
-                                elevation: 1,
-                  }}>
-                             
-                    
-                    <View style={{ gap: 8 }}>
-                      {/* Reminder */}
-                      <View>
-                        <View style={{ 
-                          flexDirection: 'row', 
-                          alignItems: 'center', 
-                          justifyContent: 'space-between',
-                          marginBottom: 4,
-                        }}>
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: '#333', 
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
-                            Reminder
-                              </Text>
+                          <View style={styles.modalFormActions}>
                             <TouchableOpacity
-                              onPress={() => setShowReminderOptions(prev => !prev)}
-                              style={{
-                                backgroundColor: '#f8f9fa',
-                                borderRadius: 8,
-                                paddingVertical: 8,
-                                paddingHorizontal: 12,
-                                borderWidth: 1,
-                                borderColor: showReminderOptions ? '#007AFF' : '#f0f0f0',
+                              onPress={() => {
+                                setShowAddCategoryForm(false);
+                                setNewCategoryName('');
+                                setNewCategoryColor(null);
                               }}
+                              style={styles.modalFormButton}
                             >
-                              <Text style={{
-                                fontSize: 14,
-                                color: '#333',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
-                                {reminderOffset === -1 ? 'No reminder' : REMINDER_OPTIONS.find(opt => opt.value === reminderOffset)?.label || 'No reminder'}
+                              <Text style={styles.modalFormButtonText}>
+                                Cancel
+                              </Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              onPress={async () => {
+                                if (newCategoryName.trim()) {
+                                  const { data, error } = await supabase
+                                    .from('categories')
+                                    .insert([
+                                      {
+                                        label: newCategoryName.trim(),
+                                        color: newCategoryColor,
+                                        user_id: user?.id,
+                                        type: 'calendar'
+                                      }
+                                    ])
+                                    .select();
+
+                                  if (error) {
+                                    return;
+                                  }
+
+                                  if (data) {
+                                    const newCategory = {
+                                      id: data[0].id,
+                                      name: data[0].label,
+                                      color: data[0].color,
+                                    };
+                                    setCategories(prev => [...prev, newCategory]);
+                                    setSelectedCategory(newCategory);
+                                    setShowAddCategoryForm(false);
+                                    setNewCategoryName('');
+                                    setNewCategoryColor(null);
+                                  }
+                                }
+                              }}
+                              style={styles.modalFormButtonPrimary}
+                            >
+                              <Text style={styles.modalFormButtonTextPrimary}>
+                                Add
                               </Text>
                             </TouchableOpacity>
                           </View>
-                          {showReminderOptions && (
-                            <View style={{
-                              backgroundColor: '#f8f9fa',
-                              borderRadius: 8,
-                              paddingHorizontal: 8,
-                              marginTop: 8,
-                              borderWidth: 1,
-                              borderColor: '#e0e0e0',
-                              maxHeight: 170,
-                            }}>
-                              <ScrollView 
-                                showsVerticalScrollIndicator={false}
-                                contentContainerStyle={{ paddingVertical: 2 }}
-                              >
-                                {REMINDER_OPTIONS.map(opt => (
-                            <TouchableOpacity
-                                    key={opt.value}
-                              onPress={() => {
-                                      setReminderOffset(opt.value);
-                                      setShowReminderOptions(false);
-                              }}
-                              style={{
-                                paddingVertical: 10,
-                                      paddingHorizontal: 6,
-                                      borderRadius: 4,
-                                      backgroundColor: reminderOffset === opt.value ? '#007AFF20' : 'transparent',
-                                      marginBottom: 1,
-                              }}
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Options Card */}
+                  <View style={styles.modalCard}>
+                    <View style={styles.modalGapContainer}>
+                      {/* Reminder */}
+                      <View>
+                        <View style={styles.modalTimeRow}>
+                          <Text style={styles.modalLabel}>
+                            Reminder
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => setShowReminderOptions(prev => !prev)}
+                            style={showReminderOptions ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                          >
+                            <Text style={styles.modalTimeText}>
+                              {reminderOffset === -1 ? 'No reminder' : REMINDER_OPTIONS.find(opt => opt.value === reminderOffset)?.label || 'No reminder'}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                        {showReminderOptions && (
+                          <View style={styles.modalCategoryPicker}>
+                            <ScrollView 
+                              showsVerticalScrollIndicator={false}
+                              contentContainerStyle={{ paddingVertical: 2 }}
                             >
-                              <Text style={{
-                                      fontSize: 14,
-                                      color: '#333',
-                                fontFamily: 'Onest',
-                                      fontWeight: reminderOffset === opt.value ? '600' : '500',
-                                    }}>{opt.label}</Text>
-                            </TouchableOpacity>
-                                ))}
-                              </ScrollView>
+                              {REMINDER_OPTIONS.map(opt => (
+                                <TouchableOpacity
+                                  key={opt.value}
+                                  onPress={() => {
+                                    setReminderOffset(opt.value);
+                                    setShowReminderOptions(false);
+                                  }}
+                                  style={reminderOffset === opt.value ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
+                                >
+                                  <Text style={reminderOffset === opt.value ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
+                                    {opt.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </ScrollView>
                           </View>
                         )}
                       </View>
 
                       {/* Repeat */}
                       <View>
-                        <View style={{ 
-                          flexDirection: 'row', 
-                          alignItems: 'center', 
-                          justifyContent: 'space-between',
-                          marginBottom: 4,
-                        }}>
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: '#333', 
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
+                        <View style={styles.modalTimeRow}>
+                          <Text style={styles.modalLabel}>
                             Repeat
-                              </Text>
-                            <TouchableOpacity
-                              onPress={() => {
+                          </Text>
+                          <TouchableOpacity
+                            onPress={() => {
                               const newRepeatPickerState = !showRepeatPicker;
                               setShowRepeatPicker(newRepeatPickerState);
                               if (newRepeatPickerState) {
@@ -3811,46 +2987,24 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 setShowEndDatePicker(false);
                               }
                             }}
-                            style={{
-                              backgroundColor: '#f8f9fa',
-                              borderRadius: 8,
-                              paddingVertical: 8,
-                              paddingHorizontal: 12,
-                              borderWidth: 1,
-                              borderColor: showRepeatPicker ? '#007AFF' : '#f0f0f0',
-                            }}
+                            style={showRepeatPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                           >
-                            <Text style={{
-                              fontSize: 14,
-                              color: '#333',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.modalTimeText}>
                               {repeatOption === 'None' ? 'Does not repeat' : repeatOption}
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
 
                       {/* End Date (if repeating) */}
-                          {repeatOption !== 'None' && (
+                      {repeatOption !== 'None' && (
                         <View>
-                          <View style={{ 
-                            flexDirection: 'row', 
-                            alignItems: 'center', 
-                            justifyContent: 'space-between',
-                            marginBottom: 4,
-                          }}>
-                            <Text style={{ 
-                              fontSize: 14, 
-                              color: '#333', 
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                          <View style={styles.modalTimeRow}>
+                            <Text style={styles.modalLabel}>
                               End Date
                             </Text>
-                              <TouchableOpacity
-                                onPress={() => {
+                            <TouchableOpacity
+                              onPress={() => {
                                 const newEndDatePickerState = !showEndDatePicker;
                                 setShowEndDatePicker(newEndDatePickerState);
                                 if (newEndDatePickerState) {
@@ -3858,203 +3012,112 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   setShowRepeatPicker(false);
                                 }
                               }}
-                              style={{
-                                backgroundColor: '#f8f9fa',
-                                borderRadius: 8,
-                                paddingVertical: 8,
-                                paddingHorizontal: 12,
-                                borderWidth: 1,
-                                borderColor: showEndDatePicker ? '#007AFF' : '#f0f0f0',
-                              }}
+                              style={showEndDatePicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                             >
-                              <Text style={{
-                                fontSize: 14,
-                                color: '#333',
-                                fontFamily: 'Onest',
-                                fontWeight: '500'
-                              }}>
-                                  {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
-                                    month: 'short', 
-                                    day: 'numeric', 
-                                    year: '2-digit' 
+                              <Text style={styles.modalTimeText}>
+                                {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  year: '2-digit' 
                                 }) : 'No end date'}
-                                </Text>
-                              </TouchableOpacity>
+                              </Text>
+                            </TouchableOpacity>
                           </View>
-                            </View>
-                          )}
                         </View>
+                      )}
+                    </View>
 
                     {/* Picker Components */}
-                        {showReminderPicker && (
-                      <View style={{
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        padding: 12,
-                        marginTop: 8,
-                        borderWidth: 1,
-                        borderColor: '#e0e0e0',
-                      }}>
-                            <DateTimePicker
-                              value={reminderTime || new Date()}
-                              mode="time"
-                              display="spinner"
-                              onChange={(event, selectedTime) => {
-                                if (selectedTime) {
-                                  setReminderTime(selectedTime);
-                                  debouncePickerClose('reminder');
-                                }
-                              }}
+                    {showEndDatePicker && (
+                      <View style={styles.modalPickerContainer}>
+                        <DateTimePicker
+                          value={repeatEndDate || new Date()}
+                          mode="date"
+                          display="spinner"
+                          onChange={(event, selectedDate) => {
+                            if (selectedDate) {
+                              setRepeatEndDate(selectedDate);
+                              debouncePickerClose('endDate');
+                            }
+                          }}
                           style={{ height: 100, width: '100%' }}
-                              textColor="#333"
-                            />
+                          textColor="#333"
+                        />
                       </View>
-                        )}
+                    )}
 
-                        {showEndDatePicker && (
-                      <View style={{
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        paddingHorizontal: 6,
-                        marginTop: 8,
-                      }}>
-                            <DateTimePicker
-                              value={repeatEndDate || new Date()}
-                              mode="date"
-                              display="spinner"
-                              onChange={(event, selectedDate) => {
-                                if (selectedDate) {
-                                  setRepeatEndDate(selectedDate);
-                                  debouncePickerClose('endDate');
-                                }
-                              }}
-                          style={{ height: 100, width: '100%' }}
-                              textColor="#333"
-                            />
-                      </View>
-                        )}
-
-                        {showRepeatPicker && (
-                      <View style={{ 
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        padding: 6,
-                        marginTop: 8,
-                        borderWidth: 1,
-                        borderColor: '#e0e0e0',
-                      }}>
+                    {showRepeatPicker && (
+                      <View style={styles.modalCategoryPicker}>
                         {['Does not repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
-                              <TouchableOpacity 
-                                key={option}
-                                onPress={() => {
-                                  if (option === 'Custom') {
-                                    setRepeatOption('Custom');
-                                    setShowRepeatPicker(false);
+                          <TouchableOpacity 
+                            key={option}
+                            onPress={() => {
+                              if (option === 'Custom') {
+                                setRepeatOption('Custom');
+                                setShowRepeatPicker(false);
                                 setIsEditingEvent(false);
-                                    const currentStartTime = startDateTime;
-                                    const currentEndTime = endDateTime;
-                                    const currentDateStr = getLocalDateString(currentStartTime);
-                                    
-                                    const initialCustomTimes: CustomTimes = {
-                                      default: {
-                                        start: currentStartTime,
-                                        end: currentEndTime,
-                                        reminder: reminderTime,
-                                        repeat: 'None',
-                                        dates: [currentDateStr]
-                                      }
-                                    };
-                                    
-                                    if (!customSelectedDates.includes(currentDateStr)) {
-                                      setCustomSelectedDates([currentDateStr]);
-                                    }
-                                    
-                                    initialCustomTimes[currentDateStr] = {
-                                      start: currentStartTime,
-                                      end: currentEndTime,
-                                      reminder: reminderTime,
-                                      repeat: 'None',
-                                      dates: [currentDateStr]
-                                    };
-                                    
-                                    setCustomDateTimes(initialCustomTimes);
-                                    setShowModal(false);
-                                    setShowCustomDatesPicker(true);
-                                  } else {
-                                setRepeatOption(option === 'Does not repeat' ? 'None' : option as RepeatOption);
-                                    debouncePickerClose('repeat');
+                                const currentStartTime = startDateTime;
+                                const currentEndTime = endDateTime;
+                                const currentDateStr = getLocalDateString(currentStartTime);
+                                
+                                const initialCustomTimes: CustomTimes = {
+                                  default: {
+                                    start: currentStartTime,
+                                    end: currentEndTime,
+                                    reminder: reminderTime,
+                                    repeat: 'None',
+                                    dates: [currentDateStr]
                                   }
-                                }}
-                                style={{
-                              paddingVertical: 8,
-                              paddingHorizontal: 12,
-                              borderRadius: 6,
-                              backgroundColor: (option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? '#007AFF20' : 'transparent',
-                              marginBottom: 2,
-                                }}
-                              >
-                                <Text style={{ 
-                              fontSize: 14, 
-                              color: '#333',
-                                  fontFamily: 'Onest',
-                              fontWeight: (option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? '600' : '500',
-                                }}>
-                                  {option}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
+                                };
+                                
+                                if (!customSelectedDates.includes(currentDateStr)) {
+                                  setCustomSelectedDates([currentDateStr]);
+                                }
+                                
+                                initialCustomTimes[currentDateStr] = {
+                                  start: currentStartTime,
+                                  end: currentEndTime,
+                                  reminder: reminderTime,
+                                  repeat: 'None',
+                                  dates: [currentDateStr]
+                                };
+                                
+                                setCustomDateTimes(initialCustomTimes);
+                                setShowModal(false);
+                                setShowCustomDatesPicker(true);
+                              } else {
+                                setRepeatOption(option === 'Does not repeat' ? 'None' : option as RepeatOption);
+                                debouncePickerClose('repeat');
+                              }
+                            }}
+                            style={(option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
+                          >
+                            <Text style={(option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
+                              {option}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
-                        )}
-                      </View>
+                    )}
+                  </View>
                     </>
                   ) : (
                     <>
                   {/* Custom Event Form */}
-                  <View style={{
-                    backgroundColor: 'white',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginBottom: 12,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 4,
-                    elevation: 1,
-                  }}>
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: '#333',
-                      marginBottom: 8,
-                      fontFamily: 'Onest'
-                    }}>
+                  <View style={styles.modalCard}>
+                    <Text style={styles.modalSectionHeader}>
                       Event Details
                     </Text>
                       <TextInput
-                      style={{
-                        fontSize: 17,
-                        color: '#333',
-                        fontFamily: 'Onest',
-                        fontWeight: '500',
-                        paddingVertical: 8,
-                        borderBottomWidth: 1,
-                        borderBottomColor: '#f0f0f0',
-                        marginBottom: 12,
-                      }}
+                      style={styles.modalInput}
                       placeholder="Event Title"
-                      placeholderTextColor="#3a3a3a"
+                      placeholderTextColor="#888"
                         value={newEventTitle}
                         onChangeText={setNewEventTitle}
                       />
 
                     {/* Category Selection for Custom Events */}
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: '#333',
-                      marginBottom: 8,
-                      fontFamily: 'Onest'
-                    }}>
+                    <Text style={styles.modalSectionHeader}>
                       Category
                     </Text>
                         <TouchableOpacity
@@ -4067,42 +3130,23 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           setNewCategoryColor(null);
                             }
                           }}
-                          style={{
-                        borderRadius: 8,
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                        borderWidth: 1,
-                        borderColor: showCategoryPicker ? '#007AFF' : '#f0f0f0',
-                          }}
+                          style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
                         >
                           {!showCategoryPicker ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={styles.modalRowBetween}>
+                            <View style={styles.modalRow}>
                               {selectedCategory ? (
                                 <>
-                                  <View style={{ 
-                                    width: 8, 
-                                    height: 8, 
-                                    borderRadius: 4, 
-                                    backgroundColor: selectedCategory.color,
-                                    marginRight: 8
-                                  }} />
-                                  <Text style={{ 
-                                  fontSize: 14, 
-                                  color: '#333',
-                                    fontFamily: 'Onest',
-                                    fontWeight: '500'
-                                  }}>
+                                  <View style={[
+                                    styles.modalCategoryDotLarge,
+                                    { backgroundColor: selectedCategory.color }
+                                  ]} />
+                                  <Text style={styles.modalCategoryText}>
                                     {selectedCategory.name}
                           </Text>
                                 </>
                               ) : (
-                                <Text style={{ 
-                                fontSize: 14, 
-                                color: '#999',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
+                                <Text style={styles.modalCategoryPlaceholder}>
                                 Choose category
                                 </Text>
                               )}
@@ -4110,12 +3154,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           <Ionicons name="chevron-down" size={12} color="#999" />
                             </View>
                           ) : (
-                            <View style={{ 
-                              flexDirection: 'row', 
-                              flexWrap: 'wrap', 
-                          justifyContent: 'flex-start',
-                          gap: 6,
-                            }}>
+                            <View style={styles.modalWrapContainer}>
                             {categories.map((cat, idx) => (
                                 <Pressable
                                 key={idx}
@@ -4126,140 +3165,67 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   }}
                                 
                                 >
-                                  <View style={{ 
-                                    width: 6, 
-                                    height: 6, 
-                                    borderRadius: 3, 
-                                    backgroundColor: cat.color,
-                                  }} />
-                                  <Text style={{ 
-                                color: '#333', 
-                                    fontSize: 12, 
-                                    fontFamily: 'Onest',
-                                    fontWeight: selectedCategory?.name === cat.name ? '600' : '500',
-                                  }}>
+                                  <View style={[
+                                    styles.modalCategoryDot,
+                                    { backgroundColor: cat.color }
+                                  ]} />
+                                  <Text style={styles.modalCategoryText}>
                                     {cat.name}
                                   </Text>
                                 </Pressable>
                             ))}
                             <TouchableOpacity
                               onPress={() => setShowAddCategoryForm(true)}
-                              style={{
-                              backgroundColor: '#f8f9fa',
-                              paddingVertical: 6,
-                              paddingHorizontal: 10,
-                              borderRadius: 16,
-                              borderWidth: 1,
-                              borderColor: '#e0e0e0',
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <Ionicons name="add" size={12} color="#666" />
-                            <Text style={{ 
-                              color: '#666', 
-                              fontSize: 12, 
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              New
-                            </Text>
+                              style={styles.modalAddButton}
+                            >
+                              <Ionicons name="add" size={12} color="#666" />
+                              <Text style={styles.modalFormSubtitle}>
+                                New
+                              </Text>
                             </TouchableOpacity>
                         </View>
                       )}
 
                               {showAddCategoryForm && (
-                                <View style={{
-                          backgroundColor: '#f8f9fa',
-                          padding: 12,
-                          borderRadius: 8,
-                                  marginTop: 8,
-                          borderWidth: 1,
-                          borderColor: '#e0e0e0',
-                                }}>
-                                  <Text style={{
-                            fontSize: 14,
-                            color: '#333',
-                                    fontFamily: 'Onest',
-                            fontWeight: '600',
-                                    marginBottom: 8,
-                                  }}>
+                                <View style={styles.modalAddCategoryForm}>
+                                  <Text style={styles.modalFormSectionTitle}>
                                     New Category
                                   </Text>
                                   <TextInput
-                                      style={{
-                                        backgroundColor: 'white',
-                              padding: 8,
-                              borderRadius: 6,
-                              marginBottom: 8,
-                              fontSize: 14,
-                                        fontFamily: 'Onest',
-                              borderWidth: 1,
-                              borderColor: '#e0e0e0',
-                                      }}
+                                      style={styles.modalAddCategoryInput}
                                       placeholder="Category name"
                                       value={newCategoryName}
                                       onChangeText={setNewCategoryName}
                                     />
                                     
                           {/* Color Picker */}
-                                    <Text style={{
-                            fontSize: 12,
-                            color: '#666',
-                                      fontFamily: 'Onest',
-                            fontWeight: '500',
-                            marginBottom: 6,
-                                    }}>
+                                    <Text style={styles.modalFormSubtitle}>
                                       Color
                                     </Text>
-                                    <View style={{
-                                      flexDirection: 'row',
-                                      flexWrap: 'wrap',
-                            gap: 6,
-                                      marginBottom: 12,
-                                    }}>
+                                    <View style={styles.modalColorPicker}>
                                       {CATEGORY_COLORS.map((color) => (
                                         <TouchableOpacity
                                           key={color}
                                           onPress={() => setNewCategoryColor(color)}
-                                          style={{
-                                            width: 24,
-                                            height: 24,
-                                            borderRadius: 12,
-                                            backgroundColor: color,
-                                  borderWidth: newCategoryColor === color ? 2 : 0,
-                                  borderColor: '#333',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                }}
-                              >
-                                {newCategoryColor === color && (
-                                  <Ionicons name="checkmark" size={12} color="white" />
+                                          style={newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption}
+                                        >
+                                          {newCategoryColor === color && (
+                                            <Ionicons name="checkmark" size={12} color="white" />
                                           )}
                                         </TouchableOpacity>
                                       ))}
                                     </View>
 
-                          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
+                          <View style={styles.modalFormActions}>
                                       <TouchableOpacity
                                         onPress={() => {
                                           setShowAddCategoryForm(false);
                                           setNewCategoryName('');
                                 setNewCategoryColor(null);
                                         }}
-                                        style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 12,
-                                borderRadius: 6,
-                                        }}
+                                        style={styles.modalFormButton}
                                       >
-                                        <Text style={{
-                                          color: '#666',
-                                fontSize: 14,
-                                          fontFamily: 'Onest',
-                                fontWeight: '500',
-                                        }}>
+                                        <Text style={styles.modalFormButtonText}>
                                           Cancel
                                         </Text>
                                       </TouchableOpacity>
@@ -4279,7 +3245,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                               .select();
 
                                             if (error) {
-                                              console.error('Error creating category:', error);
+                                              
                                               return;
                                             }
 
@@ -4297,19 +3263,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                             }
                                           }
                                         }}
-                                        style={{
-                                backgroundColor: '#007AFF',
-                                          paddingVertical: 6,
-                                          paddingHorizontal: 12,
-                                borderRadius: 6,
-                                        }}
+                                        style={styles.modalFormButtonPrimary}
                                       >
-                                        <Text style={{
-                                          color: 'white',
-                                fontSize: 14,
-                                          fontFamily: 'Onest',
-                                          fontWeight: '600',
-                                        }}>
+                                        <Text style={styles.modalFormButtonTextPrimary}>
                                           Add
                                         </Text>
                                       </TouchableOpacity>
@@ -4351,44 +3307,29 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     setEditingEvent(null);
                     setSelectedEvent(null);
                   }}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
+                  style={styles.modalHeaderButton}
                 >
                   <Ionicons name="close" size={16} color="#666" />
-                        </TouchableOpacity>
+                </TouchableOpacity>
                 
-                <Text style={{ 
-                  fontSize: 16, 
-                  fontWeight: '600', 
-                  color: '#333',
-                  fontFamily: 'Onest'
-                }}>
+                <Text style={styles.modalHeaderTitle}>
                   Edit Event
                 </Text>
                 
-                      <TouchableOpacity 
+                <TouchableOpacity 
                   onPress={() => handleEditEvent()}
                   disabled={!editedEventTitle.trim()}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    backgroundColor: editedEventTitle.trim() ? '#007AFF' : '#ffffff',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
+                  style={[
+                    styles.modalHeaderButton,
+                    { backgroundColor: editedEventTitle.trim() ? '#007AFF' : '#ffffff' }
+                  ]}
                 >
                   <Ionicons 
                     name="checkmark" 
                     size={16} 
                     color={editedEventTitle.trim() ? 'white' : '#999'} 
                   />
-                      </TouchableOpacity>
+                </TouchableOpacity>
                     </View>
 
               {/* Edit Content */}
@@ -4399,25 +3340,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 showsVerticalScrollIndicator={false}
               >
                 {/* Event Title Card */}
-                <View style={{
-                  backgroundColor: 'white',
-                  borderRadius: 12,
-                  padding: 16,
-                  marginBottom: 18,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.05,
-                  shadowRadius: 4,
-                  elevation: 1,
-                }}>
+                <View style={styles.modalCard}>
                     <TextInput
-                    style={{
-                      fontSize: 17,
-                      color: '#333',
-                      fontFamily: 'Onest',
-                      fontWeight: '500',
-                      marginBottom: 5,
-                    }}
+                    style={styles.modalInput}
                     placeholder="Event Title"
                     placeholderTextColor="#888"
                       value={editedEventTitle}
@@ -4425,16 +3350,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     />
 
                     <TextInput
-                    style={{
-                      fontSize: 13,
-                      color: '#666',
-                      fontFamily: 'Onest',
-                      fontWeight: '400',
-                      marginTop: 5,
-                      paddingVertical: 2,
-                      paddingHorizontal: 0,
-                      textAlignVertical: 'top',
-                    }}
+                    style={styles.modalInputDescription}
                     placeholder="Description"
                     placeholderTextColor="#999"
                       value={editedEventDescription}
@@ -4444,49 +3360,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   />
 
                   <TextInput
-                            style={{
-                      fontSize: 13,
-                      color: '#666',
-                      fontFamily: 'Onest',
-                      fontWeight: '400',
-                      marginTop: 8,
-                      paddingVertical: 2,
-                      paddingHorizontal: 0,
-                    }}
-                    placeholder="Location"
-                    placeholderTextColor="#999"
-                    value={editedEventLocation}
-                    onChangeText={setEditedEventLocation}
-                  />
+                            style={styles.modalInputLocation}
+                            placeholder="Location"
+                            placeholderTextColor="#999"
+                            value={editedEventLocation}
+                            onChangeText={setEditedEventLocation}
+                          />
                 </View>
 
                 {/* Time & Date Card */}
-                <View style={{
-                  backgroundColor: 'white',
-                              borderRadius: 12,
-                  padding: 16,
-                  marginBottom: 18,
-                              shadowColor: '#000',
-                              shadowOffset: { width: 0, height: 1 },
-                              shadowOpacity: 0.05,
-                  shadowRadius: 4,
-                              elevation: 1,
-                }}>
+                <View style={styles.modalCard}>
                   {/* All Day Toggle */}
-                              <View style={{ 
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginTop: -5,
-                    marginBottom: 12,
-                    paddingVertical: 0,
-                  }}>
-                                    <Text style={{ 
-                      fontSize: 14, 
-                      color: '#333', 
-                                      fontFamily: 'Onest',
-                                      fontWeight: '500'
-                                    }}>
+                              <View style={styles.modalToggleRow}>
+                                    <Text style={styles.modalLabel}>
                       All-day event
                                     </Text>
                     <View style={{ transform: [{ scale: 0.8 }] }}>
@@ -4500,20 +3386,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   </View>
 
                   {/* Start & End Time */}
-                  <View style={{ gap: 8 }}>
+                  <View style={styles.modalGapContainer}>
                     <View>
-                                    <View style={{
-                                      flexDirection: 'row',
-                        alignItems: 'center', 
-                        justifyContent: 'space-between',
-                        marginBottom: 0,
-                      }}>
-                                        <Text style={{
-                          fontSize: 14, 
-                          color: '#333', 
-                                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                                        }}>
+                                    <View style={styles.modalTimeRow}>
+                                        <Text style={styles.modalLabel}>
                           Starts
                                         </Text>
                                       <TouchableOpacity
@@ -4525,21 +3401,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               setShowEndPicker(false);
                                           }
                                         }}
-                                        style={{
-                            backgroundColor: '#f8f9fa',
-                                          borderRadius: 8,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderWidth: 1,
-                            borderColor: showStartPicker ? '#007AFF' : '#f0f0f0',
-                                        }}
+                                        style={showStartPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                                       >
-                                        <Text style={{
-                            fontSize: 14,
-                            color: '#333',
-                                          fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
+                                        <Text style={styles.modalTimeText}>
                               {editedStartDateTime.toLocaleString([], {
                                 month: 'short',
                                 day: 'numeric',
@@ -4555,18 +3419,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         </View>
 
                     <View>
-                      <View style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        marginBottom: 0,
-                      }}>
-                        <Text style={{ 
-                          fontSize: 14, 
-                          color: '#333', 
-                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                        }}>
+                      <View style={styles.modalTimeRow}>
+                        <Text style={styles.modalLabel}>
                           Ends
                         </Text>
                           <TouchableOpacity
@@ -4578,21 +3432,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 setShowStartPicker(false);
                               }
                             }}
-                          style={{
-                            backgroundColor: '#f8f9fa',
-                            borderRadius: 8,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderWidth: 1,
-                            borderColor: showEndPicker ? '#007AFF' : '#f0f0f0',
-                          }}
+                          style={showEndPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                         >
-                          <Text style={{
-                            fontSize: 14,
-                            color: '#333',
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
+                          <Text style={styles.modalTimeText}>
                               {editedEndDateTime.toLocaleString([], {
                                 month: 'short',
                                 day: 'numeric',
@@ -4610,12 +3452,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
                       {/* Date/Time Picker */}
                       {(showStartPicker || showEndPicker) && (
-                    <View style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: 8,
-                      paddingHorizontal: 6,
-                      marginTop: 10,
-                    }}>
+                    <View style={styles.modalPickerContainer}>
                           <DateTimePicker
                             value={showStartPicker ? editedStartDateTime : editedEndDateTime}
                             mode={isEditedAllDay ? "date" : "datetime"}
@@ -4644,347 +3481,186 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       </View>
 
                 {/* Category Card */}
-                <View style={{
-                  backgroundColor: 'white',
-                          borderRadius: 12,
-                  padding: 16,
-                  marginBottom: 18,
-                          shadowColor: '#000',
-                          shadowOffset: { width: 0, height: 1 },
-                          shadowOpacity: 0.05,
-                  shadowRadius: 4,
-                          elevation: 1,
-                        }}>
-                               <Text style={{ 
-                    fontSize: 14,
-                    fontWeight: '600',
-                    color: '#333',
-                    marginBottom: 12,
-                    fontFamily: 'Onest'
-                  }}>
+                <View style={styles.modalCard}>
+                  <Text style={styles.modalSectionHeader}>
                     Category
-                                </Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            Keyboard.dismiss();
-                            setShowCategoryPicker(prev => !prev);
-                            if (showCategoryPicker) {
-                              setShowAddCategoryForm(false);
-                              setNewCategoryName('');
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setShowCategoryPicker(prev => !prev);
+                      if (showCategoryPicker) {
+                        setShowAddCategoryForm(false);
+                        setNewCategoryName('');
                         setNewCategoryColor(null);
-                            }
-                          }}
-                          style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: 8,
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                      borderWidth: 1,
-                      borderColor: showCategoryPicker ? '#007AFF' : '#f0f0f0',
-                          }}
-                        >
-                          {!showCategoryPicker ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      }
+                    }}
+                    style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
+                  >
+                    {!showCategoryPicker ? (
+                      <View style={styles.modalRowBetween}>
+                        <View style={styles.modalRow}>
                           {editedSelectedCategory ? (
-                                <>
-                                  <View style={{ 
-                                    width: 8, 
-                                    height: 8, 
-                                    borderRadius: 4, 
-                                backgroundColor: editedSelectedCategory.color,
-                                    marginRight: 8
-                                  }} />
-                                  <Text style={{ 
-                                fontSize: 14, 
-                                color: '#333',
-                                    fontFamily: 'Onest',
-                                    fontWeight: '500'
-                                  }}>
+                            <>
+                              <View style={[
+                                styles.modalCategoryDotLarge,
+                                { backgroundColor: editedSelectedCategory.color }
+                              ]} />
+                              <Text style={styles.modalCategoryText}>
                                 {editedSelectedCategory.name}
-                          </Text>
-                                </>
-                              ) : (
-                                <Text style={{ 
-                              fontSize: 14, 
-                              color: '#999',
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={styles.modalCategoryPlaceholder}>
                               Choose category
-                                </Text>
-                              )}
+                            </Text>
+                          )}
                         </View>
                         <Ionicons name="chevron-down" size={12} color="#999" />
-                            </View>
-                          ) : (
-                            <View style={{ 
-                              flexDirection: 'row', 
-                              flexWrap: 'wrap', 
-                        justifyContent: 'flex-start',
-                        gap: 6,
-                            }}>
-                            {categories.map((cat, idx) => (
-                                <Pressable
-                                key={idx}
-                                onPress={() => {
+                      </View>
+                    ) : (
+                      <View style={styles.modalWrapContainer}>
+                        {categories.map((cat, idx) => (
+                          <Pressable
+                            key={idx}
+                            onPress={() => {
                               setEditedSelectedCategory(cat);
-                                  setShowCategoryPicker(false);
-                                    setShowAddCategoryForm(false);
-                                  }}
-                                onLongPress={() => handleCategoryLongPress(cat)}
-                                  style={({ pressed }) => ({
-                              backgroundColor: editedSelectedCategory?.name === cat.name ? cat.color + '20' : '#f8f9fa',
-                              paddingVertical: 6,
-                              paddingHorizontal: 10,
-                              borderRadius: 16,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                              gap: 4,
-                                  })}
-                                >
-                                  <View style={{ 
-                                    width: 6, 
-                                    height: 6, 
-                                    borderRadius: 3, 
-                                    backgroundColor: cat.color,
-                                  }} />
-                                  <Text style={{ 
-                              color: '#333', 
-                                    fontSize: 12, 
-                                    fontFamily: 'Onest',
-                              fontWeight: editedSelectedCategory?.name === cat.name ? '600' : '500',
-                                  }}>
-                                    {cat.name}
-                                  </Text>
-                                </Pressable>
-                            ))}
-                            <TouchableOpacity
-                              onPress={() => setShowAddCategoryForm(true)}
-                              style={{
-                            backgroundColor: '#f8f9fa',
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                            borderRadius: 16,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                            gap: 4,
-                              }}
-                            >
+                              setShowCategoryPicker(false);
+                              setShowAddCategoryForm(false);
+                            }}
+                            onLongPress={() => handleCategoryLongPress(cat)}
+                            style={[
+                              editedSelectedCategory?.name === cat.name ? styles.modalCategoryChipSelected : styles.modalCategoryChip,
+                              { backgroundColor: editedSelectedCategory?.name === cat.name ? cat.color + '20' : '#f8f9fa' }
+                            ]}
+                          >
+                            <View style={[
+                              styles.modalCategoryDot,
+                              { backgroundColor: cat.color }
+                            ]} />
+                            <Text style={editedSelectedCategory?.name === cat.name ? styles.modalCategoryChipTextSelected : styles.modalCategoryChipText}>
+                              {cat.name}
+                            </Text>
+                          </Pressable>
+                        ))}
+                        <TouchableOpacity
+                          onPress={() => setShowAddCategoryForm(true)}
+                          style={styles.modalAddButton}
+                        >
                           <Ionicons name="add" size={12} color="#666" />
-                            </TouchableOpacity>
+                        </TouchableOpacity>
                       </View>
                     )}
 
-                              {showAddCategoryForm && (
-                                <View style={{
-                        backgroundColor: '#f8f9fa',
-                        padding: 12,
-                        borderRadius: 8,
-                                  marginTop: 8,
-                                }}>
-                                  <Text style={{
-                          fontSize: 14,
-                          color: '#333',
-                                    fontFamily: 'Onest',
-                          fontWeight: '600',
-                                    marginBottom: 8,
-                                  }}>
-                                    New Category
-                                  </Text>
-                                  <TextInput
-                                    style={{
-                                      backgroundColor: 'white',
-                            padding: 8,
-                            borderRadius: 6,
-                            marginBottom: 8,
-                            fontSize: 14,
-                                      fontFamily: 'Onest',
-                            borderWidth: 1,
-                            borderColor: '#e0e0e0',
-                                    }}
-                                    placeholder="Category name"
-                                    value={newCategoryName}
-                                    onChangeText={setNewCategoryName}
-                                  />
-                                  
+                    {showAddCategoryForm && (
+                      <View style={styles.modalAddCategoryForm}>
+                        <Text style={styles.modalFormSectionTitle}>
+                          New Category
+                        </Text>
+                        <TextInput
+                          style={styles.modalAddCategoryInput}
+                          placeholder="Category name"
+                          value={newCategoryName}
+                          onChangeText={setNewCategoryName}
+                        />
+                        
                         {/* Color Picker */}
-                                  <Text style={{
-                          fontSize: 12,
-                          color: '#666',
-                                      fontFamily: 'Onest',
-                          fontWeight: '500',
-                          marginBottom: 6,
-                                    }}>
-                                    Color
-                                  </Text>
-                                    <View style={{
-                                      flexDirection: 'row',
-                                      flexWrap: 'wrap',
-                            gap: 6,
-                                      marginBottom: 12,
-                                    }}>
-                                      {CATEGORY_COLORS.map((color) => (
-                                        <TouchableOpacity
-                                          key={color}
-                                          onPress={() => setNewCategoryColor(color)}
-                                          style={{
-                                            width: 24,
-                                            height: 24,
-                                            borderRadius: 12,
-                                            backgroundColor: color,
-                                borderWidth: newCategoryColor === color ? 2 : 0,
-                                borderColor: '#333',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                              }}
+                        <Text style={styles.modalFormSubtitle}>
+                          Color
+                        </Text>
+                        <View style={styles.modalColorPicker}>
+                          {CATEGORY_COLORS.map((color) => (
+                            <TouchableOpacity
+                              key={color}
+                              onPress={() => setNewCategoryColor(color)}
+                              style={newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption}
                             >
                               {newCategoryColor === color && (
                                 <Ionicons name="checkmark" size={12} color="white" />
-                                          )}
-                                        </TouchableOpacity>
-                                      ))}
-                                    </View>
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
 
-                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
-                                      <TouchableOpacity
-                                        onPress={() => {
-                                          setShowAddCategoryForm(false);
-                                          setNewCategoryName('');
+                        <View style={styles.modalFormActions}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setShowAddCategoryForm(false);
+                              setNewCategoryName('');
                               setNewCategoryColor(null);
-                                        }}
-                                        style={{
-                                paddingVertical: 6,
-                                paddingHorizontal: 12,
-                                borderRadius: 6,
-                                        }}
-                                      >
-                                        <Text style={{
-                                          color: '#666',
-                                fontSize: 14,
-                                          fontFamily: 'Onest',
-                                fontWeight: '500',
-                                        }}>
-                                          Cancel
-                                        </Text>
-                                      </TouchableOpacity>
-                                      <TouchableOpacity
-                                        onPress={async () => {
-                                          if (newCategoryName.trim()) {
-                                            const { data, error } = await supabase
-                                              .from('categories')
-                                              .insert([
-                                                {
-                                                  label: newCategoryName.trim(),
-                                                  color: newCategoryColor,
-                                                  user_id: user?.id,
+                            }}
+                            style={styles.modalFormButton}
+                          >
+                            <Text style={styles.modalFormButtonText}>
+                              Cancel
+                            </Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              if (newCategoryName.trim()) {
+                                const { data, error } = await supabase
+                                  .from('categories')
+                                  .insert([
+                                    {
+                                      label: newCategoryName.trim(),
+                                      color: newCategoryColor,
+                                      user_id: user?.id,
                                       type: 'calendar'
-                                                }
-                                              ])
-                                              .select();
+                                    }
+                                  ])
+                                  .select();
 
-                                            if (error) {
-                                              console.error('Error creating category:', error);
-                                              return;
-                                            }
+                                if (error) {
+                                  return;
+                                }
 
-                                            if (data) {
-                                              const newCategory = {
-                                                id: data[0].id,
-                                                name: data[0].label,
-                                                color: data[0].color,
-                                              };
-                                              setCategories(prev => [...prev, newCategory]);
+                                if (data) {
+                                  const newCategory = {
+                                    id: data[0].id,
+                                    name: data[0].label,
+                                    color: data[0].color,
+                                  };
+                                  setCategories(prev => [...prev, newCategory]);
                                   setEditedSelectedCategory(newCategory);
-                                              setShowAddCategoryForm(false);
-                                              setNewCategoryName('');
-                                              setNewCategoryColor(null);
-                                            }
-                                          }
-                                        }}
-                                        style={{
-                              backgroundColor: '#007AFF',
-                                          paddingVertical: 6,
-                                          paddingHorizontal: 12,
-                              borderRadius: 6,
-                                        }}
-                                      >
-                                        <Text style={{
-                                          color: 'white',
-                                fontSize: 14,
-                                          fontFamily: 'Onest',
-                                          fontWeight: '600',
-                                        }}>
-                                          Add
-                                        </Text>
-                                      </TouchableOpacity>
-                                    </View>
-                              </View>
-                            )}
-                        </TouchableOpacity>
+                                  setShowAddCategoryForm(false);
+                                  setNewCategoryName('');
+                                  setNewCategoryColor(null);
+                                }
+                              }
+                            }}
+                            style={styles.modalFormButtonPrimary}
+                          >
+                            <Text style={styles.modalFormButtonTextPrimary}>
+                              Add
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
 
                 {/* Options Card */}
-                <View style={{
-                  backgroundColor: 'white',
-                  borderRadius: 12,
-                  padding: 16,
-                  marginBottom: 18,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.05,
-                  shadowRadius: 4,
-                  elevation: 1,
-                }}>
+                <View style={styles.modalCard}>
                   
-                  <View style={{ gap: 8 }}>
+                  <View style={styles.modalGapContainer}>
                     {/* Reminder */}
                     <View>
-                      <View style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between',
-                        marginBottom: 4,
-                      }}>
-                        <Text style={{ 
-                          fontSize: 14, 
-                          color: '#333', 
-                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                        }}>
+                      <View style={styles.modalTimeRow}>
+                        <Text style={styles.modalLabel}>
                           Reminder
                         </Text>
                         <TouchableOpacity
                           onPress={() => setShowReminderOptions(prev => !prev)}
-                          style={{
-                            backgroundColor: '#f8f9fa',
-                            borderRadius: 8,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderWidth: 1,
-                            borderColor: showReminderOptions ? '#007AFF' : '#f0f0f0',
-                          }}
+                          style={showReminderOptions ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                         >
-                          <Text style={{
-                            fontSize: 14,
-                            color: '#333',
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
+                          <Text style={styles.modalTimeText}>
                             {editedReminderTime ? editedReminderTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }) : 'No reminder'}
                           </Text>
                         </TouchableOpacity>
                       </View>
                       {showReminderOptions && (
-                        <View style={{
-                          backgroundColor: '#f8f9fa',
-                          borderRadius: 8,
-                          paddingHorizontal: 8,
-                          marginTop: 8,
-                          borderWidth: 1,
-                          borderColor: '#e0e0e0',
-                          maxHeight: 170,
-                        }}>
+                        <View style={styles.modalCategoryPicker}>
                           <ScrollView 
                             showsVerticalScrollIndicator={false}
                             contentContainerStyle={{ paddingVertical: 2 }}
@@ -5002,20 +3678,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   }
                                   setShowReminderOptions(false);
                                 }}
-                                style={{
-                                  paddingVertical: 10,
-                                  paddingHorizontal: 6,
-                                  borderRadius: 4,
-                                  backgroundColor: (editedReminderTime && opt.value !== -1) ? '#007AFF20' : 'transparent',
-                                  marginBottom: 1,
-                                }}
+                                style={reminderOffset === opt.value ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
                               >
-                                <Text style={{
-                                  fontSize: 14,
-                                  color: '#333',
-                                  fontFamily: 'Onest',
-                                  fontWeight: (editedReminderTime && opt.value !== -1) ? '600' : '500',
-                                }}>{opt.label}</Text>
+                                <Text style={reminderOffset === opt.value ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
+                                  {opt.label}
+                                </Text>
                               </TouchableOpacity>
                             ))}
                           </ScrollView>
@@ -5025,18 +3692,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
                     {/* Repeat */}
                     <View>
-                      <View style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between',
-                        marginBottom: 4,
-                      }}>
-                        <Text style={{ 
-                          fontSize: 14, 
-                          color: '#333', 
-                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                        }}>
+                      <View style={styles.modalTimeRow}>
+                        <Text style={styles.modalLabel}>
                           Repeat
                         </Text>
                         <TouchableOpacity
@@ -5048,21 +3705,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               setShowEndDatePicker(false);
                             }
                           }}
-                          style={{
-                            backgroundColor: '#f8f9fa',
-                            borderRadius: 8,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderWidth: 1,
-                            borderColor: showRepeatPicker ? '#007AFF' : '#f0f0f0',
-                          }}
+                          style={showRepeatPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                         >
-                            <Text style={{ 
-                            fontSize: 14,
-                            color: '#333',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.modalTimeText}>
                             {editedRepeatOption === 'None' ? 'Does not repeat' : editedRepeatOption}
                             </Text>
                         </TouchableOpacity>
@@ -5072,18 +3717,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     {/* End Date (if repeating) */}
                     {editedRepeatOption !== 'None' && (
                       <View>
-                        <View style={{ 
-                          flexDirection: 'row', 
-                          alignItems: 'center', 
-                          justifyContent: 'space-between',
-                          marginBottom: 4,
-                        }}>
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: '#333', 
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
+                        <View style={styles.modalTimeRow}>
+                          <Text style={styles.modalLabel}>
                             End Date
                           </Text>
                       <TouchableOpacity
@@ -5095,21 +3730,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 setShowRepeatPicker(false);
                               }
                             }}
-                            style={{
-                              backgroundColor: '#f8f9fa',
-                              borderRadius: 8,
-                              paddingVertical: 8,
-                              paddingHorizontal: 12,
-                              borderWidth: 1,
-                              borderColor: showEndDatePicker ? '#007AFF' : '#f0f0f0',
-                            }}
+                            style={showEndDatePicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                           >
-                            <Text style={{
-                              fontSize: 14,
-                              color: '#333',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
+                            <Text style={styles.modalTimeText}>
                               {editedRepeatEndDate ? editedRepeatEndDate.toLocaleDateString([], { 
                                 month: 'short', 
                                 day: 'numeric', 
@@ -5124,49 +3747,26 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
                   {/* Picker Components */}
                   {showRepeatPicker && (
-                    <View style={{ 
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: 8,
-                      padding: 6,
-                      marginTop: 8,
-                      borderWidth: 1,
-                      borderColor: '#e0e0e0',
-                    }}>
+                    <View style={styles.modalCategoryPicker}>
                       {['Does not repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly'].map((option) => (
-                      <TouchableOpacity
-                          key={option}
-                          onPress={() => {
-                            setEditedRepeatOption(option === 'Does not repeat' ? 'None' : option as RepeatOption);
-                            debouncePickerClose('repeat');
-                          }}
-                          style={{
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderRadius: 6,
-                            backgroundColor: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '#007AFF20' : 'transparent',
-                            marginBottom: 2,
-                          }}
-                        >
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: '#333',
-                            fontFamily: 'Onest',
-                            fontWeight: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '600' : '500',
-                          }}>
-                            {option}
-                          </Text>
+                      <TouchableOpacity 
+                        key={option}
+                        onPress={() => {
+                          setEditedRepeatOption(option === 'Does not repeat' ? 'None' : option as RepeatOption);
+                          debouncePickerClose('repeat');
+                        }}
+                        style={(option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
+                      >
+                        <Text style={(option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
+                          {option}
+                        </Text>
                       </TouchableOpacity>
                       ))}
                     </View>
                   )}
 
                   {showEndDatePicker && (
-                    <View style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: 8,
-                      paddingHorizontal: 6,
-                      marginTop: 8,
-                    }}>
+                    <View style={styles.modalPickerContainer}>
                       <DateTimePicker
                         value={editedRepeatEndDate || new Date()}
                         mode="date"
@@ -5194,25 +3794,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         setSelectedEvent(null);
                         setEditingEvent(null);
                       } catch (error) {
-                        console.error('Error deleting event:', error);
+                        
                         Alert.alert('Error', 'Failed to delete event. Please try again.');
                       }
                     }
                   }}
-                  style={{
-                    backgroundColor: '#FF6B6B',
-                    paddingVertical: 12,
-                    borderRadius: 12,
-                    alignItems: 'center',
-                    marginTop: 20,
-                  }}
+                  style={styles.modalDeleteButton}
                 >
-                  <Text style={{
-                    color: 'white',
-                    fontSize: 16,
-                    fontFamily: 'Onest',
-                    fontWeight: '600',
-                  }}>
+                  <Text style={styles.modalDeleteButtonText}>
                     Delete Event
                   </Text>
                 </TouchableOpacity>
@@ -5220,7 +3809,209 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             </View>
           </SafeAreaView>
         </Modal>
+
+              {/* Photo Viewer Modal with Zoom/Pan */}
+      <Modal
+        visible={showPhotoViewer}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowPhotoViewer(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0,0,0,0.95)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          {/* Top Bar with Close and Delete */}
+          <View style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 20,
+            paddingTop: 60,
+            paddingBottom: 20,
+            zIndex: 10,
+            backgroundColor: 'rgba(0,0,0,0.3)',
+          }}>
+            <TouchableOpacity
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                borderRadius: 25,
+                padding: 12,
+                backdropFilter: 'blur(10px)',
+              }}
+              onPress={() => setShowPhotoViewer(false)}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity
+              style={{
+                backgroundColor: 'rgba(255,59,48,0.8)',
+                borderRadius: 25,
+                padding: 12,
+                backdropFilter: 'blur(10px)',
+              }}
+              onPress={() => {
+                if (selectedPhotoForViewing) {
+                  Alert.alert(
+                    'Delete Photo',
+                    'Are you sure you want to delete this photo?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { 
+                        text: 'Delete', 
+                        style: 'destructive',
+                        onPress: () => {
+                          removeEventPhoto(selectedPhotoForViewing.event.id, selectedPhotoForViewing.photoUrl);
+                          setShowPhotoViewer(false);
+                        }
+                      }
+                    ]
+                  );
+                }
+              }}
+            >
+              <Ionicons name="trash" size={20} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          
+          
+          
+          {/* Photo Counter */}
+          {selectedPhotoForViewing?.event.photos && selectedPhotoForViewing.event.photos.length > 1 && (
+            <View style={{
+              position: 'absolute',
+              bottom: 50,
+              left: 0,
+              right: 0,
+              alignItems: 'center',
+              zIndex: 10,
+            }}>
+              <View style={{
+                backgroundColor: 'rgba(255,255,255,0.2)',
+                borderRadius: 20,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                backdropFilter: 'blur(10px)',
+              }}>
+                <Text style={{ 
+                  color: '#fff', 
+                  fontSize: 14, 
+                  fontWeight: '600',
+                  letterSpacing: 0.5,
+                }}>
+                  {selectedPhotoForViewing.event.photos!.indexOf(selectedPhotoForViewing.photoUrl) + 1} of {selectedPhotoForViewing.event.photos!.length}
+                </Text>
+              </View>
+            </View>
+          )}
+          
+          {/* Photo Gallery Thumbnails */}
+          {selectedPhotoForViewing?.event.photos && selectedPhotoForViewing.event.photos.length > 1 && (
+            <View style={{
+              position: 'absolute',
+              bottom: 120,
+              left: 0,
+              right: 0,
+              alignItems: 'center',
+              zIndex: 10,
+            }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: 20,
+                  alignItems: 'center',
+                }}
+                style={{
+                  maxWidth: '100%',
+                }}
+              >
+                {selectedPhotoForViewing.event.photos.map((photoUrl, index) => {
+                  const isSelected = photoUrl === selectedPhotoForViewing.photoUrl;
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => {
+                        setSelectedPhotoForViewing({
+                          event: selectedPhotoForViewing.event,
+                          photoUrl: photoUrl
+                        });
+                      }}
+                      style={{
+                        width: 50,
+                        height: 50,
+                        borderRadius: 8,
+                        marginHorizontal: 4,
+                        overflow: 'hidden',
+                        borderWidth: isSelected ? 3 : 1,
+                        borderColor: isSelected ? '#fff' : 'rgba(255,255,255,0.3)',
+                        backgroundColor: 'rgba(255,255,255,0.1)',
+                        backdropFilter: 'blur(10px)',
+                      }}
+                    >
+                      <Image
+                        source={{ uri: photoUrl }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          resizeMode: 'cover',
+                        }}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+          
+          {/* Main Photo Display */}
+          {selectedPhotoForViewing?.event?.photos && selectedPhotoForViewing.event.photos.length > 0 && (
+            <FlatList
+              data={selectedPhotoForViewing.event.photos}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              keyExtractor={(item, idx) => item + idx}
+              initialScrollIndex={selectedPhotoForViewing.event.photos.indexOf(selectedPhotoForViewing.photoUrl)}
+              getItemLayout={(_, index) => ({ length: Dimensions.get('window').width, offset: Dimensions.get('window').width * index, index })}
+              onMomentumScrollEnd={e => {
+                const width = e.nativeEvent.layoutMeasurement.width;
+                const index = Math.round(e.nativeEvent.contentOffset.x / width);
+                const photoUrl = selectedPhotoForViewing.event.photos?.[index];
+                if (photoUrl && photoUrl !== selectedPhotoForViewing.photoUrl) {
+                  setSelectedPhotoForViewing({
+                    event: selectedPhotoForViewing.event,
+                    photoUrl,
+                  });
+                }
+              }}
+              renderItem={({ item }) => (
+                <View style={{ width: Dimensions.get('window').width, height: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                  <Image
+                    source={{ uri: item }}
+                    style={{
+                      width: '90%',
+                      height: '70%',
+                      resizeMode: 'contain',
+                      borderRadius: 16,
+                    }}
+                  />
+                </View>
+              )}
+              style={{ width: Dimensions.get('window').width, height: '100%' }}
+            />
+          )}
+        </View>
+      </Modal>
       </>
+      
     );
   };
   
