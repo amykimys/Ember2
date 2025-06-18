@@ -58,7 +58,7 @@ export const calendarStyles = StyleSheet.create({
     textAlign: 'center',
     color: '#333',
     paddingBottom: 4,
-    fontSize: 14,
+    fontSize: 12,
     fontFamily: 'Onest',
   },
   grid: {

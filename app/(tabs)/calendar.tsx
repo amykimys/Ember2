@@ -267,6 +267,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ event: CalendarEvent; photoUrl: string } | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
+  // Add ref for Swipeable components
+  const swipeableRefs = useRef<{ [key: string]: any }>({});
+  
   const autoCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Add these refs for debouncing
@@ -1970,6 +1973,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             text1: 'Photo added successfully',
             position: 'bottom',
           });
+          
+          // Close the Swipeable component after adding photo
+          if (eventId && swipeableRefs.current[eventId]) {
+            setTimeout(() => {
+              swipeableRefs.current[eventId].close();
+            }, 100);
+          }
         } catch (error) {
           Alert.alert('Error', 'Failed to upload photo. Please try again.');
         } finally {
@@ -2018,6 +2028,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         });
         return updated;
       });
+      
+      // Close the Swipeable component after updating photo
+      if (swipeableRefs.current[eventId]) {
+        setTimeout(() => {
+          swipeableRefs.current[eventId].close();
+        }, 100);
+      }
       
       // Refresh events to ensure UI is updated
       setTimeout(() => {
@@ -2076,6 +2093,80 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         });
         return updated;
       });
+      
+      Toast.show({
+        type: 'success',
+        text1: 'Photo removed successfully',
+        position: 'bottom',
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Failed to remove photo. Please try again.');
+    }
+  };
+
+  // Custom delete function for photo viewer modal
+  const handlePhotoViewerDelete = async (eventId: string, photoUrlToRemove: string) => {
+    try {
+      // Get the current event to see existing photos
+      const { data: currentEvent, error: fetchError } = await supabase
+        .from('events')
+        .select('photos')
+        .eq('id', eventId)
+        .single();
+
+      if (fetchError) {
+        throw fetchError;
+      }
+
+      // Remove the specific photo from the array
+      const currentPhotos = currentEvent?.photos || [];
+      const updatedPhotos = currentPhotos.filter((photo: string) => photo !== photoUrlToRemove);
+
+      const { error } = await supabase
+        .from('events')
+        .update({ photos: updatedPhotos })
+        .eq('id', eventId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Update local state
+      setEvents(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(date => {
+          updated[date] = updated[date].map(event => 
+            event.id === eventId ? { ...event, photos: updatedPhotos } : event
+          );
+        });
+        return updated;
+      });
+
+      // Update the selected photo for viewing
+      if (selectedPhotoForViewing) {
+        const currentIndex = currentPhotos.indexOf(photoUrlToRemove);
+
+        if (updatedPhotos.length > 0) {
+          // If there are remaining photos, select the next one
+          let newPhotoUrl: string;
+          if (currentIndex >= updatedPhotos.length) {
+            // If we deleted the last photo, select the new last photo
+            newPhotoUrl = updatedPhotos[updatedPhotos.length - 1];
+          } else {
+            // Select the photo at the same index (or the last one if index is out of bounds)
+            newPhotoUrl = updatedPhotos[Math.min(currentIndex, updatedPhotos.length - 1)];
+          }
+
+          // Update the selected photo
+          setSelectedPhotoForViewing({
+            event: { ...selectedPhotoForViewing.event, photos: updatedPhotos },
+            photoUrl: newPhotoUrl
+          });
+        } else {
+          // No photos left, close the modal
+          setShowPhotoViewer(false);
+        }
+      }
       
       Toast.show({
         type: 'success',
@@ -2207,6 +2298,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     .map((event, index) => (
                       <Swipeable
                         key={index}
+                        ref={(ref) => {
+                          if (ref) {
+                            swipeableRefs.current[event.id] = ref;
+                          }
+                        }}
                         renderRightActions={() => (
                           <TouchableOpacity
                             style={{
@@ -2236,7 +2332,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           </TouchableOpacity>
                         )}
                         renderLeftActions={() => (
-                          <TouchableOpacity
+                          <View
                             style={{
                               backgroundColor: '#007AFF',
                               width: 80,
@@ -2245,11 +2341,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               justifyContent: 'center',
                               borderRadius: 8,
                             }}
-                            onPress={() => showEventPhotoOptions(event.id)}
                           >
                             <Ionicons name="camera" size={20} color="white" />
-                          </TouchableOpacity>
+                          </View>
                         )}
+                        onSwipeableLeftOpen={() => showEventPhotoOptions(event.id)}
                         rightThreshold={40}
                         leftThreshold={40}
                       >
@@ -2333,7 +2429,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                           { 
                                             text: 'Remove', 
                                             style: 'destructive',
-                                            onPress: () => removeEventPhoto(event.id, photoUrl)
+                                            onPress: () => handlePhotoViewerDelete(event.id, photoUrl)
                                           }
                                         ]
                                       );
@@ -3868,8 +3964,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         text: 'Delete', 
                         style: 'destructive',
                         onPress: () => {
-                          removeEventPhoto(selectedPhotoForViewing.event.id, selectedPhotoForViewing.photoUrl);
-                          setShowPhotoViewer(false);
+                          handlePhotoViewerDelete(selectedPhotoForViewing.event.id, selectedPhotoForViewing.photoUrl);
                         }
                       }
                     ]
