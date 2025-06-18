@@ -168,6 +168,30 @@ export default function ProfileScreen() {
     };
   }, []);
 
+  // Add useEffect to listen for photo deletion events and refresh memories
+  useEffect(() => {
+    let lastCheckTime = 0;
+    
+    const checkForPhotoDeletions = () => {
+      // Check if there's a global timestamp indicating a photo was deleted
+      const globalAny = global as any;
+      if (globalAny.lastPhotoDeletionTime && globalAny.lastPhotoDeletionTime > lastCheckTime) {
+        lastCheckTime = globalAny.lastPhotoDeletionTime;
+        console.log('🔄 Photo deletion detected, refreshing memories...');
+        if (user?.id) {
+          loadMemories(user.id);
+        }
+      }
+    };
+
+    // Check every 2 seconds for photo deletions
+    const interval = setInterval(checkForPhotoDeletions, 2000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [user?.id]);
+
   const loadUserProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
@@ -572,19 +596,9 @@ export default function ProfileScreen() {
       // Clear any existing failed images
       setFailedImages(new Set());
 
-      // First, run comprehensive cleanup of all problematic photos
-      console.log('🧹 Running comprehensive photo cleanup...');
-      await cleanupProblematicPhotos(userId);
-      await cleanupTimeoutPronePhotos(userId);
-      await fixUUIDFileNames(userId); // Add specific UUID fix
-      
-      // Add a longer delay to ensure database updates are processed
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      console.log('⏳ Waited 1000ms for database updates to process');
-
       const allMemories: MemoryItem[] = [];
 
-      // Fetch habits with photos - force fresh data
+      // Fetch habits with photos
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('id, text, description, photos, category_id, categories(color)')
@@ -594,67 +608,34 @@ export default function ProfileScreen() {
       if (habitsError) {
         console.error('Error fetching habits with photos:', habitsError);
         Alert.alert('Error', 'Failed to load memories. Please try again.');
-          return;
+        return;
       } else if (habitsData) {
         console.log('📸 Found habits with photos:', habitsData.length);
-        console.log('📸 Habits data after cleanup:', habitsData);
         
         habitsData.forEach(habit => {
           console.log(`🔍 Processing habit ${habit.id}:`, {
             text: habit.text,
-            photos: habit.photos,
-            photosType: typeof habit.photos,
-            isObject: typeof habit.photos === 'object'
+            photos: habit.photos
           });
           
           if (habit.photos && typeof habit.photos === 'object') {
             console.log(`📷 Photos object for habit ${habit.id}:`, habit.photos);
-            console.log(`📷 Photos object keys:`, Object.keys(habit.photos));
             
             for (const [date, photoUri] of Object.entries(habit.photos)) {
               console.log(`📅 Processing date ${date} with photo:`, photoUri);
               
-              if (photoUri && typeof photoUri === 'string') {
-                // Enhanced check for local file names (same logic as cleanup function)
-                const isLocalFileName = (
-                  // Check for UUID-like patterns (common in iOS file names)
-                  /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}\.[a-zA-Z]+$/.test(photoUri) ||
-                  // Check for simple file names without paths
-                  (!photoUri.includes('/') && 
-                   !photoUri.includes('\\') && 
-                   photoUri.includes('.') && 
-                   !photoUri.startsWith('http') && 
-                   !photoUri.startsWith('file://') && 
-                   !photoUri.startsWith('data:') &&
-                   photoUri.length < 100) ||
-                  // Check for base64 data URLs that might be corrupted
-                  (photoUri.startsWith('data:') && photoUri.length < 100)
+              if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {
+                // Only skip obviously invalid photos
+                const isObviouslyInvalid = (
+                  // Empty or very short strings
+                  photoUri.length < 10 ||
+                  // Just file extensions
+                  /^\.(jpg|jpeg|png|gif|webp)$/i.test(photoUri) ||
+                  // Just UUIDs without file extensions
+                  /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i.test(photoUri)
                 );
                 
-                // Additional checks for problematic URLs
-                const isProblematicUrl = (
-                  // Supabase URLs that might be broken or timeout-prone
-                  (photoUri.startsWith('https://') && photoUri.includes('supabase.co') && photoUri.includes('habit-photos')) ||
-                  // Very long URLs that might timeout
-                  (photoUri.startsWith('http') && photoUri.length > 500) ||
-                  // URLs with suspicious patterns
-                  (photoUri.includes('localhost') || photoUri.includes('127.0.0.1')) ||
-                  // URLs with complex query parameters that might be slow
-                  (photoUri.includes('?') && photoUri.includes('&') && photoUri.length > 300)
-                );
-                
-                // Check if it's a valid URL or local file path
-                const isValidUrl = photoUri.startsWith('http://') || photoUri.startsWith('https://');
-                const isLocalFile = photoUri.startsWith('file://');
-                const isDataUrl = photoUri.startsWith('data:') && photoUri.length > 100; // Valid data URLs are longer
-                
-                // For local file names or problematic URLs, we'll skip these
-                if (isLocalFileName || isProblematicUrl) {
-                  console.log(`⚠️ Skipping problematic photo (${isLocalFileName ? 'local file' : 'problematic URL'}): ${photoUri}`);
-                  continue;
-                }
-                
-                if (isValidUrl || isLocalFile || isDataUrl) {
+                if (!isObviouslyInvalid) {
                   console.log(`✅ Adding memory for date ${date}:`, photoUri);
                   allMemories.push({
                     id: `${habit.id}_${date}`,
@@ -666,7 +647,7 @@ export default function ProfileScreen() {
                     categoryColor: habit.categories?.[0]?.color
                   });
                 } else {
-                  console.log(`❌ Skipping invalid photo URI for date ${date}:`, photoUri);
+                  console.log(`⚠️ Skipping obviously invalid photo for date ${date}:`, photoUri);
                 }
               } else {
                 console.log(`❌ Skipping invalid photo for date ${date}:`, photoUri);
@@ -680,8 +661,67 @@ export default function ProfileScreen() {
         console.log('📸 No habits with photos found');
       }
 
-      // Note: Events don't currently have photo support, so we're only fetching from habits
-      // When events get photo support in the future, we can add the events query here
+      // Fetch events with photos
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('events')
+        .select('id, title, description, date, photos, category_name, category_color')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (eventsError) {
+        console.error('Error fetching events with photos:', eventsError);
+        // Don't return here, continue with habits data
+      } else if (eventsData) {
+        console.log('📸 Found events with photos:', eventsData.length);
+        
+        eventsData.forEach(event => {
+          console.log(`🔍 Processing event ${event.id}:`, {
+            title: event.title,
+            photos: event.photos
+          });
+          
+          if (event.photos && Array.isArray(event.photos) && event.photos.length > 0) {
+            console.log(`📷 Photos array for event ${event.id}:`, event.photos);
+            
+            event.photos.forEach((photoUri, photoIndex) => {
+              console.log(`📅 Processing photo ${photoIndex} for event ${event.id}:`, photoUri);
+              
+              if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {
+                // Only skip obviously invalid photos
+                const isObviouslyInvalid = (
+                  // Empty or very short strings
+                  photoUri.length < 10 ||
+                  // Just file extensions
+                  /^\.(jpg|jpeg|png|gif|webp)$/i.test(photoUri) ||
+                  // Just UUIDs without file extensions
+                  /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i.test(photoUri)
+                );
+                
+                if (!isObviouslyInvalid) {
+                  console.log(`✅ Adding event memory for date ${event.date}:`, photoUri);
+                  allMemories.push({
+                    id: `${event.id}_${photoIndex}`,
+                    photoUri: photoUri,
+                    date: event.date,
+                    type: 'event',
+                    title: event.title,
+                    description: event.description,
+                    categoryColor: event.category_color
+                  });
+                } else {
+                  console.log(`⚠️ Skipping obviously invalid photo for event ${event.id}:`, photoUri);
+                }
+              } else {
+                console.log(`❌ Skipping invalid photo for event ${event.id}:`, photoUri);
+              }
+            });
+          } else {
+            console.log(`❌ Event ${event.id} has no valid photos array:`, event.photos);
+          }
+        });
+      } else {
+        console.log('📸 No events with photos found');
+      }
 
       console.log('📸 Total memories found:', allMemories.length);
       console.log('📸 All memories:', allMemories);
@@ -1639,6 +1679,13 @@ export default function ProfileScreen() {
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={() => setShowMemoriesModal(false)}
+      onShow={() => {
+        // Refresh memories when modal opens to ensure we have the latest data
+        if (user?.id) {
+          console.log('🔄 Refreshing memories on modal open...');
+          loadMemories(user.id);
+        }
+      }}
     >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
@@ -1675,8 +1722,8 @@ export default function ProfileScreen() {
             <Text style={styles.emptyText}>No memories yet</Text>
             <Text style={styles.emptySubtext}>
               Photos from your habits and events will appear here
-                  </Text>
-        <TouchableOpacity
+            </Text>
+            <TouchableOpacity
               style={styles.debugButton} 
               onPress={() => {
                 console.log('🔍 Debug: Current memories state:', memories);
@@ -1685,81 +1732,46 @@ export default function ProfileScreen() {
               }}
             >
               <Text style={styles.debugButtonText}>Debug Info</Text>
-        </TouchableOpacity>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#34C759' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  await testPhotoLoading(user.id);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Test Photo Loading</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#5856D6' }]} 
+              onPress={async () => {
+                await checkAvailableBuckets();
+              }}
+            >
+              <Text style={styles.debugButtonText}>Check Buckets</Text>
+            </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF9500' }]} 
               onPress={async () => {
                 if (user?.id) {
-                  Alert.alert('Cleanup', 'This will remove any invalid local photo references. Continue?', [
+                  Alert.alert('Clean Broken Photos', 'This will remove photos that point to non-existent buckets (event-photos, habit-photos). You will need to re-upload these photos. Continue?', [
                     { text: 'Cancel', style: 'cancel' },
                     {
-                      text: 'Cleanup',
+                      text: 'Clean Broken Photos',
                       onPress: async () => {
-                        await cleanupOldLocalPhotos(user.id);
+                        await migratePhotosToMemoriesBucket(user.id);
                         await loadMemories(user.id);
-                        Alert.alert('Success', 'Cleanup completed! Check the memories again.');
                       }
                     }
                   ]);
                 }
               }}
             >
-              <Text style={styles.debugButtonText}>Cleanup Old Photos</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#34C759' }]} 
-              onPress={async () => {
-                if (user?.id) {
-                  await checkDatabaseState(user.id);
-                  Alert.alert('Database Check', 'Check console for current database state.');
-                }
-              }}
-            >
-              <Text style={styles.debugButtonText}>Check Database</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF3B30' }]} 
-              onPress={async () => {
-                if (user?.id) {
-                  Alert.alert('💥 Remove All Photos', 'This will remove ALL photos from ALL habits. This action cannot be undone. Continue?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Remove All Photos',
-                      style: 'destructive',
-                      onPress: async () => {
-                        await removeAllPhotoReferences(user.id);
-                        await loadMemories(user.id);
-                        Alert.alert('Success', 'All photos have been removed from habits.');
-                      }
-                    }
-                  ]);
-                }
-              }}
-            >
-              <Text style={styles.debugButtonText}>Remove All Photos</Text>
-          </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#007AFF' }]} 
-              onPress={async () => {
-                if (user?.id) {
-                  Alert.alert('🔧 Fix UUID File Names', 'This will specifically remove UUID file names (like B6493FFC-B852-4FF9-B914-DE7E34E43F17.jpg) while keeping other photos. Continue?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Fix UUID Files',
-                      onPress: async () => {
-                        await fixUUIDFileNames(user.id);
-                        await loadMemories(user.id);
-                        Alert.alert('Success', 'UUID file names have been fixed!');
-                      }
-                    }
-                  ]);
-                }
-              }}
-            >
-              <Text style={styles.debugButtonText}>Fix UUID File Names</Text>
+              <Text style={styles.debugButtonText}>Clean Broken Photos</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#5856D6' }]} 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#007AFF' }]} 
               onPress={async () => {
                 if (user?.id) {
                   Alert.alert('Force Refresh', 'This will completely reset and reload memories. Continue?', [
@@ -1778,98 +1790,27 @@ export default function ProfileScreen() {
               <Text style={styles.debugButtonText}>Force Refresh</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#AF52DE' }]} 
-              onPress={async () => {
-                const isAccessible = await checkSupabaseStorage();
-                Alert.alert('Storage Check', isAccessible ? 'Supabase storage is accessible' : 'Supabase storage has issues. Check console for details.');
-              }}
-            >
-              <Text style={styles.debugButtonText}>Check Storage</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF6B35' }]} 
-              onPress={async () => {
-                if (user?.id) {
-                  Alert.alert('💪 Aggressive Cleanup', 'This will remove ALL photos from ALL habits. This is the most thorough cleanup option. Continue?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Aggressive Cleanup',
-                      style: 'destructive',
-                      onPress: async () => {
-                        await aggressiveCleanup(user.id);
-                        await loadMemories(user.id);
-                        Alert.alert('Success', 'Aggressive cleanup completed! All photos removed.');
-                      }
-                    }
-                  ]);
-                }
-              }}
-            >
-              <Text style={styles.debugButtonText}>Aggressive Cleanup</Text>
-              </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#34C759' }]} 
-              onPress={async () => {
-                if (user?.id) {
-                  Alert.alert('🔧 Cleanup Problematic Photos', 'This will remove problematic photo references (local files, broken URLs, etc.) while keeping valid photos. Continue?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Cleanup Problematic',
-                      onPress: async () => {
-                        await cleanupProblematicPhotos(user.id);
-                        await loadMemories(user.id);
-                        Alert.alert('Success', 'Problematic photos have been cleaned up!');
-                      }
-                    }
-                  ]);
-                }
-              }}
-            >
-              <Text style={styles.debugButtonText}>Cleanup Problematic Photos</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF9500' }]} 
-              onPress={async () => {
-                if (user?.id) {
-                  Alert.alert('⏰ Cleanup Timeout-Prone Photos', 'This will remove timeout-prone photo references (Supabase URLs, very long URLs, etc.) while keeping valid photos. Continue?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Cleanup Timeout-Prone',
-                      onPress: async () => {
-                        await cleanupTimeoutPronePhotos(user.id);
-                        await loadMemories(user.id);
-                        Alert.alert('Success', 'Timeout-prone photos have been cleaned up!');
-                      }
-                    }
-                  ]);
-                }
-              }}
-            >
-              <Text style={styles.debugButtonText}>Cleanup Timeout-Prone Photos</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF3B30' }]} 
               onPress={async () => {
                 if (user?.id) {
-                  Alert.alert('💥 Remove All Photos', 'This will remove ALL photos from ALL habits. This action cannot be undone. Continue?', [
+                  Alert.alert('Clear All Memories', 'This will permanently remove ALL photos from your habits and events. This action cannot be undone. Are you sure?', [
                     { text: 'Cancel', style: 'cancel' },
                     {
-                      text: 'Remove All Photos',
+                      text: 'Clear All Memories',
                       style: 'destructive',
                       onPress: async () => {
-                        await removeAllPhotoReferences(user.id);
-                        await loadMemories(user.id);
-                        Alert.alert('Success', 'All photos have been removed from habits.');
+                        await clearAllMemories(user.id);
+                        Alert.alert('Success', 'All memories have been cleared!');
                       }
                     }
                   ]);
                 }
               }}
             >
-              <Text style={styles.debugButtonText}>Remove All Photos</Text>
+              <Text style={styles.debugButtonText}>Clear All Memories</Text>
             </TouchableOpacity>
-                </View>
-              ) : (
+          </View>
+        ) : (
           <FlatList
             data={memories}
             keyExtractor={(item) => item.date}
@@ -1929,18 +1870,13 @@ export default function ProfileScreen() {
                         <View style={styles.memoryImagePlaceholder}>
                           <Ionicons name="image-outline" size={32} color="#ccc" />
                           <Text style={styles.memoryImagePlaceholderText}>Image unavailable</Text>
-                </View>
+                        </View>
                       )}
                       <View style={styles.memoryOverlay}>
-                        <View style={[
-                          styles.memoryTypeBadge,
-                          { backgroundColor: memory.categoryColor || '#007AFF' }
-                        ]}>
-                          <Text style={styles.memoryTypeText}>
-                            {memory.type === 'habit' ? 'Habit' : 'Event'}
-                  </Text>
-                </View>
                       </View>
+                      <Text style={styles.memoryTitle} numberOfLines={2}>
+                        {memory.title}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -2554,6 +2490,280 @@ export default function ProfileScreen() {
       }
     } catch (error) {
       console.error('Error fixing UUID file names:', error);
+    }
+  };
+
+  const testPhotoLoading = async (userId: string) => {
+    try {
+      console.log('🧪 Testing photo loading for user:', userId);
+      
+      // Check habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, text, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error testing habits:', habitsError);
+        return;
+      }
+
+      console.log('🧪 Habits with photos found:', habitsData?.length || 0);
+      
+      if (habitsData && habitsData.length > 0) {
+        habitsData.forEach(habit => {
+          console.log(`🧪 Habit ${habit.id} (${habit.text}):`, habit.photos);
+          if (habit.photos && typeof habit.photos === 'object') {
+            const photoCount = Object.keys(habit.photos).length;
+            console.log(`🧪   - ${photoCount} photos stored`);
+            Object.entries(habit.photos).forEach(([date, photoUri]) => {
+              console.log(`🧪   - Date ${date}: ${photoUri}`);
+            });
+          }
+        });
+      }
+
+      // Check events with photos
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('events')
+        .select('id, title, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (eventsError) {
+        console.error('Error testing events:', eventsError);
+        return;
+      }
+
+      console.log('🧪 Events with photos found:', eventsData?.length || 0);
+      
+      if (eventsData && eventsData.length > 0) {
+        eventsData.forEach(event => {
+          console.log(`🧪 Event ${event.id} (${event.title}):`, event.photos);
+          if (event.photos && Array.isArray(event.photos)) {
+            console.log(`🧪   - ${event.photos.length} photos stored`);
+            event.photos.forEach((photoUri, index) => {
+              console.log(`🧪   - Photo ${index}: ${photoUri}`);
+            });
+          }
+        });
+      }
+
+      Alert.alert('Test Complete', 'Check console for detailed photo information.');
+    } catch (error) {
+      console.error('Error testing photo loading:', error);
+      Alert.alert('Test Error', 'Check console for error details.');
+    }
+  };
+
+  const migratePhotosToMemoriesBucket = async (userId: string) => {
+    try {
+      console.log('🔄 Starting photo migration for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, text, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error fetching habits for migration:', habitsError);
+        return;
+      }
+
+      if (!habitsData || habitsData.length === 0) {
+        console.log('🔄 No habits with photos found for migration');
+        return;
+      }
+
+      console.log(`🔄 Found ${habitsData.length} habits to migrate`);
+
+      let cleanedCount = 0;
+      const updates: any[] = [];
+
+      for (const habit of habitsData) {
+        console.log(`🔄 Processing habit ${habit.id} (${habit.text}):`, habit.photos);
+        
+        if (habit.photos && typeof habit.photos === 'object') {
+          const cleanedPhotos: { [date: string]: string } = {};
+          let hasChanges = false;
+
+          for (const [date, photoUri] of Object.entries(habit.photos)) {
+            if (photoUri && typeof photoUri === 'string') {
+              // Check if this is a broken event-photos URL
+              if (photoUri.includes('event-photos')) {
+                console.log(`🔄 Found broken event-photos URL for date ${date}: ${photoUri}`);
+                console.log(`🔄 Removing broken URL - user will need to re-upload this photo`);
+                // Don't add this to cleanedPhotos - effectively removing it
+                hasChanges = true;
+              } else if (photoUri.includes('habit-photos')) {
+                console.log(`🔄 Found old habit-photos URL for date ${date}: ${photoUri}`);
+                console.log(`🔄 Removing old habit-photos URL - user will need to re-upload this photo`);
+                // Don't add this to cleanedPhotos - effectively removing it
+                hasChanges = true;
+              } else {
+                // Keep valid URLs that don't point to broken buckets
+                cleanedPhotos[date] = photoUri;
+                console.log(`🔄 Keeping valid photo URL for date ${date}: ${photoUri}`);
+              }
+            }
+          }
+
+          if (hasChanges) {
+            console.log(`🔄 Updating habit ${habit.id} with cleaned photos:`, cleanedPhotos);
+            
+            // If all photos were broken (cleanedPhotos is empty), remove the photos object entirely
+            const updateData = Object.keys(cleanedPhotos).length > 0 
+              ? { photos: cleanedPhotos }
+              : { photos: null };
+            
+            updates.push({ habitId: habit.id, updateData });
+            cleanedCount++;
+          }
+        }
+      }
+
+      // Apply all updates
+      if (updates.length > 0) {
+        console.log(`🔄 Applying ${updates.length} updates to clean broken photo URLs`);
+        for (const update of updates) {
+          const { error } = await supabase
+            .from('habits')
+            .update(update.updateData)
+            .eq('id', update.habitId);
+
+          if (error) {
+            console.error(`🔄 Error updating habit ${update.habitId}:`, error);
+          } else {
+            console.log(`🔄 Successfully updated habit ${update.habitId}`);
+          }
+        }
+        console.log(`🔄 Successfully cleaned ${cleanedCount} habits with broken photo URLs`);
+      } else {
+        console.log('🔄 No broken photo URLs found to clean');
+      }
+      
+      Alert.alert(
+        'Migration Complete', 
+        `Successfully cleaned ${cleanedCount} habits with broken photo URLs.\n\nNote: Photos that were stored in the old bucket have been removed. You'll need to re-upload them using the habit completion feature.`
+      );
+    } catch (error) {
+      console.error('Error migrating photos:', error);
+      Alert.alert('Migration Error', 'Failed to migrate photos. Check console for details.');
+    }
+  };
+
+  const checkAvailableBuckets = async () => {
+    try {
+      console.log('🔍 Checking available storage buckets...');
+      
+      // Try to list buckets by attempting to access common bucket names
+      const bucketNames = ['memories', 'avatars', 'habit-photos', 'event-photos', 'photos'];
+      const availableBuckets: string[] = [];
+      
+      for (const bucketName of bucketNames) {
+        try {
+          const { data, error } = await supabase.storage
+            .from(bucketName)
+            .list('', { limit: 1 });
+          
+          if (!error) {
+            availableBuckets.push(bucketName);
+            console.log(`✅ Bucket "${bucketName}" exists`);
+          } else {
+            console.log(`❌ Bucket "${bucketName}" does not exist or is not accessible:`, error.message);
+          }
+        } catch (error) {
+          console.log(`❌ Error checking bucket "${bucketName}":`, error);
+        }
+      }
+      
+      console.log('🔍 Available buckets:', availableBuckets);
+      Alert.alert(
+        'Available Buckets', 
+        `Found ${availableBuckets.length} accessible buckets:\n\n${availableBuckets.join('\n')}\n\nCheck console for detailed information.`
+      );
+    } catch (error) {
+      console.error('Error checking buckets:', error);
+      Alert.alert('Error', 'Failed to check buckets. Check console for details.');
+    }
+  };
+
+  const clearAllMemories = async (userId: string) => {
+    try {
+      console.log('🗑️ Clearing all memories for user:', userId);
+      
+      // Clear memories from habits - get ALL habits for this user
+      const { data: allHabitsData, error: allHabitsError } = await supabase
+        .from('habits')
+        .select('id, photos')
+        .eq('user_id', userId);
+
+      if (allHabitsError) {
+        console.error('Error fetching all habits for clearing:', allHabitsError);
+        return;
+      }
+
+      if (allHabitsData && allHabitsData.length > 0) {
+        console.log(`🗑️ Checking ${allHabitsData.length} habits for photos`);
+        
+        for (const habit of allHabitsData) {
+          // Clear photos regardless of whether they exist or not
+          const { error } = await supabase
+            .from('habits')
+            .update({ photos: null })
+            .eq('id', habit.id);
+          
+          if (error) {
+            console.error(`🗑️ Error clearing photos from habit ${habit.id}:`, error);
+          } else {
+            console.log(`🗑️ Successfully cleared photos from habit ${habit.id}`);
+          }
+        }
+      }
+
+      // Clear memories from events - get ALL events for this user
+      const { data: allEventsData, error: allEventsError } = await supabase
+        .from('events')
+        .select('id, photos')
+        .eq('user_id', userId);
+
+      if (allEventsError) {
+        console.error('Error fetching all events for clearing:', allEventsError);
+        return;
+      }
+
+      if (allEventsData && allEventsData.length > 0) {
+        console.log(`🗑️ Checking ${allEventsData.length} events for photos`);
+        
+        for (const event of allEventsData) {
+          // Clear photos regardless of whether they exist or not
+          const { error } = await supabase
+            .from('events')
+            .update({ photos: [] })
+            .eq('id', event.id);
+          
+          if (error) {
+            console.error(`🗑️ Error clearing photos from event ${event.id}:`, error);
+          } else {
+            console.log(`🗑️ Successfully cleared photos from event ${event.id}`);
+          }
+        }
+      }
+
+      // Clear local state immediately
+      setMemories([]);
+      setFailedImages(new Set());
+      
+      // Force reload memories to ensure UI is updated
+      await loadMemories(userId);
+      
+      console.log('🗑️ All memories cleared successfully');
+    } catch (error) {
+      console.error('Error clearing all memories:', error);
+      Alert.alert('Error', 'Failed to clear all memories. Please try again.');
     }
   };
 
@@ -3322,5 +3532,18 @@ const styles = StyleSheet.create({
   },
   searchLoading: {
     marginLeft: 8,
+  },
+  memoryTitle: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+    textShadowColor: 'rgba(0, 0, 0, 0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    right: 8,
   },
 });

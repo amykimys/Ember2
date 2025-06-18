@@ -140,7 +140,7 @@ const REMINDER_OPTIONS = [
   { label: '1 day before', value: 1440 },
 ];
 
-const CalendarScreen: React.FC = (): JSX.Element => {
+const CalendarScreen: React.FC = () => {
   const today = new Date();
   const [currentMonthIndex, setCurrentMonthIndex] = useState(12); // center month in 25-month buffer
   const flatListRef = useRef<FlatList>(null);
@@ -266,6 +266,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ event: CalendarEvent; photoUrl: string } | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  
+  // Add ref for photo viewer FlatList
+  const photoViewerFlatListRef = useRef<FlatList>(null);
   
   // Add ref for Swipeable components
   const swipeableRefs = useRef<{ [key: string]: any }>({});
@@ -2168,6 +2171,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
       }
       
+      // Trigger a global event to refresh memories in other screens
+      // This will help keep the memories section in sync
+      
+      // For React Native, we'll store a timestamp that other screens can check
+      const lastPhotoDeletionTime = Date.now();
+      (global as any).lastPhotoDeletionTime = lastPhotoDeletionTime;
+      
       Toast.show({
         type: 'success',
         text1: 'Photo removed successfully',
@@ -2177,6 +2187,34 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       Alert.alert('Error', 'Failed to remove photo. Please try again.');
     }
   };
+
+  // Add useEffect to scroll to correct photo when photo viewer opens
+  useEffect(() => {
+    if (showPhotoViewer && selectedPhotoForViewing && photoViewerFlatListRef.current) {
+      const photoIndex = selectedPhotoForViewing.event.photos?.indexOf(selectedPhotoForViewing.photoUrl) || 0;
+      
+      // Add a small delay to ensure the FlatList is fully rendered
+      setTimeout(() => {
+        try {
+          photoViewerFlatListRef.current?.scrollToIndex({
+            index: photoIndex,
+            animated: false,
+          });
+        } catch (error) {
+          console.log('Error scrolling to photo index:', error);
+          // Fallback: try to scroll to the first photo
+          try {
+            photoViewerFlatListRef.current?.scrollToIndex({
+              index: 0,
+              animated: false,
+            });
+          } catch (fallbackError) {
+            console.log('Fallback scroll also failed:', fallbackError);
+          }
+        }
+      }, 100);
+    }
+  }, [showPhotoViewer, selectedPhotoForViewing]);
 
   return (
     <>
@@ -4069,12 +4107,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           {/* Main Photo Display */}
           {selectedPhotoForViewing?.event?.photos && selectedPhotoForViewing.event.photos.length > 0 && (
             <FlatList
+              ref={photoViewerFlatListRef}
               data={selectedPhotoForViewing.event.photos}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
               keyExtractor={(item, idx) => item + idx}
-              initialScrollIndex={selectedPhotoForViewing.event.photos.indexOf(selectedPhotoForViewing.photoUrl)}
               getItemLayout={(_, index) => ({ length: Dimensions.get('window').width, offset: Dimensions.get('window').width * index, index })}
               onMomentumScrollEnd={e => {
                 const width = e.nativeEvent.layoutMeasurement.width;

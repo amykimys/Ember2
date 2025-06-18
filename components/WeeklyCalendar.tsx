@@ -239,6 +239,87 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       return Math.max(1, Math.min(lines, 5)); // Between 1 and 5 lines
     };
 
+    // Function to detect overlapping events and arrange them in columns
+    const arrangeEventsInColumns = (events: CalendarEvent[], date: Date) => {
+      if (events.length === 0) return [];
+
+      // Sort events by start time
+      const sortedEvents = [...events].sort((a, b) => {
+        if (!a.startDateTime || !b.startDateTime) return 0;
+        return a.startDateTime.getTime() - b.startDateTime.getTime();
+      });
+
+      // Group overlapping events
+      const eventGroups: CalendarEvent[][] = [];
+      const processedEvents = new Set<string>();
+
+      sortedEvents.forEach((event) => {
+        if (processedEvents.has(event.id)) return;
+
+        const group: CalendarEvent[] = [event];
+        processedEvents.add(event.id);
+
+        // Find all events that overlap with this event
+        sortedEvents.forEach((otherEvent) => {
+          if (processedEvents.has(otherEvent.id)) return;
+          if (!event.startDateTime || !event.endDateTime || !otherEvent.startDateTime || !otherEvent.endDateTime) return;
+
+          // Check if events overlap
+          const eventStart = event.startDateTime.getTime();
+          const eventEnd = event.endDateTime.getTime();
+          const otherStart = otherEvent.startDateTime.getTime();
+          const otherEnd = otherEvent.endDateTime.getTime();
+
+          if (eventStart < otherEnd && eventEnd > otherStart) {
+            group.push(otherEvent);
+            processedEvents.add(otherEvent.id);
+          }
+        });
+
+        if (group.length > 0) {
+          eventGroups.push(group);
+        }
+      });
+
+      // Calculate column positions for each group
+      const eventsWithColumns: Array<{
+        event: CalendarEvent;
+        column: number;
+        totalColumns: number;
+        position: { top: number; height: number };
+      }> = [];
+
+      eventGroups.forEach((group) => {
+        if (group.length === 1) {
+          // Single event, no columns needed
+          const position = calculateEventPosition(group[0], date);
+          if (position) {
+            eventsWithColumns.push({
+              event: group[0],
+              column: 0,
+              totalColumns: 1,
+              position
+            });
+          }
+        } else {
+          // Multiple overlapping events, arrange in columns
+          group.forEach((event, index) => {
+            const position = calculateEventPosition(event, date);
+            if (position) {
+              eventsWithColumns.push({
+                event,
+                column: index,
+                totalColumns: group.length,
+                position
+              });
+            }
+          });
+        }
+      });
+
+      return eventsWithColumns;
+    };
+
     const handleCellClick = (dayIndex: number, hourIndex: number, date: Date, cellHour: number) => {
         // Set the clicked cell
         setClickedCell({ dayIndex, hourIndex });
@@ -319,7 +400,15 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 <TouchableOpacity
                   key={event.id + '-' + i}
                   onPress={() => {
-                    setSelectedEvent({ event, dateKey, index: i });
+                    // Set all the event data at once to minimize re-renders
+                    const eventData = {
+                      event,
+                      dateKey,
+                      index: i
+                    };
+                    
+                    // Batch all the state updates together
+                    setSelectedEvent(eventData);
                     setEditedEventTitle(event.title);
                     setEditedEventDescription(event.description ?? '');
                     setEditedStartDateTime(new Date(event.startDateTime!));
@@ -329,6 +418,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                     setEditedRepeatOption(event.repeatOption || 'None');
                     setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                     setEditedEventPhotos(event.photos || []);
+                    
+                    // Show the modal immediately after setting the data
                     setShowEditEventModal(true);
                   }}
                   style={[
@@ -463,12 +554,6 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                                 
                                 // Visual feedback
                                 setClickedCell({ dayIndex, hourIndex: row });
-                                if (clickTimeoutRef.current) {
-                                  clearTimeout(clickTimeoutRef.current);
-                                }
-                                clickTimeoutRef.current = setTimeout(() => {
-                                  setClickedCell(null);
-                                }, 200);
                               } catch (error) {
                                 console.error('Error in cell press handler:', error);
                               }
@@ -484,51 +569,64 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 
                   {/* Events Layer */}
                   <View style={[styles.eventsLayer, { pointerEvents: 'box-none' }]}>
-                  {dayEvents.map((event, eventIndex) => {
-  const position = calculateEventPosition(event, date);
-  if (!position) return null;
-
-  return (
-    <TouchableOpacity
-      key={`${event.id}-${eventIndex}`}
-      style={[
-        styles.eventBox,
-        {
-          top: position.top,
-          height: position.height,
-          backgroundColor: `${event.categoryColor || '#FF9A8B'}40`,
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          marginHorizontal: 0,
-        },
-      ]}
-      onPress={() => {
-        setSelectedEvent({ event, dateKey, index: eventIndex });
-        setEditedEventTitle(event.title);
-        setEditedEventDescription(event.description ?? '');
-        setEditedStartDateTime(new Date(event.startDateTime!));
-        setEditedEndDateTime(new Date(event.endDateTime!));
-        setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-        setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-        setEditedRepeatOption(event.repeatOption || 'None');
-        setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-        setEditedEventPhotos(event.photos || []);
-        setShowEditEventModal(true);
-      }}
-      onLongPress={() => {
-        // your long press logic...
-      }}
-    >
-      <View style={styles.eventTextContainer}>
-        <Text style={styles.eventText} numberOfLines={2}>
-          {event.title}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-})}
-
+                  {(() => {
+                    const eventsWithColumns = arrangeEventsInColumns(dayEvents, date);
+                    return eventsWithColumns.map(({ event, column, totalColumns, position }, eventIndex) => {
+                      // Calculate width and left position based on column
+                      const columnWidth = DAY_COLUMN_WIDTH / totalColumns;
+                      const leftPosition = column * columnWidth;
+                      
+                      return (
+                        <TouchableOpacity
+                          key={`${event.id}-${eventIndex}`}
+                          style={[
+                            styles.eventBox,
+                            {
+                              top: position.top,
+                              height: position.height,
+                              backgroundColor: `${event.categoryColor || '#FF9A8B'}40`,
+                              position: 'absolute',
+                              left: leftPosition,
+                              width: columnWidth - 2, // Small gap between columns
+                              marginHorizontal: 1,
+                            },
+                          ]}
+                          onPress={() => {
+                            // Set all the event data at once to minimize re-renders
+                            const eventData = {
+                              event,
+                              dateKey,
+                              index: eventIndex
+                            };
+                            
+                            // Batch all the state updates together
+                            setSelectedEvent(eventData);
+                            setEditedEventTitle(event.title);
+                            setEditedEventDescription(event.description ?? '');
+                            setEditedStartDateTime(new Date(event.startDateTime!));
+                            setEditedEndDateTime(new Date(event.endDateTime!));
+                            setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+                            setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                            setEditedRepeatOption(event.repeatOption || 'None');
+                            setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                            setEditedEventPhotos(event.photos || []);
+                            
+                            // Show the modal immediately after setting the data
+                            setShowEditEventModal(true);
+                          }}
+                          onLongPress={() => {
+                            // your long press logic...
+                          }}
+                        >
+                          <View style={styles.eventTextContainer}>
+                            <Text style={styles.eventText} numberOfLines={2}>
+                              {event.title}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    });
+                  })()}
                   </View>
                 </View>
               );

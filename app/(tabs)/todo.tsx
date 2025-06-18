@@ -47,6 +47,7 @@ import { Pressable } from 'react-native';
 import MonthlyCalendar from '../components/MonthlyCalendar';
 import { useRouter } from 'expo-router';
 import Calendar from 'react-native-calendars';
+import * as FileSystem from 'expo-file-system';
 
 
 
@@ -820,18 +821,38 @@ export default function TodoScreen() {
 
   const uploadHabitPhoto = async (photoUri: string, habitId: string, date: string): Promise<string> => {
     try {
-      // Convert image to blob
-      const response = await fetch(photoUri);
-      const blob = await response.blob();
+      // First, let's check if the file exists and get its info
+      const fileInfo = await FileSystem.getInfoAsync(photoUri);
+      
+      if (!fileInfo.exists) {
+        throw new Error('Photo file does not exist');
+      }
       
       // Create a unique filename with habits category
       const fileExt = photoUri.split('.').pop() || 'jpg';
       const fileName = `habits/${habitId}/${date}_${Date.now()}.${fileExt}`;
       
-      // Upload to Supabase Storage - use memories bucket
+      // Read the file as base64
+      const base64Data = await FileSystem.readAsStringAsync(photoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      if (base64Data.length === 0) {
+        throw new Error('Base64 data is empty');
+      }
+      
+      // Convert base64 to Uint8Array for React Native compatibility
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      // Upload to Supabase Storage using Uint8Array
       const { data, error: uploadError } = await supabase.storage
         .from('memories')
-        .upload(fileName, blob, {
+        .upload(fileName, bytes, {
+          contentType: 'image/jpeg',
           cacheControl: '3600',
           upsert: true
         });
@@ -2170,21 +2191,39 @@ export default function TodoScreen() {
   const uploadTaskPhoto = async (photoUri: string, taskId: string): Promise<string> => {
     console.log('🔍 uploadTaskPhoto called with:', { photoUri, taskId });
     try {
-      // Convert image to blob
-      console.log('🔍 Converting image to blob...');
-      const response = await fetch(photoUri);
-      const blob = await response.blob();
-      console.log('🔍 Blob created, size:', blob.size);
+      // First, let's check if the file exists and get its info
+      const fileInfo = await FileSystem.getInfoAsync(photoUri);
+      
+      if (!fileInfo.exists) {
+        throw new Error('Photo file does not exist');
+      }
       
       // Create a unique filename with tasks category
       const fileExt = photoUri.split('.').pop() || 'jpg';
       const fileName = `tasks/${taskId}/task_${Date.now()}.${fileExt}`;
       console.log('🔍 Uploading to filename:', fileName);
       
-      // Upload to Supabase Storage using the memories bucket
+      // Read the file as base64
+      const base64Data = await FileSystem.readAsStringAsync(photoUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      if (base64Data.length === 0) {
+        throw new Error('Base64 data is empty');
+      }
+      
+      // Convert base64 to Uint8Array for React Native compatibility
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      // Upload to Supabase Storage using Uint8Array
       const { data, error: uploadError } = await supabase.storage
         .from('memories')
-        .upload(fileName, blob, {
+        .upload(fileName, bytes, {
+          contentType: 'image/jpeg',
           cacheControl: '3600',
           upsert: true
         });
