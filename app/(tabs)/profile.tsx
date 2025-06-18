@@ -764,11 +764,24 @@ export default function ProfileScreen() {
 
   const formatMemoryDate = (dateString: string): string => {
     try {
-      const date = new Date(dateString);
+      // Parse the date string properly to avoid timezone issues
+      // If the dateString is in YYYY-MM-DD format, create the date in local timezone
+      let date: Date;
+      
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+        // For YYYY-MM-DD format, create date in local timezone
+        const [year, month, day] = dateString.split('-').map(Number);
+        date = new Date(year, month - 1, day); // month is 0-indexed
+      } else {
+        // For other formats, use the original parsing
+        date = new Date(dateString);
+      }
+      
       const today = new Date();
       const yesterday = new Date(today);
       yesterday.setDate(yesterday.getDate() - 1);
 
+      // Compare dates using toDateString() to avoid timezone issues
       if (date.toDateString() === today.toDateString()) {
         return 'Today';
       } else if (date.toDateString() === yesterday.toDateString()) {
@@ -782,6 +795,7 @@ export default function ProfileScreen() {
         });
       }
     } catch (error) {
+      console.error('Error formatting memory date:', error, 'for dateString:', dateString);
       return dateString;
     }
   };
@@ -1826,6 +1840,7 @@ export default function ProfileScreen() {
                         setSelectedMemory(memory);
                         setShowMemoryDetailModal(true);
                       }}
+                      activeOpacity={0.7}
                     >
                       <Image
                         source={{ uri: memory.photoUri }}
@@ -1885,57 +1900,55 @@ export default function ProfileScreen() {
             contentContainerStyle={styles.memoriesList}
           />
         )}
-      </SafeAreaView>
-    </Modal>
-  );
 
-  const renderMemoryDetailModal = () => (
-    <Modal
-      visible={showMemoryDetailModal}
-      animationType="fade"
-      transparent={true}
-      onRequestClose={() => setShowMemoryDetailModal(false)}
-    >
-      <View style={styles.memoryDetailOverlay}>
-        <TouchableOpacity
-          style={styles.memoryDetailBackground}
-          onPress={() => setShowMemoryDetailModal(false)}
-        />
-        {selectedMemory && (
-          <View style={styles.memoryDetailContainer}>
+        {/* Memory detail overlay rendered inside memories modal */}
+        {showMemoryDetailModal && selectedMemory && (
+          <View style={styles.memoryDetailOverlay}>
+            {/* Full screen background image */}
             <Image
               source={{ uri: selectedMemory.photoUri }}
-              style={styles.memoryDetailImage}
-              resizeMode="contain"
+              style={styles.memoryDetailBackgroundImage}
+              resizeMode="cover"
             />
-            <View style={styles.memoryDetailInfo}>
-              <View style={[
-                styles.memoryDetailTypeBadge,
-                { backgroundColor: selectedMemory.categoryColor || '#007AFF' }
-              ]}>
-                <Text style={styles.memoryDetailTypeText}>
-                  {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
+            
+            {/* Dark overlay for better text readability */}
+            <View style={styles.memoryDetailDarkOverlay} />
+            
+            {/* Top bar with close button */}
+            <View style={styles.memoryDetailTopBar}>
+              <TouchableOpacity
+                style={styles.memoryDetailCloseButton}
+                onPress={() => setShowMemoryDetailModal(false)}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Bottom info panel */}
+            <View style={styles.memoryDetailBottomPanel}>
+              <View style={styles.memoryDetailInfo}>
+                <View style={[
+                  styles.memoryDetailTypeBadge,
+                  { backgroundColor: selectedMemory.categoryColor || '#007AFF' }
+                ]}>
+                  <Text style={styles.memoryDetailTypeText}>
+                    {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
+                  </Text>
+                </View>
+                <Text style={styles.memoryDetailTitle}>{selectedMemory.title}</Text>
+                {selectedMemory.description && (
+                  <Text style={styles.memoryDetailDescription}>
+                    {selectedMemory.description}
+                  </Text>
+                )}
+                <Text style={styles.memoryDetailDate}>
+                  {formatMemoryDate(selectedMemory.date)}
                 </Text>
               </View>
-              <Text style={styles.memoryDetailTitle}>{selectedMemory.title}</Text>
-              {selectedMemory.description && (
-                <Text style={styles.memoryDetailDescription}>
-                  {selectedMemory.description}
-                </Text>
-              )}
-              <Text style={styles.memoryDetailDate}>
-                {formatMemoryDate(selectedMemory.date)}
-              </Text>
             </View>
-            <TouchableOpacity
-              style={styles.memoryDetailCloseButton}
-              onPress={() => setShowMemoryDetailModal(false)}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
           </View>
         )}
-        </View>
+      </SafeAreaView>
     </Modal>
   );
 
@@ -2820,11 +2833,11 @@ export default function ProfileScreen() {
         </View>
         </ScrollView>
       
+      {/* Render modals at root level */}
       {renderEditProfileModal()}
       {renderFriendsListModal()}
       {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
-      {renderMemoryDetailModal()}
       {renderSettingsModal()}
     </SafeAreaView>
   );
@@ -3282,7 +3295,7 @@ const styles = StyleSheet.create({
   },
   memoryItem: {
     width: '50%',
-    height: 200,
+    height: 150,
     position: 'relative',
   },
   memoryImage: {
@@ -3309,32 +3322,71 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   memoryDetailOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-  },
-  memoryDetailBackground: {
-    flex: 1,
-  },
-  memoryDetailContainer: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: '#000',
+    zIndex: 1000,
   },
-  memoryDetailImage: {
+  memoryDetailBackgroundImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     width: '100%',
     height: '100%',
   },
+  memoryDetailDarkOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  memoryDetailTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  memoryDetailCloseButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memoryDetailBottomPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
   memoryDetailInfo: {
-    marginTop: 20,
+    marginBottom: 10,
   },
   memoryDetailTypeBadge: {
-    padding: 4,
-    borderRadius: 4,
-    marginBottom: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 12,
   },
   memoryDetailTypeText: {
     fontSize: 12,
@@ -3343,27 +3395,22 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   memoryDetailTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
     marginBottom: 8,
     fontFamily: 'Onest',
   },
   memoryDetailDescription: {
-    fontSize: 14,
-    color: '#8E8E93',
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 8,
     fontFamily: 'Onest',
   },
   memoryDetailDate: {
-    fontSize: 12,
-    color: '#C7C7CC',
-    marginTop: 8,
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.6)',
     fontFamily: 'Onest',
-  },
-  memoryDetailCloseButton: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
   },
   memoriesList: {
     padding: 20,
