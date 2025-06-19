@@ -285,33 +285,48 @@ export default function TodoScreen() {
   const newHabitInputRef = useRef<TextInput>(null);
 
   // Add state for notes modal
-  const [isNotesModalVisible, setIsNotesModalVisible] = useState(false);
-  const [selectedHabitForNotes, setSelectedHabitForNotes] = useState<Habit | null>(null);
-  const [noteText, setNoteText] = useState('');
+  // const [isNotesModalVisible, setIsNotesModalVisible] = useState(false);
+  // const [selectedHabitForNotes, setSelectedHabitForNotes] = useState<Habit | null>(null);
+  // const [noteText, setNoteText] = useState('');
+
+  // Add state for editing existing notes
+  // const [editingNoteDate, setEditingNoteDate] = useState<string | null>(null);
+  // const [isEditingNote, setIsEditingNote] = useState(false);
 
   // Add state for photo modal
   const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false);
   const [selectedHabitForPhoto, setSelectedHabitForPhoto] = useState<Habit | null>(null);
 
   // Add state for photo viewing modal
+  const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{
+    habit: Habit;
+    photoUrl: string;
+    date: string;
+    formattedDate: string;
+  } | null>(null);
   const [isPhotoViewerVisible, setIsPhotoViewerVisible] = useState(false);
-  const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ habit: Habit; photoUrl: string; date: string; formattedDate: string } | null>(null);
-
-  // Add state for progress tracker modal
-  const [isProgressModalVisible, setIsProgressModalVisible] = useState(false);
-  const [selectedHabitForProgress, setSelectedHabitForProgress] = useState<Habit | null>(null);
-  const [progressViewMode, setProgressViewMode] = useState<'weekly' | 'monthly'>('weekly');
-
-  // Add state for weekly statistics modal
-  const [isWeeklyStatsModalVisible, setIsWeeklyStatsModalVisible] = useState(false);
-  const [selectedHabitForWeeklyStats, setSelectedHabitForWeeklyStats] = useState<Habit | null>(null);
-
-  // Add state for monthly statistics modal
-  const [isMonthlyStatsModalVisible, setIsMonthlyStatsModalVisible] = useState(false);
-
-  // Add state for task photo viewing
-  const [isTaskPhotoViewerVisible, setIsTaskPhotoViewerVisible] = useState(false);
   const [selectedTaskForPhotoViewing, setSelectedTaskForPhotoViewing] = useState<Todo | null>(null);
+  const [isTaskPhotoViewerVisible, setIsTaskPhotoViewerVisible] = useState(false);
+  
+  // Add state for photo navigation
+  const [allPhotosForViewing, setAllPhotosForViewing] = useState<Array<{
+    habit: Habit;
+    photoUrl: string;
+    date: string;
+    formattedDate: string;
+  }>>([]);
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+
+  // Add ref for Swipeable components
+  const swipeableRefs = useRef<{ [key: string]: any }>({});
+
+  // Add state for notes viewer modal
+  const [isNotesViewerModalVisible, setIsNotesViewerModalVisible] = useState(false);
+  const [selectedHabitForViewingNotes, setSelectedHabitForViewingNotes] = useState<Habit | null>(null);
+
+  // Add state for editing notes in viewer modal
+  const [editingNoteInViewer, setEditingNoteInViewer] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
 
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
@@ -388,26 +403,6 @@ export default function TodoScreen() {
     } catch (error) {
     }
   }
-
-  const checkCategories = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: categoriesData, error } = await supabase
-        .from('categories')
-        .select('*')
-        .eq('user_id', user.id);
-
-      if (error) {
-        console.error('Error checking categories:', error);
-        return;
-      }
-
-    } catch (error) {
-      console.error('Error in checkCategories:', error);
-    }
-  };
 
   const handleSave = async () => {
     if (!newTodo.trim()) return;
@@ -1033,6 +1028,55 @@ export default function TodoScreen() {
     } catch (error) {
       console.error('Error in addNoteToHabit:', error);
       Alert.alert('Error', 'Failed to save note. Please try again.');
+    }
+  };
+
+  const updateExistingNote = async (habitId: string, date: string, noteText: string) => {
+    try {
+      const habitToToggle = habits.find(habit => habit.id === habitId);
+      if (!habitToToggle) return;
+
+      // Update the specific note
+      const currentNotes = habitToToggle.notes || {};
+      const updatedNotes = {
+        ...currentNotes,
+        [date]: noteText
+      };
+
+      // Update in Supabase
+      const { error } = await supabase
+        .from('habits')
+        .update({ 
+          notes: updatedNotes
+        })
+        .eq('id', habitId)
+        .eq('user_id', user?.id);
+
+      if (error) {
+        console.error('Error updating note in Supabase:', error);
+        Alert.alert('Error', 'Failed to update note. Please try again.');
+        return;
+      }
+
+      // Update local state
+      setHabits(prev => prev.map(habit => 
+        habit.id === habitId 
+          ? { 
+              ...habit, 
+              notes: updatedNotes
+            } 
+          : habit
+      ));
+      
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+
+      Alert.alert('Success', 'Note updated successfully!');
+    } catch (error) {
+      console.error('Error in updateExistingNote:', error);
+      Alert.alert('Error', 'Failed to update note. Please try again.');
     }
   };
 
@@ -2621,26 +2665,28 @@ export default function TodoScreen() {
               }}
             >
               <Text style={{
-                fontSize: 24,
+                fontSize: 25,
                 fontWeight: '700',
                 color: '#333',
                 fontFamily: 'Onest',
               }}>
                 {moment(currentDate).format('MMMM D')}
               </Text>
-              <Ionicons name="chevron-down" size={16} color="#666" />
+              <Ionicons name="chevron-down" size={16} color="#666" style={{ marginLeft: 1 }} />
             </TouchableOpacity>
           </View>
 
           {/* Date Picker Modal */}
           {showDatePicker && (
+            <Modal
+              animationType="fade"
+              transparent={true}
+              visible={showDatePicker}
+              onRequestClose={() => setShowDatePicker(false)}
+            >
             <View style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 999,
+                flex: 1,
+                backgroundColor: 'rgba(0, 0, 0, 0.3)',
             }}>
               <TouchableOpacity
                 style={{
@@ -2649,41 +2695,29 @@ export default function TodoScreen() {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
                 }}
                 activeOpacity={1}
                 onPress={() => setShowDatePicker(false)}
               />
               <View style={{
                 position: 'absolute',
-                top: 100,
-                left: 20,
-                right: 20,
+                top: 110,
+                  left: 22,
                 backgroundColor: 'white',
-                borderRadius: 12,
+                  borderRadius: 16,
+                  width: 320,
                 shadowColor: '#000',
-                shadowOffset: { width: 0, height: 2 },
-                shadowOpacity: 0.1,
-                shadowRadius: 6,
-                elevation: 4,
-                zIndex: 1000,
-                paddingHorizontal: 25,
-              }}>
-                <View style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: 12,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 12,
+                  elevation: 8,
+                  overflow: 'hidden',
                 }}>
-                  <TouchableOpacity
-                    onPress={() => setShowDatePicker(false)}
-                    style={{
-                      padding: 4,
-                    }}
-                  >
-                  </TouchableOpacity>
-                </View>
-                
+                  {/* Date Picker */}
+                <View style={{
+                    paddingHorizontal: 0,
+                    paddingVertical: 0,
+                  }}>
                 <DateTimePicker
                   value={currentDate}
                   mode="date"
@@ -2694,13 +2728,16 @@ export default function TodoScreen() {
                     }
                   }}
                   style={{
-                    height: 80,
+                        height: 70,
                     width: '100%',
                   }}
                   textColor="#333"
+                      themeVariant="light"
                 />
               </View>
             </View>
+              </View>
+            </Modal>
           )}
 
           {/* Tab Navigation */}
@@ -2822,6 +2859,11 @@ export default function TodoScreen() {
                   {habits.map((habit: Habit) => (
                     <Swipeable
                       key={habit.id}
+                      ref={(ref) => {
+                        if (ref) {
+                          swipeableRefs.current[habit.id] = ref;
+                        }
+                      }}
                       renderRightActions={() => (
                         <TouchableOpacity
                           style={[styles.rightAction, {
@@ -2840,27 +2882,68 @@ export default function TodoScreen() {
                         </TouchableOpacity>
                       )}
                       renderLeftActions={() => (
-                        <View style={{
-                          flexDirection: 'row',
+                        <View
+                          style={{
+                            backgroundColor: '#007AFF',
+                            width: 80, // Single icon width
+                            height: '100%',
                           alignItems: 'center',
-                          backgroundColor: `${habit.color}20`,
-                          paddingHorizontal: 8,
-                        }}>
+                            justifyContent: 'center',
+                            borderRadius: 8,
+                          }}
+                        >
+                          {/* Camera Icon */}
                           <TouchableOpacity
                             onPress={() => {
-                              if (Platform.OS !== 'web') {
-                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              if (swipeableRefs.current[habit.id]) {
+                                swipeableRefs.current[habit.id].close();
                               }
+                              const photos = habit.photos || {};
+                              const photoEntries = Object.entries(photos);
+                              
+                              if (photoEntries.length > 0) {
+                                // Sort photos by date (most recent first) and show the first one
+                                const sortedPhotos = photoEntries
+                                  .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
+                                  .map(([date, photoUrl]) => ({
+                                    date,
+                                    photoUrl,
+                                    formattedDate: moment(date).format('MMM D, YYYY')
+                                  }));
+                                
+                                // Set up all photos for navigation
+                                setAllPhotosForViewing(sortedPhotos.map(photo => ({
+                                  habit,
+                                  photoUrl: photo.photoUrl,
+                                  date: photo.date,
+                                  formattedDate: photo.formattedDate
+                                })));
+                                setCurrentPhotoIndex(0);
+                                
+                                // Show the most recent photo directly
+                                setSelectedPhotoForViewing({ 
+                                  habit, 
+                                  photoUrl: sortedPhotos[0].photoUrl, 
+                                  date: sortedPhotos[0].date, 
+                                  formattedDate: sortedPhotos[0].formattedDate 
+                                });
+                                setIsPhotoViewerVisible(true);
+                              } else {
+                                // Open photo modal to add photos
                               setSelectedHabitForPhoto(habit);
                               setIsPhotoModalVisible(true);
+                              }
                             }}
                             style={{
-                              backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                              borderRadius: 8,
-                              padding: 12,
+                              width: 48,
+                              height: 48,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: 24,
+                              backgroundColor: 'rgba(255,255,255,0.2)',
                             }}
                           >
-                            <Ionicons name="camera" size={24} color={habit.color} />
+                            <Ionicons name="camera" size={22} color="white" />
                           </TouchableOpacity>
                         </View>
                       )}
@@ -2969,20 +3052,19 @@ export default function TodoScreen() {
                                 {habit.text}
                               </Text>
                             </View>
-                            
                               <View style={{
                                 flexDirection: 'row',
                                 alignItems: 'center',
-                              backgroundColor: '#E8F5E9',
+                              backgroundColor: '#f8f9fa',
                               paddingHorizontal: 8,
                               paddingVertical: 4,
                               borderRadius: 12
                               }}>
-                              <Ionicons name="flame" size={12} color="#4CAF50" style={{ marginRight: 4 }} />
+                              <Ionicons name="flame" size={12} color="#666" style={{ marginRight: 4 }} />
                                 <Text style={{
                                 fontSize: 12,
-                                color: '#4CAF50',
-                                fontWeight: '600',
+                                color: '#666',
+                                fontWeight: '500',
                                 fontFamily: 'Onest'
                                 }}>
                                 {habit.streak}
@@ -2992,11 +3074,11 @@ export default function TodoScreen() {
                           
                             {habit.description && (
                               <Text style={{
-                              fontSize: 13,
-                              color: '#7F8C8D',
+                              fontSize: 14,
+                              color: '#666',
                                 fontFamily: 'Onest',
-                              lineHeight: 16,
-                              marginBottom: 8
+                              lineHeight: 18,
+                              marginBottom: 12
                               }}>
                                 {habit.description}
                               </Text>
@@ -3006,270 +3088,146 @@ export default function TodoScreen() {
                             flexDirection: 'row',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            paddingTop: 0,
                           }}>
                             <View style={{
                               flexDirection: 'row',
                               alignItems: 'center',
-                              gap: 6
+                              backgroundColor: '#f8f9fa',
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 12
                             }}>
+                              <Ionicons name="calendar" size={12} color="#666" style={{ marginRight: 4 }} />
                               <Text style={{
                                 fontSize: 12,
-                                color: '#95A5A6',
+                                color: '#666',
+                                fontWeight: '500',
                                 fontFamily: 'Onest'
                               }}>
-                                Weekly goal:
-                              </Text>
-                              <Text style={{
-                                fontSize: 12,
-                                color: '#3A3A3A',
-                                fontFamily: 'Onest',
-                                fontWeight: '600'
-                              }}>
-                                {(habit.completedDays || []).filter(date => {
-                                  const weekStart = moment().startOf('isoWeek');
-                                  const weekEnd = moment().endOf('isoWeek');
-                                  const habitDate = moment(date);
-                                  return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
-                                }).length}/{habit.targetPerWeek || 7}
+                                {habit.targetPerWeek}/week
                               </Text>
                           </View>
                             
+                            {/* Icons Container - Bottom Right */}
                             <View style={{
                               flexDirection: 'row',
                               alignItems: 'center',
-                              gap: 8
+                              gap: 8,
                             }}>
-                              {habit.requirePhoto && (() => {
-                                const today = moment().format('YYYY-MM-DD');
-                                const hasPhotoToday = habit.photos?.[today];
-                                const isCompletedToday = habit.completedDays?.includes(today);
-                                
-                                if (hasPhotoToday) {
-                                  return (
-                                    <View style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      backgroundColor: '#E8F5E9',
-                                      paddingHorizontal: 6,
-                                      paddingVertical: 3,
-                                      borderRadius: 12
-                                    }}>
-                                      <Ionicons name="checkmark-circle" size={10} color="#4CAF50" style={{ marginRight: 3 }} />
-                                      <Text style={{
-                                        fontSize: 10,
-                                        color: '#4CAF50',
-                                        fontWeight: '500',
-                                        fontFamily: 'Onest'
-                                      }}>
-                                        Photo ✓
-                                      </Text>
-                      </View>
-                    );
-                                } else if (isCompletedToday) {
-                                  return (
-                                    <View style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      backgroundColor: '#FFF3E0',
-                                      paddingHorizontal: 6,
-                                      paddingVertical: 3,
-                                      borderRadius: 12
-                                    }}>
-                                      <Ionicons name="warning" size={10} color="#FF9800" style={{ marginRight: 3 }} />
-                                      <Text style={{
-                                        fontSize: 10,
-                                        color: '#FF9800',
-                                        fontWeight: '500',
-                                        fontFamily: 'Onest'
-                                      }}>
-                                        Missing
-                                      </Text>
-                                    </View>
-                                  );
+                              {/* Notes Icon */}
+                              <TouchableOpacity
+                                onPress={() => {
+                                  // Open notes viewer modal
+                                  setSelectedHabitForViewingNotes(habit);
+                                  // Load existing note content if available
+                                  const notes = habit.notes || {};
+                                  const noteDates = Object.keys(notes);
+                                  if (noteDates.length > 0) {
+                                    // Get the most recent note
+                                    const mostRecentDate = noteDates.sort((a, b) => b.localeCompare(a))[0];
+                                    setEditingNoteText(notes[mostRecentDate]);
                                 } else {
-                                  return (
-                                    <View style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      backgroundColor: '#FFF3E0',
-                                      paddingHorizontal: 6,
-                                      paddingVertical: 3,
-                                      borderRadius: 12
-                                    }}>
-                                      <Ionicons name="camera" size={10} color="#FF9800" style={{ marginRight: 3 }} />
-                                      <Text style={{
-                                        fontSize: 10,
-                                        color: '#FF9800',
-                                        fontWeight: '500',
-                                        fontFamily: 'Onest'
-                                      }}>
-                                        Required
-                                      </Text>
-                                    </View>
-                                  );
-                                }
-                              })()}
+                                    // Clear text if no existing notes
+                                    setEditingNoteText('');
+                                  }
+                                  setIsNotesViewerModalVisible(true);
+                                }}
+                                style={{
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  backgroundColor: '#f8f9fa',
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 6,
+                                  borderRadius: 12,
+                                }}
+                              >
+                                <Feather 
+                                  name="edit-3" 
+                                  size={14} 
+                                  color="#007AFF" 
+                                />
+                              </TouchableOpacity>
                               
-                              {habit.reminderTime && (
-                                <View style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 4
-                                }}>
-                                  <Ionicons name="time" size={12} color="#95A5A6" />
-                                  <Text style={{
-                                    fontSize: 12,
-                                    color: '#95A5A6',
-                                    fontFamily: 'Onest'
-                                  }}>
-                                    {moment(habit.reminderTime).format('h:mm A')}
-                                  </Text>
-                                </View>
-                              )}
-
-                              {/* Show note indicator if habit has notes */}
-                              {Object.keys(habit.notes || {}).length > 0 && (
-                                <View style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  gap: 4
-                                }}>
-                                  <Ionicons name="document-text" size={12} color="#95A5A6" />
-                                  <Text style={{
-                                    fontSize: 12,
-                                    color: '#95A5A6',
-                                    fontFamily: 'Onest'
-                                  }}>
-                                    {Object.keys(habit.notes || {}).length} note{Object.keys(habit.notes || {}).length !== 1 ? 's' : ''}
-                                  </Text>
-                                </View>
-                              )}
-
-                              {/* Show today's logs indicators */}
-                              {(() => {
-                                const today = moment().format('YYYY-MM-DD');
-                                const hasNoteToday = habit.notes?.[today];
-                                const hasPhotoToday = habit.photos?.[today];
-                                
-                                if (hasNoteToday || hasPhotoToday) {
-                                  return (
-                                    <View style={{
-                                      flexDirection: 'row',
-                                      alignItems: 'center',
-                                      gap: 4
-                                    }}>
-                                      {hasNoteToday && (
-                                        <View style={{
-                                          flexDirection: 'row',
-                                          alignItems: 'center',
-                                          backgroundColor: '#E3F2FD',
-                                          paddingHorizontal: 4,
-                                          paddingVertical: 2,
-                                          borderRadius: 8
-                                        }}>
-                                          <Ionicons name="document-text" size={8} color="#1976D2" style={{ marginRight: 2 }} />
-                                          <Text style={{
-                                            fontSize: 8,
-                                            color: '#1976D2',
-                                            fontWeight: '500',
-                                            fontFamily: 'Onest'
-                                          }}>
-                                            Note
-                                          </Text>
-                                        </View>
-                                      )}
-                                      {hasPhotoToday && (
+                              {/* Photo Icon */}
+                              {habit.requirePhoto && (
                                         <TouchableOpacity
                                           onPress={() => {
+                                    // Check if habit has photos
+                                    const photos = habit.photos || {};
+                                    const photoEntries = Object.entries(photos);
+                                    
+                                    if (photoEntries.length > 0) {
+                                      // Sort photos by date (most recent first) and show the first one
+                                      const sortedPhotos = photoEntries
+                                        .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
+                                        .map(([date, photoUrl]) => ({
+                                          date,
+                                          photoUrl,
+                                          formattedDate: moment(date).format('MMM D, YYYY')
+                                        }));
+                                      
+                                      // Set up all photos for navigation
+                                      setAllPhotosForViewing(sortedPhotos.map(photo => ({
+                                        habit,
+                                        photoUrl: photo.photoUrl,
+                                        date: photo.date,
+                                        formattedDate: photo.formattedDate
+                                      })));
+                                      setCurrentPhotoIndex(0);
+                                      
+                                      // Show the most recent photo directly
                                             setSelectedPhotoForViewing({ 
                                               habit, 
-                                              photoUrl: hasPhotoToday, 
-                                              date: today, 
-                                              formattedDate: moment(today).format('MMM D, YYYY') 
+                                        photoUrl: sortedPhotos[0].photoUrl, 
+                                        date: sortedPhotos[0].date, 
+                                        formattedDate: sortedPhotos[0].formattedDate 
                                             });
                                             setIsPhotoViewerVisible(true);
+                                    } else {
+                                      // Show message that no photos exist yet
+                                      Alert.alert(
+                                        'No Photos Yet',
+                                        'This habit requires photos but none have been added yet. Swipe left on the habit to add photos.',
+                                        [{ text: 'OK', style: 'default' }]
+                                      );
+                                    }
                                           }}
                                           style={{
-                                            flexDirection: 'row',
                                             alignItems: 'center',
-                                            backgroundColor: '#E8F5E9',
-                                            paddingHorizontal: 4,
-                                            paddingVertical: 2,
-                                            borderRadius: 8
-                                          }}
-                                        >
-                                          <Ionicons name="camera" size={8} color="#4CAF50" style={{ marginRight: 2 }} />
-                                          <Text style={{
-                                            fontSize: 8,
-                                            color: '#4CAF50',
-                                            fontWeight: '500',
-                                            fontFamily: 'Onest'
-                                          }}>
-                                            Photo
-                                          </Text>
+                                    justifyContent: 'center',
+                                    backgroundColor: '#f8f9fa',
+                                    paddingHorizontal: 8,
+                                    paddingVertical: 6,
+                                    borderRadius: 12,
+                                  }}
+                                >
+                                  <Ionicons 
+                                    name={Object.keys(habit.photos || {}).length > 0 ? "images" : "camera"} 
+                                    size={14} 
+                                    color={Object.keys(habit.photos || {}).length > 0 ? "#007AFF" : "#666"} 
+                                  />
                                         </TouchableOpacity>
                                       )}
                                     </View>
-                                  );
-                                }
-                                return null;
-                              })()}
-                              
-                              {/* Progress Tracker Button */}
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setSelectedHabitForProgress(habit);
-                                  setProgressViewMode('weekly');
-                                  setIsProgressModalVisible(true);
-                                }}
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  backgroundColor: habit.color + '20',
-                                  paddingHorizontal: 6,
-                                  paddingVertical: 3,
-                                  borderRadius: 12
-                                }}
-                              >
-                                <Ionicons name="analytics" size={10} color={habit.color} style={{ marginRight: 3 }} />
-                                <Text style={{
-                                  fontSize: 10,
-                                  color: habit.color,
-                                  fontWeight: '600',
-                                  fontFamily: 'Onest'
-                                }}>
-                                  Progress
-                                </Text>
-                              </TouchableOpacity>
-                              
-                              {/* Weekly Statistics Button */}
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setSelectedHabitForWeeklyStats(habit);
-                                  setIsWeeklyStatsModalVisible(true);
-                                }}
-                                style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  backgroundColor: '#F0F8FF',
-                                  paddingHorizontal: 6,
-                                  paddingVertical: 3,
-                                  borderRadius: 12
-                                }}
-                              >
-                                <Ionicons name="bar-chart" size={10} color="#4169E1" style={{ marginRight: 3 }} />
-                                <Text style={{
-                                  fontSize: 10,
-                                  color: '#4169E1',
-                                  fontWeight: '600',
-                                  fontFamily: 'Onest'
-                                }}>
-                                  Weekly
-                                </Text>
-                              </TouchableOpacity>
-                            </View>
                           </View>
+                          
+                          {habit.reminderTime && (
+                            <View style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                              marginTop: 8
+                            }}>
+                              <Ionicons name="time" size={12} color="#999" />
+                                <Text style={{
+                                fontSize: 12,
+                                color: '#999',
+                                fontFamily: 'Onest',
+                                marginLeft: 4
+                              }}>
+                                {moment(habit.reminderTime).format('h:mm A')}
+                                </Text>
+                            </View>
+                          )}
                         </TouchableOpacity>
                       </View>
                     </Swipeable>
@@ -3831,7 +3789,7 @@ export default function TodoScreen() {
                                   label: newCategory.label,
                                   color: newCategory.color,
                                   user_id: user.id,
-                                  type: 'task'
+                                  type: 'task'  // Add type field
                                 })
                                 .select()
                                 .single();
@@ -4969,201 +4927,7 @@ export default function TodoScreen() {
         minimumDate={new Date()}
       />
 
-      {/* Notes Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isNotesModalVisible}
-        onRequestClose={() => {
-          setIsNotesModalVisible(false);
-          setSelectedHabitForNotes(null);
-          setNoteText('');
-        }}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <View style={{ flex: 1 }} />
-          <View style={{ 
-            height: '50%',
-            backgroundColor: '#fafafa',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-          }}>
-            {/* Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              paddingTop: 20,
-              backgroundColor: selectedHabitForNotes ? `${selectedHabitForNotes.color}60` : '#ffffff',
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-            }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  setIsNotesModalVisible(false);
-                  setSelectedHabitForNotes(null);
-                  setNoteText('');
-                }}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="close" size={16} color="#666" />
-              </TouchableOpacity>
-              
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
-                {selectedHabitForNotes ? `Notes for "${selectedHabitForNotes.text}"` : 'Notes'}
-              </Text>
-              
-              <TouchableOpacity 
-                onPress={async () => {
-                  if (noteText.trim() && selectedHabitForNotes) {
-                    const today = moment().format('YYYY-MM-DD');
-                    await addNoteToHabit(selectedHabitForNotes.id, today, noteText.trim());
-                    setNoteText('');
-                  }
-                }}
-                disabled={!noteText.trim()}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: noteText.trim() ? '#A0C3B2' : '#ffffff',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons 
-                  name="checkmark" 
-                  size={16} 
-                  color={noteText.trim() ? 'white' : '#999'} 
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Content */}
-            <ScrollView 
-              style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 20 }}
-              keyboardShouldPersistTaps="handled"
-            >
-              {/* Add Note Section */}
-              <View style={{
-                backgroundColor: 'white',
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 18,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05,
-                shadowRadius: 4,
-                elevation: 1,
-              }}>
-                <Text style={{
-                  fontSize: 14,
-                  fontWeight: '600',
-                  color: '#333',
-                  marginBottom: 12,
-                  fontFamily: 'Onest'
-                }}>
-                  Add Note for Today
-                </Text>
-                <TextInput
-                  style={{
-                    fontSize: 16,
-                    fontFamily: 'Onest',
-                    color: '#333',
-                    minHeight: 80,
-                    textAlignVertical: 'top',
-                    padding: 12,
-                    backgroundColor: '#f8f9fa',
-                    borderRadius: 8,
-                    borderWidth: 1,
-                    borderColor: '#e0e0e0',
-                  }}
-                  placeholder="Write your note here..."
-                  placeholderTextColor="#999"
-                  value={noteText}
-                  onChangeText={setNoteText}
-                  multiline
-                  numberOfLines={3}
-                  autoFocus
-                />
-              </View>
-
-              {/* Previous Notes Section */}
-              {selectedHabitForNotes && Object.keys(selectedHabitForNotes.notes || {}).length > 0 && (
-                <View style={{
-                  backgroundColor: 'white',
-                  borderRadius: 12,
-                  padding: 16,
-                  marginBottom: 18,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 1 },
-                  shadowOpacity: 0.05,
-                  shadowRadius: 4,
-                  elevation: 1,
-                }}>
-                  <Text style={{
-                    fontSize: 14,
-                    fontWeight: '600',
-                    color: '#333',
-                    marginBottom: 12,
-                    fontFamily: 'Onest'
-                  }}>
-                    Previous Notes
-                  </Text>
-                  {Object.entries(selectedHabitForNotes.notes || {})
-                    .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
-                    .slice(0, 3) // Only show last 3 notes to fit in 50% screen
-                    .map(([date, note]) => (
-                      <View key={date} style={{
-                        padding: 12,
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        marginBottom: 8,
-                      }}>
-                        <Text style={{
-                          fontSize: 12,
-                          color: '#666',
-                          fontFamily: 'Onest',
-                          fontWeight: '500',
-                          marginBottom: 4,
-                        }}>
-                          {moment(date).format('MMM D, YYYY')}
-                        </Text>
-                        <Text style={{
-                          fontSize: 14,
-                          color: '#333',
-                          fontFamily: 'Onest',
-                          lineHeight: 20,
-                        }}>
-                          {note}
-                        </Text>
-                      </View>
-                    ))}
-                </View>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      {/* Notes Modal - REMOVED */}
 
       {/* Photo Modal */}
       <Modal
@@ -5328,894 +5092,323 @@ export default function TodoScreen() {
 
       {/* Photo Viewer Modal */}
       <Modal
-        animationType="slide"
+        animationType="fade"
         transparent={true}
         visible={isPhotoViewerVisible}
         onRequestClose={() => {
           setIsPhotoViewerVisible(false);
           setSelectedPhotoForViewing(null);
+          setAllPhotosForViewing([]);
+          setCurrentPhotoIndex(0);
         }}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <View style={{ flex: 1 }} />
           <View style={{ 
-            backgroundColor: '#fafafa',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-            paddingBottom: 20,
-          }}>
-            {/* Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
+          flex: 1, 
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          justifyContent: 'center',
               alignItems: 'center', 
-              paddingHorizontal: 20,
-              paddingVertical: 16,
-              paddingTop: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
             }}>
+          {selectedPhotoForViewing && (
+            <>
+              {/* Close Button */}
               <TouchableOpacity 
                 onPress={() => {
                   setIsPhotoViewerVisible(false);
                   setSelectedPhotoForViewing(null);
+                  setAllPhotosForViewing([]);
+                  setCurrentPhotoIndex(0);
                 }}
                 style={{
-                  padding: 4,
+                  position: 'absolute',
+                  top: 50,
+                  right: 20,
+                  zIndex: 10,
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
                 }}
               >
-                <Ionicons name="close" size={20} color="#666" />
+                <Ionicons name="close" size={24} color="white" />
               </TouchableOpacity>
               
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
-                View Photo
-              </Text>
-              
-              <View style={{ width: 28 }} />
-            </View>
-
-            {/* Content */}
-            <View style={{ padding: 20 }}>
-              <View style={{ gap: 12 }}>
-                <Image
-                  source={{ uri: selectedPhotoForViewing?.photoUrl }}
-                  style={{ width: '100%', height: 300, borderRadius: 10 }}
-                />
-                <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                  {selectedPhotoForViewing?.habit.text}
-                </Text>
-                <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                  {selectedPhotoForViewing?.formattedDate}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Progress Tracker Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isProgressModalVisible}
-        onRequestClose={() => {
-          setIsProgressModalVisible(false);
-          setSelectedHabitForProgress(null);
-        }}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <View style={{ flex: 1 }} />
-          <View style={{ 
-            backgroundColor: '#fafafa',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-            paddingBottom: 20,
-          }}>
-            {/* Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 20,
-              paddingVertical: 16,
-              paddingTop: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
-            }}>
+              {/* Navigation Buttons */}
+              {allPhotosForViewing.length > 1 && (
+                <>
+                  {/* Previous Button */}
+                  {currentPhotoIndex > 0 && (
               <TouchableOpacity 
                 onPress={() => {
-                  setIsProgressModalVisible(false);
-                  setSelectedHabitForProgress(null);
+                        const newIndex = currentPhotoIndex - 1;
+                        setCurrentPhotoIndex(newIndex);
+                        setSelectedPhotoForViewing(allPhotosForViewing[newIndex]);
                 }}
                 style={{
-                  padding: 4,
-                }}
-              >
-                <Ionicons name="close" size={20} color="#666" />
+                        position: 'absolute',
+                        left: 20,
+                        top: '50%',
+                        transform: [{ translateY: -20 }],
+                        zIndex: 10,
+                        width: 40,
+                        height: 40,
+                        borderRadius: 20,
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="chevron-back" size={24} color="white" />
               </TouchableOpacity>
-              
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
-                Progress Tracker
-              </Text>
-              
-              <View style={{ width: 28 }} />
-            </View>
+                  )}
 
-            {/* Content */}
-            <ScrollView style={{ padding: 20 }}>
-              {selectedHabitForProgress && (() => {
-                const progressData = calculateHabitProgress(selectedHabitForProgress, progressViewMode);
-                return (
-                  <View style={{ gap: 16 }}>
-                    {/* Header Info */}
-                    <View style={{ gap: 8 }}>
-                      <Text style={{ fontSize: 18, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                        {selectedHabitForProgress.text}
-                      </Text>
-                      <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                        {progressData.period}
-                      </Text>
-                    </View>
-
-                    {/* Statistics */}
-                    <View style={{ 
-                      backgroundColor: 'white', 
-                      borderRadius: 12, 
-                      padding: 16,
-                      gap: 8
-                    }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                          Completed
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                          {progressData.completed}/{progressData.target}
-                        </Text>
-                      </View>
-                      
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                          Current Streak
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                          {progressData.streak} days
-                        </Text>
-                      </View>
-                      
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                          Average per {progressViewMode === 'weekly' ? 'week' : 'month'}
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                          {progressViewMode === 'weekly' ? progressData.averagePerWeek : progressData.averagePerMonth}
-                        </Text>
-                      </View>
-                    </View>
-
-                    {/* Progress Bar */}
-                    <View style={{ 
-                      backgroundColor: 'white', 
-                      borderRadius: 12, 
-                      padding: 16,
-                      gap: 8
-                    }}>
-                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                          Progress
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '600', color: selectedHabitForProgress.color, fontFamily: 'Onest' }}>
-                          {Math.round(progressData.percentage)}%
-                        </Text>
-                      </View>
-                      
-                      <View style={{ 
-                        height: 8, 
-                        backgroundColor: '#f0f0f0', 
-                        borderRadius: 4,
-                        overflow: 'hidden'
-                      }}>
-                        <View style={{ 
-                          height: '100%', 
-                          width: `${progressData.percentage}%`, 
-                          backgroundColor: selectedHabitForProgress.color,
-                          borderRadius: 4,
-                        }} />
-                      </View>
-                    </View>
-
-                    {/* View Toggle */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                        {progressViewMode === 'weekly' ? 'Daily Breakdown' : 'Weekly Breakdown'}
-                      </Text>
+                  {/* Next Button */}
+                  {currentPhotoIndex < allPhotosForViewing.length - 1 && (
                       <TouchableOpacity
-                        onPress={() => setProgressViewMode(prev => prev === 'weekly' ? 'monthly' : 'weekly')}
+                      onPress={() => {
+                        const newIndex = currentPhotoIndex + 1;
+                        setCurrentPhotoIndex(newIndex);
+                        setSelectedPhotoForViewing(allPhotosForViewing[newIndex]);
+                      }}
                         style={{
-                          paddingHorizontal: 16,
-                          paddingVertical: 8,
-                          backgroundColor: selectedHabitForProgress.color + '20',
+                        position: 'absolute',
+                        right: 20,
+                        top: '50%',
+                        transform: [{ translateY: -20 }],
+                        zIndex: 10,
+                        width: 40,
+                        height: 40,
                           borderRadius: 20,
-                        }}
-                      >
-                        <Text style={{ 
-                          fontSize: 14, 
-                          color: selectedHabitForProgress.color, 
-                          fontFamily: 'Onest', 
-                          fontWeight: '600' 
-                        }}>
-                          {progressViewMode === 'weekly' ? 'Monthly' : 'Weekly'}
-                        </Text>
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="chevron-forward" size={24} color="white" />
                       </TouchableOpacity>
-                    </View>
+                  )}
+                </>
+              )}
 
-                    {/* Breakdown */}
-                    {progressViewMode === 'weekly' ? (
-                      <View style={{ gap: 8 }}>
-                        {progressData.dailyBreakdown?.map((day, index) => (
-                          <View key={index} style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            padding: 16,
-                            backgroundColor: 'white',
+              {/* Photo */}
+              <Image
+                source={{ uri: selectedPhotoForViewing.photoUrl }}
+                style={{
+                  width: '90%',
+                  height: '70%',
                             borderRadius: 12,
-                            borderWidth: 1,
-                            borderColor: day.isToday ? selectedHabitForProgress.color : '#f0f0f0',
-                          }}>
-                            <View style={{ width: 70 }}>
+                  resizeMode: 'contain',
+                }}
+              />
+
+              {/* Photo Counter */}
+              {allPhotosForViewing.length > 1 && (
+                <View style={{
+                  position: 'absolute',
+                  top: 50,
+                  left: 20,
+                  zIndex: 10,
+                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 6,
+                }}>
                               <Text style={{ 
+                    color: 'white',
                                 fontSize: 14, 
                                 fontWeight: '600',
-                                color: '#333', 
-                                fontFamily: 'Onest'
-                              }}>
-                                {day.dayName}
-                              </Text>
-                              <Text style={{ 
-                                fontSize: 12, 
-                                color: '#666', 
-                                fontFamily: 'Onest'
-                              }}>
-                                {moment(day.date).format('MMM D')}
+                    fontFamily: 'Onest',
+                  }}>
+                    {currentPhotoIndex + 1} of {allPhotosForViewing.length}
                               </Text>
                             </View>
-                            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                              <View style={{
-                                width: 24,
-                                height: 24,
-                                borderRadius: 12,
-                                backgroundColor: day.isCompleted ? selectedHabitForProgress.color : '#f0f0f0',
-                                justifyContent: 'center',
-                                alignItems: 'center',
-                              }}>
-                                {day.isCompleted && (
-                                  <Ionicons name="checkmark" size={14} color="white" />
-                                )}
-                              </View>
-                              <View style={{ flexDirection: 'row', gap: 8 }}>
-                                {day.hasPhoto && (
+              )}
+
+              {/* Photo Info */}
                                   <View style={{
-                                    backgroundColor: '#E8F5E9',
-                                    paddingHorizontal: 6,
-                                    paddingVertical: 2,
-                                    borderRadius: 8,
-                                  }}>
-                                    <Ionicons name="camera" size={12} color="#4CAF50" />
-                                  </View>
-                                )}
-                                {day.hasNote && (
-                                  <View style={{
-                                    backgroundColor: '#E3F2FD',
-                                    paddingHorizontal: 6,
-                                    paddingVertical: 2,
-                                    borderRadius: 8,
-                                  }}>
-                                    <Ionicons name="document-text" size={12} color="#1976D2" />
-                                  </View>
-                                )}
-                              </View>
-                            </View>
-                          </View>
-                        ))}
-                      </View>
-                    ) : (
-                      <View style={{ gap: 8 }}>
-                        {progressData.weeklyBreakdown?.map((week, index) => (
-                          <View key={index} style={{
-                            padding: 16,
-                            backgroundColor: 'white',
+                position: 'absolute',
+                bottom: 50,
+                left: 20,
+                right: 20,
+                backgroundColor: 'rgba(255, 255, 255, 0.1)',
                             borderRadius: 12,
-                            borderWidth: 1,
-                            borderColor: '#f0f0f0',
+                padding: 16,
+                backdropFilter: 'blur(10px)',
                           }}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                               <Text style={{ 
-                                fontSize: 16, 
+                  color: 'white',
+                  fontSize: 18,
                                 fontWeight: '600', 
-                                color: '#333', 
-                                fontFamily: 'Onest'
+                  fontFamily: 'Onest',
+                  marginBottom: 4,
                               }}>
-                                Week {week.weekNumber}
+                  {selectedPhotoForViewing.habit.text}
                               </Text>
                               <Text style={{ 
+                  color: 'rgba(255, 255, 255, 0.8)',
                                 fontSize: 14, 
-                                fontWeight: '600',
-                                color: selectedHabitForProgress.color, 
-                                fontFamily: 'Onest'
-                              }}>
-                                {week.completed}/{week.totalDays}
-                              </Text>
-                            </View>
-                            <Text style={{ 
-                              fontSize: 12, 
-                              color: '#666', 
                               fontFamily: 'Onest',
-                              marginBottom: 12
                             }}>
-                              {week.period}
+                  {selectedPhotoForViewing.formattedDate}
                             </Text>
-                            <View style={{ 
-                              height: 8, 
-                              backgroundColor: '#f0f0f0', 
-                              borderRadius: 4,
-                              overflow: 'hidden'
-                            }}>
-                              <View style={{ 
-                                height: '100%', 
-                                width: `${week.percentage}%`, 
-                                backgroundColor: selectedHabitForProgress.color,
-                                borderRadius: 4,
-                              }} />
                             </View>
-                            <Text style={{ 
-                              fontSize: 12, 
-                              color: '#999', 
-                              fontFamily: 'Onest',
-                              textAlign: 'center',
-                              marginTop: 4
-                            }}>
-                              {Math.round(week.percentage)}% complete
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                );
-              })()}
-            </ScrollView>
-          </View>
+            </>
+          )}
         </View>
       </Modal>
 
-      {/* Weekly Statistics Modal */}
+      {/* Write Note Modal - REMOVED */}
+
+      {/* Notes Viewer Modal */}
       <Modal
-        animationType="slide"
+        animationType="fade"
         transparent={true}
-        visible={isWeeklyStatsModalVisible}
+        visible={isNotesViewerModalVisible}
         onRequestClose={() => {
-          setIsWeeklyStatsModalVisible(false);
-          setSelectedHabitForWeeklyStats(null);
+          setIsNotesViewerModalVisible(false);
+          setSelectedHabitForViewingNotes(null);
+          setEditingNoteInViewer(null);
+          setEditingNoteText('');
         }}
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <View style={{ flex: 1 }} />
           <View style={{ 
-            backgroundColor: '#fafafa',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-            paddingBottom: 20,
-          }}>
-            {/* Header */}
+          flex: 1, 
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        }}>
             <View style={{ 
+            position: 'absolute',
+            top: '25%',
+            right: 20,
+                    backgroundColor: 'white', 
+            borderRadius: 12,
+            width: 280,
+            maxHeight: 400,
+                    shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+                    shadowRadius: 8,
+            elevation: 8,
+            overflow: 'hidden',
+          }}>
+            {/* Arrow pointing to the icon */}
+            <View style={{
+              position: 'absolute',
+              top: -8,
+              right: 20,
+              width: 0,
+              height: 0,
+              backgroundColor: 'transparent',
+              borderStyle: 'solid',
+              borderLeftWidth: 8,
+              borderRightWidth: 8,
+              borderBottomWidth: 8,
+              borderLeftColor: 'transparent',
+              borderRightColor: 'transparent',
+              borderBottomColor: 'white',
+              zIndex: 1,
+            }} />
+            
+            {/* Modal Header */}
+                  <View style={{ 
               flexDirection: 'row', 
+                    alignItems: 'center',
               justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 20,
-              paddingVertical: 16,
-              paddingTop: 20,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
               borderBottomWidth: 1,
               borderBottomColor: '#f0f0f0',
             }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  setIsWeeklyStatsModalVisible(false);
-                  setSelectedHabitForWeeklyStats(null);
-                }}
-                style={{
-                  padding: 4,
-                }}
-              >
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-              
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
-                Weekly Statistics
-              </Text>
-              
-              <View style={{ width: 28 }} />
-            </View>
-
-            {/* Content */}
-            <ScrollView style={{ padding: 20 }}>
-              <View style={{ gap: 20 }}>
-                {/* Simple Header */}
-                <View style={{ alignItems: 'center', gap: 4 }}>
-                  <Text style={{ fontSize: 20, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
-                    This Week
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                    {moment().startOf('isoWeek').format('MMM D')} - {moment().endOf('isoWeek').format('MMM D')}
-                  </Text>
-                </View>
-
-                {/* Key Metrics */}
-                <View style={{ gap: 12 }}>
-                  {/* Total Completions */}
-                  <View style={{ 
-                    backgroundColor: 'white', 
-                    borderRadius: 16, 
-                    padding: 20,
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  }}>
-                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
-                      {habits.reduce((total, habit) => {
-                        const completedThisWeek = (habit.completedDays || []).filter(date => {
-                          const habitDate = moment(date, 'YYYY-MM-DD');
-                          return habitDate.isBetween(moment().startOf('isoWeek'), moment().endOf('isoWeek'), 'day', '[]');
-                        }).length;
-                        return total + completedThisWeek;
-                      }, 0)}
-                    </Text>
-                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                      completions
-                    </Text>
-                  </View>
-
-                  {/* Completion Rate */}
-                  <View style={{ 
-                    backgroundColor: 'white', 
-                    borderRadius: 16, 
-                    padding: 20,
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  }}>
-                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#4169E1', fontFamily: 'Onest' }}>
-                      {habits.length > 0 ? Math.round((habits.reduce((total, habit) => {
-                        const completedThisWeek = (habit.completedDays || []).filter(date => {
-                          const habitDate = moment(date, 'YYYY-MM-DD');
-                          return habitDate.isBetween(moment().startOf('isoWeek'), moment().endOf('isoWeek'), 'day', '[]');
-                        }).length;
-                        const target = habit.targetPerWeek || 7;
-                        return total + (completedThisWeek / target);
-                      }, 0) / habits.length) * 100) : 0}%
-                    </Text>
-                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                      completion rate
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Simple Habit List */}
-                <View style={{ gap: 8 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest', marginBottom: 8 }}>
-                    Habits
-                  </Text>
-                  {habits.map((habit) => {
-                    const completedThisWeek = (habit.completedDays || []).filter(date => {
-                      const habitDate = moment(date, 'YYYY-MM-DD');
-                      return habitDate.isBetween(moment().startOf('isoWeek'), moment().endOf('isoWeek'), 'day', '[]');
-                    }).length;
-                    const target = habit.targetPerWeek || 7;
-                    const percentage = Math.min((completedThisWeek / target) * 100, 100);
-                    
-                    return (
-                      <View key={habit.id} style={{
-                        backgroundColor: 'white',
-                        borderRadius: 12,
-                        padding: 16,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 1 },
-                        shadowOpacity: 0.05,
-                        shadowRadius: 4,
-                        elevation: 1,
-                      }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                           <Text style={{ 
-                            fontSize: 16, 
+                fontSize: 14,
                             fontWeight: '600', 
                             color: '#333', 
                             fontFamily: 'Onest',
                             flex: 1,
                           }}>
-                            {habit.text}
+                {selectedHabitForViewingNotes?.text}
                           </Text>
-                          <Text style={{ 
-                            fontSize: 14, 
-                            fontWeight: '600',
-                            color: habit.color, 
-                            fontFamily: 'Onest'
-                          }}>
-                            {completedThisWeek}/{target}
-                          </Text>
-                        </View>
-                        
-                        <View style={{ 
-                          height: 4, 
-                          backgroundColor: '#f0f0f0', 
-                          borderRadius: 2,
-                          overflow: 'hidden'
-                        }}>
-                          <View style={{ 
-                            height: '100%', 
-                            width: `${percentage}%`, 
-                            backgroundColor: habit.color,
-                            borderRadius: 2,
-                          }} />
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-
-                {/* Simple Streak Info */}
-                {habits.length > 0 && (
-                  <View style={{ 
-                    backgroundColor: 'white', 
-                    borderRadius: 16, 
-                    padding: 20,
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  }}>
-                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#FF6B6B', fontFamily: 'Onest' }}>
-                      {Math.max(...habits.map(habit => calculateCurrentStreak(habit.completedDays || [])))}
-                    </Text>
-                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                      day streak
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Monthly Statistics Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isMonthlyStatsModalVisible}
-        onRequestClose={() => {
-          setIsMonthlyStatsModalVisible(false);
-          setSelectedHabitForWeeklyStats(null);
-        }}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <View style={{ flex: 1 }} />
-          <View style={{ 
-            backgroundColor: '#fafafa',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-            paddingBottom: 20,
-          }}>
-            {/* Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 20,
-              paddingVertical: 16,
-              paddingTop: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
-            }}>
+              
               <TouchableOpacity 
                 onPress={() => {
-                  setIsMonthlyStatsModalVisible(false);
-                  setSelectedHabitForWeeklyStats(null);
+                  setIsNotesViewerModalVisible(false);
+                  setSelectedHabitForViewingNotes(null);
+                  setEditingNoteInViewer(null);
+                  setEditingNoteText('');
                 }}
                 style={{
                   padding: 4,
                 }}
               >
-                <Ionicons name="close" size={20} color="#666" />
+                <Ionicons name="close" size={16} color="#666" />
               </TouchableOpacity>
-              
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
-                Monthly Statistics
-              </Text>
-              
-              <View style={{ width: 28 }} />
             </View>
 
-            {/* Content */}
-            <ScrollView style={{ padding: 20 }}>
-              <View style={{ gap: 20 }}>
-                {/* Simple Header */}
-                <View style={{ alignItems: 'center', gap: 4 }}>
-                  <Text style={{ fontSize: 20, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
-                    This Month
-                  </Text>
-                  <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                    {moment().startOf('month').format('MMMM YYYY')}
-                  </Text>
-                </View>
-
-                {/* Key Metrics */}
-                <View style={{ gap: 12 }}>
-                  {/* Total Completions */}
-                  <View style={{ 
-                    backgroundColor: 'white', 
-                    borderRadius: 16, 
-                    padding: 20,
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  }}>
-                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#333', fontFamily: 'Onest' }}>
-                      {habits.reduce((total, habit) => {
-                        const completedThisMonth = (habit.completedDays || []).filter((date: string) => {
-                          const habitDate = moment(date, 'YYYY-MM-DD');
-                          return habitDate.isBetween(moment().startOf('month'), moment().endOf('month'), 'day', '[]');
-                        }).length;
-                        return total + completedThisMonth;
-                      }, 0)}
-                    </Text>
-                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                      completions
-                    </Text>
-                  </View>
-
-                  {/* Completion Rate */}
-                  <View style={{ 
-                    backgroundColor: 'white', 
-                    borderRadius: 16, 
-                    padding: 20,
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  }}>
-                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#4169E1', fontFamily: 'Onest' }}>
-                      {habits.length > 0 ? Math.round((habits.reduce((total, habit) => {
-                        const completedThisMonth = (habit.completedDays || []).filter((date: string) => {
-                          const habitDate = moment(date, 'YYYY-MM-DD');
-                          return habitDate.isBetween(moment().startOf('month'), moment().endOf('month'), 'day', '[]');
-                        }).length;
-                        const daysInMonth = moment().endOf('month').diff(moment().startOf('month'), 'days') + 1;
-                        return total + (completedThisMonth / daysInMonth);
-                      }, 0) / habits.length) * 100) : 0}%
-                    </Text>
-                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                      completion rate
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Simple Habit List */}
-                <View style={{ gap: 8 }}>
-                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest', marginBottom: 8 }}>
-                    Habits
-                  </Text>
-                  {habits.map((habit) => {
-                    const completedThisMonth = (habit.completedDays || []).filter((date: string) => {
-                      const habitDate = moment(date, 'YYYY-MM-DD');
-                      return habitDate.isBetween(moment().startOf('month'), moment().endOf('month'), 'day', '[]');
-                    }).length;
-                    const target = habit.targetPerWeek || 7;
-                    const percentage = Math.min((completedThisMonth / target) * 100, 100);
-                    
-                    return (
-                      <View key={habit.id} style={{
-                        backgroundColor: 'white',
-                        borderRadius: 12,
-                        padding: 16,
-                        shadowColor: '#000',
-                        shadowOffset: { width: 0, height: 1 },
-                        shadowOpacity: 0.05,
-                        shadowRadius: 4,
-                        elevation: 1,
-                      }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <Text style={{ 
-                            fontSize: 16, 
-                            fontWeight: '600', 
-                            color: '#333', 
-                            fontFamily: 'Onest',
+            {/* Note Editor */}
+            <TextInput
+              style={{
                             flex: 1,
-                          }}>
-                            {habit.text}
-                          </Text>
-                          <Text style={{ 
                             fontSize: 14, 
-                            fontWeight: '600',
-                            color: habit.color, 
-                            fontFamily: 'Onest'
-                          }}>
-                            {completedThisMonth}/{target}
-                          </Text>
-                        </View>
-                        
+                color: '#000',
+                lineHeight: 20,
+                padding: 16,
+                textAlignVertical: 'top',
+                fontFamily: 'Onest',
+                minHeight: 120,
+                maxHeight: 280,
+              }}
+              placeholder="Start writing..."
+              placeholderTextColor="#999"
+              value={editingNoteText}
+              onChangeText={setEditingNoteText}
+              multiline
+              textAlignVertical="top"
+              autoFocus
+            />
+            
+            {/* Save Button */}
                         <View style={{ 
-                          height: 4, 
-                          backgroundColor: '#f0f0f0', 
-                          borderRadius: 2,
-                          overflow: 'hidden'
-                        }}>
-                          <View style={{ 
-                            height: '100%', 
-                            width: `${percentage}%`, 
-                            backgroundColor: habit.color,
-                            borderRadius: 2,
-                          }} />
-                        </View>
-                      </View>
-                    );
-                  })}
-                </View>
-
-                {/* Simple Streak Info */}
-                {habits.length > 0 && (
-                  <View style={{ 
-                    backgroundColor: 'white', 
-                    borderRadius: 16, 
-                    padding: 20,
-                    alignItems: 'center',
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  }}>
-                    <Text style={{ fontSize: 32, fontWeight: '700', color: '#FF6B6B', fontFamily: 'Onest' }}>
-                      {Math.max(...habits.map(habit => calculateCurrentStreak(habit.completedDays || [])))}
-                    </Text>
-                    <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                      day streak
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Task Photo Viewer Modal */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={isTaskPhotoViewerVisible}
-        onRequestClose={() => {
-          setIsTaskPhotoViewerVisible(false);
-          setSelectedTaskForPhotoViewing(null);
-        }}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <View style={{ flex: 1 }} />
-          <View style={{ 
-            backgroundColor: '#fafafa',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-            paddingBottom: 20,
-          }}>
-            {/* Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 20,
-              paddingVertical: 16,
-              paddingTop: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderTopWidth: 1,
+              borderTopColor: '#f0f0f0',
+              alignItems: 'flex-end',
             }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  setIsTaskPhotoViewerVisible(false);
-                  setSelectedTaskForPhotoViewing(null);
+              <TouchableOpacity
+                onPress={async () => {
+                  if (editingNoteText.trim() && selectedHabitForViewingNotes) {
+                    // Get the most recent note date or use today's date
+                    const notes = selectedHabitForViewingNotes.notes || {};
+                    const noteDates = Object.keys(notes);
+                    const noteDate = noteDates.length > 0 ? noteDates[0] : moment().format('YYYY-MM-DD');
+                    
+                    await updateExistingNote(selectedHabitForViewingNotes.id, noteDate, editingNoteText.trim());
+                    setIsNotesViewerModalVisible(false);
+                    setSelectedHabitForViewingNotes(null);
+                    setEditingNoteInViewer(null);
+                    setEditingNoteText('');
+                  }
                 }}
                 style={{
-                  padding: 4,
+                  backgroundColor: editingNoteText.trim() ? '#007AFF' : '#f0f0f0',
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 8,
                 }}
               >
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-              
               <Text style={{ 
-                fontSize: 16, 
+                  fontSize: 14,
                 fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
+                  color: editingNoteText.trim() ? 'white' : '#999',
+                  fontFamily: 'Onest',
               }}>
-                View Task Photo
+                  Save
               </Text>
-              
-              <View style={{ width: 28 }} />
-            </View>
-
-            {/* Content */}
-            <View style={{ padding: 20 }}>
-              <View style={{ gap: 12 }}>
-                <Image
-                  source={{ uri: selectedTaskForPhotoViewing?.photo }}
-                  style={{ width: '100%', height: 300, borderRadius: 10 }}
-                />
-                <Text style={{ fontSize: 16, fontWeight: '600', color: '#333', fontFamily: 'Onest' }}>
-                  {selectedTaskForPhotoViewing?.text}
-                </Text>
-                <Text style={{ fontSize: 14, color: '#666', fontFamily: 'Onest' }}>
-                  {selectedTaskForPhotoViewing?.date.toLocaleString()}
-                </Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-
     </GestureHandlerRootView>
   );
 }

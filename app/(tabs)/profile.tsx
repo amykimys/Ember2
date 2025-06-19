@@ -599,6 +599,7 @@ export default function ProfileScreen() {
       const allMemories: MemoryItem[] = [];
 
       // Fetch habits with photos
+      console.log('🔍 Fetching habits with photos...');
       const { data: habitsData, error: habitsError } = await supabase
         .from('habits')
         .select('id, text, description, photos, category_id, categories(color)')
@@ -615,7 +616,8 @@ export default function ProfileScreen() {
         habitsData.forEach(habit => {
           console.log(`🔍 Processing habit ${habit.id}:`, {
             text: habit.text,
-            photos: habit.photos
+            photos: habit.photos,
+            categoryColor: habit.categories?.[0]?.color
           });
           
           if (habit.photos && typeof habit.photos === 'object') {
@@ -636,7 +638,7 @@ export default function ProfileScreen() {
                 );
                 
                 if (!isObviouslyInvalid) {
-                  console.log(`✅ Adding memory for date ${date}:`, photoUri);
+                  console.log(`✅ Adding habit memory for date ${date}:`, photoUri);
                   allMemories.push({
                     id: `${habit.id}_${date}`,
                     photoUri: photoUri,
@@ -647,10 +649,10 @@ export default function ProfileScreen() {
                     categoryColor: habit.categories?.[0]?.color
                   });
                 } else {
-                  console.log(`⚠️ Skipping obviously invalid photo for date ${date}:`, photoUri);
+                  console.log(`⚠️ Skipping obviously invalid habit photo for date ${date}:`, photoUri);
                 }
               } else {
-                console.log(`❌ Skipping invalid photo for date ${date}:`, photoUri);
+                console.log(`❌ Skipping invalid habit photo for date ${date}:`, photoUri);
               }
             }
           } else {
@@ -662,6 +664,7 @@ export default function ProfileScreen() {
       }
 
       // Fetch events with photos
+      console.log('🔍 Fetching events with photos...');
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
         .select('id, title, description, date, photos, category_name, category_color')
@@ -709,10 +712,10 @@ export default function ProfileScreen() {
                     categoryColor: event.category_color
                   });
                 } else {
-                  console.log(`⚠️ Skipping obviously invalid photo for event ${event.id}:`, photoUri);
+                  console.log(`⚠️ Skipping obviously invalid event photo for event ${event.id}:`, photoUri);
                 }
               } else {
-                console.log(`❌ Skipping invalid photo for event ${event.id}:`, photoUri);
+                console.log(`❌ Skipping invalid event photo for event ${event.id}:`, photoUri);
               }
             });
           } else {
@@ -1785,6 +1788,26 @@ export default function ProfileScreen() {
               <Text style={styles.debugButtonText}>Clean Broken Photos</Text>
             </TouchableOpacity>
             <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#5856D6' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  await checkHabitPhotos(user.id);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Check Habit Photos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#FF6B6B' }]} 
+              onPress={async () => {
+                if (user?.id) {
+                  await comprehensiveHabitPhotoCheck(user.id);
+                }
+              }}
+            >
+              <Text style={styles.debugButtonText}>Comprehensive Check</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#007AFF' }]} 
               onPress={async () => {
                 if (user?.id) {
@@ -2780,6 +2803,148 @@ export default function ProfileScreen() {
     }
   };
 
+  const checkHabitPhotos = async (userId: string) => {
+    try {
+      console.log('🔍 Checking habit photos for user:', userId);
+      
+      // Get all habits with photos
+      const { data: habitsData, error: habitsError } = await supabase
+        .from('habits')
+        .select('id, text, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsError) {
+        console.error('Error checking habit photos:', habitsError);
+        return;
+      }
+
+      console.log('🔍 Habits with photos found:', habitsData);
+      
+      if (habitsData && habitsData.length > 0) {
+        habitsData.forEach(habit => {
+          console.log(`🔍 Habit ${habit.id} (${habit.text}):`, habit.photos);
+        });
+        Alert.alert('Habit Photos Found', `Found ${habitsData.length} habits with photos. Check console for details.`);
+      } else {
+        console.log('🔍 No habits with photos found');
+        Alert.alert('No Habit Photos', 'No habits with photos found. You may need to complete some habits with photos first.');
+      }
+    } catch (error) {
+      console.error('Error checking habit photos:', error);
+      Alert.alert('Error', 'Failed to check habit photos. Please try again.');
+    }
+  };
+
+  const comprehensiveHabitPhotoCheck = async (userId: string) => {
+    try {
+      console.log('🔍 Comprehensive habit photo check for user:', userId);
+      
+      // 1. Check all habits (with and without photos)
+      const { data: allHabitsData, error: allHabitsError } = await supabase
+        .from('habits')
+        .select('id, text, photos, require_photo')
+        .eq('user_id', userId);
+
+      if (allHabitsError) {
+        console.error('Error fetching all habits:', allHabitsError);
+        Alert.alert('Error', 'Failed to fetch habits. Please try again.');
+        return;
+      }
+
+      console.log('🔍 All habits found:', allHabitsData?.length || 0);
+      
+      if (allHabitsData && allHabitsData.length > 0) {
+        allHabitsData.forEach(habit => {
+          console.log(`🔍 Habit ${habit.id} (${habit.text}):`, {
+            requirePhoto: habit.require_photo,
+            hasPhotos: !!habit.photos,
+            photoCount: habit.photos ? Object.keys(habit.photos).length : 0,
+            photos: habit.photos
+          });
+        });
+      }
+
+      // 2. Check habits with photos specifically
+      const { data: habitsWithPhotosData, error: habitsWithPhotosError } = await supabase
+        .from('habits')
+        .select('id, text, photos')
+        .eq('user_id', userId)
+        .not('photos', 'is', null);
+
+      if (habitsWithPhotosError) {
+        console.error('Error fetching habits with photos:', habitsWithPhotosError);
+      } else {
+        console.log('🔍 Habits with photos found:', habitsWithPhotosData?.length || 0);
+        
+        if (habitsWithPhotosData && habitsWithPhotosData.length > 0) {
+          habitsWithPhotosData.forEach(habit => {
+            console.log(`🔍 Habit with photos ${habit.id} (${habit.text}):`, habit.photos);
+            if (habit.photos && typeof habit.photos === 'object') {
+              Object.entries(habit.photos).forEach(([date, photoUrl]) => {
+                console.log(`  📅 Date ${date}: ${photoUrl}`);
+              });
+            }
+          });
+        }
+      }
+
+      // 3. Check memories bucket access
+      try {
+        const { data: memoriesBucketData, error: memoriesBucketError } = await supabase.storage
+          .from('memories')
+          .list('', { limit: 10 });
+
+        if (memoriesBucketError) {
+          console.error('❌ Memories bucket access error:', memoriesBucketError);
+        } else {
+          console.log('✅ Memories bucket accessible, files found:', memoriesBucketData?.length || 0);
+          if (memoriesBucketData && memoriesBucketData.length > 0) {
+            memoriesBucketData.forEach(file => {
+              console.log(`  📁 File: ${file.name}`);
+            });
+          }
+        }
+      } catch (storageError) {
+        console.error('❌ Error accessing memories bucket:', storageError);
+      }
+
+      // 4. Check habit-photos bucket access
+      try {
+        const { data: habitPhotosBucketData, error: habitPhotosBucketError } = await supabase.storage
+          .from('habit-photos')
+          .list('', { limit: 10 });
+
+        if (habitPhotosBucketError) {
+          console.error('❌ Habit-photos bucket access error:', habitPhotosBucketError);
+        } else {
+          console.log('✅ Habit-photos bucket accessible, files found:', habitPhotosBucketData?.length || 0);
+          if (habitPhotosBucketData && habitPhotosBucketData.length > 0) {
+            habitPhotosBucketData.forEach(file => {
+              console.log(`  📁 File: ${file.name}`);
+            });
+          }
+        }
+      } catch (storageError) {
+        console.error('❌ Error accessing habit-photos bucket:', storageError);
+      }
+
+      // 5. Summary
+      const totalHabits = allHabitsData?.length || 0;
+      const habitsWithPhotos = habitsWithPhotosData?.length || 0;
+      const habitsRequiringPhotos = allHabitsData?.filter(h => h.require_photo).length || 0;
+
+      const summary = `Total habits: ${totalHabits}\nHabits with photos: ${habitsWithPhotos}\nHabits requiring photos: ${habitsRequiringPhotos}`;
+      
+      console.log('📊 Summary:', summary);
+      Alert.alert('Comprehensive Check Complete', summary + '\n\nCheck console for detailed information.');
+      
+    } catch (error) {
+      console.error('Error in comprehensive habit photo check:', error);
+      Alert.alert('Error', 'Failed to perform comprehensive check. Please try again.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {user && (
@@ -3283,7 +3448,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   memoryDateHeader: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
     color: '#000',
     marginBottom: 8,
@@ -3294,8 +3459,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   memoryItem: {
-    width: '50%',
-    height: 150,
+    width: '33%',
+    height: 110,
     position: 'relative',
   },
   memoryImage: {

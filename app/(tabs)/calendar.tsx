@@ -2223,10 +2223,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     <View style={{ flex: 1, flexDirection: 'column' }}>
       {/* Fixed Header */}
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => setCalendarMode('week')}>
-          <MaterialIcons name="calendar-view-week" size={24} color="#333" />
-        </TouchableOpacity>
-
         <TouchableOpacity
           onPress={() => {
             const today = new Date();
@@ -2250,34 +2246,37 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         </TouchableOpacity>
 
         <View style={styles.modalRowGap}>
-        <TouchableOpacity
-          onPress={() => {
-            resetEventForm();
-            setShowModal(true);
-          }}
-          onLongPress={() => {
-            resetEventForm();
-            // Set up for custom event
-            setCustomModalTitle('');
-            setCustomModalDescription('');
-            const currentDateStr = getLocalDateString(startDateTime);
-            setCustomSelectedDates([currentDateStr]);
-            setCustomDateTimes({
-              default: {
-                start: startDateTime,
-                end: endDateTime,
-                reminder: reminderTime,
-                repeat: 'None',
-                dates: [currentDateStr]
-              }
-            });
-            setEditingEvent(null);
-            setIsEditingEvent(false);
-            setShowCustomDatesPicker(true);
-          }}
-        >
-          <MaterialIcons name="add" size={24} color="#3a3a3a" />
-        </TouchableOpacity>
+          <TouchableOpacity onPress={() => setCalendarMode('week')}>
+            <MaterialIcons name="calendar-view-week" size={24} color="#333" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              resetEventForm();
+              setShowModal(true);
+            }}
+            onLongPress={() => {
+              resetEventForm();
+              // Set up for custom event
+              setCustomModalTitle('');
+              setCustomModalDescription('');
+              const currentDateStr = getLocalDateString(startDateTime);
+              setCustomSelectedDates([currentDateStr]);
+              setCustomDateTimes({
+                default: {
+                  start: startDateTime,
+                  end: endDateTime,
+                  reminder: reminderTime,
+                  repeat: 'None',
+                  dates: [currentDateStr]
+                }
+              });
+              setEditingEvent(null);
+              setIsEditingEvent(false);
+              setShowCustomDatesPicker(true);
+            }}
+          >
+            <MaterialIcons name="add" size={24} color="#3a3a3a" />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -2532,10 +2531,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
       {/* Fixed Header */}
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => setCalendarMode('month')}>
-          <MaterialIcons name="calendar-view-month" size={24} color="#333" />
-        </TouchableOpacity>
-
         <TouchableOpacity
           onPress={() => {
             const today = new Date();
@@ -2571,34 +2566,37 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         </TouchableOpacity>
 
         <View style={styles.modalRowGap}>
-        <TouchableOpacity
-          onPress={() => {
-            resetEventForm();
-            setShowModal(true);
-          }}
-          onLongPress={() => {
-            resetEventForm();
-            // Set up for custom event
-            setCustomModalTitle('');
-            setCustomModalDescription('');
-            const currentDateStr = getLocalDateString(startDateTime);
-            setCustomSelectedDates([currentDateStr]);
-            setCustomDateTimes({
-              default: {
-                start: startDateTime,
-                end: endDateTime,
-                reminder: reminderTime,
-                repeat: 'None',
-                dates: [currentDateStr]
-              }
-            });
-            setEditingEvent(null);
-            setIsEditingEvent(false);
-            setShowCustomDatesPicker(true);
-          }}
-        >
-          <MaterialIcons name="add" size={24} color="#3a3a3a" />
-        </TouchableOpacity>
+          <TouchableOpacity onPress={() => setCalendarMode('month')}>
+            <MaterialIcons name="calendar-view-month" size={24} color="#333" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => {
+              resetEventForm();
+              setShowModal(true);
+            }}
+            onLongPress={() => {
+              resetEventForm();
+              // Set up for custom event
+              setCustomModalTitle('');
+              setCustomModalDescription('');
+              const currentDateStr = getLocalDateString(startDateTime);
+              setCustomSelectedDates([currentDateStr]);
+              setCustomDateTimes({
+                default: {
+                  start: startDateTime,
+                  end: endDateTime,
+                  reminder: reminderTime,
+                  repeat: 'None',
+                  dates: [currentDateStr]
+                }
+              });
+              setEditingEvent(null);
+              setIsEditingEvent(false);
+              setShowCustomDatesPicker(true);
+            }}
+          >
+            <MaterialIcons name="add" size={24} color="#3a3a3a" />
+          </TouchableOpacity>
         </View>
       </View>
 

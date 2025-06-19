@@ -535,7 +535,7 @@ export const calendarStyles = StyleSheet.create({
   modalRowGap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
   modalWrapContainer: {
     flexDirection: 'row',
