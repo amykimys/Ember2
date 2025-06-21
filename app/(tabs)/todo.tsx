@@ -726,9 +726,8 @@ export default function TodoScreen() {
       const { error } = await supabase
         .from('habits')
         .update({
-          completedDays: newCompletedDays,
-          streak: calculateCurrentStreak(newCompletedDays),
-          updated_at: new Date().toISOString()
+          completed_days: newCompletedDays,
+          streak: calculateCurrentStreak(newCompletedDays)
         })
         .eq('id', habitId);
 
