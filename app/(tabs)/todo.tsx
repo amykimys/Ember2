@@ -571,7 +571,7 @@ export default function TodoScreen() {
                 label: newCategory.label,
                 color: newCategory.color,
                 user_id: user.id,
-                type: 'task'
+                type: 'todo'  // Changed from 'task' to 'todo'
               });
             
             if (error) {
@@ -1377,7 +1377,7 @@ export default function TodoScreen() {
         .from('categories')
         .delete()
         .eq('id', categoryId)
-        .eq('type', 'task') // Only delete task categories
+        .in('type', ['todo', 'task']) // Delete both 'todo' and 'task' types
         .eq('user_id', user.id);
 
       if (deleteError) {
@@ -1466,7 +1466,7 @@ export default function TodoScreen() {
             .from('categories')
             .select('*')
             .eq('user_id', userToUse.id)
-            .eq('type', 'todo')
+            .in('type', ['todo', 'task']) // Fetch both 'todo' and 'task' types
             .order('created_at', { ascending: false });
 
           if (error) throw error;
@@ -1481,7 +1481,7 @@ export default function TodoScreen() {
       const fetchTasks = async () => {
         const result = await retryRequest(async () => {
           const { data, error } = await supabase
-            .from('tasks')
+            .from('todos')
             .select('*')
             .eq('user_id', userToUse.id)
             .order('created_at', { ascending: false });
@@ -1862,6 +1862,14 @@ export default function TodoScreen() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Add useEffect to fetch data when user changes
+  useEffect(() => {
+    if (user) {
+      console.log('User authenticated, fetching data...');
+      fetchData(user);
+    }
+  }, [user]);
   
   const handleHabitSave = async () => {
     if (!newHabit.trim()) return;
