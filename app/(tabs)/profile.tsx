@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions, RefreshControl } from 'react-native';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
@@ -70,6 +70,20 @@ interface MemoryGroup {
   memories: MemoryItem[];
 }
 
+// Friends feed interfaces
+interface PhotoShare {
+  update_id: string;
+  user_id: string;
+  user_name: string;
+  user_avatar: string;
+  user_username: string;
+  photo_url: string;
+  caption: string;
+  source_type: 'habit' | 'event';
+  source_title: string;
+  created_at: string;
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -112,6 +126,14 @@ export default function ProfileScreen() {
   const [showMemoryDetailModal, setShowMemoryDetailModal] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
+  // Friends feed state
+  const [photoShares, setPhotoShares] = useState<PhotoShare[]>([]);
+  const [isLoadingPhotoShares, setIsLoadingPhotoShares] = useState(false);
+  const [showFriendsFeedModal, setShowFriendsFeedModal] = useState(false);
+  const [photoSharesPage, setPhotoSharesPage] = useState(0);
+  const [hasMorePhotoShares, setHasMorePhotoShares] = useState(true);
+  const [isRefreshingPhotoShares, setIsRefreshingPhotoShares] = useState(false);
+
   // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
@@ -141,6 +163,7 @@ export default function ProfileScreen() {
           await loadFriends(session.user.id);
           await loadFriendRequests(session.user.id);
           await loadMemories(session.user.id);
+          await loadPhotoShares(true);
         }
       } catch (error) {
         console.error('[Profile] Error in checkSession:', error);
@@ -157,6 +180,7 @@ export default function ProfileScreen() {
         await loadFriends(session.user.id);
         await loadFriendRequests(session.user.id);
         await loadMemories(session.user.id);
+        await loadPhotoShares(true);
       } else {
         setUser(null);
         setProfile(null);
@@ -729,32 +753,18 @@ export default function ProfileScreen() {
       console.log('📸 Total memories found:', allMemories.length);
       console.log('📸 All memories:', allMemories);
 
-      // Group memories by date
-      const groupedMemories = allMemories.reduce((groups: { [key: string]: MemoryItem[] }, memory) => {
-        const date = memory.date;
-        if (!groups[date]) {
-          groups[date] = [];
-        }
-        groups[date].push(memory);
-        return groups;
-      }, {});
+      // Don't group by date - just use all memories as a flat array
+      const flatMemories: MemoryGroup[] = [{
+        date: 'all',
+        formattedDate: '',
+        memories: allMemories
+      }];
 
-      console.log('📸 Grouped memories:', groupedMemories);
-
-      // Convert to sorted array format
-      const sortedMemories: MemoryGroup[] = Object.entries(groupedMemories)
-        .map(([date, memories]) => ({
-          date,
-          formattedDate: formatMemoryDate(date),
-          memories: memories.sort((a, b) => b.date.localeCompare(a.date))
-        }))
-        .sort((a, b) => b.date.localeCompare(a.date));
-
-      console.log('📸 Final sorted memories:', sortedMemories);
-      setMemories(sortedMemories);
-      console.log('📸 Memories organized into', sortedMemories.length, 'date groups');
+      console.log('📸 Final flat memories:', flatMemories);
+      setMemories(flatMemories);
+      console.log('📸 Memories organized into flat array');
       
-      if (sortedMemories.length === 0) {
+      if (flatMemories[0].memories.length === 0) {
         console.log('⚠️ No memories found - this might be normal if no photos have been saved yet');
       }
     } catch (error) {
@@ -1178,37 +1188,52 @@ export default function ProfileScreen() {
 
     setIsUploadingImage(true);
     try {
+      console.log('🖼️ Starting image upload for URI:', uri);
+      
       // Convert image to base64
       const response = await fetch(uri);
       const blob = await response.blob();
       
+      console.log('🖼️ Image blob created, size:', blob.size, 'bytes');
+      
       // Create a unique filename
       const fileExt = uri.split('.').pop() || 'jpg';
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const fileName = `avatars/profile-${user.id}-${Date.now()}.${fileExt}`;
 
-      console.log('Uploading file:', fileName);
+      console.log('🖼️ Uploading file:', fileName);
 
       // Upload to Supabase Storage
       const { data, error: uploadError } = await supabase.storage
-        .from('avatars')
+        .from('memories')
         .upload(fileName, blob, {
           cacheControl: '3600',
           upsert: true
         });
 
       if (uploadError) {
-        console.error('Upload error:', uploadError);
+        console.error('❌ Upload error:', uploadError);
         throw uploadError;
       }
 
-      console.log('Upload successful:', data);
+      console.log('✅ Upload successful:', data);
 
       // Get the public URL
       const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
+        .from('memories')
         .getPublicUrl(fileName);
 
-      console.log('Public URL:', publicUrl);
+      console.log('🔗 Generated public URL:', publicUrl);
+      
+      // Test the URL to make sure it's accessible
+      try {
+        const testResponse = await fetch(publicUrl, { method: 'HEAD' });
+        console.log('🔍 URL test response status:', testResponse.status);
+        if (!testResponse.ok) {
+          console.warn('⚠️ URL test failed with status:', testResponse.status);
+        }
+      } catch (testError) {
+        console.warn('⚠️ URL test failed:', testError);
+      }
         
       // Update the profile with the new avatar URL
       const { error: updateError } = await supabase
@@ -1220,17 +1245,21 @@ export default function ProfileScreen() {
         .eq('id', user.id);
 
       if (updateError) {
-        console.error('Update error:', updateError);
+        console.error('❌ Update error:', updateError);
         throw updateError;
       }
+
+      console.log('✅ Profile updated with new avatar URL');
 
       // Update local state
       setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : null);
       setEditForm(prev => ({ ...prev, avatar_url: publicUrl }));
 
+      console.log('✅ Local state updated with new avatar URL');
+
       Alert.alert('Success', 'Profile photo updated successfully!');
     } catch (error) {
-      console.error('Error uploading image:', error);
+      console.error('❌ Error uploading image:', error);
       Alert.alert('Error', 'Failed to upload image. Please try again.');
     } finally {
       setIsUploadingImage(false);
@@ -1249,11 +1278,129 @@ export default function ProfileScreen() {
     );
   };
 
+  const checkProfileImageExists = async (imageUrl: string) => {
+    try {
+      console.log('🔍 Checking if profile image exists in storage...');
+      
+      // Extract the file path from the URL
+      const url = new URL(imageUrl);
+      const pathParts = url.pathname.split('/');
+      const bucketName = pathParts[3]; // memories
+      const filePath = pathParts.slice(4).join('/'); // avatars/profile-...
+      
+      console.log('🔍 Bucket:', bucketName);
+      console.log('🔍 File path:', filePath);
+      
+      // Check if the file exists in storage
+      const { data: fileData, error: fileError } = await supabase.storage
+        .from(bucketName)
+        .list(filePath.split('/').slice(0, -1).join('/'), {
+          search: filePath.split('/').pop()
+        });
+      
+      if (fileError) {
+        console.error('❌ Error checking file existence:', fileError);
+        return false;
+      }
+      
+      console.log('🔍 Files found in directory:', fileData);
+      
+      if (fileData && fileData.length > 0) {
+        console.log('✅ File exists in storage');
+        return true;
+      } else {
+        console.log('❌ File does not exist in storage');
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error checking file existence:', error);
+      return false;
+    }
+  };
+
+  const testProfileImageUrl = async (imageUrl: string) => {
+    try {
+      console.log('🔍 Testing profile image URL:', imageUrl);
+      
+      if (!imageUrl) {
+        console.log('❌ No image URL provided');
+        return;
+      }
+
+      // Test if the URL is valid
+      const url = new URL(imageUrl);
+      console.log('✅ URL is valid:', url.toString());
+
+      // Try to fetch the image
+      const response = await fetch(imageUrl, { method: 'HEAD' });
+      console.log('🔍 Image URL response status:', response.status);
+      console.log('🔍 Image URL response headers:', response.headers);
+      
+      if (response.ok) {
+        console.log('✅ Profile image URL is accessible');
+        return true;
+      } else {
+        console.log('❌ Profile image URL is not accessible:', response.status, response.statusText);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Error testing profile image URL:', error);
+      return false;
+    }
+  };
+
   const renderProfileHeader = () => (
     <View style={styles.profileHeader}>
       <TouchableOpacity style={styles.avatarContainer} onPress={handleEditProfile}>
         {profile?.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+          <Image 
+            source={{ uri: profile.avatar_url }} 
+            style={styles.avatar}
+            onError={(error) => {
+              console.error('❌ Profile image loading error:', error.nativeEvent.error);
+              console.error('❌ Profile image URL:', profile.avatar_url);
+              console.error('❌ Error details:', {
+                errorCode: error.nativeEvent.error?.code,
+                errorMessage: error.nativeEvent.error?.message,
+                url: profile.avatar_url,
+                urlLength: profile.avatar_url?.length
+              });
+              
+              // If the image fails to load, check if it exists and clear if not
+              if (profile?.avatar_url) {
+                checkProfileImageExists(profile.avatar_url).then(async (exists) => {
+                  if (!exists) {
+                    console.log('🗑️ Profile image file does not exist, clearing URL...');
+                    // Clear the invalid URL from the database
+                    if (user) {
+                      try {
+                        await supabase
+                          .from('profiles')
+                          .update({ avatar_url: '' })
+                          .eq('id', user.id);
+                        
+                        console.log('✅ Cleared invalid profile image URL');
+                        // Update local state
+                        setProfile(prev => prev ? { ...prev, avatar_url: '' } : null);
+                        setEditForm(prev => ({ ...prev, avatar_url: '' }));
+                      } catch (err: any) {
+                        console.error('❌ Error clearing profile image URL:', err);
+                      }
+                    }
+                  }
+                });
+              }
+            }}
+            onLoad={() => {
+              console.log('✅ Profile image loaded successfully:', profile.avatar_url);
+            }}
+            onLoadStart={() => {
+              console.log('🔄 Profile image loading started:', profile.avatar_url);
+            }}
+            onLoadEnd={() => {
+              console.log('🏁 Profile image loading ended');
+            }}
+          />
         ) : (
           <View style={styles.avatarPlaceholder}>
             <Ionicons name="person" size={32} color="#fff" />
@@ -1276,6 +1423,20 @@ export default function ProfileScreen() {
         <Ionicons name="people" size={16} color="#8E8E93" />
         <Text style={styles.friendCountText}>{friends.length} friends</Text>
       </TouchableOpacity>
+      
+      {/* Debug button for profile image */}
+      {profile?.avatar_url && (
+        <TouchableOpacity 
+          style={styles.debugButton} 
+          onPress={async () => {
+            console.log('🔍 Starting comprehensive profile image debug...');
+            await testProfileImageUrl(profile.avatar_url);
+            await checkProfileImageExists(profile.avatar_url);
+          }}
+        >
+          <Text style={styles.debugButtonText}>Debug Profile Image</Text>
+        </TouchableOpacity>
+      )}
       </View>
   );
 
@@ -1351,7 +1512,29 @@ export default function ProfileScreen() {
           <View style={styles.editAvatarSection}>
             <View style={styles.editAvatarContainer}>
               {editForm.avatar_url ? (
-                <Image source={{ uri: editForm.avatar_url }} style={styles.editAvatar} />
+                <Image 
+                  source={{ uri: editForm.avatar_url }} 
+                  style={styles.editAvatar}
+                  onError={(error) => {
+                    console.error('❌ Edit profile image loading error:', error.nativeEvent.error);
+                    console.error('❌ Edit profile image URL:', editForm.avatar_url);
+                    console.error('❌ Edit profile error details:', {
+                      errorCode: error.nativeEvent.error?.code,
+                      errorMessage: error.nativeEvent.error?.message,
+                      url: editForm.avatar_url,
+                      urlLength: editForm.avatar_url?.length
+                    });
+                  }}
+                  onLoad={() => {
+                    console.log('✅ Edit profile image loaded successfully:', editForm.avatar_url);
+                  }}
+                  onLoadStart={() => {
+                    console.log('🔄 Edit profile image loading started:', editForm.avatar_url);
+                  }}
+                  onLoadEnd={() => {
+                    console.log('🏁 Edit profile image loading ended');
+                  }}
+                />
               ) : (
                 <View style={styles.editAvatarPlaceholder}>
                   <Ionicons name="person" size={40} color="#fff" />
@@ -1853,7 +2036,6 @@ export default function ProfileScreen() {
             keyExtractor={(item) => item.date}
             renderItem={({ item: memoryGroup }) => (
               <View style={styles.memoryGroup}>
-                <Text style={styles.memoryDateHeader}>{memoryGroup.formattedDate}</Text>
                 <View style={styles.memoryGrid}>
                   {memoryGroup.memories.map((memory) => (
                     <TouchableOpacity
@@ -1970,6 +2152,116 @@ export default function ProfileScreen() {
               </View>
             </View>
           </View>
+        )}
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const renderFriendsFeedModal = () => (
+    <Modal
+      visible={showFriendsFeedModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowFriendsFeedModal(false)}
+      onShow={() => {
+        if (user?.id) {
+          loadPhotoShares(true);
+        }
+      }}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowFriendsFeedModal(false)}>
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Friends Feed</Text>
+          <TouchableOpacity onPress={handlePhotoSharesRefresh}>
+            <Ionicons name="refresh" size={24} color="#007AFF" />
+          </TouchableOpacity>
+        </View>
+
+        {isLoadingPhotoShares ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.loadingText}>Loading friends feed...</Text>
+          </View>
+        ) : photoShares.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Ionicons name="people-outline" size={64} color="#ccc" />
+            <Text style={styles.emptyText}>No friends feed yet</Text>
+            <Text style={styles.emptySubtext}>
+              When your friends share photos from their habits and events, they'll appear here
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={photoShares}
+            keyExtractor={(item) => item.update_id}
+            renderItem={({ item }) => (
+              <View style={styles.photoShareCard}>
+                {/* User Header */}
+                <View style={styles.userHeader}>
+                  <View style={styles.userInfo}>
+                    <Image
+                      source={{ 
+                        uri: item.user_avatar || 'https://via.placeholder.com/40x40?text=U'
+                      }}
+                      style={styles.userAvatar}
+                    />
+                    <View style={styles.userDetails}>
+                      <Text style={styles.userName}>{item.user_name}</Text>
+                      <Text style={styles.userUsername}>@{item.user_username}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.timeAgo}>{formatTimeAgo(item.created_at)}</Text>
+                </View>
+
+                {/* Photo */}
+                <View style={styles.photoContainer}>
+                  <Image
+                    source={{ uri: item.photo_url }}
+                    style={styles.photo}
+                    resizeMode="cover"
+                  />
+                </View>
+
+                {/* Caption and Source */}
+                <View style={styles.contentContainer}>
+                  {item.caption && (
+                    <Text style={styles.caption}>{item.caption}</Text>
+                  )}
+                  <View style={styles.sourceContainer}>
+                    <View style={[
+                      styles.sourceBadge,
+                      { backgroundColor: item.source_type === 'habit' ? '#4CAF50' : '#2196F3' }
+                    ]}>
+                      <Ionicons 
+                        name={item.source_type === 'habit' ? 'repeat' : 'calendar'} 
+                        size={12} 
+                        color="white" 
+                      />
+                      <Text style={styles.sourceText}>
+                        {item.source_type === 'habit' ? 'Habit' : 'Event'}
+                      </Text>
+                    </View>
+                    <Text style={styles.sourceTitle}>{item.source_title}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefreshingPhotoShares}
+                onRefresh={handlePhotoSharesRefresh}
+                colors={['#007AFF']}
+                tintColor="#007AFF"
+              />
+            }
+            onEndReached={handlePhotoSharesLoadMore}
+            onEndReachedThreshold={0.1}
+            contentContainerStyle={styles.listContainer}
+            showsVerticalScrollIndicator={false}
+          />
         )}
       </SafeAreaView>
     </Modal>
@@ -2945,6 +3237,78 @@ export default function ProfileScreen() {
     }
   };
 
+  const loadPhotoShares = async (refresh = false) => {
+    if (!user?.id) return;
+
+    try {
+      if (refresh) {
+        setIsRefreshingPhotoShares(true);
+        setPhotoSharesPage(0);
+        setHasMorePhotoShares(true);
+      } else {
+        setIsLoadingPhotoShares(true);
+      }
+
+      const limit = 10;
+      const offset = refresh ? 0 : photoSharesPage * limit;
+
+      const { data, error } = await supabase.rpc('get_friends_photo_shares', {
+        current_user_id: user.id,
+        limit_count: limit
+      });
+
+      if (error) {
+        console.error('Error loading photo shares:', error);
+        Alert.alert('Error', 'Failed to load friends feed. Please try again.');
+        return;
+      }
+
+      if (refresh) {
+        setPhotoShares(data || []);
+      } else {
+        setPhotoShares(prev => [...prev, ...(data || [])]);
+      }
+
+      setHasMorePhotoShares((data || []).length === limit);
+      setPhotoSharesPage(prev => refresh ? 1 : prev + 1);
+    } catch (error) {
+      console.error('Error in loadPhotoShares:', error);
+      Alert.alert('Error', 'Failed to load friends feed. Please try again.');
+    } finally {
+      setIsLoadingPhotoShares(false);
+      setIsRefreshingPhotoShares(false);
+    }
+  };
+
+  const handlePhotoSharesRefresh = () => {
+    loadPhotoShares(true);
+  };
+
+  const handlePhotoSharesLoadMore = () => {
+    if (hasMorePhotoShares && !isLoadingPhotoShares) {
+      loadPhotoShares();
+    }
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffInSeconds < 60) {
+      return 'just now';
+    } else if (diffInSeconds < 3600) {
+      const minutes = Math.floor(diffInSeconds / 60);
+      return `${minutes}m ago`;
+    } else if (diffInSeconds < 86400) {
+      const hours = Math.floor(diffInSeconds / 3600);
+      return `${hours}h ago`;
+    } else {
+      const days = Math.floor(diffInSeconds / 86400);
+      return `${days}d ago`;
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {user && (
@@ -2973,6 +3337,13 @@ export default function ProfileScreen() {
               'Your photo moments',
               memories.reduce((total, group) => total + group.memories.length, 0),
               () => setShowMemoriesModal(true)
+            )}
+            {renderFeatureCard(
+              'people',
+              'Friends Feed',
+              'Photos from friends',
+              photoShares.length,
+              () => setShowFriendsFeedModal(true)
             )}
           </View>
         )}
@@ -3003,6 +3374,7 @@ export default function ProfileScreen() {
       {renderFriendsListModal()}
       {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
+      {renderFriendsFeedModal()}
       {renderSettingsModal()}
     </SafeAreaView>
   );
@@ -3040,7 +3412,7 @@ const styles = StyleSheet.create({
   },
   avatarContainer: {
     position: 'relative',
-    marginBottom: 16,
+    marginBottom: 24,
   },
   avatar: {
     width: 80,
@@ -3757,5 +4129,99 @@ const styles = StyleSheet.create({
     bottom: 8,
     left: 8,
     right: 8,
+  },
+  photoShareCard: {
+    padding: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  userHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  userAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  userDetails: {
+    flex: 1,
+  },
+  userName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    fontFamily: 'Onest',
+  },
+  userUsername: {
+    fontSize: 14,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  timeAgo: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  photoContainer: {
+    marginBottom: 8,
+  },
+  photo: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+  },
+  contentContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sourceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sourceBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sourceText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+    marginLeft: 4,
+  },
+  sourceTitle: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+  },
+  caption: {
+    fontSize: 16,
+    color: '#000',
+    fontFamily: 'Onest',
+    flex: 1,
+    marginRight: 8,
+  },
+  listContainer: {
+    padding: 20,
   },
 });

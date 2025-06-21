@@ -28,7 +28,16 @@ import * as ImagePicker from 'expo-image-picker';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as FileSystem from 'expo-file-system';
 import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles';
+import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
+import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends } from '../../utils/sharing';
+import type { SharedEvent } from '../../utils/sharing';
 
+// Add robust ID generation function that works with TEXT ids
+const generateEventId = (): string => {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 15);
+  return `event_${timestamp}_${random}`;
+};
 
 // Add type definitions for custom times
 type CustomTimeData = {
@@ -61,6 +70,12 @@ interface CalendarEvent {
   isContinued?: boolean;
   isAllDay?: boolean;
   photos?: string[];
+  // Add shared event properties
+  isShared?: boolean;
+  sharedBy?: string;
+  sharedByUsername?: string;
+  sharedByFullName?: string;
+  sharedStatus?: 'pending' | 'accepted' | 'declined';
 }
 
 interface WeeklyCalendarViewProps {
@@ -275,6 +290,53 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   
   const autoCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Friends-related state variables
+  const [friends, setFriends] = useState<Array<{
+    friendship_id: string;
+    friend_id: string;
+    friend_name: string;
+    friend_avatar: string;
+    friend_username: string;
+    status: string;
+    created_at: string;
+  }>>([]);
+  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+  const [searchFriend, setSearchFriend] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+
+  // Edit modal friends state variables
+  const [editSelectedFriends, setEditSelectedFriends] = useState<string[]>([]);
+  const [editSearchFriend, setEditSearchFriend] = useState('');
+  const [editIsSearchFocused, setEditIsSearchFocused] = useState(false);
+
+  // Shared events notification modal state
+  const [showSharedEventsModal, setShowSharedEventsModal] = useState(false);
+  const [pendingSharedEvents, setPendingSharedEvents] = useState<CalendarEvent[]>([]);
+
+  // Add PanResponder for photo viewer modal
+  const photoViewerPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Respond to any vertical movement
+        return Math.abs(gestureState.dy) > 2;
+      },
+      onPanResponderGrant: () => {
+        // Optional: Add visual feedback when gesture starts
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Optional: Add visual feedback during gesture
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        // Close modal on any downward swipe
+        if (gestureState.dy > 10) {
+          setShowPhotoViewer(false);
+        }
+      },
+    })
+  ).current;
+
   // Add these refs for debouncing
   const startPickerTimeoutRef = useRef<NodeJS.Timeout>();
   const endPickerTimeoutRef = useRef<NodeJS.Timeout>();
@@ -398,6 +460,171 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   }, []);
   
 
+  // Add a function to fetch shared events
+  const fetchSharedEvents = async (userId: string) => {
+    try {
+      console.log('🔍 [Calendar] Fetching shared events for user:', userId);
+      
+      // First, fetch shared events where current user is the recipient
+      const { data: sharedEventsData, error } = await supabase
+        .from('shared_events')
+        .select(`
+          id,
+          original_event_id,
+          shared_by,
+          shared_with,
+          status,
+          created_at
+        `)
+        .eq('shared_with', userId)
+        .eq('status', 'pending');
+
+      if (error) {
+        console.error('🔍 [Calendar] Error fetching shared events:', error);
+        return [];
+      }
+
+      console.log('🔍 [Calendar] Found shared events:', sharedEventsData?.length || 0);
+      console.log('🔍 [Calendar] Raw shared events data:', JSON.stringify(sharedEventsData, null, 2));
+
+      if (!sharedEventsData || sharedEventsData.length === 0) {
+        console.log('🔍 [Calendar] No shared events found for user:', userId);
+        return [];
+      }
+
+      // Extract the original event IDs
+      const originalEventIds = sharedEventsData.map((se: any) => se.original_event_id);
+      console.log('🔍 [Calendar] Original event IDs:', originalEventIds);
+
+      // Fetch the actual events using the original event IDs
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('events')
+        .select(`
+          id,
+          title,
+          description,
+          location,
+          date,
+          start_datetime,
+          end_datetime,
+          category_name,
+          category_color,
+          is_all_day,
+          photos
+        `)
+        .in('id', originalEventIds);
+
+      if (eventsError) {
+        console.error('🔍 [Calendar] Error fetching events:', eventsError);
+        return [];
+      }
+
+      console.log('🔍 [Calendar] Fetched events data:', eventsData);
+
+      // Create a map of event ID to event data
+      const eventsMap = new Map();
+      if (eventsData) {
+        eventsData.forEach((event: any) => {
+          eventsMap.set(event.id, event);
+        });
+      }
+
+      // Get unique sharer IDs to fetch their profiles
+      const sharerIds = [...new Set(sharedEventsData.map((se: any) => se.shared_by))];
+      console.log('🔍 [Calendar] Sharer IDs:', sharerIds);
+      
+      // Fetch profiles for all sharers
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, username, full_name')
+        .in('id', sharerIds);
+
+      if (profilesError) {
+        console.error('🔍 [Calendar] Error fetching profiles:', profilesError);
+      }
+
+      console.log('🔍 [Calendar] Profiles data:', profilesData);
+
+      // Create a map of user ID to profile data
+      const profilesMap = new Map();
+      if (profilesData) {
+        profilesData.forEach((profile: any) => {
+          profilesMap.set(profile.id, profile);
+        });
+      }
+
+      // Transform shared events into CalendarEvent format
+      const transformedSharedEvents = sharedEventsData
+        .filter((sharedEvent: any) => {
+          // Check if the original event exists
+          const originalEvent = eventsMap.get(sharedEvent.original_event_id);
+          if (!originalEvent) {
+            console.warn('🔍 [Calendar] Shared event has no associated event:', sharedEvent.id, 'Original event ID:', sharedEvent.original_event_id);
+            return false;
+          }
+          console.log('🔍 [Calendar] Processing shared event:', {
+            id: sharedEvent.id,
+            eventTitle: originalEvent.title,
+            eventDate: originalEvent.date,
+            status: sharedEvent.status
+          });
+          return true;
+        })
+        .map((sharedEvent: any) => {
+          const event = eventsMap.get(sharedEvent.original_event_id);
+          const sharerProfile = profilesMap.get(sharedEvent.shared_by);
+          
+          // Parse dates
+          const parseDate = (dateStr: string | null) => {
+            if (!dateStr) return null;
+            try {
+              const date = new Date(dateStr);
+              return isNaN(date.getTime()) ? null : date;
+            } catch (error) {
+              return null;
+            }
+          };
+
+          const transformedEvent = {
+            id: `shared_${sharedEvent.id}`, // Prefix to distinguish from regular events
+            title: event.title || 'Untitled Event',
+            description: event.description,
+            location: event.location,
+            date: event.date,
+            startDateTime: event.start_datetime ? parseDate(event.start_datetime) : undefined,
+            endDateTime: event.end_datetime ? parseDate(event.end_datetime) : undefined,
+            categoryName: event.category_name,
+            categoryColor: '#007AFF', // iOS blue for shared events
+            isAllDay: event.is_all_day || false,
+            photos: event.photos || [],
+            // Shared event properties
+            isShared: true,
+            sharedBy: sharedEvent.shared_by,
+            sharedByUsername: sharerProfile?.username || 'Unknown',
+            sharedByFullName: sharerProfile?.full_name || 'Unknown User',
+            sharedStatus: sharedEvent.status
+          };
+
+          console.log('🔍 [Calendar] Transformed shared event:', {
+            id: transformedEvent.id,
+            title: transformedEvent.title,
+            date: transformedEvent.date,
+            isShared: transformedEvent.isShared,
+            sharedBy: transformedEvent.sharedBy
+          });
+
+          return transformedEvent;
+        });
+
+      console.log('🔍 [Calendar] Successfully transformed shared events:', transformedSharedEvents.length);
+      console.log('🔍 [Calendar] Final transformed events:', transformedSharedEvents.map(e => ({ id: e.id, title: e.title, date: e.date })));
+      return transformedSharedEvents;
+    } catch (error) {
+      console.error('🔍 [Calendar] Error in fetchSharedEvents:', error);
+      return [];
+    }
+  };
+
   useEffect(() => {
     const fetchEvents = async () => {
       try {
@@ -424,25 +651,36 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return;
         }
 
-        // Now fetch all events for the user
-        const { data: eventsData, error } = await supabase
-          .from('events')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('date', { ascending: true });
+        // Fetch both regular events and shared events in parallel
+        const [regularEventsResult, sharedEvents] = await Promise.all([
+          supabase
+            .from('events')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('date', { ascending: true }),
+          fetchSharedEvents(user.id)
+        ]);
+
+        const { data: eventsData, error } = regularEventsResult;
 
         if (error) {
           handleDatabaseError(error);
           return;
         }
 
-        if (!eventsData || eventsData.length === 0) {
+        // Combine regular events and shared events
+        const allEvents = [...(eventsData || []), ...sharedEvents];
+        console.log('🔍 [Calendar] Combined events count:', allEvents.length);
+        console.log('🔍 [Calendar] Regular events count:', eventsData?.length || 0);
+        console.log('🔍 [Calendar] Shared events count:', sharedEvents.length);
+
+        if (allEvents.length === 0) {
           setEvents({});
           return;
         }
 
         // Transform the events data into our local format
-        const transformedEvents = eventsData.reduce((acc, event) => {
+        const transformedEvents = allEvents.reduce((acc, event) => {
           
           // Parse UTC dates with better error handling
           const parseDate = (dateStr: string | null) => {
@@ -498,8 +736,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             customDates: event.custom_dates || [],
             customTimes,
             isAllDay: event.is_all_day || false,
-            photos: event.photos || []
+            photos: event.photos || [],
+            // Shared event properties (for shared events)
+            isShared: event.isShared || false,
+            sharedBy: event.sharedBy,
+            sharedByUsername: event.sharedByUsername,
+            sharedByFullName: event.sharedByFullName,
+            sharedStatus: event.sharedStatus
           };
+
+          console.log('🔍 [Calendar] Processing event:', {
+            id: transformedEvent.id,
+            title: transformedEvent.title,
+            date: transformedEvent.date,
+            isShared: transformedEvent.isShared,
+            customDates: transformedEvent.customDates
+          });
 
           // For custom events, add to all custom dates
           if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
@@ -508,6 +760,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 acc[date] = [];
               }
               acc[date].push(transformedEvent);
+              console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
             });
           } else {
             // For regular events, add to the primary date
@@ -515,14 +768,27 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               acc[transformedEvent.date] = [];
             }
             acc[transformedEvent.date].push(transformedEvent);
+            console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
           }
 
           return acc;
         }, {} as { [date: string]: CalendarEvent[] });
 
+        console.log('🔍 [Calendar] Final transformed events by date:', Object.keys(transformedEvents));
+        console.log('🔍 [Calendar] Events for 2025-01-15:', transformedEvents['2025-01-15']?.map((e: CalendarEvent) => ({ title: e.title, isShared: e.isShared })) || 'No events');
+        
+        // Add detailed debugging for shared events
+        console.log('🔍 [Calendar] All shared events before transformation:', sharedEvents.map(e => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
+        console.log('🔍 [Calendar] All events before transformation:', allEvents.map(e => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
+        
+        // Check if any events have the date 2025-01-15
+        const eventsForJan15 = allEvents.filter(e => e.date === '2025-01-15');
+        console.log('🔍 [Calendar] Events with date 2025-01-15 before transformation:', eventsForJan15.map(e => ({ id: e.id, title: e.title, isShared: e.isShared })));
+
         setEvents(transformedEvents);
         
       } catch (error) {
+        console.error('🔍 [Calendar] Error in fetchEvents:', error);
       }
     };
     
@@ -532,22 +798,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Add a function to refresh events
   const refreshEvents = async () => {
     if (user?.id) {
-      const { data: eventsData, error } = await supabase
-        .from('events')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('date', { ascending: true });
+      // Fetch both regular events and shared events in parallel
+      const [regularEventsResult, sharedEvents] = await Promise.all([
+        supabase
+          .from('events')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('date', { ascending: true }),
+        fetchSharedEvents(user.id)
+      ]);
+
+      const { data: eventsData, error } = regularEventsResult;
 
       if (error) {
         return;
       }
 
-      if (!eventsData || eventsData.length === 0) {
+      // Combine regular events and shared events
+      const allEvents = [...(eventsData || []), ...sharedEvents];
+
+      if (allEvents.length === 0) {
         setEvents({});
         return;
       }
 
-      const transformedEvents = eventsData.reduce((acc, event) => {
+      const transformedEvents = allEvents.reduce((acc, event) => {
         const parseDate = (dateStr: string | null) => {
           if (!dateStr) return null;
           try {
@@ -574,7 +849,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           customDates: event.custom_dates || [],
           customTimes: event.custom_times || {},
           isAllDay: event.is_all_day || false,
-          photos: event.photos || []
+          photos: event.photos || [],
+          // Shared event properties (for shared events)
+          isShared: event.isShared || false,
+          sharedBy: event.sharedBy,
+          sharedByUsername: event.sharedByUsername,
+          sharedByFullName: event.sharedByFullName,
+          sharedStatus: event.sharedStatus
         };
 
         if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
@@ -627,6 +908,226 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   
     fetchCategories();
   }, [user]);
+
+  // Fetch friends when user changes
+  useEffect(() => {
+    fetchFriends();
+  }, [user]);
+
+  // Friends-related functions
+  const fetchFriends = async () => {
+    try {
+      setIsLoadingFriends(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      console.log('🔍 [Calendar] Fetching friends for user:', user.id);
+
+      // Get friendships where current user is either user_id or friend_id
+      const { data: friendships, error: friendshipsError } = await supabase
+        .from('friendships')
+        .select(`
+          id,
+          user_id,
+          friend_id,
+          status,
+          created_at
+        `)
+        .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
+        .eq('status', 'accepted');
+
+      if (friendshipsError) {
+        console.error('Error fetching friendships:', friendshipsError);
+        return;
+      }
+
+      console.log('🔍 [Calendar] Found friendships:', friendships?.length || 0);
+
+      if (!friendships || friendships.length === 0) {
+        setFriends([]);
+        return;
+      }
+
+      // Fetch profile data for each friend
+      const friendsWithProfiles = await Promise.all(
+        friendships.map(async (friendship) => {
+          // Determine which user is the friend (not the current user)
+          const friendUserId = friendship.user_id === user.id ? friendship.friend_id : friendship.user_id;
+          
+          console.log('🔍 [Calendar] Fetching profile for friend:', friendUserId);
+          
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url, username')
+            .eq('id', friendUserId)
+            .single();
+          
+          return {
+            friendship_id: friendship.id,
+            friend_id: friendUserId,
+            friend_name: profileData?.full_name || 'Unknown',
+            friend_avatar: profileData?.avatar_url || '',
+            friend_username: profileData?.username || '',
+            status: friendship.status,
+            created_at: friendship.created_at,
+          };
+        })
+      );
+
+      console.log('🔍 [Calendar] Final friends list:', friendsWithProfiles.length);
+      setFriends(friendsWithProfiles);
+    } catch (error) {
+      console.error('Error in fetchFriends:', error);
+    } finally {
+      setIsLoadingFriends(false);
+    }
+  };
+
+  const handleFriendSelection = (friendId: string) => {
+    setSelectedFriends(prev => 
+      prev.includes(friendId) 
+        ? prev.filter(id => id !== friendId)
+        : [...prev, friendId]
+    );
+  };
+
+  const handleEditFriendSelection = (friendId: string) => {
+    setEditSelectedFriends(prev => 
+      prev.includes(friendId) 
+        ? prev.filter(id => id !== friendId)
+        : [...prev, friendId]
+    );
+  };
+
+  const removeSelectedFriend = (friendId: string) => {
+    setSelectedFriends(prev => prev.filter(id => id !== friendId));
+  };
+
+  const removeEditSelectedFriend = (friendId: string) => {
+    setEditSelectedFriends(prev => prev.filter(id => id !== friendId));
+  };
+
+  const getFilteredFriends = () => {
+    if (!searchFriend.trim()) {
+      return friends;
+    }
+    return friends.filter(friend => 
+      friend.friend_name?.toLowerCase().includes(searchFriend.toLowerCase()) ||
+      friend.friend_username?.toLowerCase().includes(searchFriend.toLowerCase())
+    );
+  };
+
+  const shareEventWithSelectedFriends = async (eventId: string) => {
+    if (selectedFriends.length === 0) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const result = await shareEventWithFriends(eventId, selectedFriends);
+    if (result.success) {
+      Toast.show({
+        type: 'success',
+        text1: 'Event shared successfully',
+        text2: 'Your friends will be notified',
+        position: 'bottom',
+      });
+    } else {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to share event',
+        text2: result.error || 'Please try again',
+        position: 'bottom',
+      });
+    }
+  };
+
+  const shareEventWithEditSelectedFriends = async (eventId: string) => {
+    if (editSelectedFriends.length === 0) return;
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const result = await shareEventWithFriends(eventId, editSelectedFriends);
+    if (result.success) {
+      Toast.show({
+        type: 'success',
+        text1: 'Event shared successfully',
+        text2: 'Your friends will be notified',
+        position: 'bottom',
+      });
+    } else {
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to share event',
+        text2: result.error || 'Please try again',
+        position: 'bottom',
+      });
+    }
+  };
+
+  const fetchSharedFriendsForEvent = async (eventId: string) => {
+    try {
+      console.log('🔍 [Edit Modal] Fetching shared friends for event:', eventId);
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('🔍 [Edit Modal] No user found');
+        return [];
+      }
+
+      console.log('🔍 [Edit Modal] User ID:', user.id);
+
+      // First, check if the shared_events table exists
+      try {
+        const { data: tableCheck, error: tableError } = await supabase
+          .from('shared_events')
+          .select('count')
+          .limit(1);
+
+        if (tableError) {
+          console.log('🔍 [Edit Modal] Shared events table not accessible:', tableError);
+          return [];
+        }
+      } catch (tableCheckError) {
+        console.log('🔍 [Edit Modal] Error checking shared_events table:', tableCheckError);
+        return [];
+      }
+
+      // Add timeout to prevent hanging requests
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Request timeout')), 5000); // 5 second timeout
+      });
+
+      // Fetch shared events where this event is the original event
+      const queryPromise = supabase
+        .from('shared_events')
+        .select('shared_with')
+        .eq('original_event_id', eventId)
+        .eq('shared_by', user.id);
+
+      const { data: sharedEvents, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
+
+      console.log('🔍 [Edit Modal] Shared events query result:', { sharedEvents, error });
+
+      if (error) {
+        console.error('🔍 [Edit Modal] Error fetching shared friends:', error);
+        return [];
+      }
+
+      if (!sharedEvents || sharedEvents.length === 0) {
+        console.log('🔍 [Edit Modal] No shared events found');
+        return [];
+      }
+
+      // Extract the friend IDs
+      const friendIds = sharedEvents.map((se: { shared_with: string }) => se.shared_with);
+      console.log('🔍 [Edit Modal] Found friend IDs:', friendIds);
+      return friendIds;
+    } catch (error) {
+      console.error('🔍 [Edit Modal] Error in fetchSharedFriendsForEvent:', error);
+      return [];
+    }
+  };
 
   // Update category deletion
   const handleCategoryLongPress = (cat: { id: string; name: string; color: string }) => {
@@ -822,6 +1323,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     setIsAllDay(false);
     setEventPhotos([]);
     setEditedEventPhotos([]);
+    setSelectedFriends([]);
+    setSearchFriend('');
+    setIsSearchFocused(false);
+    setEditSelectedFriends([]);
+    setEditSearchFriend('');
+    setEditIsSearchFocused(false);
     resetToggleStates();
   };
 
@@ -860,7 +1367,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       };
 
       const eventToSave = customEvent || {
-        id: Date.now().toString(),
+        id: generateEventId(),
         title: newEventTitle,
         description: newEventDescription,
         location: newEventLocation,
@@ -1011,6 +1518,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       // Prepare database data for all events
       const dbEvents = allEvents.map(event => ({
+        id: event.id, // Include the generated ID
         title: event.title,
         description: event.description,
         date: event.date,
@@ -1164,6 +1672,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return updated;
       });
 
+      // Share event with selected friends if any
+      if (selectedFriends.length > 0 && allEvents.length > 0) {
+        // Use the first event's ID for sharing (they all have the same base ID)
+        const eventIdToShare = allEvents[0].id;
+        await shareEventWithSelectedFriends(eventIdToShare);
+        
+        // Clear selected friends after sharing
+        setSelectedFriends([]);
+      }
+
       // Reset form and close modal
       resetEventForm();
       setShowModal(false);
@@ -1296,7 +1814,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     </View>
                     {hasEvents && (
                       isMonthCompact ? (
-                        // Compact view: show dots
+                        // Compact view: show dots for regular events, titles for shared events
                         <View style={styles.eventDotsContainer}>
                           {dayEvents
                             .sort((a, b) => {
@@ -1330,12 +1848,48 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 }}
                                 onLongPress={() => handleLongPress(event)}
                               >
-                                <View
-                                  style={[
-                                    styles.eventDot,
-                                    { backgroundColor: event.categoryColor || '#A0C3B2' }
-                                  ]}
-                                />
+                                {event.isShared ? (
+                                  // Show title for shared events
+                                  <View
+                                    style={[
+                                      styles.eventBoxText,
+                                      {
+                                        backgroundColor: '#007AFF20',
+                                        borderWidth: 1,
+                                        borderColor: '#007AFF',
+                                        marginBottom: 2,
+                                        paddingHorizontal: 6,
+                                        paddingVertical: 3,
+                                        borderRadius: 4,
+                                        minHeight: 20
+                                      }
+                                    ]}
+                                  >
+                                    <Text
+                                      numberOfLines={1}
+                                      style={[
+                                        styles.eventText,
+                                        { 
+                                          color: '#007AFF',
+                                          fontWeight: '600',
+                                          fontSize: 11
+                                        }
+                                      ]}
+                                    >
+                                      {event.title}
+                                    </Text>
+                                  </View>
+                                ) : (
+                                  // Show dot for regular events
+                                  <View
+                                    style={[
+                                      styles.eventDot,
+                                      { 
+                                        backgroundColor: event.categoryColor || '#A0C3B2'
+                                      }
+                                    ]}
+                                  />
+                                )}
                               </TouchableOpacity>
                             ))}
                           {dayEvents.length > 3 && (
@@ -1376,16 +1930,27 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 style={[
                                   styles.eventBoxText,
                                   {
-                                    backgroundColor: `${event.categoryColor || '#FF9A8B'}30`, // Lighter background color
+                                    backgroundColor: event.isShared 
+                                      ? '#007AFF20' // Light iOS blue background for shared events
+                                      : `${event.categoryColor || '#FF9A8B'}30`, // Lighter background color
+                                    borderWidth: event.isShared ? 1 : 0,
+                                    borderColor: event.isShared ? '#007AFF' : 'transparent'
                                   }
                                 ]}
                               >
                                 <Text
                                   numberOfLines={1}
-                                  style={styles.eventText}
+                                  style={[
+                                    styles.eventText,
+                                    { 
+                                      color: event.isShared ? '#007AFF' : '#333',
+                                      fontWeight: event.isShared ? '600' : 'normal'
+                                    }
+                                  ]}
                                 >
                                   {event.title}
                                 </Text>
+                
                               </TouchableOpacity>
                             ))}
                         </View>
@@ -1401,23 +1966,50 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     );
   };
 
-  const handleLongPress = (event: CalendarEvent) => {
-    // Handle all events, not just custom ones
+  const handleLongPress = async (event: CalendarEvent) => {
+    try {
+      console.log('🔍 [Edit Modal] Opening edit modal for event:', event.id);
+      
+      // Handle all events, not just custom ones
       setSelectedEvent({ event, dateKey: event.date, index: 0 });
       setEditingEvent(event);
       setEditedEventTitle(event.title);
       setEditedEventDescription(event.description ?? '');
-    setEditedEventLocation(event.location ?? '');
+      setEditedEventLocation(event.location ?? '');
       setEditedStartDateTime(new Date(event.startDateTime!));
       setEditedEndDateTime(new Date(event.endDateTime!));
       setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
       setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
       setEditedRepeatOption(event.repeatOption || 'None');
       setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-    setCustomSelectedDates(event.customDates || []);
-    setIsEditedAllDay(event.isAllDay || false);
-    setEditedEventPhotos(event.photos || []);
+      setCustomSelectedDates(event.customDates || []);
+      setIsEditedAllDay(event.isAllDay || false);
+      setEditedEventPhotos(event.photos || []);
+      
+      // Reset edit modal friends state first
+      setEditSelectedFriends([]);
+      setEditSearchFriend('');
+      setEditIsSearchFocused(false);
+      
+      // Open the modal immediately
       setShowEditEventModal(true);
+      
+      // Fetch existing shared friends for this event (non-blocking)
+      try {
+        console.log('🔍 [Edit Modal] Fetching shared friends...');
+        const sharedFriendIds = await fetchSharedFriendsForEvent(event.id);
+        console.log('🔍 [Edit Modal] Setting shared friends:', sharedFriendIds);
+        setEditSelectedFriends(sharedFriendIds);
+      } catch (error) {
+        console.error('🔍 [Edit Modal] Error fetching shared friends, continuing without them:', error);
+        // Continue without shared friends if there's an error
+      }
+      
+    } catch (error) {
+      console.error('🔍 [Edit Modal] Error in handleLongPress:', error);
+      // Still try to open the modal even if there's an error
+      setShowEditEventModal(true);
+    }
   };
 
 
@@ -1691,7 +2283,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return updated;
       });
 
-      // Step 8: Close modal and show success message
+      // Step 8: Share event with selected friends if any
+      if (editSelectedFriends.length > 0) {
+        await shareEventWithEditSelectedFriends(insertedEvent.id);
+        
+        // Clear selected friends after sharing
+        setEditSelectedFriends([]);
+        setEditSearchFriend('');
+        setEditIsSearchFocused(false);
+      }
+
+      // Step 9: Close modal and show success message
       setShowEditEventModal(false);
       setEditingEvent(null);
       setSelectedEvent(null);
@@ -1963,19 +2565,51 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         try {
           const photoUrl = await uploadEventPhoto(result.assets[0].uri, eventId || 'temp');
           
+          // Get event details for sharing
+          let eventTitle = 'Event';
+          let eventIdForSharing: string;
+          
           if (eventId) {
-            // Update existing event with photo
+            eventIdForSharing = eventId;
+            const event = Object.values(events).flat().find(e => e.id === eventId);
+            if (event) {
+              eventTitle = event.title;
+            }
             await updateEventPhoto(eventId, photoUrl);
           } else {
-            // Set photo for new event
+            eventIdForSharing = 'temp_' + Date.now();
             setEventPhotos(prev => [...prev, photoUrl]);
           }
-          
-          Toast.show({
-            type: 'success',
-            text1: 'Photo added successfully',
-            position: 'bottom',
-          });
+
+          // Prompt for sharing
+          if (user?.id) {
+            promptPhotoSharing(
+              {
+                photoUrl,
+                sourceType: 'event',
+                sourceId: eventIdForSharing,
+                sourceTitle: eventTitle,
+                userId: user.id
+              },
+              () => {
+                // Success callback - photo already added above
+              },
+              () => {
+                // Cancel callback - photo already added above
+                Toast.show({
+                  type: 'success',
+                  text1: 'Photo added successfully',
+                  position: 'bottom',
+                });
+              }
+            );
+          } else {
+            Toast.show({
+              type: 'success',
+              text1: 'Photo added successfully',
+              position: 'bottom',
+            });
+          }
           
           // Close the Swipeable component after adding photo
           if (eventId && swipeableRefs.current[eventId]) {
@@ -2216,6 +2850,106 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   }, [showPhotoViewer, selectedPhotoForViewing]);
 
+  // Add function to handle shared event interactions
+  const handleSharedEventPress = (event: CalendarEvent) => {
+    if (event.isShared) {
+      Alert.alert(
+        'Shared Event',
+        `This event was shared with you by ${event.sharedByFullName || event.sharedByUsername || 'Unknown'}`,
+        [
+          { text: 'Accept', onPress: () => handleAcceptSharedEvent(event) },
+          { text: 'Decline', style: 'destructive', onPress: () => handleDeclineSharedEvent(event) },
+          { text: 'View Details', onPress: () => viewSharedEventDetails(event) },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
+    } else {
+      // Handle regular event press
+      const selectedEventData = { event, dateKey: event.date, index: 0 };
+      setSelectedEvent(selectedEventData);
+      setEditingEvent(event);
+      setEditedEventTitle(event.title);
+      setEditedEventDescription(event.description ?? '');
+      setEditedEventLocation(event.location ?? '');
+      setEditedStartDateTime(new Date(event.startDateTime!));
+      setEditedEndDateTime(new Date(event.endDateTime!));
+      setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+      setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+      setEditedRepeatOption(event.repeatOption || 'None');
+      setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+      setCustomSelectedDates(event.customDates || []);
+      setIsEditedAllDay(event.isAllDay || false);
+      setEditedEventPhotos(event.photos || []);
+      setShowEditEventModal(true);
+    }
+  };
+
+  const handleAcceptSharedEvent = async (event: CalendarEvent) => {
+    try {
+      // Extract the shared event ID from the event ID
+      const sharedEventId = event.id.replace('shared_', '');
+      
+      // Use the imported sharing utility function
+      const result = await acceptSharedEventUtil(sharedEventId);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to accept event');
+      }
+
+      // Refresh events to update the display
+      refreshEvents();
+    } catch (error) {
+      console.error('Error accepting shared event:', error);
+      Alert.alert('Error', 'Failed to accept event. Please try again.');
+    }
+  };
+
+  const handleDeclineSharedEvent = async (event: CalendarEvent) => {
+    try {
+      // Extract the shared event ID from the event ID
+      const sharedEventId = event.id.replace('shared_', '');
+      
+      // Use the imported sharing utility function
+      const result = await declineSharedEventUtil(sharedEventId);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to decline event');
+      }
+
+      // Refresh events to update the display
+      refreshEvents();
+    } catch (error) {
+      console.error('Error declining shared event:', error);
+      Alert.alert('Error', 'Failed to decline event. Please try again.');
+    }
+  };
+
+  const viewSharedEventDetails = (event: CalendarEvent) => {
+    // Show event details in a modal
+    Alert.alert(
+      'Event Details',
+      `Title: ${event.title}\n\nDescription: ${event.description || 'No description'}\n\nLocation: ${event.location || 'No location'}\n\nDate: ${event.date}\n\nTime: ${event.startDateTime ? event.startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'All day'}\n\nShared by: ${event.sharedByFullName || event.sharedByUsername || 'Unknown'}`,
+      [
+        { text: 'Accept', onPress: () => handleAcceptSharedEvent(event) },
+        { text: 'Decline', style: 'destructive', onPress: () => handleDeclineSharedEvent(event) },
+        { text: 'Close', style: 'cancel' }
+      ]
+    );
+  };
+
+  // Add function to update pending shared events
+  const updatePendingSharedEvents = useCallback(() => {
+    const pending = Object.values(events)
+      .flat()
+      .filter(event => event.isShared && event.sharedStatus === 'pending');
+    setPendingSharedEvents(pending);
+  }, [events]);
+
+  // Update pending events when events change
+  useEffect(() => {
+    updatePendingSharedEvents();
+  }, [events, updatePendingSharedEvents]);
+
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
@@ -2279,6 +3013,43 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Shared Event Notifications */}
+      {pendingSharedEvents.length > 0 && (
+        <View style={{
+          backgroundColor: '#FF9500',
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          marginHorizontal: 16,
+          marginTop: 8,
+          borderRadius: 8,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>
+              {pendingSharedEvents.length} shared event{pendingSharedEvents.length > 1 ? 's' : ''} pending
+            </Text>
+            <Text style={{ color: 'white', fontSize: 12, marginTop: 2 }}>
+              Tap to review and accept/decline
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => setShowSharedEventsModal(true)}
+            style={{
+              backgroundColor: 'rgba(255,255,255,0.2)',
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 6
+            }}
+          >
+            <Text style={{ color: 'white', fontWeight: '600', fontSize: 12 }}>
+              Review
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Calendar and Event List Container */}
       <View style={{ flex: 1, flexDirection: 'column' }}>
@@ -2394,25 +3165,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             borderRadius: 12,
                             paddingVertical: 8,
                             paddingHorizontal: 16,
+                            borderWidth: event.isShared ? 2 : 0,
+                            borderColor: event.isShared ? '#007AFF' : 'transparent',
                           }}
-                          onPress={() => {
-                            const selectedEventData = { event, dateKey: event.date, index };
-                            setSelectedEvent(selectedEventData);
-                            setEditingEvent(event);
-                            setEditedEventTitle(event.title);
-                            setEditedEventDescription(event.description ?? '');
-                            setEditedEventLocation(event.location ?? '');
-                            setEditedStartDateTime(new Date(event.startDateTime!));
-                            setEditedEndDateTime(new Date(event.endDateTime!));
-                            setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                            setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                            setEditedRepeatOption(event.repeatOption || 'None');
-                            setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                            setCustomSelectedDates(event.customDates || []);
-                            setIsEditedAllDay(event.isAllDay || false);
-                            setEditedEventPhotos(event.photos || []);
-                            setShowEditEventModal(true);
-                          }}
+                          onPress={() => handleSharedEventPress(event)}
                           onLongPress={() => handleLongPress(event)}
                         >
                           {/* Category Color Bar */}
@@ -2421,15 +3177,39 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               width: 5.5,
                               height: 46,
                               borderRadius: 3,
-                              backgroundColor: event.categoryColor || '#A0C3B2',
+                              backgroundColor: event.isShared ? '#007AFF' : (event.categoryColor || '#A0C3B2'),
                               marginRight: 14,
                             }}
                           />
                           {/* Event Info */}
                           <View style={{ flex: 1 }}>
-                            <Text style={{ fontSize: 17, fontWeight: 'bold', color: '#222', marginBottom: 3.5 }}>
-                              {event.title}
-                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 3.5 }}>
+                              <Text style={{ 
+                                fontSize: 17, 
+                                fontWeight: 'bold', 
+                                color: event.isShared ? '#007AFF' : '#222', 
+                                marginBottom: 0 
+                              }}>
+                                {event.title}
+                              </Text>
+                              {event.isShared && (
+                                <View style={{ 
+                                  marginLeft: 8, 
+                                  backgroundColor: '#007AFF', 
+                                  borderRadius: 8, 
+                                  paddingHorizontal: 6, 
+                                  paddingVertical: 2 
+                                }}>
+                                  <Text style={{ 
+                                    color: 'white', 
+                                    fontSize: 10, 
+                                    fontWeight: 'bold' 
+                                  }}>
+                                    SHARED
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
                             <Text style={{ fontSize: 15, color: '#666', marginBottom: event.description ? 2 : 0 }}>
                               {event.isAllDay
                                 ? 'All day'
@@ -2440,6 +3220,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 {event.description}
                               </Text>
                             ) : null}
+                            {event.isShared && (
+                              <Text style={{ fontSize: 11, color: '#007AFF', marginTop: 2 }}>
+                                Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
+                              </Text>
+                            )}
                           </View>
                           
                           {/* Photo Section */}
@@ -3408,6 +4193,180 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       </View>
                     </>
                   )}
+                  
+                  {/* Share with Friends Card */}
+                  <View style={{
+                    backgroundColor: 'white',
+                    borderRadius: 12,
+                    padding: 16,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.05,
+                    shadowRadius: 4,
+                    elevation: 1,
+                  }}>
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: '#333',
+                      marginBottom: 10,
+                      fontFamily: 'Onest'
+                    }}>
+                      Friends
+                    </Text>
+                    
+                    {/* Selected Friends Section */}
+                    {selectedFriends.length > 0 && (
+                      <View style={{ marginBottom: 12 }}>
+                        <View style={{
+                          flexDirection: 'row',
+                          flexWrap: 'wrap',
+                          gap: 8,
+                        }}>
+                          {selectedFriends.map(friendId => {
+                            const friend = friends.find(f => f.friend_id === friendId);
+                            if (!friend) return null;
+                            
+                            return (
+                              <View key={friendId} style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                backgroundColor: '#007AFF',
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                borderRadius: 16,
+                                gap: 6,
+                              }}>
+                                {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
+                                  <Image 
+                                    source={{ uri: friend.friend_avatar }} 
+                                    style={{ width: 16, height: 16, borderRadius: 8 }} 
+                                  />
+                                ) : (
+                                  <View 
+                                    style={{ 
+                                      width: 16, 
+                                      height: 16, 
+                                      borderRadius: 8,
+                                      backgroundColor: 'rgba(255,255,255,0.2)',
+                                      justifyContent: 'center',
+                                      alignItems: 'center'
+                                    }}
+                                  >
+                                    <Ionicons name="person" size={8} color="white" />
+                                  </View>
+                                )}
+                                <Text style={{ 
+                                  fontSize: 12, 
+                                  color: 'white', 
+                                  fontFamily: 'Onest',
+                                  fontWeight: '500'
+                                }}>
+                                  {friend.friend_name}
+                                </Text>
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    setSelectedFriends(prev => prev.filter(id => id !== friendId));
+                                  }}
+                                  style={{
+                                    marginLeft: 2,
+                                  }}
+                                >
+                                  <Ionicons name="close" size={12} color="white" />
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    )}
+                    
+                    <TextInput
+                      placeholder="Search friends..."
+                      value={searchFriend}
+                      onChangeText={setSearchFriend}
+                      onFocus={() => setIsSearchFocused(true)}
+                      onBlur={() => setIsSearchFocused(false)}
+                      style={{
+                        backgroundColor: '#f8f9fa',
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        fontSize: 14,
+                        marginBottom: 10,
+                        fontFamily: 'Onest',
+                        color: '#333',
+                        borderWidth: 1,
+                        borderColor: '#e9ecef',
+                      }}
+                      placeholderTextColor="#999"
+                    />
+                    {(searchFriend.trim() !== '' || isSearchFocused) && (
+                      <FlatList
+                        data={friends.filter(f =>
+                          f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
+                          f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
+                        )}
+                        keyExtractor={item => item.friend_id}
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        renderItem={({ item }) => (
+                          <TouchableOpacity
+                            style={{
+                              marginRight: 10,
+                              alignItems: 'center',
+                              opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
+                              paddingVertical: 2,
+                            }}
+                            onPress={() => {
+                              setSelectedFriends(prev =>
+                                prev.includes(item.friend_id)
+                                  ? prev.filter(id => id !== item.friend_id)
+                                  : [...prev, item.friend_id]
+                              );
+                            }}
+                          >
+                            {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
+                              <Image 
+                                source={{ uri: item.friend_avatar }} 
+                                style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                              />
+                            ) : (
+                              <View 
+                                style={{ 
+                                  width: 36, 
+                                  height: 36, 
+                                  borderRadius: 18, 
+                                  marginBottom: 4,
+                                  backgroundColor: '#E9ECEF',
+                                  justifyContent: 'center',
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <Ionicons name="person" size={16} color="#6C757D" />
+                              </View>
+                            )}
+                            <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                          </TouchableOpacity>
+                        )}
+                        ListEmptyComponent={
+                          <View style={{ 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            paddingVertical: 16,
+                            minWidth: 180
+                          }}>
+                            <Ionicons name="people-outline" size={20} color="#CED4DA" />
+                            <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
+                              No friends found
+                            </Text>
+                          </View>
+                        }
+                        style={{ minHeight: 70 }}
+                      />
+                    )}
+                  </View>
+                  
                   </ScrollView>
                 </View>
         </SafeAreaView>
@@ -3916,8 +4875,182 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   )}
               </View>
 
-                {/* Delete Button */}
-                <TouchableOpacity
+               
+                {/* Share with Friends Card */}
+                <View style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
+                }}>
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '600',
+                    color: '#333',
+                    marginBottom: 10,
+                    fontFamily: 'Onest'
+                  }}>
+                    Friends
+                  </Text>
+                  
+                  {/* Selected Friends Section */}
+                  {editSelectedFriends.length > 0 && (
+                    <View style={{ marginBottom: 12 }}>
+                      <View style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                      }}>
+                        {editSelectedFriends.map(friendId => {
+                          const friend = friends.find(f => f.friend_id === friendId);
+                          if (!friend) return null;
+                          
+                          return (
+                            <View key={friendId} style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: '#007AFF',
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              borderRadius: 16,
+                              gap: 6,
+                            }}>
+                              {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
+                                <Image 
+                                  source={{ uri: friend.friend_avatar }} 
+                                  style={{ width: 16, height: 16, borderRadius: 8 }} 
+                                />
+                              ) : (
+                                <View 
+                                  style={{ 
+                                    width: 16, 
+                                    height: 16, 
+                                    borderRadius: 8,
+                                    backgroundColor: 'rgba(255,255,255,0.2)',
+                                    justifyContent: 'center',
+                                    alignItems: 'center'
+                                  }}
+                                >
+                                  <Ionicons name="person" size={8} color="white" />
+                                </View>
+                              )}
+                              <Text style={{ 
+                                fontSize: 12, 
+                                color: 'white', 
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {friend.friend_name}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setEditSelectedFriends(prev => prev.filter(id => id !== friendId));
+                                }}
+                                style={{
+                                  marginLeft: 2,
+                                }}
+                              >
+                                <Ionicons name="close" size={12} color="white" />
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  )}
+                  
+                  <TextInput
+                    placeholder="Search friends..."
+                    value={editSearchFriend}
+                    onChangeText={setEditSearchFriend}
+                    onFocus={() => setEditIsSearchFocused(true)}
+                    onBlur={() => setEditIsSearchFocused(false)}
+                    style={{
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      fontSize: 14,
+                      marginBottom: 10,
+                      fontFamily: 'Onest',
+                      color: '#333',
+                      borderWidth: 1,
+                      borderColor: '#e9ecef',
+                    }}
+                    placeholderTextColor="#999"
+                  />
+                  {(editSearchFriend.trim() !== '' || editIsSearchFocused) && (
+                    <FlatList
+                      data={friends.filter(f =>
+                        f.friend_name.toLowerCase().includes(editSearchFriend.toLowerCase()) ||
+                        f.friend_username.toLowerCase().includes(editSearchFriend.toLowerCase())
+                      )}
+                      keyExtractor={item => item.friend_id}
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      renderItem={({ item }) => (
+                        <TouchableOpacity
+                          style={{
+                            marginRight: 10,
+                            alignItems: 'center',
+                            opacity: editSelectedFriends.includes(item.friend_id) ? 0.5 : 1,
+                            paddingVertical: 2,
+                          }}
+                          onPress={() => {
+                            setEditSelectedFriends(prev =>
+                              prev.includes(item.friend_id)
+                                ? prev.filter(id => id !== item.friend_id)
+                                : [...prev, item.friend_id]
+                            );
+                          }}
+                        >
+                          {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
+                            <Image 
+                              source={{ uri: item.friend_avatar }} 
+                              style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                            />
+                          ) : (
+                            <View 
+                              style={{ 
+                                width: 36, 
+                                height: 36, 
+                                borderRadius: 18, 
+                                marginBottom: 4,
+                                backgroundColor: '#E9ECEF',
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                              }}
+                            >
+                              <Ionicons name="person" size={16} color="#6C757D" />
+                            </View>
+                          )}
+                          <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                        </TouchableOpacity>
+                      )}
+                      ListEmptyComponent={
+                        <View style={{ 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          paddingVertical: 16,
+                          minWidth: 180
+                        }}>
+                          <Ionicons name="people-outline" size={20} color="#CED4DA" />
+                          <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
+                            No friends found
+                          </Text>
+                        </View>
+                      }
+                      style={{ minHeight: 70 }}
+                    />
+                  )}
+                </View>
+
+                 {/* Delete Button */}
+                 <TouchableOpacity
                   onPress={async () => {
                     if (selectedEvent?.event.id) {
                       try {
@@ -3937,6 +5070,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     Delete Event
                   </Text>
                 </TouchableOpacity>
+
               </ScrollView>
             </View>
           </SafeAreaView>
@@ -3955,6 +5089,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           justifyContent: 'center',
           alignItems: 'center',
         }}>
+          {/* Swipe Down Overlay */}
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 5,
+            }}
+            {...photoViewerPanResponder.panHandlers}
+          />
+          
           {/* Top Bar with Close and Delete */}
           <View style={{
             position: 'absolute',
@@ -3979,7 +5126,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               }}
               onPress={() => setShowPhotoViewer(false)}
             >
-              <Ionicons name="close" size={24} color="#fff" />
+              <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
             
             <TouchableOpacity
@@ -4140,6 +5287,141 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             />
           )}
         </View>
+      </Modal>
+
+      {/* Shared Events Modal */}
+      <Modal
+        visible={showSharedEventsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowSharedEventsModal(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+          {/* Header */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingVertical: 12,
+            borderBottomWidth: 1,
+            borderBottomColor: '#E5E5E5'
+          }}>
+            <Text style={{ fontSize: 18, fontWeight: '600' }}>
+              Pending Shared Events
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowSharedEventsModal(false)}
+              style={{ padding: 4 }}
+            >
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Content */}
+          <ScrollView style={{ flex: 1, paddingHorizontal: 16 }}>
+            {pendingSharedEvents.length === 0 ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 50 }}>
+                <Text style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
+                  No pending shared events
+                </Text>
+              </View>
+            ) : (
+              pendingSharedEvents.map((event, index) => (
+                <View
+                  key={event.id}
+                  style={{
+                    backgroundColor: '#F8F9FA',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginVertical: 8,
+                    borderLeftWidth: 4,
+                    borderLeftColor: '#007AFF'
+                  }}
+                >
+                  {/* Event Header */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', flex: 1 }}>
+                      {event.title}
+                    </Text>
+                    <View style={{
+                      backgroundColor: '#007AFF',
+                      borderRadius: 12,
+                      paddingHorizontal: 8,
+                      paddingVertical: 2
+                    }}>
+                      <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
+                        SHARED
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Event Details */}
+                  <Text style={{ fontSize: 14, color: '#666', marginBottom: 4 }}>
+                    {event.date} • {event.isAllDay ? 'All day' : 
+                      `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    }
+                  </Text>
+                  
+                  {event.description && (
+                    <Text style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
+                      {event.description}
+                    </Text>
+                  )}
+
+                  <Text style={{ fontSize: 12, color: '#007AFF', marginBottom: 12 }}>
+                    Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
+                  </Text>
+
+                  {/* Action Buttons */}
+                  <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        await handleAcceptSharedEvent(event);
+                        updatePendingSharedEvents();
+                        if (pendingSharedEvents.length === 1) {
+                          setShowSharedEventsModal(false);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        backgroundColor: '#34C759',
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>
+                        Accept
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      onPress={async () => {
+                        await handleDeclineSharedEvent(event);
+                        updatePendingSharedEvents();
+                        if (pendingSharedEvents.length === 1) {
+                          setShowSharedEventsModal(false);
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        backgroundColor: '#FF3B30',
+                        paddingVertical: 10,
+                        borderRadius: 8,
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>
+                        Decline
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
       </>
       

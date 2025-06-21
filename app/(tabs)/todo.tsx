@@ -26,6 +26,7 @@ import {
   RefreshControl,
   SafeAreaView,
   Image,
+  FlatList,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -48,6 +49,9 @@ import MonthlyCalendar from '../components/MonthlyCalendar';
 import { useRouter } from 'expo-router';
 import Calendar from 'react-native-calendars';
 import * as FileSystem from 'expo-file-system';
+import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
+import { shareTaskWithFriend, shareHabitWithFriend } from '../../utils/sharing';
+import Toast from 'react-native-toast-message';
 
 
 
@@ -328,6 +332,26 @@ export default function TodoScreen() {
   const [editingNoteInViewer, setEditingNoteInViewer] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
 
+  // Add friends state for sharing
+  const [friends, setFriends] = useState<Array<{
+    friend_id: string;
+    friend_name: string;
+    friend_avatar: string;
+    friend_username: string;
+    friendship_id: string;
+    status: string;
+    created_at: string;
+  }>>([]);
+
+  // Add state for selected friends in Add Task modal
+  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+
+  // Add state for searching friends
+  const [searchFriend, setSearchFriend] = useState('');
+  
+  // Add state for search input focus
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
     const selectedDate = new Date(
@@ -381,6 +405,8 @@ export default function TodoScreen() {
     setCustomRepeatFrequency('1');
     setCustomRepeatUnit('days');
     setSelectedWeekDays([]);
+    setSelectedFriends([]);
+    setSearchFriend('');
   };
 
   async function scheduleReminderNotification(taskTitle: string, reminderTime: Date) {
@@ -474,6 +500,13 @@ export default function TodoScreen() {
       // Schedule reminder if set
       if (reminderTime) {
         await scheduleReminderNotification(newTodo.trim(), reminderTime);
+      }
+
+      // Share with selected friends BEFORE resetting the form
+      if (selectedFriends.length > 0 && newTodoItem.id && user?.id) {
+        for (const friendId of selectedFriends) {
+          await shareTaskWithFriend(newTodoItem.id, friendId, user.id);
+        }
       }
 
       // Reset form and close modal
@@ -574,6 +607,23 @@ export default function TodoScreen() {
             Alert.alert('Error', 'Failed to update task. Please try again.');
             return;
           }
+          
+          // Handle friend sharing updates
+          if (editingTodo.id) {
+            // First, remove all existing shares for this task
+            await supabase
+              .from('shared_tasks')
+              .delete()
+              .eq('original_task_id', editingTodo.id)
+              .eq('shared_by', user.id);
+            
+            // Then add new shares for selected friends
+            if (selectedFriends.length > 0) {
+              for (const friendId of selectedFriends) {
+                await shareTaskWithFriend(editingTodo.id, friendId, user.id);
+              }
+            }
+          }
         }
     
         hideModal();
@@ -636,180 +686,77 @@ export default function TodoScreen() {
   };
 
   const toggleHabit = async (habitId: string) => {
-    console.log('🔍 toggleHabit called with habitId:', habitId);
     try {
-      // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.error('No user logged in');
-        Alert.alert('Error', 'You must be logged in to update habits.');
+      const habitToToggle = habits.find(h => h.id === habitId);
+      if (!habitToToggle) return;
+
+      const today = moment().format('YYYY-MM-DD');
+      const isCompletedToday = habitToToggle.completedDays.includes(today);
+
+      if (isCompletedToday) {
+        // If already completed today, do nothing
         return;
       }
 
-      // Find the habit to toggle
+      if (habitToToggle.requirePhoto) {
+        // Show photo prompt
+        addHabitPhoto(habitToToggle);
+        return;
+      }
+
+      // Complete the habit for today
+      await completeHabit(habitId, today, isCompletedToday);
+    } catch (error) {
+      console.error('Error toggling habit:', error);
+    }
+  };
+
+  const completeHabit = async (habitId: string, today: string, isCompletedToday: boolean) => {
+    try {
       const habitToToggle = habits.find(habit => habit.id === habitId);
       if (!habitToToggle) {
         console.error('Habit not found');
         return;
       }
 
-      console.log('🔍 Found habit:', habitToToggle.text);
-      console.log('🔍 Current completedDays:', habitToToggle.completedDays);
-
-      const today = moment().format('YYYY-MM-DD');
       const currentCompletedDays = habitToToggle.completedDays || [];
-      const isCompletedToday = currentCompletedDays.includes(today);
-      
-      console.log('🔍 Today:', today);
-      console.log('🔍 Is completed today:', isCompletedToday);
-      
-      // If already completed today, don't do anything
-      if (isCompletedToday) {
-        console.log('🔍 Habit already completed today, doing nothing');
-        return;
-      }
-      
-      // If trying to complete a habit that requires photo, check if photo exists
-      if (habitToToggle.requirePhoto) {
-        console.log('🔍 Habit requires photo, checking...');
-        const currentPhotos = habitToToggle.photos || {};
-        if (!currentPhotos[today]) {
-          console.log('🔍 No photo for today, showing photo prompt');
-          Alert.alert(
-            'Photo Required',
-            'This habit requires a photo to be completed.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Take Photo',
-                onPress: async () => {
-                  try {
-                    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-                    if (status !== 'granted') {
-                      Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
-                      return;
-                    }
-
-                    const result = await ImagePicker.launchCameraAsync({
-                      allowsEditing: true,
-                      aspect: [4, 3],
-                      quality: 0.8,
-                    });
-
-                    if (!result.canceled && result.assets[0]) {
-                      // Image was taken, now complete the habit
-                      await completeHabitWithPhoto(habitId, result.assets[0].uri, today);
-                    }
-                  } catch (error) {
-                    console.error('Error taking photo:', error);
-                    Alert.alert('Error', 'Failed to take photo. Please try again.');
-                  }
-                },
-              },
-              {
-                text: 'Choose from Gallery',
-                onPress: async () => {
-                  try {
-                    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                    if (status !== 'granted') {
-                      Alert.alert('Permission Required', 'Media library permission is required to select an image.');
-                      return;
-                    }
-
-                    const result = await ImagePicker.launchImageLibraryAsync({
-                      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                      allowsEditing: true,
-                      aspect: [4, 3],
-                      quality: 0.8,
-                    });
-
-                    if (!result.canceled && result.assets[0]) {
-                      // Image was selected, now complete the habit
-                      await completeHabitWithPhoto(habitId, result.assets[0].uri, today);
-                    }
-                  } catch (error) {
-                    console.error('Error selecting image:', error);
-                    Alert.alert('Error', 'Failed to select image. Please try again.');
-                  }
-                },
-              },
-            ]
-          );
-          return;
-        }
-      }
-
-      console.log('🔍 Completing habit for today...');
-      // Complete the habit for today
-      await completeHabit(habitId, today, false);
-      console.log('🔍 Habit completed successfully!');
-    } catch (error) {
-      console.error('Error in toggleHabit:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-    }
-  };
-
-  const completeHabit = async (habitId: string, today: string, isCompletedToday: boolean) => {
-    console.log('🔍 completeHabit called with:', { habitId, today, isCompletedToday });
-    try {
-      const habitToToggle = habits.find(habit => habit.id === habitId);
-      if (!habitToToggle) {
-        console.error('🔍 Habit not found in completeHabit');
-        return;
-      }
-
-      console.log('🔍 Found habit in completeHabit:', habitToToggle.text);
-      console.log('🔍 Current completedDays:', habitToToggle.completedDays);
-
-      const currentCompletedDays = habitToToggle.completedDays || [];
-      
-      // Always add today to completed days (no more toggling)
       const newCompletedDays = [...currentCompletedDays, today];
-      
-      console.log('🔍 New completedDays:', newCompletedDays);
 
       // Update in Supabase
       const { error } = await supabase
         .from('habits')
-        .update({ completed_days: newCompletedDays })
-        .eq('id', habitId)
-        .eq('user_id', user?.id);
+        .update({
+          completedDays: newCompletedDays,
+          streak: calculateCurrentStreak(newCompletedDays),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', habitId);
 
       if (error) {
-        console.error('🔍 Error updating habit in Supabase:', error);
+        console.error('Error updating habit:', error);
         Alert.alert('Error', 'Failed to update habit. Please try again.');
         return;
       }
 
-      console.log('🔍 Supabase update successful');
-
       // Update local state
       setHabits(prev => {
-        console.log('🔍 Updating local state, prev habits count:', prev.length);
-        const updatedHabits = prev.map(habit => 
-          habit.id === habitId 
-            ? { 
-                ...habit, 
+        const updatedHabits = prev.map(habit =>
+          habit.id === habitId
+            ? {
+                ...habit,
                 completedDays: newCompletedDays,
-                completedToday: true,
-                streak: calculateCurrentStreak(newCompletedDays)
-              } 
+                streak: calculateCurrentStreak(newCompletedDays),
+                completedToday: true
+              }
             : habit
         );
-        console.log('🔍 Updated habits count:', updatedHabits.length);
         return updatedHabits;
       });
-      
-      console.log('🔍 Local state updated');
-      
-      // Provide haptic feedback
-      if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }
-      
-      console.log('🔍 completeHabit finished successfully');
+
+      // Show success feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
-      console.error('🔍 Error in completeHabit:', error);
+      console.error('Error completing habit:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
@@ -915,13 +862,33 @@ export default function TodoScreen() {
             } 
           : habit
       ));
+
+      // Prompt for photo sharing
+      if (user?.id) {
+        promptPhotoSharing(
+          {
+            photoUrl: uploadedPhotoUrl,
+            sourceType: 'habit',
+            sourceId: habitId,
+            sourceTitle: habitToToggle.text,
+            userId: user.id
+          },
+          () => {
+            // Success callback - photo already added above
+          },
+          () => {
+            // Cancel callback - photo already added above
+            Alert.alert('Success', 'Habit completed with photo!');
+          }
+        );
+      } else {
+        Alert.alert('Success', 'Habit completed with photo!');
+      }
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
-
-      Alert.alert('Success', 'Habit completed with photo!');
     } catch (error) {
       console.error('Error in completeHabitWithPhoto:', error);
       Alert.alert('Error', 'Failed to upload photo. Please try again.');
@@ -1204,7 +1171,6 @@ export default function TodoScreen() {
         <View style={[styles.leftAction, { backgroundColor: lightColor }]}>
           <TouchableOpacity 
             onPress={() => {
-              console.log('🔍 Photo button pressed for task:', todo.id);
               handlePhotoAttachment(todo.id);
             }} 
             style={[styles.photoIconContainer, { 
@@ -1221,23 +1187,61 @@ export default function TodoScreen() {
       );
     };
   
-    const handleEdit = () => {
-      if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const handleEdit = async () => {
+      try {
+        // Reset friends state first
+        setSelectedFriends([]);
+        setSearchFriend('');
+        setIsSearchFocused(false);
+        
+        // Set form data
+        setEditingTodo(todo);
+        setNewTodo(todo.text);
+        setNewDescription(todo.description || '');
+        setTaskDate(todo.date);
+        setSelectedCategoryId(todo.categoryId || '');
+        setReminderTime(todo.reminderTime || null);
+        setSelectedRepeat(todo.repeat || 'none');
+        setRepeatEndDate(todo.repeatEndDate || null);
+        if (todo.repeat === 'custom' && todo.customRepeatDates) {
+          setCustomSelectedDates(todo.customRepeatDates.map(date => date.toISOString().split('T')[0]));
+        }
+        
+        // Open the modal immediately
+        showModal();
+        
+        // Fetch existing shared friends for this task (non-blocking)
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) return;
+
+          const { data: sharedTasks, error } = await supabase
+            .from('shared_tasks')
+            .select('shared_with')
+            .eq('original_task_id', todo.id)
+            .eq('shared_by', user.id);
+
+          if (error) {
+            console.error('Error fetching shared friends:', error);
+            return;
+          }
+
+          if (!sharedTasks || sharedTasks.length === 0) {
+            return;
+          }
+
+          // Extract the friend IDs
+          const sharedFriendIds = sharedTasks.map((st: { shared_with: string }) => st.shared_with);
+          setSelectedFriends(sharedFriendIds);
+        } catch (error) {
+          console.error('Error fetching shared friends, continuing without them:', error);
+          // Continue without shared friends if there's an error
+        }
+      } catch (error) {
+        console.error('Error in handleEdit:', error);
+        // Still try to open the modal even if there's an error
+        showModal();
       }
-      resetForm(); 
-      setEditingTodo(todo);
-      setNewTodo(todo.text);
-      setNewDescription(todo.description || '');
-      setSelectedCategoryId(todo.categoryId || '');
-      setTaskDate(todo.date || null);
-      setSelectedRepeat(todo.repeat || 'none');
-      setRepeatEndDate(todo.repeatEndDate || null);
-      setReminderTime(todo.reminderTime || null);
-      if (todo.repeat === 'custom' && todo.customRepeatDates) {
-        setCustomSelectedDates(todo.customRepeatDates.map(date => date.toISOString().split('T')[0]));
-      }
-      showModal();
     };
 
     const taskTouchable = (
@@ -1433,190 +1437,158 @@ export default function TodoScreen() {
   // Add fetchData function to centralize data fetching
   const fetchData = async (currentUser?: User | null) => {
     const userToUse = currentUser || user;
-    if (!userToUse) {
-      return;
-    }
-    
-    setIsLoading(true);
+    if (!userToUse) return;
+
+    const retryRequest = async (
+      requestFn: () => Promise<any>,
+      maxRetries: number = 3,
+      delay: number = 1000
+    ): Promise<any | null> => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const result = await requestFn();
+          return result;
+        } catch (error) {
+          if (attempt === maxRetries) {
+            console.error(`Request failed after ${maxRetries} attempts:`, error);
+            return null;
+          }
+          await new Promise(resolve => setTimeout(resolve, delay * attempt));
+        }
+      }
+      return null;
+    };
+
     try {
-      // Fetch categories, tasks, and habits in parallel
-      const [categoriesResponse, tasksResponse, habitsResponse] = await Promise.all([
-        supabase
-          .from('categories')
-          .select('*')
-          .eq('user_id', userToUse.id)
-          .eq('type', 'task'),
-        supabase
-          .from('todos')
-          .select('*')
-          .eq('user_id', userToUse.id),
-        supabase
-          .from('habits')
-          .select('*')
-          .eq('user_id', userToUse.id),
+      const fetchCategories = async () => {
+        const result = await retryRequest(async () => {
+          const { data, error } = await supabase
+            .from('categories')
+            .select('*')
+            .eq('user_id', userToUse.id)
+            .eq('type', 'todo')
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+          return data || [];
+        });
+
+        if (result) {
+          setCategories(result);
+        }
+      };
+
+      const fetchTasks = async () => {
+        const result = await retryRequest(async () => {
+          const { data, error } = await supabase
+            .from('tasks')
+            .select('*')
+            .eq('user_id', userToUse.id)
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+          return data || [];
+        });
+
+        if (result) {
+          const mappedTasks = result.map((task: any) => ({
+            ...task,
+            date: task.date ? new Date(task.date) : new Date(),
+            repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+            reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
+            customRepeatDates: task.custom_repeat_dates ? task.custom_repeat_dates.map((date: string) => new Date(date)) : [],
+            categoryId: task.category_id,
+            photo: task.photo
+          }));
+          setTodos(mappedTasks);
+        }
+      };
+
+      const fetchHabits = async () => {
+        const result = await retryRequest(async () => {
+          const { data, error } = await supabase
+            .from('habits')
+            .select('*')
+            .eq('user_id', userToUse.id)
+            .order('created_at', { ascending: false });
+
+          if (error) throw error;
+          return data || [];
+        });
+
+        if (result) {
+          const sortedHabits = result.map((habit: any) => ({
+            ...habit,
+            completedDays: habit.completed_days || [],
+            notes: habit.notes || {},
+            photos: habit.photos || {},
+            category_id: habit.category_id
+          }));
+          setHabits(sortedHabits);
+        }
+      };
+
+      const fetchFriends = async () => {
+        const result = await retryRequest(async () => {
+          const { data: friendships, error: friendshipsError } = await supabase
+            .from('friendships')
+            .select(`
+              id,
+              user_id,
+              friend_id,
+              status,
+              created_at
+            `)
+            .or(`user_id.eq.${userToUse.id},friend_id.eq.${userToUse.id}`)
+            .eq('status', 'accepted');
+
+          if (friendshipsError) throw friendshipsError;
+
+          if (!friendships || friendships.length === 0) {
+            return [];
+          }
+
+          const friendsWithProfiles = await Promise.all(
+            friendships.map(async (friendship) => {
+              const friendUserId = friendship.user_id === userToUse.id ? friendship.friend_id : friendship.user_id;
+              
+              const { data: profileData } = await supabase
+                .from('profiles')
+                .select('id, full_name, avatar_url, username')
+                .eq('id', friendUserId)
+                .single();
+              
+              return {
+                friendship_id: friendship.id,
+                friend_id: friendUserId,
+                friend_name: profileData?.full_name || 'Unknown',
+                friend_avatar: profileData?.avatar_url || '',
+                friend_username: profileData?.username || '',
+                status: friendship.status,
+                created_at: friendship.created_at,
+              };
+            })
+          );
+
+          return friendsWithProfiles;
+        });
+
+        if (result) {
+          setFriends(result);
+        }
+      };
+
+      await Promise.all([
+        fetchCategories(),
+        fetchTasks(),
+        fetchHabits(),
+        fetchFriends()
       ]);
 
-      if (categoriesResponse.error) {
-        console.error('[Todo] Error fetching categories:', categoriesResponse.error);
-        return;
-      }
-
-      if (tasksResponse.error) {
-        console.error('[Todo] Error fetching tasks:', tasksResponse.error);
-        return;
-      }
-
-      if (habitsResponse.error) {
-        console.error('[Todo] Error fetching habits:', habitsResponse.error);
-        return;
-      }
-
-      // Update categories
-      if (categoriesResponse.data) {
-        setCategories(categoriesResponse.data);
-      }
-
-      // Update tasks with proper date parsing and photo field
-      if (tasksResponse.data) {
-        const mappedTasks = tasksResponse.data.map(task => ({
-          ...task,
-          date: new Date(task.date),
-          repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
-          reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
-          categoryId: task.category_id || null,
-          photo: task.photo || null,
-          customRepeatDates: task.custom_repeat_dates
-            ? task.custom_repeat_dates.map((dateStr: string) => new Date(dateStr))
-            : undefined,
-        }));
-        setTodos(mappedTasks);
-      }
-
-      // Update habits with proper date parsing
-      if (habitsResponse.data) {
-        const mappedHabits = habitsResponse.data.map(habit => ({
-          ...habit,
-          completedToday: (habit.completed_days || []).includes(moment().format('YYYY-MM-DD')) || false,
-          category_id: habit.category_id || null,
-          reminderTime: habit.reminder_time || null,
-          requirePhoto: habit.require_photo || false,
-          completedDays: habit.completed_days || [],
-          notes: habit.notes || {},
-          photos: habit.photos || {},
-          targetPerWeek: habit.target_per_week || 7,
-          streak: calculateCurrentStreak(habit.completed_days || []),
-        }));
-        
-        // Sort habits by creation date (created_at) to maintain stable order
-        const sortedHabits = mappedHabits.sort((a, b) => {
-          const dateA = new Date(a.created_at || 0);
-          const dateB = new Date(b.created_at || 0);
-          return dateA.getTime() - dateB.getTime();
-        });
-        
-        setHabits(sortedHabits);
-      }
-
-      setLastRefreshTime(new Date());
     } catch (error) {
-      console.error('[Todo] Error in fetchData:', error);
-    } finally {
-      setIsLoading(false);
+      console.error('Error fetching data:', error);
     }
   };
-
-  // Replace the existing useEffect for data fetching with this updated version
-  useEffect(() => {
-    let categoriesSubscription: any;
-    let todosSubscription: any;
-    let habitsSubscription: any;
-    let refreshInterval: NodeJS.Timeout;
-
-    const setupSubscriptions = async () => {
-      // Get the current user
-      const { data: { user: currentUser } } = await supabase.auth.getUser();
-      if (!currentUser) {
-        setIsLoading(false);
-        return;
-      }
-
-      // Set the user state if not already set
-      setUser(currentUser);
-
-      // Initial data fetch
-      await fetchData(currentUser);
-
-      // Set up real-time subscriptions
-      categoriesSubscription = supabase
-        .channel('categories-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'categories',
-            filter: `user_id=eq.${currentUser.id}`,
-          },
-          async () => {
-            await fetchData(currentUser);
-          }
-        )
-        .subscribe();
-
-      todosSubscription = supabase
-        .channel('todos-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'todos',
-            filter: `user_id=eq.${currentUser.id}`,
-          },
-          async () => {
-            await fetchData(currentUser);
-          }
-        )
-        .subscribe();
-
-      habitsSubscription = supabase
-        .channel('habits-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'habits',
-            filter: `user_id=eq.${currentUser.id}`,
-          },
-          async () => {
-            await fetchData(currentUser);
-          }
-        )
-        .subscribe();
-
-      // Set up periodic refresh every minute
-      refreshInterval = setInterval(() => fetchData(currentUser), 60000);
-    };
-
-    setupSubscriptions();
-
-    // Cleanup function
-    return () => {
-      if (categoriesSubscription) {
-        categoriesSubscription.unsubscribe();
-      }
-      if (todosSubscription) {
-        todosSubscription.unsubscribe();
-      }
-      if (habitsSubscription) {
-        habitsSubscription.unsubscribe();
-      }
-      if (refreshInterval) {
-        clearInterval(refreshInterval);
-      }
-    };
-  }, [user]); // Only re-run when user changes
 
   // Add pull-to-refresh functionality
   const [refreshing, setRefreshing] = useState(false);
@@ -1843,6 +1815,8 @@ export default function TodoScreen() {
     setCustomRepeatFrequency('1');
     setCustomRepeatUnit('days');
     setSelectedWeekDays([]);
+    setSelectedFriends([]);
+    setSearchFriend('');
     showModal();
   };
 
@@ -2233,7 +2207,6 @@ export default function TodoScreen() {
   };
 
   const uploadTaskPhoto = async (photoUri: string, taskId: string): Promise<string> => {
-    console.log('🔍 uploadTaskPhoto called with:', { photoUri, taskId });
     try {
       // First, let's check if the file exists and get its info
       const fileInfo = await FileSystem.getInfoAsync(photoUri);
@@ -2245,7 +2218,6 @@ export default function TodoScreen() {
       // Create a unique filename with tasks category
       const fileExt = photoUri.split('.').pop() || 'jpg';
       const fileName = `tasks/${taskId}/task_${Date.now()}.${fileExt}`;
-      console.log('🔍 Uploading to filename:', fileName);
       
       // Read the file as base64
       const base64Data = await FileSystem.readAsStringAsync(photoUri, {
@@ -2273,39 +2245,31 @@ export default function TodoScreen() {
         });
 
       if (uploadError) {
-        console.error('📸 Upload error:', uploadError);
         throw uploadError;
       }
       
-      console.log('🔍 Upload successful, getting public URL...');
       // Get the public URL
       const { data: { publicUrl } } = supabase.storage
         .from('memories')
         .getPublicUrl(fileName);
 
-      console.log('🔍 Public URL obtained:', publicUrl);
       return publicUrl;
     } catch (error) {
-      console.error('📸 Error uploading task photo:', error);
       throw error;
     }
   };
 
   const attachPhotoToTask = async (taskId: string, photoUri: string) => {
-    console.log('🔍 attachPhotoToTask called with:', { taskId, photoUri });
     try {
       // Get the current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.error('No user logged in');
         Alert.alert('Error', 'You must be logged in to attach photos.');
         return;
       }
 
-      console.log('🔍 User authenticated, uploading photo...');
       // Upload photo to Supabase Storage first
       const uploadedPhotoUrl = await uploadTaskPhoto(photoUri, taskId);
-      console.log('🔍 Photo uploaded successfully:', uploadedPhotoUrl);
 
       // Update task in Supabase with photo URL
       const { error } = await supabase
@@ -2328,7 +2292,28 @@ export default function TodoScreen() {
           : todo
       ));
 
-      Alert.alert('Success', 'Photo attached successfully!');
+      // Prompt for photo sharing
+      if (user?.id) {
+        const task = todos.find(t => t.id === taskId);
+        promptPhotoSharing(
+          {
+            photoUrl: uploadedPhotoUrl,
+            sourceType: 'event',
+            sourceId: taskId,
+            sourceTitle: task?.text || 'Task',
+            userId: user.id
+          },
+          () => {
+            // Success callback - photo already added above
+          },
+          () => {
+            // Cancel callback - photo already added above
+            Alert.alert('Success', 'Photo attached successfully!');
+          }
+        );
+      } else {
+        Alert.alert('Success', 'Photo attached successfully!');
+      }
     } catch (error) {
       console.error('Error in attachPhotoToTask:', error);
       Alert.alert('Error', 'Failed to upload photo. Please try again.');
@@ -2336,7 +2321,6 @@ export default function TodoScreen() {
   };
 
   const handlePhotoAttachment = (taskId: string) => {
-    console.log('🔍 handlePhotoAttachment called for task:', taskId);
     Alert.alert(
       'Attach Photo',
       'Choose how you want to add a photo',
@@ -2345,10 +2329,8 @@ export default function TodoScreen() {
         {
           text: 'Take Photo',
           onPress: async () => {
-            console.log('📸 Take Photo option selected');
             try {
               const { status } = await ImagePicker.requestCameraPermissionsAsync();
-              console.log('📸 Camera permission status:', status);
               if (status !== 'granted') {
                 Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
                 return;
@@ -2360,13 +2342,10 @@ export default function TodoScreen() {
                 quality: 0.8,
               });
 
-              console.log('📸 Camera result:', result);
               if (!result.canceled && result.assets[0]) {
-                console.log('📸 Photo taken, uploading...');
                 await attachPhotoToTask(taskId, result.assets[0].uri);
               }
             } catch (error) {
-              console.error('Error taking photo:', error);
               Alert.alert('Error', 'Failed to take photo. Please try again.');
             }
           },
@@ -2374,10 +2353,8 @@ export default function TodoScreen() {
         {
           text: 'Choose from Gallery',
           onPress: async () => {
-            console.log('📸 Choose from Gallery option selected');
             try {
               const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-              console.log('📸 Media library permission status:', status);
               if (status !== 'granted') {
                 Alert.alert('Permission Required', 'Media library permission is required to select an image.');
                 return;
@@ -2390,13 +2367,10 @@ export default function TodoScreen() {
                 quality: 0.8,
               });
 
-              console.log('📸 Gallery result:', result);
               if (!result.canceled && result.assets[0]) {
-                console.log('📸 Photo selected, uploading...');
                 await attachPhotoToTask(taskId, result.assets[0].uri);
               }
             } catch (error) {
-              console.error('Error selecting image:', error);
               Alert.alert('Error', 'Failed to select image. Please try again.');
             }
           },
@@ -2630,6 +2604,24 @@ export default function TodoScreen() {
     };
   };
   
+  // Add network status state
+  const [isOnline, setIsOnline] = useState(true);
+  const [lastNetworkError, setLastNetworkError] = useState<string | null>(null);
+
+  // Add network status monitoring
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener(state => {
+      setIsOnline(state.isConnected ?? true);
+      if (!state.isConnected) {
+        setLastNetworkError('No internet connection');
+      } else {
+        setLastNetworkError(null);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -2646,6 +2638,51 @@ export default function TodoScreen() {
             </TouchableOpacity>
             
           </View>
+
+          {/* Network Status Indicator */}
+          {!isOnline && (
+            <View style={{
+              backgroundColor: '#FF6B6B',
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}>
+              <Ionicons name="wifi-outline" size={16} color="white" />
+              <Text style={{
+                color: 'white',
+                fontSize: 14,
+                fontWeight: '500',
+                fontFamily: 'Onest',
+              }}>
+                No internet connection
+              </Text>
+            </View>
+          )}
+
+          {lastNetworkError && isOnline && (
+            <View style={{
+              backgroundColor: '#FFA500',
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}>
+              <Ionicons name="warning-outline" size={16} color="white" />
+              <Text style={{
+                color: 'white',
+                fontSize: 14,
+                fontWeight: '500',
+                fontFamily: 'Onest',
+              }}>
+                Connection issues detected
+              </Text>
+            </View>
+          )}
 
           {/* Date Header */}
           <View style={{
@@ -2865,21 +2902,46 @@ export default function TodoScreen() {
                         }
                       }}
                       renderRightActions={() => (
-                        <TouchableOpacity
-                          style={[styles.rightAction, {
-                            backgroundColor: `${darkenColor(habit.color, 0.2)}90`,
-                          }]}
-                          onPress={() => {
-                            if (Platform.OS !== 'web') {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                            }
-                            deleteHabit(habit.id);
-                          }}
-                        >
-                          <View style={styles.trashIconContainer}>
-                            <Ionicons name="trash" size={24} color="#FFF8E8" />
-                          </View>
-                        </TouchableOpacity>
+                        <View style={[styles.rightAction, {
+                          backgroundColor: `${darkenColor(habit.color, 0.2)}90`,
+                        }]}>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              if (!user?.id) {
+                                Alert.alert('Error', 'You must be logged in to share habits.');
+                                return;
+                              }
+                              
+                              // For now, show a simple message about sharing
+                              Alert.alert(
+                                'Share Habit',
+                                `Sharing "${habit.text}" with friends is coming soon!`,
+                                [{ text: 'OK', style: 'default' }]
+                              );
+                            }}
+                            style={[styles.trashIconContainer, { 
+                              backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                              marginRight: 8,
+                            }]}
+                            activeOpacity={0.5}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          >
+                            <Ionicons name="share-outline" size={20} color="white" />
+                          </TouchableOpacity>
+                          
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (Platform.OS !== 'web') {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              }
+                              deleteHabit(habit.id);
+                            }}
+                          >
+                            <View style={styles.trashIconContainer}>
+                              <Ionicons name="trash" size={24} color="#FFF8E8" />
+                            </View>
+                          </TouchableOpacity>
+                        </View>
                       )}
                       renderLeftActions={() => (
                         <View
@@ -4257,6 +4319,179 @@ export default function TodoScreen() {
                     )}
                   </View>
                 </View>
+              </View>
+
+              {/* Add Friends Card */}
+              <View style={{
+                backgroundColor: 'white',
+                borderRadius: 12,
+                padding: 16,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 1 },
+                shadowOpacity: 0.05,
+                shadowRadius: 4,
+                elevation: 1,
+              }}>
+                <Text style={{
+                  fontSize: 14,
+                  fontWeight: '600',
+                  color: '#333',
+                  marginBottom: 10,
+                  fontFamily: 'Onest'
+                }}>
+                  Friends
+                </Text>
+                
+                {/* Selected Friends Section */}
+                {selectedFriends.length > 0 && (
+                  <View style={{ marginBottom: 12 }}>
+                    <View style={{
+                      flexDirection: 'row',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}>
+                      {selectedFriends.map(friendId => {
+                        const friend = friends.find(f => f.friend_id === friendId);
+                        if (!friend) return null;
+                        
+                        return (
+                          <View key={friendId} style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: '#007AFF',
+                            paddingHorizontal: 10,
+                            paddingVertical: 6,
+                            borderRadius: 16,
+                            gap: 6,
+                          }}>
+                            {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
+                              <Image 
+                                source={{ uri: friend.friend_avatar }} 
+                                style={{ width: 16, height: 16, borderRadius: 8 }} 
+                              />
+                            ) : (
+                              <View 
+                                style={{ 
+                                  width: 16, 
+                                  height: 16, 
+                                  borderRadius: 8,
+                                  backgroundColor: 'rgba(255,255,255,0.2)',
+                                  justifyContent: 'center',
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <Ionicons name="person" size={8} color="white" />
+                              </View>
+                            )}
+                            <Text style={{ 
+                              fontSize: 12, 
+                              color: 'white', 
+                              fontFamily: 'Onest',
+                              fontWeight: '500'
+                            }}>
+                              {friend.friend_name}
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => {
+                                setSelectedFriends(prev => prev.filter(id => id !== friendId));
+                              }}
+                              style={{
+                                marginLeft: 2,
+                              }}
+                            >
+                              <Ionicons name="close" size={12} color="white" />
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+                
+                <TextInput
+                  placeholder="Search friends..."
+                  value={searchFriend}
+                  onChangeText={setSearchFriend}
+                  onFocus={() => setIsSearchFocused(true)}
+                  onBlur={() => setIsSearchFocused(false)}
+                  style={{
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    fontSize: 14,
+                    marginBottom: 10,
+                    fontFamily: 'Onest',
+                    color: '#333',
+                    borderWidth: 1,
+                    borderColor: '#e9ecef',
+                  }}
+                  placeholderTextColor="#999"
+                />
+                {(searchFriend.trim() !== '' || isSearchFocused) && (
+                  <FlatList
+                    data={friends.filter(f =>
+                      f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
+                      f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
+                    )}
+                    keyExtractor={item => item.friend_id}
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={{
+                          marginRight: 10,
+                          alignItems: 'center',
+                          opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
+                          paddingVertical: 2,
+                        }}
+                        onPress={() => {
+                          setSelectedFriends(prev =>
+                            prev.includes(item.friend_id)
+                              ? prev.filter(id => id !== item.friend_id)
+                              : [...prev, item.friend_id]
+                          );
+                        }}
+                      >
+                        {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
+                          <Image 
+                            source={{ uri: item.friend_avatar }} 
+                            style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                          />
+                        ) : (
+                          <View 
+                            style={{ 
+                              width: 36, 
+                              height: 36, 
+                              borderRadius: 18, 
+                              marginBottom: 4,
+                              backgroundColor: '#E9ECEF',
+                              justifyContent: 'center',
+                              alignItems: 'center'
+                            }}
+                          >
+                            <Ionicons name="person" size={16} color="#6C757D" />
+                          </View>
+                        )}
+                        <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                      </TouchableOpacity>
+                    )}
+                    ListEmptyComponent={
+                      <View style={{ 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        paddingVertical: 16,
+                        minWidth: 180
+                      }}>
+                        <Ionicons name="people-outline" size={20} color="#CED4DA" />
+                        <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
+                          No friends found
+                        </Text>
+                      </View>
+                    }
+                    style={{ minHeight: 70 }}
+                  />
+                )}
               </View>
             </ScrollView>
           </View>

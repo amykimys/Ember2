@@ -15,7 +15,7 @@ GoogleSignin.configure({
   forceCodeForRefreshToken: true,
 });
 
-// ✅ Initialize Supabase client (cleaned-up)
+// ✅ Initialize Supabase client with improved configuration
 export const supabase = createClient(
   supabaseUrl,
   supabaseAnonKey,
@@ -27,5 +27,80 @@ export const supabase = createClient(
       detectSessionInUrl: false,
       flowType: 'pkce',
     },
+    global: {
+      headers: {
+        'X-Client-Info': 'jaani-app',
+      },
+    },
+    db: {
+      schema: 'public',
+    },
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
   }
 );
+
+// Add global error handling for network issues
+const originalFetch = global.fetch;
+global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  try {
+    // Add timeout to requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    const response = await originalFetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    console.error('[Supabase] Network request failed:', error);
+    
+    // Check if it's a timeout error
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout - please check your connection and try again');
+    }
+    
+    // Check if it's a network error
+    if (error instanceof TypeError && error.message.includes('Network request failed')) {
+      throw new Error('Network connection failed - please check your internet connection');
+    }
+    
+    throw error;
+  }
+};
+
+// Add session refresh error handling
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'TOKEN_REFRESHED') {
+    console.log('[Supabase] Token refreshed successfully');
+  } else if (event === 'SIGNED_OUT') {
+    console.log('[Supabase] User signed out');
+  }
+});
+
+// Export a helper function for checking connection status
+export const checkSupabaseConnection = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('count')
+      .limit(1);
+    
+    if (error) {
+      console.error('[Supabase] Connection test failed:', error);
+      return false;
+    }
+    
+    console.log('[Supabase] Connection test successful');
+    return true;
+  } catch (error) {
+    console.error('[Supabase] Connection test error:', error);
+    return false;
+  }
+};

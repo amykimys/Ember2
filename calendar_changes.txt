@@ -1,0 +1,100 @@
+CHANGES TO MAKE IN app/(tabs)/calendar.tsx:
+
+1. REMOVE accept/deny icons from compact view (around line 1876):
+   Remove this entire block:
+   {event.sharedStatus === 'pending' && (
+     <View style={{ flexDirection: 'row', marginTop: 3, gap: 3 }}>
+       <TouchableOpacity onPress={() => acceptSharedEventUtil(event)}>
+         <Ionicons name="checkmark" size={6} color="white" />
+       </TouchableOpacity>
+       <TouchableOpacity onPress={() => declineSharedEventUtil(event)}>
+         <Ionicons name="close" size={6} color="white" />
+       </TouchableOpacity>
+     </View>
+   )}
+
+2. REMOVE accept/deny icons from expanded view (around line 1974):
+   Remove this entire block:
+   {event.isShared && event.sharedStatus === 'pending' && (
+     <View style={{ flexDirection: 'row', marginTop: 4, gap: 6 }}>
+       <TouchableOpacity onPress={() => acceptSharedEventUtil(event)}>
+         <Ionicons name="checkmark" size={12} color="white" />
+       </TouchableOpacity>
+       <TouchableOpacity onPress={() => declineSharedEventUtil(event)}>
+         <Ionicons name="close" size={12} color="white" />
+       </TouchableOpacity>
+     </View>
+   )}
+
+3. ADD notification banner after header (around line 3055):
+   Add this right after the header closing tag:
+   
+   {/* Shared Event Notifications */}
+   {(() => {
+     const pendingEvents = Object.values(events)
+       .flat()
+       .filter(event => event.isShared && event.sharedStatus === 'pending');
+     
+     if (pendingEvents.length > 0) {
+       return (
+         <View style={{
+           backgroundColor: '#FF9500',
+           paddingHorizontal: 16,
+           paddingVertical: 12,
+           marginHorizontal: 16,
+           marginTop: 8,
+           borderRadius: 8,
+           flexDirection: 'row',
+           alignItems: 'center',
+           justifyContent: 'space-between'
+         }}>
+           <View style={{ flex: 1 }}>
+             <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>
+               {pendingEvents.length} shared event{pendingEvents.length > 1 ? 's' : ''} pending
+             </Text>
+             <Text style={{ color: 'white', fontSize: 12, marginTop: 2 }}>
+               Tap to review and accept/decline
+             </Text>
+           </View>
+           <TouchableOpacity
+             onPress={() => {
+               Alert.alert(
+                 'Pending Shared Events',
+                 pendingEvents.map(event => 
+                   `${event.title} (${event.sharedByFullName || event.sharedByUsername})`
+                 ).join('\n'),
+                 [
+                   { text: 'Accept All', onPress: () => {
+                     pendingEvents.forEach(event => acceptSharedEventUtil(event));
+                   }},
+                   { text: 'Decline All', style: 'destructive', onPress: () => {
+                     pendingEvents.forEach(event => declineSharedEventUtil(event));
+                   }},
+                   { text: 'Review Individual', onPress: () => {
+                     if (pendingEvents.length > 0) {
+                       const firstEvent = pendingEvents[0];
+                       const eventDate = new Date(firstEvent.date);
+                       setSelectedDate(eventDate);
+                       setIsMonthCompact(false);
+                     }
+                   }},
+                   { text: 'Dismiss', style: 'cancel' }
+                 ]
+               );
+             }}
+             style={{
+               backgroundColor: 'rgba(255,255,255,0.2)',
+               paddingHorizontal: 12,
+               paddingVertical: 6,
+               borderRadius: 6
+             }}
+           >
+             <Text style={{ color: 'white', fontWeight: '600', fontSize: 12 }}>
+               Review
+             </Text>
+           </TouchableOpacity>
+         </View>
+       );
+     }
+     return null;
+   })()} 
