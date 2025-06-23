@@ -66,95 +66,35 @@ export interface SharedEvent {
   };
 }
 
-// Share a task with a friend
-export const shareTaskWithFriend = async (
-  taskId: string,
-  friendId: string,
-  currentUserId: string
-): Promise<boolean> => {
+// Share task with friend
+export const shareTaskWithFriend = async (taskId: string, friendId: string, userId: string) => {
   try {
-    const { error } = await supabase
-      .from('shared_tasks')
-      .insert({
-        original_task_id: taskId,
-        shared_by: currentUserId,
-        shared_with: friendId,
-        status: 'pending'
-      });
+    const { error } = await supabase.rpc('share_task_with_friend', {
+      task_id: taskId,
+      friend_id: friendId,
+      user_id: userId
+    });
 
     if (error) {
       console.error('Error sharing task:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to share task',
-        text2: 'Please try again',
-        position: 'bottom',
-      });
-      return false;
+      throw error;
     }
 
-    Toast.show({
-      type: 'success',
-      text1: 'Task shared successfully',
-      text2: 'Your friend will be notified',
-      position: 'bottom',
-    });
-    return true;
+    console.log('Task shared successfully');
   } catch (error) {
     console.error('Error in shareTaskWithFriend:', error);
-    Toast.show({
-      type: 'error',
-      text1: 'Failed to share task',
-      text2: 'Please try again',
-      position: 'bottom',
-    });
-    return false;
+    throw error;
   }
 };
 
-// Share a habit with a friend
-export const shareHabitWithFriend = async (
-  habitId: string,
-  friendId: string,
-  currentUserId: string
-): Promise<boolean> => {
+// Share habit with friend
+export const shareHabitWithFriend = async (habitId: string, friendId: string, userId: string) => {
   try {
-    const { error } = await supabase
-      .from('shared_habits')
-      .insert({
-        original_habit_id: habitId,
-        shared_by: currentUserId,
-        shared_with: friendId,
-        status: 'pending'
-      });
-
-    if (error) {
-      console.error('Error sharing habit:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to share habit',
-        text2: 'Please try again',
-        position: 'bottom',
-      });
-      return false;
-    }
-
-    Toast.show({
-      type: 'success',
-      text1: 'Habit shared successfully',
-      text2: 'Your friend will be notified',
-      position: 'bottom',
-    });
-    return true;
+    // For now, just show a message that habit sharing is coming soon
+    console.log('Habit sharing coming soon');
   } catch (error) {
     console.error('Error in shareHabitWithFriend:', error);
-    Toast.show({
-      type: 'error',
-      text1: 'Failed to share habit',
-      text2: 'Please try again',
-      position: 'bottom',
-    });
-    return false;
+    throw error;
   }
 };
 
@@ -388,28 +328,22 @@ export const getSharedEventsCount = async (): Promise<{
 };
 
 // Accept a shared task
-export const acceptSharedTask = async (sharedTaskId: string): Promise<boolean> => {
+export const acceptSharedTask = async (sharedTaskId: string, userId: string) => {
   try {
-    const { error } = await supabase
-      .from('shared_tasks')
-      .update({ status: 'accepted' })
-      .eq('id', sharedTaskId);
+    const { error } = await supabase.rpc('accept_shared_task', {
+      shared_task_id: sharedTaskId,
+      user_id: userId
+    });
 
     if (error) {
       console.error('Error accepting shared task:', error);
-      return false;
+      throw error;
     }
 
-    Toast.show({
-      type: 'success',
-      text1: 'Task accepted',
-      text2: 'You can now see this task in your list',
-      position: 'bottom',
-    });
-    return true;
+    console.log('Shared task accepted successfully');
   } catch (error) {
     console.error('Error in acceptSharedTask:', error);
-    return false;
+    throw error;
   }
 };
 
@@ -521,27 +455,22 @@ export const acceptSharedEvent = async (
 };
 
 // Decline a shared task
-export const declineSharedTask = async (sharedTaskId: string): Promise<boolean> => {
+export const declineSharedTask = async (sharedTaskId: string, userId: string) => {
   try {
-    const { error } = await supabase
-      .from('shared_tasks')
-      .update({ status: 'declined' })
-      .eq('id', sharedTaskId);
+    const { error } = await supabase.rpc('decline_shared_task', {
+      shared_task_id: sharedTaskId,
+      user_id: userId
+    });
 
     if (error) {
       console.error('Error declining shared task:', error);
-      return false;
+      throw error;
     }
 
-    Toast.show({
-      type: 'info',
-      text1: 'Task declined',
-      position: 'bottom',
-    });
-    return true;
+    console.log('Shared task declined successfully');
   } catch (error) {
     console.error('Error in declineSharedTask:', error);
-    return false;
+    throw error;
   }
 };
 
@@ -646,5 +575,24 @@ export const getPendingSharedItems = async (userId: string) => {
   } catch (error) {
     console.error('Error in getPendingSharedItems:', error);
     return { tasks: [], habits: [] };
+  }
+};
+
+// Get pending shared tasks for a user
+export const getPendingSharedTasks = async (userId: string) => {
+  try {
+    const { data, error } = await supabase.rpc('get_pending_shared_tasks', {
+      user_id: userId
+    });
+
+    if (error) {
+      console.error('Error fetching pending shared tasks:', error);
+      throw error;
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Error in getPendingSharedTasks:', error);
+    throw error;
   }
 }; 

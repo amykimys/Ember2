@@ -771,7 +771,7 @@ const styles = StyleSheet.create({
   },
   modalCancelButton: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
   },
   modalCancelText: {
     fontSize: 16,
@@ -781,7 +781,7 @@ const styles = StyleSheet.create({
   },
   modalCloseButton: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
   },
   modalCloseText: {
     fontSize: 16,

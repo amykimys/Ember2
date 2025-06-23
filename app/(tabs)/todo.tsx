@@ -142,6 +142,12 @@ interface Todo {
   repeatEndDate?: Date | null;
   reminderTime?: Date | null;
   photo?: string; // Add photo field
+  sharedFriends?: Array<{
+    friend_id: string;
+    friend_name: string;
+    friend_avatar: string;
+    friend_username: string;
+  }>; // Add shared friends field
 }
 
 function darkenColor(hex: string, amount = 0.2): string {
@@ -277,12 +283,12 @@ export default function TodoScreen() {
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
   const [newHabit, setNewHabit] = useState('');
   const [newHabitDescription, setNewHabitDescription] = useState('');
-  const [newHabitColor, setNewHabitColor] = useState('#A0C3B2');
+  const [newHabitColor, setNewHabitColor] = useState('');
   // Add new habit reminder and photo proof state
   const [habitReminderTime, setHabitReminderTime] = useState<Date | null>(null);
   const [showHabitReminderPicker, setShowHabitReminderPicker] = useState(false);
   const [habitRequirePhoto, setHabitRequirePhoto] = useState(false);
-  const [habitTargetPerWeek, setHabitTargetPerWeek] = useState(7);
+  const [habitTargetPerWeek, setHabitTargetPerWeek] = useState(0);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   
   // Add ref for habit title input
@@ -312,6 +318,12 @@ export default function TodoScreen() {
   const [selectedTaskForPhotoViewing, setSelectedTaskForPhotoViewing] = useState<Todo | null>(null);
   const [isTaskPhotoViewerVisible, setIsTaskPhotoViewerVisible] = useState(false);
   
+  // Add state for unified photo/notes modal
+  const [isHabitLogModalVisible, setIsHabitLogModalVisible] = useState(false);
+  const [selectedHabitForLog, setSelectedHabitForLog] = useState<Habit | null>(null);
+  const [logNoteText, setLogNoteText] = useState('');
+  const [logDate, setLogDate] = useState(moment().format('YYYY-MM-DD'));
+
   // Add state for photo navigation
   const [allPhotosForViewing, setAllPhotosForViewing] = useState<Array<{
     habit: Habit;
@@ -351,6 +363,22 @@ export default function TodoScreen() {
   
   // Add state for search input focus
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+
+  // Add state to track shared friends for each task
+  const [taskSharedFriends, setTaskSharedFriends] = useState<Record<string, Array<{
+    friend_id: string;
+    friend_name: string;
+    friend_avatar: string;
+    friend_username: string;
+  }>>>({});
+
+  // Add state to track who shared each task with the current user
+  const [taskSharedBy, setTaskSharedBy] = useState<Record<string, {
+    friend_id: string;
+    friend_name: string;
+    friend_avatar: string;
+    friend_username: string;
+  }>>({});
 
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
@@ -1315,6 +1343,121 @@ export default function TodoScreen() {
               </TouchableOpacity>
             </View>
           )}
+          
+          {/* Shared By Section - Show who shared this task with the current user */}
+          {taskSharedBy[todo.id] && (
+            <View style={{
+              paddingTop: 4,
+            }}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+              }}>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                }}>
+                  {taskSharedBy[todo.id].friend_avatar && taskSharedBy[todo.id].friend_avatar.trim() !== '' ? (
+                    <Image 
+                      source={{ uri: taskSharedBy[todo.id].friend_avatar }} 
+                      style={{ width: 16, height: 16, borderRadius: 8 }} 
+                    />
+                  ) : (
+                    <View 
+                      style={{ 
+                        width: 13, 
+                        height: 13, 
+                        borderRadius: 7,
+                        backgroundColor: '#E9ECEF',
+                        justifyContent: 'center',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Ionicons name="person" size={8} color="#6C757D" />
+                    </View>
+                  )}
+                  <Text style={{ 
+                    fontSize: 10, 
+                    color: '#007AFF', 
+                    fontFamily: 'Onest',
+                    fontWeight: '600'
+                  }}>
+                    {taskSharedBy[todo.id].friend_name}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          )}
+          
+          {/* Shared Friends Section */}
+          {taskSharedFriends[todo.id] && taskSharedFriends[todo.id].length > 0 && (
+            <View style={{
+              paddingTop: 4,
+            }}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+              }}>
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 4,
+                }}>
+                  {taskSharedFriends[todo.id].slice(0, 3).map((friend, index) => (
+                    <View key={friend.friend_id} style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 2,
+                    }}>
+                      {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
+                        <Image 
+                          source={{ uri: friend.friend_avatar }} 
+                          style={{ width: 16, height: 16, borderRadius: 8 }} 
+                        />
+                      ) : (
+                        <View 
+                          style={{ 
+                            width: 13, 
+                            height: 13, 
+                            borderRadius: 7,
+                            backgroundColor: '#E9ECEF',
+                            justifyContent: 'center',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <Ionicons name="person" size={8} color="#6C757D" />
+                        </View>
+                      )}
+                      <Text style={{ 
+                        fontSize: 10, 
+                        color: '#666', 
+                        fontFamily: 'Onest',
+                        fontWeight: '500'
+                      }}>
+                        {friend.friend_name}
+                      </Text>
+                      {index < Math.min(taskSharedFriends[todo.id].length - 1, 2) && (
+                        <Text style={{ fontSize: 10, color: '#999' }}>,</Text>
+                      )}
+                    </View>
+                  ))}
+                  {taskSharedFriends[todo.id].length > 3 && (
+                    <Text style={{ 
+                      fontSize: 10, 
+                      color: '#999', 
+                      fontFamily: 'Onest',
+                      fontWeight: '500'
+                    }}>
+                      +{taskSharedFriends[todo.id].length - 3} more
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </View>
+          )}
         </View>
       </TouchableOpacity>
     );
@@ -1500,6 +1643,11 @@ export default function TodoScreen() {
             photo: task.photo
           }));
           setTodos(mappedTasks);
+          
+          // Fetch shared friends for these tasks
+          const taskIds = mappedTasks.map((task: any) => task.id);
+          console.log('🔍 fetchTasks: About to fetch shared friends for', taskIds.length, 'tasks');
+          await fetchSharedFriendsForTasks(taskIds, userToUse);
         }
       };
 
@@ -1521,6 +1669,9 @@ export default function TodoScreen() {
             completedDays: habit.completed_days || [],
             notes: habit.notes || {},
             photos: habit.photos || {},
+            targetPerWeek: habit.target_per_week || 7,
+            requirePhoto: habit.require_photo || false,
+            reminderTime: habit.reminder_time || null,
             category_id: habit.category_id
           }));
           setHabits(sortedHabits);
@@ -1889,9 +2040,9 @@ export default function TodoScreen() {
           .update({
             text: newHabit.trim(),
             description: newHabitDescription.trim(),
-            color: newHabitColor,
+            color: newHabitColor || '#A0C3B2', // Use default color if none selected
             require_photo: habitRequirePhoto,
-            target_per_week: habitTargetPerWeek,
+            target_per_week: habitTargetPerWeek || 7, // Use default weekly goal if none selected
             reminder_time: habitReminderTime?.toISOString() || null,
             category_id: null,
           })
@@ -1911,9 +2062,9 @@ export default function TodoScreen() {
                 ...habit,
                 text: newHabit.trim(),
                 description: newHabitDescription.trim(),
-                color: newHabitColor,
+                color: newHabitColor || '#A0C3B2', // Use default color if none selected
                 requirePhoto: habitRequirePhoto,
-                targetPerWeek: habitTargetPerWeek,
+                targetPerWeek: habitTargetPerWeek || 7, // Use default weekly goal if none selected
                 reminderTime: habitReminderTime?.toISOString() || null,
                 category_id: null,
               }
@@ -1928,16 +2079,16 @@ export default function TodoScreen() {
         streak: 0,
         completedToday: false,
         completedDays: [],
-        color: newHabitColor,
-          requirePhoto: habitRequirePhoto,
-          targetPerWeek: habitTargetPerWeek,
-          reminderTime: habitReminderTime?.toISOString() || null,
+        color: newHabitColor || '#A0C3B2', // Use default color if none selected
+        requirePhoto: habitRequirePhoto,
+        targetPerWeek: habitTargetPerWeek || 7, // Use default weekly goal if none selected
+        reminderTime: habitReminderTime?.toISOString() || null,
         user_id: user.id,
         repeat_type: 'daily',
         repeat_end_date: null,
         notes: {},
         photos: {},
-          category_id: null,
+        category_id: null,
       };
       
       // Save habit to Supabase
@@ -1948,17 +2099,17 @@ export default function TodoScreen() {
           text: newHabitItem.text,
           description: newHabitItem.description,
           streak: newHabitItem.streak,
-            completed_days: newHabitItem.completedDays,
+          completed_days: newHabitItem.completedDays,
           color: newHabitItem.color,
-            require_photo: newHabitItem.requirePhoto,
-            target_per_week: newHabitItem.targetPerWeek,
-            reminder_time: newHabitItem.reminderTime,
+          require_photo: newHabitItem.requirePhoto,
+          target_per_week: newHabitItem.targetPerWeek,
+          reminder_time: newHabitItem.reminderTime,
           user_id: user.id,
           repeat_type: newHabitItem.repeat_type,
           repeat_end_date: newHabitItem.repeat_end_date,
           notes: newHabitItem.notes,
           photos: newHabitItem.photos,
-            category_id: null,
+          category_id: null,
         });
       
       if (habitError) {
@@ -1979,7 +2130,7 @@ export default function TodoScreen() {
       // Reset form and close modal
       setNewHabit('');
       setNewHabitDescription('');
-      setNewHabitColor('#A0C3B2');
+      setNewHabitColor('');
       setHabitReminderTime(null);
       setHabitRequirePhoto(false);
       setHabitTargetPerWeek(7);
@@ -2078,12 +2229,31 @@ export default function TodoScreen() {
         [today]: uploadedPhotoUrl
       };
 
+      // Check if this habit requires photo proof
+      const requiresPhotoProof = habitToToggle.requirePhoto;
+      
+      // If habit requires photo proof, also mark it as completed
+      let updatedCompletedDays = habitToToggle.completedDays || [];
+      let shouldCompleteHabit = false;
+      
+      if (requiresPhotoProof && !updatedCompletedDays.includes(today)) {
+        updatedCompletedDays = [...updatedCompletedDays, today];
+        shouldCompleteHabit = true;
+      }
+
+      // Prepare update data
+      const updateData: any = { 
+        photos: updatedPhotos
+      };
+      
+      if (shouldCompleteHabit) {
+        updateData.completed_days = updatedCompletedDays;
+      }
+
       // Update in Supabase
       const { error } = await supabase
         .from('habits')
-        .update({ 
-          photos: updatedPhotos
-        })
+        .update(updateData)
         .eq('id', habitId)
         .eq('user_id', user?.id);
 
@@ -2098,7 +2268,12 @@ export default function TodoScreen() {
         habit.id === habitId 
           ? { 
               ...habit, 
-              photos: updatedPhotos
+              photos: updatedPhotos,
+              ...(shouldCompleteHabit && {
+                completedDays: updatedCompletedDays,
+                completedToday: true,
+                streak: calculateCurrentStreak(updatedCompletedDays)
+              })
             } 
           : habit
       ));
@@ -2108,7 +2283,12 @@ export default function TodoScreen() {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
 
-      Alert.alert('Success', 'Photo added successfully!');
+      // Show appropriate success message
+      if (shouldCompleteHabit) {
+        Alert.alert('Success', 'Photo added and habit completed!');
+      } else {
+        Alert.alert('Success', 'Photo added successfully!');
+      }
     } catch (error) {
       console.error('Error in addPhotoToHabit:', error);
       Alert.alert('Error', 'Failed to upload photo. Please try again.');
@@ -2629,6 +2809,138 @@ export default function TodoScreen() {
     return () => unsubscribe();
   }, []);
 
+  // Add functions to handle shared tasks
+  // Removed accept/decline functions - tasks are now auto-accepted
+
+  // Add function to fetch shared friends for tasks
+  const fetchSharedFriendsForTasks = async (taskIds: string[], currentUser?: User | null) => {
+    const userToUse = currentUser || user;
+    if (!userToUse || taskIds.length === 0) {
+      console.log('🔍 fetchSharedFriendsForTasks: No user or no task IDs');
+      return;
+    }
+
+    console.log('🔍 fetchSharedFriendsForTasks: Starting for', taskIds.length, 'tasks');
+    console.log('🔍 Task IDs:', taskIds);
+
+    try {
+      const { data: sharedTasks, error } = await supabase
+        .from('shared_tasks')
+        .select(`
+          original_task_id,
+          shared_by,
+          shared_with,
+          status
+        `)
+        .in('original_task_id', taskIds)
+        .or(`shared_by.eq.${userToUse.id},shared_with.eq.${userToUse.id}`);
+
+      if (error) {
+        console.error('❌ Error fetching shared tasks:', error);
+        return;
+      }
+
+      console.log('🔍 Shared tasks found:', sharedTasks?.length || 0);
+      console.log('🔍 Shared tasks data:', sharedTasks);
+
+      if (!sharedTasks || sharedTasks.length === 0) {
+        console.log('🔍 No shared tasks found');
+        return;
+      }
+
+      // Get all unique friend IDs involved in these tasks
+      const friendIds = new Set<string>();
+      sharedTasks.forEach(sharedTask => {
+        if (sharedTask.shared_by !== userToUse.id) {
+          friendIds.add(sharedTask.shared_by);
+        }
+        if (sharedTask.shared_with !== userToUse.id) {
+          friendIds.add(sharedTask.shared_with);
+        }
+      });
+
+      console.log('🔍 Friend IDs found:', Array.from(friendIds));
+
+      // Fetch friend profiles
+      const { data: friendProfiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, username')
+        .in('id', Array.from(friendIds));
+
+      if (profilesError) {
+        console.error('❌ Error fetching friend profiles:', profilesError);
+        return;
+      }
+
+      console.log('🔍 Friend profiles found:', friendProfiles?.length || 0);
+
+      // Create a map of friend profiles
+      const friendProfilesMap = new Map();
+      friendProfiles?.forEach(profile => {
+        friendProfilesMap.set(profile.id, {
+          friend_id: profile.id,
+          friend_name: profile.full_name || 'Unknown',
+          friend_avatar: profile.avatar_url || '',
+          friend_username: profile.username || '',
+        });
+      });
+
+      // Group shared friends by task
+      const taskFriendsMap: Record<string, Array<{
+        friend_id: string;
+        friend_name: string;
+        friend_avatar: string;
+        friend_username: string;
+      }>> = {};
+
+      // Track who shared each task with the current user
+      const taskSharedByMap: Record<string, {
+        friend_id: string;
+        friend_name: string;
+        friend_avatar: string;
+        friend_username: string;
+      }> = {};
+
+      sharedTasks.forEach(sharedTask => {
+        const taskId = sharedTask.original_task_id;
+        if (!taskFriendsMap[taskId]) {
+          taskFriendsMap[taskId] = [];
+        }
+
+        // Add shared_by friend
+        if (sharedTask.shared_by !== userToUse.id) {
+          const friendProfile = friendProfilesMap.get(sharedTask.shared_by);
+          if (friendProfile && !taskFriendsMap[taskId].some(f => f.friend_id === friendProfile.friend_id)) {
+            taskFriendsMap[taskId].push(friendProfile);
+          }
+        }
+
+        // Add shared_with friend
+        if (sharedTask.shared_with !== userToUse.id) {
+          const friendProfile = friendProfilesMap.get(sharedTask.shared_with);
+          if (friendProfile && !taskFriendsMap[taskId].some(f => f.friend_id === friendProfile.friend_id)) {
+            taskFriendsMap[taskId].push(friendProfile);
+          }
+        }
+
+        // Track who shared this task with the current user
+        if (sharedTask.shared_with === userToUse.id && sharedTask.shared_by !== userToUse.id) {
+          const sharedByProfile = friendProfilesMap.get(sharedTask.shared_by);
+          if (sharedByProfile) {
+            taskSharedByMap[taskId] = sharedByProfile;
+          }
+        }
+      });
+
+      console.log('🔍 Final task friends map:', taskFriendsMap);
+      console.log('🔍 Task shared by map:', taskSharedByMap);
+      setTaskSharedFriends(taskFriendsMap);
+      setTaskSharedBy(taskSharedByMap);
+    } catch (error) {
+      console.error('❌ Error fetching shared friends for tasks:', error);
+    }
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -3033,7 +3345,7 @@ export default function TodoScreen() {
                     >
                       <View
                         style={{
-                          backgroundColor: '#F8F9FA',
+                          backgroundColor: `${habit.color}20`,
                           borderRadius: 12,
                           padding: 14,
                           shadowColor: '#000',
@@ -3041,48 +3353,12 @@ export default function TodoScreen() {
                           shadowOpacity: 0.06,
                           shadowRadius: 4,
                           elevation: 2,
+                          borderWidth: 1,
+                          borderColor: '#f0f0f0',
                           position: 'relative',
                           overflow: 'hidden',
                         }}
                       >
-                        {/* Progress Bar Background */}
-                        {(() => {
-                          const progress = getWeeklyProgressPercentage(habit);
-                    return (
-                          <View
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                bottom: 0,
-                                right: 0,
-                                flexDirection: 'row',
-                                zIndex: 0,
-                              }}
-                            >
-                              <View
-                                style={{
-                                  flex: progress / 100,
-                                  backgroundColor: habit.color,
-                                  opacity: 0.4,
-                                  borderTopLeftRadius: 12,
-                                  borderBottomLeftRadius: 12,
-                                  borderTopRightRadius: progress === 100 ? 12 : 0,
-                                  borderBottomRightRadius: progress === 100 ? 12 : 0,
-                                }}
-                              />
-                              {progress < 100 && (
-                                <View
-                                  style={{
-                                    flex: (100 - progress) / 100,
-                                    backgroundColor: 'transparent',
-                                  }}
-                                />
-                              )}
-                            </View>
-                          );
-                        })()}
-                        
                         <TouchableOpacity
                           onPress={() => toggleHabit(habit.id)}
                           onLongPress={() => {
@@ -3103,198 +3379,206 @@ export default function TodoScreen() {
                           delayLongPress={500}
                           activeOpacity={0.9}
                           style={{ position: 'relative', zIndex: 1 }}
-                          >
-                            <View style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
+                        >
+                          {/* Header Row */}
+                          <View style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
                             justifyContent: 'space-between',
-                            marginBottom: 8
-                            }}>
+                            marginBottom: 8,
+                          }}>
                             <View style={{ flex: 1 }}>
                               <Text style={{
                                 fontSize: 16,
-                                color: '#3A3A3A',
-                                fontWeight: '500',
+                                color: '#1a1a1a',
+                                fontWeight: '600',
                                 fontFamily: 'Onest',
-                                marginBottom: 4
+                                marginBottom: 2,
                               }}>
                                 {habit.text}
                               </Text>
+                              {habit.description && (
+                                <Text style={{
+                                  fontSize: 12,
+                                  color: '#666',
+                                  fontFamily: 'Onest',
+                                  lineHeight: 16,
+                                }}>
+                                  {habit.description}
+                                </Text>
+                              )}
                             </View>
+                            
+                            {/* Streak Badge */}
+                            <View style={{
+                              backgroundColor: '#f8f9fa',
+                              borderRadius: 12,
+                            }}>
                               <View style={{
                                 flexDirection: 'row',
                                 alignItems: 'center',
-                              backgroundColor: '#f8f9fa',
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: 12
+                                gap: 3,
                               }}>
-                              <Ionicons name="flame" size={12} color="#666" style={{ marginRight: 4 }} />
+                                <Ionicons name="flame" size={12} color="#ff6b35" />
                                 <Text style={{
-                                fontSize: 12,
-                                color: '#666',
-                                fontWeight: '500',
-                                fontFamily: 'Onest'
+                                  fontSize: 11,
+                                  color: '#495057',
+                                  fontWeight: '600',
+                                  fontFamily: 'Onest',
                                 }}>
-                                {habit.streak}
+                                  {habit.streak}
                                 </Text>
                               </View>
                             </View>
+                          </View>
                           
-                            {habit.description && (
-                              <Text style={{
-                              fontSize: 14,
-                              color: '#666',
-                                fontFamily: 'Onest',
-                              lineHeight: 18,
-                              marginBottom: 12
+                          {/* Progress Section */}
+                          <View style={{
+                            marginBottom: 10,
+                          }}>
+                            <View style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              marginBottom: 4,
+                            }}>
+                              <View style={{
+                                flexDirection: 'row',
+                                gap: 8,
                               }}>
-                                {habit.description}
+                                {(() => {
+                                  const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+                                  const weekStart = moment().startOf('isoWeek');
+                                  const completedDays = habit.completedDays || [];
+                                  
+                                  return weekDays.map((day, index) => {
+                                    const dayDate = moment(weekStart).add(index, 'days');
+                                    const dateStr = dayDate.format('YYYY-MM-DD');
+                                    const isCompleted = completedDays.includes(dateStr);
+                                    const isToday = dayDate.isSame(moment(), 'day');
+                                    
+                                    return (
+                                      <Text
+                                        key={index}
+                                        style={{
+                                          fontSize: 11,
+                                          color: isToday ? '#007AFF' : '#666',
+                                          fontWeight: isCompleted ? '700' : '400',
+                                          fontFamily: 'Onest',
+                                          width: 12,
+                                          textAlign: 'center',
+                                        }}
+                                      >
+                                        {day}
+                                      </Text>
+                                    );
+                                  });
+                                })()}
+                              </View>
+                            </View>
+                            
+                            {/* Progress Bar with Percentage */}
+                            <View style={{
+                              position: 'relative',
+                              height: 4,
+                              backgroundColor: '#f1f3f4',
+                              borderRadius: 2,
+                              overflow: 'visible',
+                            }}>
+                              <View style={{
+                                height: '100%',
+                                backgroundColor: habit.color,
+                                borderRadius: 2,
+                                width: `${getWeeklyProgressPercentage(habit)}%`,
+                              }} />
+                              <Text style={{
+                                position: 'absolute',
+                                right: 0,
+                                top: -18,
+                                fontSize: 11,
+                                color: '#495057',
+                                fontWeight: '600',
+                                fontFamily: 'Onest',
+                              }}>
+                                {(() => {
+                                  const completedThisWeek = (habit.completedDays || []).filter(date => {
+                                    const habitDate = moment(date, 'YYYY-MM-DD');
+                                    const weekStart = moment().startOf('isoWeek');
+                                    const weekEnd = moment().endOf('isoWeek');
+                                    return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
+                                  }).length;
+                                  return `${completedThisWeek}/${habit.targetPerWeek}`;
+                                })()}
                               </Text>
-                            )}
+                            </View>
+                          </View>
                           
+                          {/* Footer Row */}
                           <View style={{
                             flexDirection: 'row',
                             alignItems: 'center',
                             justifyContent: 'space-between',
                           }}>
-                            <View style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              backgroundColor: '#f8f9fa',
-                              paddingHorizontal: 8,
-                              paddingVertical: 4,
-                              borderRadius: 12
-                            }}>
-                              <Ionicons name="calendar" size={12} color="#666" style={{ marginRight: 4 }} />
-                              <Text style={{
-                                fontSize: 12,
-                                color: '#666',
-                                fontWeight: '500',
-                                fontFamily: 'Onest'
-                              }}>
-                                {habit.targetPerWeek}/week
-                              </Text>
-                          </View>
+                            {/* Target Info */}
+                           
                             
-                            {/* Icons Container - Bottom Right */}
+                            {/* Photo and Notes Space */}
                             <View style={{
                               flexDirection: 'row',
                               alignItems: 'center',
                               gap: 8,
                             }}>
-                              {/* Notes Icon */}
+                              {/* Unified Photo/Notes Button */}
                               <TouchableOpacity
                                 onPress={() => {
-                                  // Open notes viewer modal
-                                  setSelectedHabitForViewingNotes(habit);
-                                  // Load existing note content if available
-                                  const notes = habit.notes || {};
-                                  const noteDates = Object.keys(notes);
-                                  if (noteDates.length > 0) {
-                                    // Get the most recent note
-                                    const mostRecentDate = noteDates.sort((a, b) => b.localeCompare(a))[0];
-                                    setEditingNoteText(notes[mostRecentDate]);
-                                } else {
-                                    // Clear text if no existing notes
-                                    setEditingNoteText('');
-                                  }
-                                  setIsNotesViewerModalVisible(true);
+                                  setSelectedHabitForLog(habit);
+                                  setLogDate(moment().format('YYYY-MM-DD'));
+                                  // Pre-fill with existing note for today if it exists
+                                  const today = moment().format('YYYY-MM-DD');
+                                  const existingNote = habit.notes?.[today] || '';
+                                  setLogNoteText(existingNote);
+                                  setIsHabitLogModalVisible(true);
                                 }}
                                 style={{
-                                  alignItems: 'center',
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  backgroundColor: (Object.keys(habit.notes || {}).length > 0 || Object.keys(habit.photos || {}).length > 0) ? '#e8f5e8' : '#f8f9fa',
                                   justifyContent: 'center',
-                                  backgroundColor: '#f8f9fa',
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 6,
-                                  borderRadius: 12,
+                                  alignItems: 'center',
+                                  borderWidth: 1,
+                                  borderColor: (Object.keys(habit.notes || {}).length > 0 || Object.keys(habit.photos || {}).length > 0) ? '#4caf50' : '#e9ecef',
                                 }}
                               >
-                                <Feather 
-                                  name="edit-3" 
-                                  size={14} 
-                                  color="#007AFF" 
+                                <Ionicons 
+                                  name="add-circle-outline" 
+                                  size={16} 
+                                  color={(Object.keys(habit.notes || {}).length > 0 || Object.keys(habit.photos || {}).length > 0) ? "#4caf50" : "#666"} 
                                 />
                               </TouchableOpacity>
-                              
-                              {/* Photo Icon */}
-                              {habit.requirePhoto && (
-                                        <TouchableOpacity
-                                          onPress={() => {
-                                    // Check if habit has photos
-                                    const photos = habit.photos || {};
-                                    const photoEntries = Object.entries(photos);
-                                    
-                                    if (photoEntries.length > 0) {
-                                      // Sort photos by date (most recent first) and show the first one
-                                      const sortedPhotos = photoEntries
-                                        .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
-                                        .map(([date, photoUrl]) => ({
-                                          date,
-                                          photoUrl,
-                                          formattedDate: moment(date).format('MMM D, YYYY')
-                                        }));
-                                      
-                                      // Set up all photos for navigation
-                                      setAllPhotosForViewing(sortedPhotos.map(photo => ({
-                                        habit,
-                                        photoUrl: photo.photoUrl,
-                                        date: photo.date,
-                                        formattedDate: photo.formattedDate
-                                      })));
-                                      setCurrentPhotoIndex(0);
-                                      
-                                      // Show the most recent photo directly
-                                            setSelectedPhotoForViewing({ 
-                                              habit, 
-                                        photoUrl: sortedPhotos[0].photoUrl, 
-                                        date: sortedPhotos[0].date, 
-                                        formattedDate: sortedPhotos[0].formattedDate 
-                                            });
-                                            setIsPhotoViewerVisible(true);
-                                    } else {
-                                      // Show message that no photos exist yet
-                                      Alert.alert(
-                                        'No Photos Yet',
-                                        'This habit requires photos but none have been added yet. Swipe left on the habit to add photos.',
-                                        [{ text: 'OK', style: 'default' }]
-                                      );
-                                    }
-                                          }}
-                                          style={{
-                                            alignItems: 'center',
-                                    justifyContent: 'center',
-                                    backgroundColor: '#f8f9fa',
-                                    paddingHorizontal: 8,
-                                    paddingVertical: 6,
-                                    borderRadius: 12,
-                                  }}
-                                >
-                                  <Ionicons 
-                                    name={Object.keys(habit.photos || {}).length > 0 ? "images" : "camera"} 
-                                    size={14} 
-                                    color={Object.keys(habit.photos || {}).length > 0 ? "#007AFF" : "#666"} 
-                                  />
-                                        </TouchableOpacity>
-                                      )}
-                                    </View>
+                            </View>
                           </View>
                           
+                          {/* Reminder Info */}
                           {habit.reminderTime && (
                             <View style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                              marginTop: 8
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              marginTop: 8,
+                              paddingTop: 8,
+                              borderTopWidth: 1,
+                              borderTopColor: '#f0f0f0',
                             }}>
-                              <Ionicons name="time" size={12} color="#999" />
-                                <Text style={{
-                                fontSize: 12,
+                              <Ionicons name="time-outline" size={12} color="#999" />
+                              <Text style={{
+                                fontSize: 10,
                                 color: '#999',
                                 fontFamily: 'Onest',
-                                marginLeft: 4
+                                marginLeft: 4,
+                                fontWeight: '500',
                               }}>
                                 {moment(habit.reminderTime).format('h:mm A')}
-                                </Text>
+                              </Text>
                             </View>
                           )}
                         </TouchableOpacity>
@@ -3313,7 +3597,20 @@ export default function TodoScreen() {
               if (activeTab === 'tasks') {
                 handleAddButtonPress();
               } else {
-                setIsNewHabitModalVisible(true);
+                // Clear habit form fields when opening new habit modal
+                setNewHabit('');
+                setNewHabitDescription('');
+                setNewHabitColor('');
+                setHabitReminderTime(null);
+                setHabitRequirePhoto(false);
+                setHabitTargetPerWeek(0);
+                setEditingHabit(null);
+                setShowHabitReminderPicker(false);
+                
+                // Small delay to ensure state is cleared before opening modal
+                setTimeout(() => {
+                  setIsNewHabitModalVisible(true);
+                }, 50);
               }
             }}
           >
@@ -5651,6 +5948,230 @@ export default function TodoScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Unified Photo/Notes Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={isHabitLogModalVisible}
+        onRequestClose={() => {
+          setIsHabitLogModalVisible(false);
+          setSelectedHabitForLog(null);
+          setLogNoteText('');
+          setLogDate(moment().format('YYYY-MM-DD'));
+        }}
+      >
+        <View style={{ 
+          flex: 1, 
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 20,
+        }}>
+          <View style={{ 
+            backgroundColor: '#ffffff',
+            borderRadius: 16,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.25,
+            shadowRadius: 12,
+            elevation: 8,
+            width: '100%',
+            maxWidth: 400,
+            maxHeight: '80%',
+          }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsHabitLogModalVisible(false);
+                  setSelectedHabitForLog(null);
+                  setLogNoteText('');
+                  setLogDate(moment().format('YYYY-MM-DD'));
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+               
+               <Text style={{ 
+                 fontSize: 16, 
+                 fontWeight: '600', 
+                 color: '#333',
+                 fontFamily: 'Onest'
+               }}>
+                 {selectedHabitForLog?.text} - {moment(logDate).format('MMM D, YYYY')}
+               </Text>
+               
+               <TouchableOpacity
+                 onPress={() => {
+                   if (selectedHabitForLog && logNoteText.trim()) {
+                     if (selectedHabitForLog.notes && selectedHabitForLog.notes[logDate]) {
+                       updateExistingNote(selectedHabitForLog.id, logDate, logNoteText.trim());
+                     } else {
+                       addNoteToHabit(selectedHabitForLog.id, logDate, logNoteText.trim());
+                     }
+                     setIsHabitLogModalVisible(false);
+                     setSelectedHabitForLog(null);
+                     setLogNoteText('');
+                     setLogDate(moment().format('YYYY-MM-DD'));
+                   }
+                 }}
+                 disabled={!logNoteText.trim()}
+                 style={{
+                   padding: 4,
+                 }}
+               >
+                 <Text style={{ 
+                   color: logNoteText.trim() ? '#007AFF' : '#ccc', 
+                   fontSize: 16, 
+                   fontWeight: '600', 
+                   fontFamily: 'Onest' 
+                 }}>
+                   Save
+                 </Text>
+               </TouchableOpacity>
+             </View>
+
+             {/* Content */}
+             <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
+               <ScrollView 
+                 showsVerticalScrollIndicator={false}
+                 contentContainerStyle={{ paddingBottom: 10 }}
+               >
+                 {/* Note Input */}
+                 <View style={{ marginBottom: 24, marginTop: 20 }}>
+                   <TextInput
+                     style={{
+                       fontSize: 16,
+                       color: '#333',
+                       padding: 16,
+                       backgroundColor: '#f8f9fa',
+                       borderRadius: 12,
+                       fontFamily: 'Onest',
+                       minHeight: 120,
+                       textAlignVertical: 'top',
+                     }}
+                     value={logNoteText}
+                     onChangeText={setLogNoteText}
+                     placeholder="Add a note about your progress..."
+                     placeholderTextColor="#999"
+                     multiline
+                     numberOfLines={5}
+                     autoFocus
+                   />
+                 </View>
+
+                 {/* Photo Actions */}
+                 <View style={{
+                   flexDirection: 'row',
+                   gap: 12,
+                   marginBottom: 10,
+                 }}>
+                   <TouchableOpacity
+                     onPress={async () => {
+                       try {
+                         const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                         if (status !== 'granted') {
+                           Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
+                           return;
+                         }
+
+                         const result = await ImagePicker.launchCameraAsync({
+                           allowsEditing: true,
+                           aspect: [4, 3],
+                           quality: 0.8,
+                         });
+
+                         if (!result.canceled && result.assets[0] && selectedHabitForLog) {
+                           await addPhotoToHabit(selectedHabitForLog.id, logDate, result.assets[0].uri);
+                           Alert.alert('Success', 'Photo added successfully!');
+                         }
+                       } catch (error) {
+                         console.error('Error taking photo:', error);
+                         Alert.alert('Error', 'Failed to take photo. Please try again.');
+                       }
+                     }}
+                     style={{
+                       flex: 1,
+                       backgroundColor: '#f8f9fa',
+                       padding: 16,
+                       borderRadius: 12,
+                       alignItems: 'center',
+                     }}
+                   >
+                     <Ionicons name="camera" size={20} color="#666" />
+                     <Text style={{
+                       fontSize: 13,
+                       color: '#666',
+                       fontFamily: 'Onest',
+                       marginTop: 6,
+                       fontWeight: '500',
+                     }}>
+                       Camera
+                     </Text>
+                   </TouchableOpacity>
+
+                   <TouchableOpacity
+                     onPress={async () => {
+                       try {
+                         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                         if (status !== 'granted') {
+                           Alert.alert('Permission Required', 'Media library permission is required to select an image.');
+                           return;
+                         }
+
+                         const result = await ImagePicker.launchImageLibraryAsync({
+                           mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                           allowsEditing: true,
+                           aspect: [4, 3],
+                           quality: 0.8,
+                         });
+
+                         if (!result.canceled && result.assets[0] && selectedHabitForLog) {
+                           await addPhotoToHabit(selectedHabitForLog.id, logDate, result.assets[0].uri);
+                           Alert.alert('Success', 'Photo added successfully!');
+                         }
+                       } catch (error) {
+                         console.error('Error selecting image:', error);
+                         Alert.alert('Error', 'Failed to select image. Please try again.');
+                       }
+                     }}
+                     style={{
+                       flex: 1,
+                       backgroundColor: '#f8f9fa',
+                       padding: 16,
+                       borderRadius: 12,
+                       alignItems: 'center',
+                     }}
+                   >
+                     <Ionicons name="images" size={20} color="#666" />
+                     <Text style={{
+                       fontSize: 13,
+                       color: '#666',
+                       fontFamily: 'Onest',
+                       marginTop: 6,
+                       fontWeight: '500',
+                     }}>
+                       Gallery
+                     </Text>
+                   </TouchableOpacity>
+                 </View>
+               </ScrollView>
+             </View>
+           </View>
+         </View>
+       </Modal>
     </GestureHandlerRootView>
   );
 }

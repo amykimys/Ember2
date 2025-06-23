@@ -126,6 +126,11 @@ export default function ProfileScreen() {
   const [showMemoryDetailModal, setShowMemoryDetailModal] = useState(false);
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
 
+  // Multi-select state for memories
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedMemories, setSelectedMemories] = useState<Set<string>>(new Set());
+  const [isDeletingMemories, setIsDeletingMemories] = useState(false);
+
   // Friends feed state
   const [photoShares, setPhotoShares] = useState<PhotoShare[]>([]);
   const [isLoadingPhotoShares, setIsLoadingPhotoShares] = useState(false);
@@ -1878,7 +1883,12 @@ export default function ProfileScreen() {
       visible={showMemoriesModal}
       animationType="slide"
       presentationStyle="pageSheet"
-      onRequestClose={() => setShowMemoriesModal(false)}
+      onRequestClose={() => {
+        setShowMemoriesModal(false);
+        // Reset selection state when modal closes
+        setIsMultiSelectMode(false);
+        setSelectedMemories(new Set());
+      }}
       onShow={() => {
         // Refresh memories when modal opens to ensure we have the latest data
         if (user?.id) {
@@ -1889,26 +1899,52 @@ export default function ProfileScreen() {
     >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={() => setShowMemoriesModal(false)}>
+          <TouchableOpacity onPress={() => {
+            setShowMemoriesModal(false);
+            // Reset selection state when modal closes
+            setIsMultiSelectMode(false);
+            setSelectedMemories(new Set());
+          }}>
             <Ionicons name="close" size={24} color="#000" />
           </TouchableOpacity>
-          <Text style={styles.modalTitle}>Memories</Text>
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity
-              onPress={async () => {
-                if (user?.id) {
-                  console.log('🔄 Manual cleanup and reload triggered');
-                  await cleanupOldLocalPhotos(user.id);
-                  await loadMemories(user.id);
-                }
-              }}
-              >
-              <Ionicons name="refresh-circle" size={24} color="#FF9500" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => loadMemories(user?.id || '')}>
-              <Ionicons name="refresh" size={24} color="#007AFF" />
-              </TouchableOpacity>
-      </View>
+          <Text style={styles.modalTitle}>
+            {isMultiSelectMode ? `Memories (${selectedMemories.size} selected)` : 'Memories'}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+            {isMultiSelectMode ? (
+              <>
+                {isDeletingMemories && (
+                  <ActivityIndicator size="small" color="#FF3B30" />
+                )}
+                <TouchableOpacity
+                  onPress={deleteSelectedMemories}
+                  disabled={selectedMemories.size === 0 || isDeletingMemories}
+                >
+                  <Ionicons 
+                    name="trash-outline" 
+                    size={24} 
+                    color={selectedMemories.size === 0 || isDeletingMemories ? "#ccc" : "#FF3B30"} 
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={toggleMultiSelectMode}
+                  disabled={isDeletingMemories}
+                >
+                  <Text style={[styles.cancelText, { color: isDeletingMemories ? "#ccc" : "#007AFF" }]}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <TouchableOpacity
+                  onPress={toggleMultiSelectMode}
+                >
+                  <Text style={styles.selectText}>Select</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
         </View>
 
         {isLoadingMemories ? (
@@ -2042,8 +2078,12 @@ export default function ProfileScreen() {
                       key={memory.id}
                       style={styles.memoryItem}
                       onPress={() => {
-                        setSelectedMemory(memory);
-                        setShowMemoryDetailModal(true);
+                        if (isMultiSelectMode) {
+                          toggleMemorySelection(memory.id);
+                        } else {
+                          setSelectedMemory(memory);
+                          setShowMemoryDetailModal(true);
+                        }
                       }}
                       activeOpacity={0.7}
                     >
@@ -2092,16 +2132,44 @@ export default function ProfileScreen() {
                           <Text style={styles.memoryImagePlaceholderText}>Image unavailable</Text>
                         </View>
                       )}
+                      
+                      {/* Selection indicator */}
+                      {isMultiSelectMode && (
+                        <View style={[
+                          styles.memorySelectionIndicator,
+                          selectedMemories.has(memory.id) && styles.memorySelectionIndicatorSelected
+                        ]}>
+                          <View style={[
+                            styles.memoryCheckbox,
+                            selectedMemories.has(memory.id) && styles.memoryCheckboxSelected
+                          ]}>
+                            {selectedMemories.has(memory.id) && (
+                              <Ionicons name="checkmark" size={12} color="#fff" />
+                            )}
+                          </View>
+                        </View>
+                      )}
+                      
                       <View style={styles.memoryOverlay}>
                       </View>
-                      <Text style={styles.memoryTitle} numberOfLines={2}>
-                        {memory.title}
-                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
               </View>
             )}
+            refreshControl={
+              <RefreshControl
+                refreshing={isLoadingMemories}
+                onRefresh={async () => {
+                  if (user?.id) {
+                    console.log('🔄 Pull-to-refresh triggered');
+                    await loadMemories(user.id);
+                  }
+                }}
+                colors={['#007AFF']}
+                tintColor="#007AFF"
+              />
+            }
             contentContainerStyle={styles.memoriesList}
           />
         )}
@@ -3309,6 +3377,184 @@ export default function ProfileScreen() {
     }
   };
 
+  // Multi-select functions for memories
+  const toggleMultiSelectMode = () => {
+    setIsMultiSelectMode(!isMultiSelectMode);
+    setSelectedMemories(new Set());
+  };
+
+  const toggleMemorySelection = (memoryId: string) => {
+    setSelectedMemories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(memoryId)) {
+        newSet.delete(memoryId);
+      } else {
+        newSet.add(memoryId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllMemories = () => {
+    const allMemoryIds = memories.flatMap(group => group.memories.map(memory => memory.id));
+    setSelectedMemories(new Set(allMemoryIds));
+  };
+
+  const deselectAllMemories = () => {
+    setSelectedMemories(new Set());
+  };
+
+  const deleteSelectedMemories = async () => {
+    if (selectedMemories.size === 0) return;
+
+    Alert.alert(
+      'Delete Selected Memories',
+      `Are you sure you want to delete ${selectedMemories.size} selected memory${selectedMemories.size > 1 ? 'ies' : ''}? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setIsDeletingMemories(true);
+              
+              // Group memories by type (habit vs event) for efficient deletion
+              const habitMemories: { [habitId: string]: string[] } = {};
+              const eventMemories: { [eventId: string]: number[] } = {};
+              
+              // Process each selected memory
+              for (const memoryId of selectedMemories) {
+                const memory = memories.flatMap(group => group.memories).find(m => m.id === memoryId);
+                if (!memory) continue;
+                
+                if (memory.type === 'habit') {
+                  const habitId = memoryId.split('_')[0];
+                  const date = memory.date;
+                  if (!habitMemories[habitId]) {
+                    habitMemories[habitId] = [];
+                  }
+                  habitMemories[habitId].push(date);
+                } else if (memory.type === 'event') {
+                  const eventId = memoryId.split('_')[0];
+                  const photoIndex = parseInt(memoryId.split('_')[1]);
+                  if (!eventMemories[eventId]) {
+                    eventMemories[eventId] = [];
+                  }
+                  eventMemories[eventId].push(photoIndex);
+                }
+              }
+              
+              // Delete habit photos
+              for (const [habitId, dates] of Object.entries(habitMemories)) {
+                console.log(`🗑️ Deleting habit photos for habit ${habitId}, dates:`, dates);
+                
+                const { data: habit, error: fetchError } = await supabase
+                  .from('habits')
+                  .select('photos')
+                  .eq('id', habitId)
+                  .single();
+                
+                if (fetchError) {
+                  console.error(`❌ Error fetching habit ${habitId}:`, fetchError);
+                  continue;
+                }
+                
+                if (habit?.photos) {
+                  console.log(`📸 Original habit photos:`, habit.photos);
+                  const updatedPhotos = { ...habit.photos };
+                  dates.forEach(date => {
+                    console.log(`🗑️ Removing photo for date ${date}`);
+                    delete updatedPhotos[date];
+                  });
+                  
+                  console.log(`📸 Updated habit photos:`, updatedPhotos);
+                  
+                  const { error: updateError } = await supabase
+                    .from('habits')
+                    .update({ 
+                      photos: Object.keys(updatedPhotos).length > 0 ? updatedPhotos : null
+                    })
+                    .eq('id', habitId);
+                  
+                  if (updateError) {
+                    console.error(`❌ Error updating habit ${habitId}:`, updateError);
+                  } else {
+                    console.log(`✅ Successfully updated habit ${habitId}`);
+                  }
+                } else {
+                  console.log(`⚠️ Habit ${habitId} has no photos to delete`);
+                }
+              }
+              
+              // Delete event photos
+              for (const [eventId, photoIndices] of Object.entries(eventMemories)) {
+                console.log(`🗑️ Deleting event photos for event ${eventId}, indices:`, photoIndices);
+                
+                const { data: event, error: fetchError } = await supabase
+                  .from('events')
+                  .select('photos')
+                  .eq('id', eventId)
+                  .single();
+                
+                if (fetchError) {
+                  console.error(`❌ Error fetching event ${eventId}:`, fetchError);
+                  continue;
+                }
+                
+                if (event?.photos && Array.isArray(event.photos)) {
+                  console.log(`📸 Original event photos:`, event.photos);
+                  const updatedPhotos = [...event.photos];
+                  // Remove photos in reverse order to maintain correct indices
+                  photoIndices.sort((a, b) => b - a).forEach(index => {
+                    if (index >= 0 && index < updatedPhotos.length) {
+                      console.log(`🗑️ Removing photo at index ${index}`);
+                      updatedPhotos.splice(index, 1);
+                    }
+                  });
+                  
+                  console.log(`📸 Updated event photos:`, updatedPhotos);
+                  
+                  const { error: updateError } = await supabase
+                    .from('events')
+                    .update({ photos: updatedPhotos })
+                    .eq('id', eventId);
+                  
+                  if (updateError) {
+                    console.error(`❌ Error updating event ${eventId}:`, updateError);
+                  } else {
+                    console.log(`✅ Successfully updated event ${eventId}`);
+                  }
+                } else {
+                  console.log(`⚠️ Event ${eventId} has no photos to delete`);
+                }
+              }
+              
+              // Refresh memories and exit multi-select mode
+              if (user?.id) {
+                console.log('🔄 Waiting for database updates to process...');
+                // Wait a moment for database updates to process
+                await new Promise(resolve => setTimeout(resolve, 500));
+                console.log('🔄 Refreshing memories after deletion...');
+                await loadMemories(user.id);
+                console.log('✅ Memories refreshed successfully');
+              }
+              setIsMultiSelectMode(false);
+              setSelectedMemories(new Set());
+              
+              Alert.alert('Success', `Successfully deleted ${selectedMemories.size} memory${selectedMemories.size > 1 ? 'ies' : ''}!`);
+            } catch (error) {
+              console.error('Error deleting selected memories:', error);
+              Alert.alert('Error', 'Failed to delete some memories. Please try again.');
+            } finally {
+              setIsDeletingMemories(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {user && (
@@ -3829,15 +4075,18 @@ const styles = StyleSheet.create({
   memoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 1,
   },
   memoryItem: {
-    width: '33%',
-    height: 110,
+    width: '33.15%',
+    aspectRatio: 1,
     position: 'relative',
+    marginBottom: 1,
   },
   memoryImage: {
     width: '100%',
     height: '100%',
+    borderRadius: 4,
   },
   memoryOverlay: {
     position: 'absolute',
@@ -3950,7 +4199,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   memoriesList: {
-    padding: 20,
+    padding: 1,
   },
   friendItem: {
     flexDirection: 'row',
@@ -4086,6 +4335,8 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 4,
   },
   memoryImagePlaceholderText: {
     fontSize: 14,
@@ -4223,5 +4474,40 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     padding: 20,
+  },
+  memorySelectionIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 10,
+  },
+  memorySelectionIndicatorSelected: {
+    // No additional styling needed for selected state
+  },
+  memoryCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderWidth: 2,
+    borderColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memoryCheckboxSelected: {
+    backgroundColor: '#007AFF',
+    borderColor: '#007AFF',
+  },
+  selectText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+  },
+  cancelText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
+    fontFamily: 'Onest',
   },
 });

@@ -3017,34 +3017,39 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       {/* Shared Event Notifications */}
       {pendingSharedEvents.length > 0 && (
         <View style={{
-          backgroundColor: '#FF9500',
+          backgroundColor: '#007AFF',
           paddingHorizontal: 16,
           paddingVertical: 12,
-          marginHorizontal: 16,
-          marginTop: 8,
-          borderRadius: 8,
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'space-between'
+          justifyContent: 'space-between',
         }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+            <Ionicons name="people-outline" size={16} color="white" />
+            <Text style={{
+              color: 'white',
+              fontSize: 14,
+              fontWeight: '500',
+              fontFamily: 'Onest',
+            }}>
               {pendingSharedEvents.length} shared event{pendingSharedEvents.length > 1 ? 's' : ''} pending
-            </Text>
-            <Text style={{ color: 'white', fontSize: 12, marginTop: 2 }}>
-              Tap to review and accept/decline
             </Text>
           </View>
           <TouchableOpacity
             onPress={() => setShowSharedEventsModal(true)}
             style={{
-              backgroundColor: 'rgba(255,255,255,0.2)',
+              backgroundColor: 'rgba(255, 255, 255, 0.2)',
               paddingHorizontal: 12,
               paddingVertical: 6,
-              borderRadius: 6
+              borderRadius: 16,
             }}
           >
-            <Text style={{ color: 'white', fontWeight: '600', fontSize: 12 }}>
+            <Text style={{
+              color: 'white',
+              fontSize: 12,
+              fontWeight: '600',
+              fontFamily: 'Onest',
+            }}>
               Review
             </Text>
           </TouchableOpacity>
@@ -3263,7 +3268,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                       overflow: 'hidden',
                                       position: 'absolute',
                                       top: photoIndex * 4, // Minimal stack offset
-                                      left: photoIndex * 2, // Minimal horizontal offset
+                                      left: photoIndex * 8, // Increased horizontal offset to move photos more to the right
                                       zIndex: event.photos!.length - photoIndex, // Higher photos on top
                                     }}
                                   >
@@ -3279,7 +3284,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   <View style={{
                                     position: 'absolute',
                                     top: 2 * 4 + 45, // Position below the stacked photos
-                                    left: 2 * 2,
+                                    left: 2 * 8, // Updated to match the new horizontal offset
                                     backgroundColor: 'rgba(0,0,0,0.7)',
                                     borderRadius: 12,
                                     paddingHorizontal: 6,
@@ -5085,7 +5090,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       >
         <View style={{
           flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.95)',
+          backgroundColor: 'rgba(255,255,255,0.95)',
           justifyContent: 'center',
           alignItems: 'center',
         }}>
@@ -5102,7 +5107,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             {...photoViewerPanResponder.panHandlers}
           />
           
-          {/* Top Bar with Close and Delete */}
+          {/* Top Bar */}
           <View style={{
             position: 'absolute',
             top: 0,
@@ -5111,30 +5116,29 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
-            paddingHorizontal: 20,
+            paddingHorizontal: 24,
             paddingTop: 60,
-            paddingBottom: 20,
+            paddingBottom: 16,
             zIndex: 10,
-            backgroundColor: 'rgba(0,0,0,0.3)',
           }}>
             <TouchableOpacity
               style={{
-                backgroundColor: 'rgba(255,255,255,0.2)',
-                borderRadius: 25,
-                padding: 12,
-                backdropFilter: 'blur(10px)',
+                width: 32,
+                height: 32,
+                justifyContent: 'center',
+                alignItems: 'center',
               }}
               onPress={() => setShowPhotoViewer(false)}
             >
-              <Ionicons name="arrow-back" size={24} color="#fff" />
+              <Ionicons name="close" size={24} color="#333" />
             </TouchableOpacity>
             
             <TouchableOpacity
               style={{
-                backgroundColor: 'rgba(255,59,48,0.8)',
-                borderRadius: 25,
-                padding: 12,
-                backdropFilter: 'blur(10px)',
+                width: 32,
+                height: 32,
+                justifyContent: 'center',
+                alignItems: 'center',
               }}
               onPress={() => {
                 if (selectedPhotoForViewing) {
@@ -5155,97 +5159,32 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 }
               }}
             >
-              <Ionicons name="trash" size={20} color="#fff" />
+              <Ionicons name="trash-outline" size={20} color="#FF3B30" />
             </TouchableOpacity>
           </View>
-          
-          
           
           {/* Photo Counter */}
           {selectedPhotoForViewing?.event.photos && selectedPhotoForViewing.event.photos.length > 1 && (
             <View style={{
               position: 'absolute',
-              bottom: 50,
+              top: 100,
               left: 0,
               right: 0,
               alignItems: 'center',
               zIndex: 10,
             }}>
-              <View style={{
-                backgroundColor: 'rgba(255,255,255,0.2)',
-                borderRadius: 20,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                backdropFilter: 'blur(10px)',
+              <Text style={{ 
+                color: '#666', 
+                fontSize: 14, 
+                fontWeight: '400',
+                fontFamily: 'Onest',
+                backgroundColor: 'rgba(0,0,0,0.05)',
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 12,
               }}>
-                <Text style={{ 
-                  color: '#fff', 
-                  fontSize: 14, 
-                  fontWeight: '600',
-                  letterSpacing: 0.5,
-                }}>
-                  {selectedPhotoForViewing.event.photos!.indexOf(selectedPhotoForViewing.photoUrl) + 1} of {selectedPhotoForViewing.event.photos!.length}
-                </Text>
-              </View>
-            </View>
-          )}
-          
-          {/* Photo Gallery Thumbnails */}
-          {selectedPhotoForViewing?.event.photos && selectedPhotoForViewing.event.photos.length > 1 && (
-            <View style={{
-              position: 'absolute',
-              bottom: 120,
-              left: 0,
-              right: 0,
-              alignItems: 'center',
-              zIndex: 10,
-            }}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{
-                  paddingHorizontal: 20,
-                  alignItems: 'center',
-                }}
-                style={{
-                  maxWidth: '100%',
-                }}
-              >
-                {selectedPhotoForViewing.event.photos.map((photoUrl, index) => {
-                  const isSelected = photoUrl === selectedPhotoForViewing.photoUrl;
-                  return (
-                    <TouchableOpacity
-                      key={index}
-                      onPress={() => {
-                        setSelectedPhotoForViewing({
-                          event: selectedPhotoForViewing.event,
-                          photoUrl: photoUrl
-                        });
-                      }}
-                      style={{
-                        width: 50,
-                        height: 50,
-                        borderRadius: 8,
-                        marginHorizontal: 4,
-                        overflow: 'hidden',
-                        borderWidth: isSelected ? 3 : 1,
-                        borderColor: isSelected ? '#fff' : 'rgba(255,255,255,0.3)',
-                        backgroundColor: 'rgba(255,255,255,0.1)',
-                        backdropFilter: 'blur(10px)',
-                      }}
-                    >
-                      <Image
-                        source={{ uri: photoUrl }}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          resizeMode: 'cover',
-                        }}
-                      />
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                {selectedPhotoForViewing.event.photos!.indexOf(selectedPhotoForViewing.photoUrl) + 1} of {selectedPhotoForViewing.event.photos!.length}
+              </Text>
             </View>
           )}
           
@@ -5271,14 +5210,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 }
               }}
               renderItem={({ item }) => (
-                <View style={{ width: Dimensions.get('window').width, height: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                <View style={{ 
+                  width: Dimensions.get('window').width, 
+                  height: '100%', 
+                  justifyContent: 'center', 
+                  alignItems: 'center',
+                  paddingHorizontal: 32,
+                }}>
                   <Image
                     source={{ uri: item }}
                     style={{
-                      width: '90%',
-                      height: '70%',
+                      width: '100%',
+                      height: '75%',
                       resizeMode: 'contain',
-                      borderRadius: 16,
                     }}
                   />
                 </View>
@@ -5286,142 +5230,279 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               style={{ width: Dimensions.get('window').width, height: '100%' }}
             />
           )}
+          
+          {/* Bottom Thumbnails */}
+          {selectedPhotoForViewing?.event.photos && selectedPhotoForViewing.event.photos.length > 1 && (
+            <View style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              paddingVertical: 24,
+              paddingHorizontal: 24,
+              zIndex: 10,
+            }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  alignItems: 'center',
+                  gap: 12,
+                }}
+                style={{
+                  maxWidth: '100%',
+                }}
+              >
+                {selectedPhotoForViewing.event.photos.map((photoUrl, index) => {
+                  const isSelected = photoUrl === selectedPhotoForViewing.photoUrl;
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => {
+                        setSelectedPhotoForViewing({
+                          event: selectedPhotoForViewing.event,
+                          photoUrl: photoUrl
+                        });
+                        // Scroll to the selected photo
+                        photoViewerFlatListRef.current?.scrollToIndex({
+                          index: index,
+                          animated: true,
+                        });
+                      }}
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 6,
+                        overflow: 'hidden',
+                        borderWidth: isSelected ? 2 : 1,
+                        borderColor: isSelected ? '#007AFF' : '#E5E5E7',
+                        backgroundColor: '#F2F2F7',
+                      }}
+                    >
+                      <Image
+                        source={{ uri: photoUrl }}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          resizeMode: 'cover',
+                        }}
+                      />
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
         </View>
       </Modal>
 
       {/* Shared Events Modal */}
       <Modal
-        visible={showSharedEventsModal}
         animationType="slide"
-        presentationStyle="pageSheet"
+        transparent={true}
+        visible={showSharedEventsModal}
         onRequestClose={() => setShowSharedEventsModal(false)}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
-          {/* Header */}
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: 16,
-            paddingVertical: 12,
-            borderBottomWidth: 1,
-            borderBottomColor: '#E5E5E5'
+        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
+          <View style={{ flex: 1 }} />
+          <View style={{ 
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: 'white',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.25,
+            shadowRadius: 3.84,
+            elevation: 5,
+            maxHeight: '80%',
           }}>
-            <Text style={{ fontSize: 18, fontWeight: '600' }}>
-              Pending Shared Events
-            </Text>
-            <TouchableOpacity
-              onPress={() => setShowSharedEventsModal(false)}
-              style={{ padding: 4 }}
-            >
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+              <Text style={{ 
+                fontSize: 18, 
+                fontWeight: '600', 
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                Shared Events
+              </Text>
+              <TouchableOpacity 
+                onPress={() => setShowSharedEventsModal(false)}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+            </View>
 
-          {/* Content */}
-          <ScrollView style={{ flex: 1, paddingHorizontal: 16 }}>
-            {pendingSharedEvents.length === 0 ? (
-              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 50 }}>
-                <Text style={{ fontSize: 16, color: '#666', textAlign: 'center' }}>
-                  No pending shared events
-                </Text>
-              </View>
-            ) : (
-              pendingSharedEvents.map((event, index) => (
-                <View
-                  key={event.id}
-                  style={{
-                    backgroundColor: '#F8F9FA',
-                    borderRadius: 12,
-                    padding: 16,
-                    marginVertical: 8,
-                    borderLeftWidth: 4,
-                    borderLeftColor: '#007AFF'
-                  }}
-                >
-                  {/* Event Header */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                    <Text style={{ fontSize: 16, fontWeight: '600', flex: 1 }}>
-                      {event.title}
-                    </Text>
-                    <View style={{
-                      backgroundColor: '#007AFF',
-                      borderRadius: 12,
-                      paddingHorizontal: 8,
-                      paddingVertical: 2
-                    }}>
-                      <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>
-                        SHARED
-                      </Text>
-                    </View>
-                  </View>
-
-                  {/* Event Details */}
-                  <Text style={{ fontSize: 14, color: '#666', marginBottom: 4 }}>
-                    {event.date} • {event.isAllDay ? 'All day' : 
-                      `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                    }
+            {/* Content */}
+            <ScrollView style={{ flex: 1, padding: 20 }}>
+              {pendingSharedEvents.length === 0 ? (
+                <View style={{ 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  paddingVertical: 40,
+                }}>
+                  <Ionicons name="checkmark-circle-outline" size={48} color="#4CAF50" />
+                  <Text style={{ 
+                    fontSize: 16, 
+                    color: '#666', 
+                    marginTop: 12,
+                    fontFamily: 'Onest',
+                    textAlign: 'center',
+                  }}>
+                    No pending shared events
                   </Text>
-                  
-                  {event.description && (
-                    <Text style={{ fontSize: 13, color: '#888', marginBottom: 8 }}>
-                      {event.description}
-                    </Text>
-                  )}
-
-                  <Text style={{ fontSize: 12, color: '#007AFF', marginBottom: 12 }}>
-                    Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
-                  </Text>
-
-                  {/* Action Buttons */}
-                  <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <TouchableOpacity
-                      onPress={async () => {
-                        await handleAcceptSharedEvent(event);
-                        updatePendingSharedEvents();
-                        if (pendingSharedEvents.length === 1) {
-                          setShowSharedEventsModal(false);
-                        }
-                      }}
-                      style={{
-                        flex: 1,
-                        backgroundColor: '#34C759',
-                        paddingVertical: 10,
-                        borderRadius: 8,
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>
-                        Accept
-                      </Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity
-                      onPress={async () => {
-                        await handleDeclineSharedEvent(event);
-                        updatePendingSharedEvents();
-                        if (pendingSharedEvents.length === 1) {
-                          setShowSharedEventsModal(false);
-                        }
-                      }}
-                      style={{
-                        flex: 1,
-                        backgroundColor: '#FF3B30',
-                        paddingVertical: 10,
-                        borderRadius: 8,
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Text style={{ color: 'white', fontWeight: '600', fontSize: 14 }}>
-                        Decline
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
-              ))
-            )}
-          </ScrollView>
-        </SafeAreaView>
+              ) : (
+                <View style={{ gap: 16 }}>
+                  {pendingSharedEvents.map((event) => (
+                    <View key={event.id} style={{
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: 12,
+                      padding: 16,
+                      borderWidth: 1,
+                      borderColor: '#e9ecef',
+                    }}>
+                      {/* Event Info */}
+                      <View style={{ marginBottom: 12 }}>
+                        <Text style={{
+                          fontSize: 16,
+                          fontWeight: '600',
+                          color: '#333',
+                          marginBottom: 4,
+                          fontFamily: 'Onest',
+                        }}>
+                          {event.title}
+                        </Text>
+                        {event.description && (
+                          <Text style={{
+                            fontSize: 14,
+                            color: '#666',
+                            marginBottom: 8,
+                            fontFamily: 'Onest',
+                          }}>
+                            {event.description}
+                          </Text>
+                        )}
+                        <Text style={{
+                          fontSize: 12,
+                          color: '#999',
+                          fontFamily: 'Onest',
+                        }}>
+                          {event.date} • {event.isAllDay ? 'All day' : 
+                            `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                          }
+                        </Text>
+                      </View>
+
+                      {/* Shared By Info */}
+                      <View style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        marginBottom: 16,
+                        gap: 8,
+                      }}>
+                        <View 
+                          style={{ 
+                            width: 24, 
+                            height: 24, 
+                            borderRadius: 12,
+                            backgroundColor: '#E9ECEF',
+                            justifyContent: 'center',
+                            alignItems: 'center'
+                          }}
+                        >
+                          <Ionicons name="person" size={12} color="#6C757D" />
+                        </View>
+                        <Text style={{
+                          fontSize: 12,
+                          color: '#666',
+                          fontFamily: 'Onest',
+                        }}>
+                          Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
+                        </Text>
+                      </View>
+
+                      {/* Action Buttons */}
+                      <View style={{
+                        flexDirection: 'row',
+                        gap: 12,
+                      }}>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            await handleAcceptSharedEvent(event);
+                            updatePendingSharedEvents();
+                            if (pendingSharedEvents.length === 1) {
+                              setShowSharedEventsModal(false);
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            backgroundColor: '#4CAF50',
+                            paddingVertical: 10,
+                            paddingHorizontal: 16,
+                            borderRadius: 8,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{
+                            color: 'white',
+                            fontSize: 14,
+                            fontWeight: '600',
+                            fontFamily: 'Onest',
+                          }}>
+                            Accept
+                          </Text>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity
+                          onPress={async () => {
+                            await handleDeclineSharedEvent(event);
+                            updatePendingSharedEvents();
+                            if (pendingSharedEvents.length === 1) {
+                              setShowSharedEventsModal(false);
+                            }
+                          }}
+                          style={{
+                            flex: 1,
+                            backgroundColor: '#FF6B6B',
+                            paddingVertical: 10,
+                            paddingHorizontal: 16,
+                            borderRadius: 8,
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Text style={{
+                            color: 'white',
+                            fontSize: 14,
+                            fontWeight: '600',
+                            fontFamily: 'Onest',
+                          }}>
+                            Decline
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
       </Modal>
       </>
       
