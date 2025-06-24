@@ -2092,33 +2092,10 @@ export default function ProfileScreen() {
                         style={styles.memoryImage}
                         resizeMode="cover"
                         onError={(error) => {
-                          // Enhanced error detection for different types of image loading failures
-                          const errorMessage = error.nativeEvent.error || '';
-                          const isLocalFileError = errorMessage.includes("couldn't be opened because there is no such file") ||
-                                                 errorMessage.includes("Unknown image download error") ||
-                                                 memory.photoUri.includes('.jpg') && !memory.photoUri.includes('/');
-                          
-                          const isTimeoutError = errorMessage.includes("timed out") ||
-                                                errorMessage.includes("timeout") ||
-                                                errorMessage.includes("network error");
-                          
-                          const isNetworkError = errorMessage.includes("network") ||
-                                                errorMessage.includes("connection") ||
-                                                errorMessage.includes("failed to load");
-                          
-                          if (isLocalFileError) {
-                            console.log(`⚠️ Local file error for memory ${memory.id}, marking as failed: ${memory.photoUri}`);
-                          } else if (isTimeoutError) {
-                            console.log(`⏰ Timeout error for memory ${memory.id}, marking as failed: ${memory.photoUri}`);
-                          } else if (isNetworkError) {
-                            console.log(`🌐 Network error for memory ${memory.id}, marking as failed: ${memory.photoUri}`);
-                          } else {
-                            console.error('❌ Image loading error for memory:', memory.id, error.nativeEvent.error);
-                          }
+                          // Silently handle image loading failures
                           setFailedImages(prev => new Set(prev).add(memory.id));
                         }}
                         onLoad={() => {
-                          console.log('✅ Image loaded successfully for memory:', memory.id);
                           setFailedImages(prev => {
                             const newSet = new Set(prev);
                             newSet.delete(memory.id);

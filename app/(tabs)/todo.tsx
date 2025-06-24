@@ -324,6 +324,10 @@ export default function TodoScreen() {
   const [logNoteText, setLogNoteText] = useState('');
   const [logDate, setLogDate] = useState(moment().format('YYYY-MM-DD'));
 
+  // Add state for monthly progress chart modal
+  const [isMonthlyProgressModalVisible, setIsMonthlyProgressModalVisible] = useState(false);
+  const [selectedMonthForProgress, setSelectedMonthForProgress] = useState(moment().startOf('month'));
+
   // Add state for photo navigation
   const [allPhotosForViewing, setAllPhotosForViewing] = useState<Array<{
     habit: Habit;
@@ -719,6 +723,11 @@ export default function TodoScreen() {
       if (!habitToToggle) return;
 
       const today = moment().format('YYYY-MM-DD');
+      console.log('🔍 Toggle Habit Debug:');
+      console.log('  - Current date (today):', today);
+      console.log('  - Selected month for progress:', selectedMonthForProgress.format('MMMM YYYY'));
+      console.log('  - Habit completedDays:', habitToToggle.completedDays);
+      
       const isCompletedToday = habitToToggle.completedDays.includes(today);
 
       if (isCompletedToday) {
@@ -2670,11 +2679,20 @@ export default function TodoScreen() {
       
       const completedThisMonth = completedDays.filter(date => {
         const habitDate = moment(date, 'YYYY-MM-DD');
-        return habitDate.isBetween(monthStart, monthEnd, 'day', '[]');
+        const isInMonth = habitDate.isBetween(monthStart, monthEnd, 'day', '[]');
+        if (isInMonth) {
+          console.log('  - Found completed day in month:', date);
+        }
+        return isInMonth;
       }).length;
       
-      const daysInMonth = monthEnd.diff(monthStart, 'days') + 1;
+      // Fix: Use daysInMonth() method instead of diff calculation
+      const daysInMonth = monthStart.daysInMonth();
       const percentage = Math.min((completedThisMonth / daysInMonth) * 100, 100);
+      
+      console.log('  - Completed this month:', completedThisMonth);
+      console.log('  - Days in month (using daysInMonth):', daysInMonth);
+      console.log('  - Percentage calculation:', `${completedThisMonth} / ${daysInMonth} * 100 = ${percentage.toFixed(1)}%`);
       
       // Calculate weekly breakdown for the month
       const weeklyBreakdown = [];
@@ -2941,6 +2959,41 @@ export default function TodoScreen() {
     }
   };
 
+  // Add function to calculate habit progress for a specific month
+  const calculateHabitProgressForMonth = (habit: Habit, targetMonth: moment.Moment) => {
+    const completedDays = habit.completedDays || [];
+    const today = moment();
+    
+    const monthStart = targetMonth.clone().startOf('month');
+    const monthEnd = targetMonth.clone().endOf('month');
+    
+    console.log('📊 Monthly Progress Debug for', habit.text);
+    console.log('  - Target month:', targetMonth.format('MMMM YYYY'));
+    console.log('  - Month start:', monthStart.format('YYYY-MM-DD'));
+    console.log('  - Month end:', monthEnd.format('YYYY-MM-DD'));
+    console.log('  - All completed days:', completedDays);
+    
+    const completedThisMonth = completedDays.filter(date => {
+      const habitDate = moment(date, 'YYYY-MM-DD');
+      return habitDate.isBetween(monthStart, monthEnd, 'day', '[]');
+    }).length;
+    
+    // Fix: Use daysInMonth() method instead of diff calculation
+    const daysInMonth = targetMonth.daysInMonth();
+    const percentage = Math.min((completedThisMonth / daysInMonth) * 100, 100);
+    
+    console.log('  - Completed this month:', completedThisMonth);
+    console.log('  - Days in month (using daysInMonth):', daysInMonth);
+    console.log('  - Percentage calculation:', `${completedThisMonth} / ${daysInMonth} * 100 = ${percentage.toFixed(1)}%`);
+    
+    return {
+      completed: completedThisMonth,
+      target: daysInMonth,
+      percentage,
+      period: monthStart.format('MMMM YYYY'),
+    };
+  };
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -3005,15 +3058,14 @@ export default function TodoScreen() {
 
           {/* Date Header */}
           <View style={{
-            marginHorizontal: 22,
-            marginTop: 12,
-            marginBottom: 8,
             flexDirection: 'row',
-            alignItems: 'center',
             justifyContent: 'space-between',
+            alignItems: 'center',
+            marginHorizontal: 22,
+            marginBottom: 20,
           }}>
             <TouchableOpacity
-              onPress={() => setShowDatePicker(prev => !prev)}
+              onPress={() => setShowDatePicker(true)}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -3030,6 +3082,25 @@ export default function TodoScreen() {
               </Text>
               <Ionicons name="chevron-down" size={16} color="#666" style={{ marginLeft: 1 }} />
             </TouchableOpacity>
+
+            {/* Monthly Progress Button - Only show when habits tab is active */}
+            {activeTab === 'habits' && (
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedMonthForProgress(moment().startOf('month'));
+                  setIsMonthlyProgressModalVisible(true);
+                }}
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: 20,
+                  alignSelf: 'center',
+                }}
+              >
+                <Ionicons name="bar-chart-outline" size={18} color="#666" />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Date Picker Modal */}
@@ -3096,11 +3167,11 @@ export default function TodoScreen() {
             </Modal>
           )}
 
-          {/* Tab Navigation */}
+          {/* Tab Switching */}
           <View style={{
             flexDirection: 'row',
-            marginHorizontal: 16,
-            marginBottom: 24,
+            marginHorizontal: 22,
+            marginBottom: 20,
             borderBottomWidth: 1,
             borderBottomColor: '#f0f0f0',
           }}>
@@ -3353,8 +3424,6 @@ export default function TodoScreen() {
                           shadowOpacity: 0.06,
                           shadowRadius: 4,
                           elevation: 2,
-                          borderWidth: 1,
-                          borderColor: '#f0f0f0',
                           position: 'relative',
                           overflow: 'hidden',
                         }}
@@ -3386,6 +3455,7 @@ export default function TodoScreen() {
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             marginBottom: 8,
+                            paddingRight: 40, // Increased padding to prevent overlap
                           }}>
                             <View style={{ flex: 1 }}>
                               <Text style={{
@@ -3408,33 +3478,12 @@ export default function TodoScreen() {
                                 </Text>
                               )}
                             </View>
-                            
-                            {/* Streak Badge */}
-                            <View style={{
-                              backgroundColor: '#f8f9fa',
-                              borderRadius: 12,
-                            }}>
-                              <View style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                gap: 3,
-                              }}>
-                                <Ionicons name="flame" size={12} color="#ff6b35" />
-                                <Text style={{
-                                  fontSize: 11,
-                                  color: '#495057',
-                                  fontWeight: '600',
-                                  fontFamily: 'Onest',
-                                }}>
-                                  {habit.streak}
-                                </Text>
-                              </View>
-                            </View>
                           </View>
                           
                           {/* Progress Section */}
                           <View style={{
-                            marginBottom: 10,
+                            marginBottom: 5,
+                            paddingRight: 30, // Increased padding to prevent overlap
                           }}>
                             <View style={{
                               flexDirection: 'row',
@@ -3513,50 +3562,57 @@ export default function TodoScreen() {
                             </View>
                           </View>
                           
-                          {/* Footer Row */}
+                          {/* Right Footer Space */}
                           <View style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
+                            position: 'absolute',
+                            right: 0,
+                            top: 6,
+                            alignItems: 'flex-end',
+                            gap: 14,
                           }}>
-                            {/* Target Info */}
-                           
-                            
-                            {/* Photo and Notes Space */}
+                            {/* Streak Badge */}
                             <View style={{
-                              flexDirection: 'row',
-                              alignItems: 'center',
-                              gap: 8,
+                              backgroundColor: `${habit.color}5`,
+                              borderRadius: 12,
                             }}>
-                              {/* Unified Photo/Notes Button */}
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setSelectedHabitForLog(habit);
-                                  setLogDate(moment().format('YYYY-MM-DD'));
-                                  // Pre-fill with existing note for today if it exists
-                                  const today = moment().format('YYYY-MM-DD');
-                                  const existingNote = habit.notes?.[today] || '';
-                                  setLogNoteText(existingNote);
-                                  setIsHabitLogModalVisible(true);
-                                }}
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: 16,
-                                  backgroundColor: (Object.keys(habit.notes || {}).length > 0 || Object.keys(habit.photos || {}).length > 0) ? '#e8f5e8' : '#f8f9fa',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  borderWidth: 1,
-                                  borderColor: (Object.keys(habit.notes || {}).length > 0 || Object.keys(habit.photos || {}).length > 0) ? '#4caf50' : '#e9ecef',
-                                }}
-                              >
-                                <Ionicons 
-                                  name="add-circle-outline" 
-                                  size={16} 
-                                  color={(Object.keys(habit.notes || {}).length > 0 || Object.keys(habit.photos || {}).length > 0) ? "#4caf50" : "#666"} 
-                                />
-                              </TouchableOpacity>
+                              <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 3,
+                              }}>
+                                <Ionicons name="flame" size={12} color="#ff6b35" />
+                                <Text style={{
+                                  fontSize: 11,
+                                  color: '#495057',
+                                  fontWeight: '600',
+                                  fontFamily: 'Onest',
+                                }}>
+                                  {habit.streak}
+                                </Text>
+                              </View>
                             </View>
+                            
+                            {/* Notes/Photo Modal Button */}
+                            <TouchableOpacity
+                              onPress={() => {
+                                setSelectedHabitForLog(habit);
+                                setLogDate(moment().format('YYYY-MM-DD'));
+                                // Pre-fill with existing note for today if it exists
+                                const today = moment().format('YYYY-MM-DD');
+                                const existingNote = habit.notes?.[today] || '';
+                                setLogNoteText(existingNote);
+                                setIsHabitLogModalVisible(true);
+                              }}
+                              style={{
+                                padding: 4,
+                              }}
+                            >
+                              <Ionicons 
+                                name="create-outline" 
+                                size={16} 
+                                color="#666"
+                              />
+                            </TouchableOpacity>
                           </View>
                           
                           {/* Reminder Info */}
@@ -5497,10 +5553,6 @@ export default function TodoScreen() {
               justifyContent: 'space-between', 
               alignItems: 'center', 
               paddingHorizontal: 20,
-              paddingVertical: 16,
-              paddingTop: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
             }}>
               <TouchableOpacity 
                 onPress={() => {
@@ -5987,8 +6039,6 @@ export default function TodoScreen() {
               alignItems: 'center', 
               paddingHorizontal: 20,
               paddingVertical: 16,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
             }}>
               <TouchableOpacity 
                 onPress={() => {
@@ -6071,6 +6121,22 @@ export default function TodoScreen() {
                      autoFocus
                    />
                  </View>
+
+                 {/* Photo Display */}
+                 {selectedHabitForLog?.photos?.[logDate] && (
+                   <View style={{ marginBottom: 24 }}>
+                     <Image
+                       source={{ uri: selectedHabitForLog.photos[logDate] }}
+                       style={{
+                         width: '100%',
+                         height: 200,
+                         borderRadius: 12,
+                         backgroundColor: '#f0f0f0',
+                       }}
+                       resizeMode="cover"
+                     />
+                   </View>
+                 )}
 
                  {/* Photo Actions */}
                  <View style={{
@@ -6172,6 +6238,335 @@ export default function TodoScreen() {
            </View>
          </View>
        </Modal>
+
+      {/* Monthly Progress Chart Modal */}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={isMonthlyProgressModalVisible}
+        onRequestClose={() => setIsMonthlyProgressModalVisible(false)}
+        presentationStyle="pageSheet"
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
+          <View style={{ flex: 1 }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              paddingTop: 40,
+              backgroundColor: '#ffffff',
+            }}>
+              <TouchableOpacity 
+                onPress={() => setIsMonthlyProgressModalVisible(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons name="close" size={16} color="#666" />
+              </TouchableOpacity>
+              
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 16,
+              }}>
+                <TouchableOpacity
+                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'))}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: '#f8f9fa',
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={16} color="#666" />
+                </TouchableOpacity>
+                
+                <Text style={{ 
+                  fontSize: 16, 
+                  fontWeight: '600', 
+                  color: '#333',
+                  fontFamily: 'Onest',
+                  minWidth: 120,
+                  textAlign: 'center',
+                }}>
+                  {selectedMonthForProgress.format('MMMM YYYY')}
+                </Text>
+                
+                <TouchableOpacity
+                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().add(1, 'month'))}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: '#f8f9fa',
+                  }}
+                >
+                  <Ionicons name="chevron-forward" size={16} color="#666" />
+                </TouchableOpacity>
+              </View>
+              
+              <TouchableOpacity
+                onPress={() => setSelectedMonthForProgress(moment())}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: '#f8f9fa',
+                }}
+              >
+                <Text style={{
+                  fontSize: 12,
+                  fontWeight: '600',
+                  color: '#666',
+                  fontFamily: 'Onest',
+                }}>
+                  Today
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Content */}
+            <ScrollView 
+              style={{ flex: 1 }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {habits.map((habit) => (
+                <View key={habit.id} style={{ marginBottom: 24 }}>
+                  {/* Habit Header */}
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: 16,
+                  }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: 18,
+                        fontWeight: '600',
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        marginBottom: 4,
+                      }}>
+                        {habit.text}
+                      </Text>
+                      <Text style={{
+                        fontSize: 14,
+                        color: '#666',
+                        fontFamily: 'Onest',
+                      }}>
+                        {selectedMonthForProgress.format('MMMM YYYY')}
+                      </Text>
+                    </View>
+                    
+                    <View style={{
+                      backgroundColor: `${habit.color}20`,
+                      paddingHorizontal: 12,
+                      paddingVertical: 6,
+                      borderRadius: 12,
+                    }}>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: habit.color,
+                        fontFamily: 'Onest',
+                      }}>
+                        {calculateHabitProgressForMonth(habit, selectedMonthForProgress).percentage.toFixed(1)}%
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Monthly Progress Visualization */}
+                  <View style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: 16,
+                    padding: 20,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 8,
+                    elevation: 4,
+                  }}>
+                    {/* Heatmap Calendar */}
+                    <View>
+                      <View style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 3,
+                      }}>
+                        {(() => {
+                          const monthStart = selectedMonthForProgress.clone().startOf('month');
+                          const daysInMonth = selectedMonthForProgress.daysInMonth();
+                          const completedDays = habit.completedDays || [];
+                          const days = [];
+                          
+                          // Add days of the month
+                          for (let i = 0; i < daysInMonth; i++) {
+                            const currentDate = monthStart.clone().add(i, 'days');
+                            const dateStr = currentDate.format('YYYY-MM-DD');
+                            const isCompleted = completedDays.includes(dateStr);
+                            const isToday = currentDate.isSame(moment(), 'day');
+                            const isFuture = currentDate.isAfter(moment(), 'day');
+                            const hasNote = habit.notes?.[dateStr];
+                            const hasPhoto = habit.photos?.[dateStr];
+                            
+                            let backgroundColor = '#f1f3f4';
+                            if (isCompleted) {
+                              backgroundColor = habit.color;
+                            } else if (isFuture) {
+                              backgroundColor = '#f8f9fa';
+                            }
+                            
+                            days.push(
+                              <TouchableOpacity
+                                key={dateStr}
+                                onPress={() => {
+                                  // Show note content if it exists
+                                  if (hasNote) {
+                                    Alert.alert(
+                                      `Note for ${currentDate.format('MMMM D, YYYY')}`,
+                                      hasNote,
+                                      [
+                                        { text: 'Close', style: 'default' }
+                                      ]
+                                    );
+                                  }
+                                }}
+                                onLongPress={() => {
+                                  // Allow completing habits for any date in the selected month
+                                  if (!isCompleted && !isFuture) {
+                                    Alert.alert(
+                                      'Complete Habit',
+                                      `Mark "${habit.text}" as completed for ${currentDate.format('MMMM D, YYYY')}?`,
+                                      [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        { 
+                                          text: 'Complete', 
+                                          onPress: () => completeHabit(habit.id, dateStr, false)
+                                        }
+                                      ]
+                                    );
+                                  } else if (isCompleted) {
+                                    Alert.alert(
+                                      'Remove Completion',
+                                      `Remove completion for "${habit.text}" on ${currentDate.format('MMMM D, YYYY')}?`,
+                                      [
+                                        { text: 'Cancel', style: 'cancel' },
+                                        { 
+                                          text: 'Remove', 
+                                          style: 'destructive',
+                                          onPress: () => {
+                                            const updatedCompletedDays = completedDays.filter(d => d !== dateStr);
+                                            supabase
+                                              .from('habits')
+                                              .update({
+                                                completed_days: updatedCompletedDays,
+                                                streak: calculateCurrentStreak(updatedCompletedDays)
+                                              })
+                                              .eq('id', habit.id)
+                                              .then(() => {
+                                                setHabits(prev => prev.map(h => 
+                                                  h.id === habit.id 
+                                                    ? { ...h, completedDays: updatedCompletedDays, streak: calculateCurrentStreak(updatedCompletedDays) }
+                                                    : h
+                                                ));
+                                              });
+                                          }
+                                        }
+                                      ]
+                                    );
+                                  }
+                                }}
+                                style={{
+                                  width: 36,
+                                  height: 36,
+                                  borderRadius: 6,
+                                  backgroundColor,
+                                  borderWidth: isToday ? 2 : 0,
+                                  borderColor: isToday ? '#007AFF' : 'transparent',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  position: 'relative',
+                                }}
+                              >
+                                <Text style={{
+                                  fontSize: 12,
+                                  fontWeight: '600',
+                                  color: isCompleted ? '#ffffff' : (isFuture ? '#ccc' : '#666'),
+                                  fontFamily: 'Onest',
+                                }}>
+                                  {currentDate.format('D')}
+                                </Text>
+                                
+                                {/* Note text overlay */}
+                                {hasNote && (
+                                  <View style={{
+                                    position: 'absolute',
+                                    top: -3,
+                                    left: -3,
+                                    right: -3,
+                                    bottom: -3,
+                                    backgroundColor: isCompleted ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.8)',
+                                    borderRadius: 8,
+                                    padding: 3,
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                  }}>
+                                    <Text style={{
+                                      fontSize: 10,
+                                      color: isCompleted ? '#333' : '#ffffff',
+                                      fontFamily: 'Onest',
+                                      textAlign: 'center',
+                                      lineHeight: 12,
+                                    }}>
+                                      {hasNote.length > 25 ? hasNote.substring(0, 25) + '...' : hasNote}
+                                    </Text>
+                                  </View>
+                                )}
+                                
+                                {/* Photo indicator */}
+                                {hasPhoto && !hasNote && (
+                                  <View style={{
+                                    position: 'absolute',
+                                    bottom: 2,
+                                    right: 2,
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: 3,
+                                    backgroundColor: isCompleted ? '#ffffff' : '#FF6B6B',
+                                    borderWidth: 0.5,
+                                    borderColor: isCompleted ? '#ffffff' : '#FF6B6B',
+                                  }} />
+                                )}
+                              </TouchableOpacity>
+                            );
+                          }
+                          
+                          return days;
+                        })()}
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </GestureHandlerRootView>
   );
 }
