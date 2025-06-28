@@ -14,7 +14,7 @@ export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#A0C3B2',
+        tabBarActiveTintColor: '#667eea',
         tabBarInactiveTintColor: '#666',
         headerShown: false,
         tabBarButton: HapticTab,
@@ -31,7 +31,7 @@ export default function TabLayout() {
           backgroundColor: '#FFFFFF',
           height: 70,
           paddingBottom: 8,
-          paddingTop: 8,
+          paddingTop: 4,
           elevation: 0,
           shadowOpacity: 0,
           shadowColor: 'transparent',
@@ -72,6 +72,15 @@ export default function TabLayout() {
           title: 'Notes',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="document-text-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="friends"
+        options={{
+          title: 'Friends',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people-outline" size={size} color={color} />
           ),
         }}
       />

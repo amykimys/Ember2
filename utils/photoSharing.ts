@@ -8,6 +8,7 @@ export interface PhotoShareData {
   sourceId: string;
   sourceTitle: string;
   userId: string;
+  caption?: string;
 }
 
 export const sharePhotoWithFriends = async (photoData: PhotoShareData) => {
@@ -19,7 +20,7 @@ export const sharePhotoWithFriends = async (photoData: PhotoShareData) => {
         user_id: photoData.userId,
         type: 'photo_share',
         photo_url: photoData.photoUrl,
-        caption: null,
+        caption: photoData.caption || null,
         source_type: photoData.sourceType,
         source_id: photoData.sourceId,
         is_public: true,
@@ -57,6 +58,8 @@ export const promptPhotoSharing = (
   onSuccess?: () => void,
   onCancel?: () => void
 ) => {
+  // For now, we'll use a simple alert and ask for caption in a follow-up
+  // In a real app, you'd want to create a custom modal with TextInput
   Alert.alert(
     'Share with Friends?',
     'Would you like to share this photo with your friends?',
@@ -67,12 +70,15 @@ export const promptPhotoSharing = (
         onPress: onCancel
       },
       {
-        text: 'Share with Friends',
-        onPress: async () => {
-          const success = await sharePhotoWithFriends(photoData);
-          if (success && onSuccess) {
-            onSuccess();
-          }
+        text: 'Share with Caption',
+        onPress: () => {
+          // For now, we'll share without a caption
+          // In a real implementation, you'd show a modal with TextInput
+          sharePhotoWithFriends(photoData).then(success => {
+            if (success && onSuccess) {
+              onSuccess();
+            }
+          });
         }
       }
     ]

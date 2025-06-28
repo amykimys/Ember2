@@ -28,7 +28,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as FileSystem from 'expo-file-system';
 import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles';
-import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
+import { promptPhotoSharing, PhotoShareData, sharePhotoWithFriends } from '../../utils/photoSharing';
 import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends } from '../../utils/sharing';
 import type { SharedEvent } from '../../utils/sharing';
 
@@ -211,6 +211,7 @@ const CalendarScreen: React.FC = () => {
   const [repeatOption, setRepeatOption] = useState<RepeatOption>('None');
   const [repeatEndDate, setRepeatEndDate] = useState<Date | null>(null);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [showInlineEndDatePicker, setShowInlineEndDatePicker] = useState(false);
   const [startDateTime, setStartDateTime] = useState<Date>(new Date());
   const [endDateTime, setEndDateTime] = useState<Date>(new Date(new Date().getTime() + 60 * 60 * 1000)); // 1 hour later
   const [showStartPicker, setShowStartPicker] = useState(false);
@@ -243,6 +244,7 @@ const CalendarScreen: React.FC = () => {
   const [editedReminderTime, setEditedReminderTime] = useState<Date | null>(null);
   const [editedRepeatOption, setEditedRepeatOption] = useState<'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'>('None');
   const [editedRepeatEndDate, setEditedRepeatEndDate] = useState<Date | null>(null);
+  const [showEditInlineEndDatePicker, setShowEditInlineEndDatePicker] = useState(false);
 
 
   const [calendarMode, setCalendarMode] = useState<'month' | 'week'>('month');
@@ -1885,7 +1887,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     style={[
                                       styles.eventDot,
                                       { 
-                                        backgroundColor: event.categoryColor || '#A0C3B2'
+                                        backgroundColor: event.categoryColor || '#6366F1'
                                       }
                                     ]}
                                   />
@@ -1893,7 +1895,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               </TouchableOpacity>
                             ))}
                           {dayEvents.length > 3 && (
-                            <View style={[styles.eventDot, { backgroundColor: '#A0C3B2' }]} />
+                            <View style={[styles.eventDot, { backgroundColor: '#6366F1' }]} />
                           )}
                         </View>
                       ) : (
@@ -1932,7 +1934,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   {
                                     backgroundColor: event.isShared 
                                       ? '#007AFF20' // Light iOS blue background for shared events
-                                      : `${event.categoryColor || '#FF9A8B'}30`, // Lighter background color
+                                      : `${event.categoryColor || '#6366F1'}30`, // Lighter background color
                                     borderWidth: event.isShared ? 1 : 0,
                                     borderColor: event.isShared ? '#007AFF' : 'transparent'
                                   }
@@ -2547,14 +2549,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       let result;
       if (source === 'camera') {
         result = await ImagePicker.launchCameraAsync({
-          allowsEditing: true,
+          allowsEditing: false,
           aspect: [4, 3],
           quality: 0.8,
         });
       } else {
         result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: true,
+          allowsEditing: false,
           aspect: [4, 3],
           quality: 0.8,
         });
@@ -2577,32 +2579,32 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }
             await updateEventPhoto(eventId, photoUrl);
           } else {
+            // For new events, we need to save the event first to get a proper ID
+            // For now, we'll skip sharing for new events until they're saved
             eventIdForSharing = 'temp_' + Date.now();
             setEventPhotos(prev => [...prev, photoUrl]);
+            
+            Toast.show({
+              type: 'info',
+              text1: 'Photo added to event',
+              text2: 'Save the event to share the photo with friends',
+              position: 'bottom',
+            });
+            return; // Don't proceed with sharing for unsaved events
           }
 
-          // Prompt for sharing
-          if (user?.id) {
-            promptPhotoSharing(
-              {
-                photoUrl,
-                sourceType: 'event',
-                sourceId: eventIdForSharing,
-                sourceTitle: eventTitle,
-                userId: user.id
-              },
-              () => {
-                // Success callback - photo already added above
-              },
-              () => {
-                // Cancel callback - photo already added above
-                Toast.show({
-                  type: 'success',
-                  text1: 'Photo added successfully',
-                  position: 'bottom',
-                });
-              }
-            );
+          // Prompt for sharing only for saved events
+          if (user?.id && eventId) {
+            // Set up the photo share data and show caption modal
+            setPendingPhotoShare({
+              photoUrl,
+              sourceType: 'event',
+              sourceId: eventIdForSharing,
+              sourceTitle: eventTitle,
+              userId: user.id
+            });
+            setPhotoCaption('');
+            setShowCaptionModal(true);
           } else {
             Toast.show({
               type: 'success',
@@ -2950,6 +2952,62 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     updatePendingSharedEvents();
   }, [events, updatePendingSharedEvents]);
 
+  // Add state for photo sharing caption modal
+  const [showCaptionModal, setShowCaptionModal] = useState(false);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [pendingPhotoShare, setPendingPhotoShare] = useState<PhotoShareData | null>(null);
+
+  // Add state for editedIsAllDay for the edit modal
+
+  // Add functions for caption modal
+  const handleShareWithCaption = async () => {
+    if (!pendingPhotoShare) return;
+
+    try {
+      const updatedPhotoData = {
+        ...pendingPhotoShare,
+        caption: photoCaption.trim() || undefined
+      };
+
+      const success = await sharePhotoWithFriends(updatedPhotoData);
+      
+      if (success) {
+        Toast.show({
+          type: 'success',
+          text1: 'Photo shared with friends!',
+          position: 'bottom',
+        });
+        
+        // Trigger a global event to refresh friends feed in profile
+        const lastPhotoShareTime = Date.now();
+        (global as any).lastPhotoShareTime = lastPhotoShareTime;
+      }
+    } catch (error) {
+      console.error('Error sharing photo with caption:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to share photo',
+        position: 'bottom',
+      });
+    } finally {
+      setShowCaptionModal(false);
+      setPendingPhotoShare(null);
+      setPhotoCaption('');
+    }
+  };
+
+  const handleCancelCaption = () => {
+    setShowCaptionModal(false);
+    setPendingPhotoShare(null);
+    setPhotoCaption('');
+    
+    Toast.show({
+      type: 'success',
+      text1: 'Photo added successfully',
+      position: 'bottom',
+    });
+  };
+
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
@@ -3182,7 +3240,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               width: 5.5,
                               height: 46,
                               borderRadius: 3,
-                              backgroundColor: event.isShared ? '#007AFF' : (event.categoryColor || '#A0C3B2'),
+                              backgroundColor: event.isShared ? '#007AFF' : (event.categoryColor || '#6366F1'),
                               marginRight: 14,
                             }}
                           />
@@ -3699,11 +3757,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     <TouchableOpacity
                       onPress={() => {
                         Keyboard.dismiss();
-                        setShowCategoryPicker(prev => !prev);
-                        if (showCategoryPicker) {
-                          setShowAddCategoryForm(false);
+                        if (categories.length === 0) {
+                          // If no categories exist, automatically show new category input
+                          setShowAddCategoryForm(true);
                           setNewCategoryName('');
-                          setNewCategoryColor(null);
+                          setNewCategoryColor(CATEGORY_COLORS[0]);
+                          setShowCategoryPicker(false);
+                        } else {
+                          // If categories exist, toggle the category box
+                          if (showCategoryPicker) {
+                            setShowCategoryPicker(false);
+                            setShowAddCategoryForm(false);
+                            setNewCategoryName('');
+                            setNewCategoryColor(CATEGORY_COLORS[0]);
+                          } else {
+                            setShowCategoryPicker(true);
+                          }
                         }
                       }}
                       style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
@@ -3784,7 +3853,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               <TouchableOpacity
                                 key={color}
                                 onPress={() => setNewCategoryColor(color)}
-                                style={newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption}
+                                style={[
+                                  newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption,
+                                  { backgroundColor: color }
+                                ]}
                               >
                                 {newCategoryColor === color && (
                                   <Ionicons name="checkmark" size={12} color="white" />
@@ -3798,7 +3870,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               onPress={() => {
                                 setShowAddCategoryForm(false);
                                 setNewCategoryName('');
-                                setNewCategoryColor(null);
+                                setNewCategoryColor(CATEGORY_COLORS[0]);
                               }}
                               style={styles.modalFormButton}
                             >
@@ -3835,7 +3907,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     setSelectedCategory(newCategory);
                                     setShowAddCategoryForm(false);
                                     setNewCategoryName('');
-                                    setNewCategoryColor(null);
+                                    setNewCategoryColor(CATEGORY_COLORS[0]);
                                   }
                                 }
                               }}
@@ -3861,14 +3933,46 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             Reminder
                           </Text>
                           <TouchableOpacity
-                            onPress={() => setShowReminderOptions(prev => !prev)}
-                            style={showReminderOptions ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                            onPress={() => {
+                              if (showReminderPicker) {
+                                setShowReminderPicker(false);
+                              } else {
+                                setShowReminderPicker(true);
+                                setShowReminderOptions(false);
+                                setShowRepeatPicker(false);
+                                setShowEndDatePicker(false);
+                              }
+                            }}
+                            style={showReminderPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                           >
                             <Text style={styles.modalTimeText}>
-                              {reminderOffset === -1 ? 'No reminder' : REMINDER_OPTIONS.find(opt => opt.value === reminderOffset)?.label || 'No reminder'}
+                              {reminderTime ? reminderTime.toLocaleString([], { 
+                                month: 'short', 
+                                day: 'numeric', 
+                                hour: 'numeric', 
+                                minute: '2-digit', 
+                                hour12: true 
+                              }) : 'No reminder'}
                             </Text>
                           </TouchableOpacity>
                         </View>
+                        {showReminderPicker && (
+                          <View style={styles.modalPickerContainer}>
+                            <DateTimePicker
+                              value={reminderTime || new Date()}
+                              mode="datetime"
+                              display="spinner"
+                              onChange={(event, selectedDate) => {
+                                if (selectedDate) {
+                                  setReminderTime(selectedDate);
+                                  debouncePickerClose('reminder');
+                                }
+                              }}
+                              style={{ height: 120, width: '100%' }}
+                              textColor="#333"
+                            />
+                          </View>
+                        )}
                         {showReminderOptions && (
                           <View style={styles.modalCategoryPicker}>
                             <ScrollView 
@@ -3919,7 +4023,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       </View>
 
                       {/* End Date (if repeating) */}
-                      {repeatOption !== 'None' && (
+                      {repeatOption !== 'None' && (repeatOption as string) !== 'Custom' && (
                         <View>
                           <View style={styles.modalTimeRow}>
                             <Text style={styles.modalLabel}>
@@ -3949,76 +4053,120 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       )}
                     </View>
 
-                    {/* Picker Components */}
-                    {showEndDatePicker && (
-                      <View style={styles.modalPickerContainer}>
-                        <DateTimePicker
-                          value={repeatEndDate || new Date()}
-                          mode="date"
-                          display="spinner"
-                          onChange={(event, selectedDate) => {
-                            if (selectedDate) {
-                              setRepeatEndDate(selectedDate);
-                              debouncePickerClose('endDate');
-                            }
-                          }}
-                          style={{ height: 100, width: '100%' }}
-                          textColor="#333"
-                        />
-                      </View>
-                    )}
-
                     {showRepeatPicker && (
-                      <View style={styles.modalCategoryPicker}>
-                        {['Does not repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly', 'Custom'].map((option) => (
-                          <TouchableOpacity 
-                            key={option}
-                            onPress={() => {
-                              if (option === 'Custom') {
-                                setRepeatOption('Custom');
-                                setShowRepeatPicker(false);
-                                setIsEditingEvent(false);
-                                const currentStartTime = startDateTime;
-                                const currentEndTime = endDateTime;
-                                const currentDateStr = getLocalDateString(currentStartTime);
-                                
-                                const initialCustomTimes: CustomTimes = {
-                                  default: {
-                                    start: currentStartTime,
-                                    end: currentEndTime,
-                                    reminder: reminderTime,
-                                    repeat: 'None',
-                                    dates: [currentDateStr]
-                                  }
-                                };
-                                
-                                if (!customSelectedDates.includes(currentDateStr)) {
-                                  setCustomSelectedDates([currentDateStr]);
+                      <View style={{
+                        backgroundColor: '#f8f9fa',
+                        borderRadius: 8,
+                        padding: 8,
+                        marginTop: 4,
+                        borderWidth: 1,
+                        borderColor: '#e0e0e0',
+                      }}>
+                        <View style={{ marginBottom: 8 }}>
+                          {['Does not repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly'].map((option) => (
+                            <TouchableOpacity
+                              key={option}
+                              onPress={() => {
+                                if (option === 'Does not repeat') {
+                                  setEditedRepeatOption('None');
+                                  setEditedRepeatEndDate(null);
+                                  setShowRepeatPicker(false);
+                                } else {
+                                  setEditedRepeatOption(option as RepeatOption);
+                                  // Don't close the picker so the end date section remains visible
                                 }
-                                
-                                initialCustomTimes[currentDateStr] = {
-                                  start: currentStartTime,
-                                  end: currentEndTime,
-                                  reminder: reminderTime,
-                                  repeat: 'None',
-                                  dates: [currentDateStr]
-                                };
-                                
-                                setCustomDateTimes(initialCustomTimes);
-                                setShowModal(false);
-                                setShowCustomDatesPicker(true);
-                              } else {
-                                setRepeatOption(option === 'Does not repeat' ? 'None' : option as RepeatOption);
-                                debouncePickerClose('repeat');
-                              }
-                            }}
-                            style={(option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
-                          >
-                            <Text style={(option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
-                              {option}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
+                              }}
+                              style={{
+                                backgroundColor: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '#f0f0f0' : 'transparent',
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: 6,
+                                marginVertical: 1,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                              }}
+                            >
+                              <Text style={{
+                                fontSize: 14,
+                                color: '#333',
+                                fontFamily: 'Onest',
+                                fontWeight: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '600' : '500',
+                              }}>
+                                {option}
+                              </Text>
+                              {(option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) && (
+                                <Ionicons name="checkmark" size={16} color="#007AFF" />
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                        {editedRepeatOption !== 'None' && (editedRepeatOption as string) !== 'Custom' && (
+                        <View style={{ borderTopWidth: 1, borderTopColor: '#e0e0e0', paddingTop: 8 }}>
+                            <TouchableOpacity
+                              onPress={() => setShowEditInlineEndDatePicker(prev => !prev)}
+                              style={{
+                                backgroundColor: editedRepeatEndDate ? '#f0f0f0' : 'transparent',
+                                paddingVertical: 8,
+                                paddingHorizontal: 12,
+                                borderRadius: 6,
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                              }}
+                            >
+                              <Text style={{
+                                fontSize: 14,
+                                color: '#333',
+                                fontFamily: 'Onest',
+                                fontWeight: editedRepeatEndDate ? '600' : '500',
+                              }}>
+                                {editedRepeatEndDate ? `Ends ${editedRepeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Set end date'}
+                              </Text>
+                              {editedRepeatEndDate ? (
+                                <Ionicons name="checkmark" size={16} color="#007AFF" />
+                              ) : (
+                                <Ionicons name="calendar-outline" size={16} color="#666" />
+                              )}
+                            </TouchableOpacity>
+                            {showEditInlineEndDatePicker && (
+                              <View style={{
+                                backgroundColor: '#ffffff',
+                                borderRadius: 8,
+                                padding: 8,
+                                marginTop: 4,
+                                borderWidth: 1,
+                                borderColor: '#e0e0e0',
+                              }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      setEditedRepeatEndDate(null);
+                                      setShowEditInlineEndDatePicker(false);
+                                    }}
+                                    style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+                                  >
+                                    <Text style={{ fontSize: 12, color: '#FF6B6B', fontFamily: 'Onest', fontWeight: '500' }}>Clear</Text>
+                                  </TouchableOpacity>
+                                </View>
+                                <DateTimePicker
+                                  value={editedRepeatEndDate || new Date()}
+                                  mode="date"
+                                  display="spinner"
+                                  onChange={(event, selectedDate) => {
+                                    if (selectedDate) {
+                                      setEditedRepeatEndDate(selectedDate);
+                                      setShowEditInlineEndDatePicker(false);
+                                      setShowRepeatPicker(false);
+                                    }
+                                  }}
+                                  style={{ height: 100, width: '100%' }}
+                                  textColor="#333"
+                                />
+                              </View>
+                            )}
+                          </View>
+                        )}
                       </View>
                     )}
                   </View>
@@ -4045,11 +4193,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         <TouchableOpacity
                           onPress={() => {
                             Keyboard.dismiss();
-                            setShowCategoryPicker(prev => !prev);
-                            if (showCategoryPicker) {
-                              setShowAddCategoryForm(false);
+                            if (categories.length === 0) {
+                              // If no categories exist, automatically show new category input
+                              setShowAddCategoryForm(true);
                               setNewCategoryName('');
-                          setNewCategoryColor(null);
+                              setNewCategoryColor(CATEGORY_COLORS[0]);
+                              setShowCategoryPicker(false);
+                            } else {
+                              // If categories exist, toggle the category box
+                              if (showCategoryPicker) {
+                                setShowCategoryPicker(false);
+                                setShowAddCategoryForm(false);
+                                setNewCategoryName('');
+                                setNewCategoryColor(CATEGORY_COLORS[0]);
+                              } else {
+                                setShowCategoryPicker(true);
+                              }
                             }
                           }}
                           style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
@@ -4129,7 +4288,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                         <TouchableOpacity
                                           key={color}
                                           onPress={() => setNewCategoryColor(color)}
-                                          style={newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption}
+                                          style={[
+                                            newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption,
+                                            { backgroundColor: color }
+                                          ]}
                                         >
                                           {newCategoryColor === color && (
                                             <Ionicons name="checkmark" size={12} color="white" />
@@ -4143,7 +4305,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                         onPress={() => {
                                           setShowAddCategoryForm(false);
                                           setNewCategoryName('');
-                                setNewCategoryColor(null);
+                                setNewCategoryColor(CATEGORY_COLORS[0]);
                                         }}
                                         style={styles.modalFormButton}
                                       >
@@ -4181,7 +4343,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                               setSelectedCategory(newCategory);
                                               setShowAddCategoryForm(false);
                                               setNewCategoryName('');
-                                              setNewCategoryColor(null);
+                                              setNewCategoryColor(CATEGORY_COLORS[0]);
                                             }
                                           }
                                         }}
@@ -4584,11 +4746,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   <TouchableOpacity
                     onPress={() => {
                       Keyboard.dismiss();
-                      setShowCategoryPicker(prev => !prev);
-                      if (showCategoryPicker) {
-                        setShowAddCategoryForm(false);
+                      if (categories.length === 0) {
+                        // If no categories exist, automatically show new category input
+                        setShowAddCategoryForm(true);
                         setNewCategoryName('');
-                        setNewCategoryColor(null);
+                        setNewCategoryColor(CATEGORY_COLORS[0]);
+                        setShowCategoryPicker(false);
+                      } else {
+                        // If categories exist, toggle the category box
+                        if (showCategoryPicker) {
+                          setShowCategoryPicker(false);
+                          setShowAddCategoryForm(false);
+                          setNewCategoryName('');
+                          setNewCategoryColor(CATEGORY_COLORS[0]);
+                        } else {
+                          setShowCategoryPicker(true);
+                        }
                       }
                     }}
                     style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
@@ -4669,7 +4842,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             <TouchableOpacity
                               key={color}
                               onPress={() => setNewCategoryColor(color)}
-                              style={newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption}
+                              style={[
+                                newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption,
+                                { backgroundColor: color }
+                              ]}
                             >
                               {newCategoryColor === color && (
                                 <Ionicons name="checkmark" size={12} color="white" />
@@ -4683,7 +4859,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             onPress={() => {
                               setShowAddCategoryForm(false);
                               setNewCategoryName('');
-                              setNewCategoryColor(null);
+                              setNewCategoryColor(CATEGORY_COLORS[0]);
                             }}
                             style={styles.modalFormButton}
                           >
@@ -4720,7 +4896,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   setEditedSelectedCategory(newCategory);
                                   setShowAddCategoryForm(false);
                                   setNewCategoryName('');
-                                  setNewCategoryColor(null);
+                                  setNewCategoryColor(CATEGORY_COLORS[0]);
                                 }
                               }
                             }}
@@ -4747,41 +4923,46 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           Reminder
                         </Text>
                         <TouchableOpacity
-                          onPress={() => setShowReminderOptions(prev => !prev)}
-                          style={showReminderOptions ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                          onPress={() => {
+                            if (showReminderPicker) {
+                              setShowReminderPicker(false);
+                            } else {
+                              setShowReminderPicker(true);
+                              setShowReminderOptions(false);
+                              setShowRepeatPicker(false);
+                              setShowEndDatePicker(false);
+                            }
+                          }}
+                          style={showReminderPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                         >
                           <Text style={styles.modalTimeText}>
-                            {editedReminderTime ? editedReminderTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }) : 'No reminder'}
+                            {editedReminderTime ? editedReminderTime.toLocaleString([], { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              hour: 'numeric', 
+                              minute: '2-digit', 
+                              hour12: true 
+                            }) : 'No reminder'}
                           </Text>
                         </TouchableOpacity>
                       </View>
-                      {showReminderOptions && (
-                        <View style={styles.modalCategoryPicker}>
-                          <ScrollView 
-                            showsVerticalScrollIndicator={false}
-                            contentContainerStyle={{ paddingVertical: 2 }}
-                          >
-                            {REMINDER_OPTIONS.map(opt => (
-                              <TouchableOpacity
-                                key={opt.value}
-                          onPress={() => {
-                                  if (opt.value === -1) {
-                                    setEditedReminderTime(null);
-                                  } else {
-                                    const reminderDate = new Date(editedStartDateTime);
-                                    reminderDate.setMinutes(reminderDate.getMinutes() - opt.value);
-                                    setEditedReminderTime(reminderDate);
-                                  }
-                                  setShowReminderOptions(false);
-                                }}
-                                style={reminderOffset === opt.value ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
-                              >
-                                <Text style={reminderOffset === opt.value ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
-                                  {opt.label}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
+                      {showReminderPicker && (
+                        <View style={styles.modalPickerContainer}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 0 }}>
+                            <DateTimePicker
+                              value={editedReminderTime || new Date()}
+                              mode="datetime"
+                              display="spinner"
+                              onChange={(event, selectedDate) => {
+                                if (selectedDate) {
+                                  setEditedReminderTime(selectedDate);
+                                  debouncePickerClose('reminder');
+                                }
+                              }}
+                              style={{ height: 120, width: '100%' }}
+                              textColor="#333"
+                            />
+                          </View>
                         </View>
                       )}
                     </View>
@@ -5501,6 +5682,104 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 </View>
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Photo Caption Modal */}
+      <Modal
+        visible={showCaptionModal}
+        animationType="slide"
+        transparent
+        onRequestClose={handleCancelCaption}
+      >
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+          <View style={{
+            height: '50%',
+            backgroundColor: '#fff',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            overflow: 'hidden',
+          }}>
+            <SafeAreaView style={{ flex: 1 }}>
+              <View style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                paddingHorizontal: 20,
+                paddingVertical: 16,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f0f0f0',
+              }}>
+                <TouchableOpacity onPress={handleCancelCaption}>
+                  <Text style={{ fontSize: 16, color: '#8E8E93', fontFamily: 'Onest' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+                <Text style={{ fontSize: 18, fontWeight: '600', color: '#000', fontFamily: 'Onest' }}>
+                  Add Caption
+                </Text>
+                <TouchableOpacity onPress={handleShareWithCaption}>
+                  <Text style={{ fontSize: 16, color: '#007AFF', fontWeight: '600', fontFamily: 'Onest' }}>
+                    Share
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ flex: 1, padding: 20 }}>
+                {/* Selected Photo */}
+                {pendingPhotoShare && (
+                  <View style={{ marginBottom: 16 }}>
+                    <Image
+                      source={{ uri: pendingPhotoShare.photoUrl }}
+                      style={{
+                        width: '100%',
+                        aspectRatio: 1, // Square aspect ratio to maintain consistency
+                        borderRadius: 12,
+                        marginBottom: 12,
+                        backgroundColor: '#ffffff', // White background
+                      }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                )}
+                
+                <Text style={{ fontSize: 16, color: '#000', marginBottom: 12, fontFamily: 'Onest' }}>
+                  Add a caption to your photo (optional):
+                </Text>
+                
+                <TextInput
+                  style={{
+                    borderWidth: 1,
+                    borderColor: '#E5E5E7',
+                    borderRadius: 12,
+                    padding: 16,
+                    fontSize: 16,
+                    color: '#000',
+                    fontFamily: 'Onest',
+                    minHeight: 100,
+                    textAlignVertical: 'top',
+                  }}
+                  placeholder="What's happening in this photo?"
+                  placeholderTextColor="#8E8E93"
+                  value={photoCaption}
+                  onChangeText={setPhotoCaption}
+                  multiline
+                  maxLength={200}
+                  autoFocus
+                />
+                
+                <Text style={{ 
+                  fontSize: 12, 
+                  color: '#8E8E93', 
+                  textAlign: 'right', 
+                  marginTop: 8,
+                  fontFamily: 'Onest'
+                }}>
+                  {photoCaption.length}/200
+                </Text>
+              </View>
+            </SafeAreaView>
           </View>
         </View>
       </Modal>

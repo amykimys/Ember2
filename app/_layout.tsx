@@ -14,12 +14,17 @@ import { Session } from '@supabase/supabase-js';
 import 'react-native-reanimated';
 import * as Font from 'expo-font';
 import { View } from 'react-native';
+import LoadingScreen from '@/components/LoadingScreen';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [session, setSession] = useState<Session | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [fontsLoaded, setFontsLoaded] = useState(false);
+  const [appReady, setAppReady] = useState(false);
+  
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     'Onest': require('../assets/fonts/Onest-Regular.ttf'),
@@ -28,18 +33,36 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
+    async function loadFonts() {
+      try {
+        await Font.loadAsync({
+          'Manrope': require('../assets/fonts/Manrope-Regular.ttf'),
+          'Manrope-Bold': require('../assets/fonts/Manrope-Bold.ttf'),
+          'Manrope-Medium': require('../assets/fonts/Manrope-Medium.ttf'),
+          'Onest': require('../assets/fonts/Onest-Regular.ttf'),
+          'Onest-Bold': require('../assets/fonts/Onest-Bold.ttf'),
+          'Onest-Medium': require('../assets/fonts/Onest-Medium.ttf'),
+        });
+        setFontsLoaded(true);
+      } catch (error) {
+        console.error('Error loading fonts:', error);
+        setFontsLoaded(true); // Continue even if fonts fail to load
+      }
     }
+    loadFonts();
+  }, []);
 
-    const listener = Linking.addEventListener('url', (event) => {
-      console.log('🔗 Deep link triggered:', event.url);
-    });
-
-    return () => {
-      listener.remove();
-    };
-  }, [loaded]);
+  useEffect(() => {
+    if (loaded && fontsLoaded) {
+      // Hide the native splash screen
+      SplashScreen.hideAsync();
+      
+      // Show our custom loading screen for a bit longer
+      setTimeout(() => {
+        setAppReady(true);
+      }, 1000);
+    }
+  }, [loaded, fontsLoaded]);
 
   useEffect(() => {
     // Initialize session
@@ -67,21 +90,24 @@ export default function RootLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const listener = Linking.addEventListener('url', (event) => {
+    console.log('🔗 Deep link triggered:', event.url);
+  });
+
   useEffect(() => {
-    async function loadFonts() {
-      await Font.loadAsync({
-        'Manrope': require('../assets/fonts/Manrope-Regular.ttf'),
-        'Manrope-Bold': require('../assets/fonts/Manrope-Bold.ttf'),
-        'Manrope-Medium': require('../assets/fonts/Manrope-Medium.ttf'),
-        'Onest': require('../assets/fonts/Onest-Regular.ttf'),
-        'Onest-Bold': require('../assets/fonts/Onest-Bold.ttf'),
-        'Onest-Medium': require('../assets/fonts/Onest-Medium.ttf'),
-      });
-    }
-    loadFonts();
+    return () => {
+      listener.remove();
+    };
   }, []);
 
-  if (!loaded) return null;
+  const handleLoadingComplete = () => {
+    setIsLoading(false);
+  };
+
+  // Show loading screen while app is initializing
+  if (!appReady || isLoading) {
+    return <LoadingScreen onLoadingComplete={handleLoadingComplete} />;
+  }
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

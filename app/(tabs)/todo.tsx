@@ -27,6 +27,9 @@ import {
   SafeAreaView,
   Image,
   FlatList,
+  Animated,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -40,7 +43,6 @@ import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import NetInfo from '@react-native-community/netinfo';
-import { Animated } from 'react-native';
 import CalendarStrip from 'react-native-calendar-strip';
 import moment from 'moment';
 import 'moment/locale/en-gb';
@@ -278,6 +280,46 @@ export default function TodoScreen() {
   const [showInlineEndDatePicker, setShowInlineEndDatePicker] = useState(false);
   const [showRepeatPicker, setShowRepeatPicker] = useState(false);
   const [taskPhoto, setTaskPhoto] = useState<string | null>(null);
+  const [showReminderOptions, setShowReminderOptions] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+
+  // Add timeout refs for debouncing picker closes
+  const timeoutRefs = {
+    start: useRef<NodeJS.Timeout>(),
+    end: useRef<NodeJS.Timeout>(),
+    reminder: useRef<NodeJS.Timeout>(),
+    repeat: useRef<NodeJS.Timeout>(),
+    endDate: useRef<NodeJS.Timeout>(),
+  };
+
+  // Add debounce function
+  const debouncePickerClose = (pickerType: 'start' | 'end' | 'reminder' | 'repeat' | 'endDate') => {
+    // Clear any existing timeout
+    if (timeoutRefs[pickerType].current) {
+      clearTimeout(timeoutRefs[pickerType].current);
+    }
+
+    // Set new timeout
+    timeoutRefs[pickerType].current = setTimeout(() => {
+      switch (pickerType) {
+        case 'start':
+          // setShowStartPicker(false);
+          break;
+        case 'end':
+          // setShowEndPicker(false);
+          break;
+        case 'reminder':
+          setShowReminderPicker(false);
+          break;
+        case 'repeat':
+          setShowRepeatPicker(false);
+          break;
+        case 'endDate':
+          setShowEndDatePicker(false);
+          break;
+      }
+    }, 1500); // 1.5 second delay
+  };
 
   // Habit modal state
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
@@ -327,6 +369,17 @@ export default function TodoScreen() {
   // Add state for monthly progress chart modal
   const [isMonthlyProgressModalVisible, setIsMonthlyProgressModalVisible] = useState(false);
   const [selectedMonthForProgress, setSelectedMonthForProgress] = useState(moment().startOf('month'));
+  
+  // Add state for detail modal to show notes and photos
+  const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
+  const [selectedDateData, setSelectedDateData] = useState<{
+    habit: Habit;
+    date: string;
+    formattedDate: string;
+    note?: string;
+    photo?: string;
+    isCompleted: boolean;
+  } | null>(null);
 
   // Add state for photo navigation
   const [allPhotosForViewing, setAllPhotosForViewing] = useState<Array<{
@@ -415,6 +468,12 @@ export default function TodoScreen() {
       }, 150);
     }
   }, [isNewHabitModalVisible]);
+
+  // Add useEffect to monitor detail modal state
+  useEffect(() => {
+    console.log('Detail modal visibility changed:', isDetailModalVisible);
+    console.log('Selected date data:', selectedDateData);
+  }, [isDetailModalVisible, selectedDateData]);
 
   const resetForm = () => {
     setNewTodo('');
@@ -1363,6 +1422,15 @@ export default function TodoScreen() {
                 alignItems: 'center',
                 gap: 6,
               }}>
+                <Ionicons name="share-outline" size={12} color="#007AFF" />
+                <Text style={{ 
+                  fontSize: 10, 
+                  color: '#007AFF', 
+                  fontFamily: 'Onest',
+                  fontWeight: '600'
+                }}>
+                  Shared by
+                </Text>
                 <View style={{
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -2001,20 +2069,38 @@ export default function TodoScreen() {
   
   // Add useEffect for user state management
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const checkSession = async () => {
+      try {
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('[Todo] Session check error:', sessionError);
+          return;
+        }
+
+        if (session?.user) {
+          setUser(session.user);
+          await fetchData(session.user);
+        }
+      } catch (error) {
+        console.error('[Todo] Error in checkSession:', error);
+      }
+    };
+
+    checkSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setUser(session.user);
+        await fetchData(session.user);
       } else {
         setUser(null);
+        // Clear data when user signs out
         setTodos([]);
+        setHabits([]);
         setCategories([]);
-        resetForm();
+        setFriends([]);
       }
-    });
-
-    // Initial user check
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setUser(user);
     });
 
     return () => {
@@ -2994,6 +3080,10 @@ export default function TodoScreen() {
     };
   };
 
+  // Add ref for friends search input
+  const friendsSearchInputRef = useRef<TextInput>(null);
+  const modalScrollViewRef = useRef<ScrollView>(null);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <PanGestureHandler
@@ -3064,24 +3154,36 @@ export default function TodoScreen() {
             marginHorizontal: 22,
             marginBottom: 20,
           }}>
-            <TouchableOpacity
-              onPress={() => setShowDatePicker(true)}
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Text style={{
-                fontSize: 25,
-                fontWeight: '700',
-                color: '#333',
-                fontFamily: 'Onest',
-              }}>
-                {moment(currentDate).format('MMMM D')}
-              </Text>
-              <Ionicons name="chevron-down" size={16} color="#666" style={{ marginLeft: 1 }} />
-            </TouchableOpacity>
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <TouchableOpacity
+                onPress={goToToday}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{
+                  fontSize: 25,
+                  fontWeight: '700',
+                  color: '#333',
+                  fontFamily: 'Onest',
+                }}>
+                  {moment(currentDate).format('MMMM D')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowDatePicker(true)}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="chevron-down" size={16} color="#666" style={{ marginLeft: 1 }} />
+              </TouchableOpacity>
+            </View>
 
             {/* Monthly Progress Button - Only show when habits tab is active */}
             {activeTab === 'habits' && (
@@ -3093,7 +3195,6 @@ export default function TodoScreen() {
                 style={{
                   paddingHorizontal: 16,
                   paddingVertical: 8,
-                  backgroundColor: '#f8f9fa',
                   borderRadius: 20,
                   alignSelf: 'center',
                 }}
@@ -3182,13 +3283,13 @@ export default function TodoScreen() {
                 paddingVertical: 12,
                 alignItems: 'center',
                 borderBottomWidth: 2,
-                borderBottomColor: activeTab === 'tasks' ? '#FF9A8B' : 'transparent',
+                borderBottomColor: activeTab === 'tasks' ? '#667eea' : 'transparent',
               }}
             >
               <Text style={{
                 fontSize: 16,
                 fontWeight: activeTab === 'tasks' ? '600' : '400',
-                color: activeTab === 'tasks' ? '#FF9A8B' : '#999',
+                color: activeTab === 'tasks' ? '#667eea' : '#999',
                 fontFamily: 'Onest',
               }}>
                 Tasks
@@ -3202,13 +3303,13 @@ export default function TodoScreen() {
                 paddingVertical: 12,
                 alignItems: 'center',
                 borderBottomWidth: 2,
-                borderBottomColor: activeTab === 'habits' ? '#FF9A8B' : 'transparent',
+                borderBottomColor: activeTab === 'habits' ? '#667eea' : 'transparent',
               }}
             >
               <Text style={{
                 fontSize: 16,
                 fontWeight: activeTab === 'habits' ? '600' : '400',
-                color: activeTab === 'habits' ? '#FF9A8B' : '#999',
+                color: activeTab === 'habits' ? '#667eea' : '#999',
                 fontFamily: 'Onest',
               }}>
                 Habits
@@ -3283,7 +3384,7 @@ export default function TodoScreen() {
                 </View>
               ) : (
                 <View style={{ paddingHorizontal: 16 }}>
-                  {habits.map((habit: Habit) => (
+                  {habits.map((habit) => (
                     <Swipeable
                       key={habit.id}
                       ref={(ref) => {
@@ -3633,7 +3734,7 @@ export default function TodoScreen() {
                                 marginLeft: 4,
                                 fontWeight: '500',
                               }}>
-                                {moment(habit.reminderTime).format('h:mm A')}
+                                {habit.reminderTime ? moment(habit.reminderTime).format('MMM D, h:mm A') : 'No reminder'}
                               </Text>
                             </View>
                           )}
@@ -3684,1177 +3785,1058 @@ export default function TodoScreen() {
         presentationStyle="pageSheet"
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
-          <View style={{ flex: 1 }}>
-            {/* Minimal Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              paddingTop: 40,
-              backgroundColor: (() => {
-                if (editingTodo) {
-                  if (selectedCategoryId && selectedCategoryId.trim() !== '') {
-                    const category = categories.find(cat => cat.id === selectedCategoryId);
-                    return category ? category.color + '60' : '#ffffff';
-                  }
-                  return '#ffffff';
-                } else {
-                  // New task modal
-                  if (selectedCategoryId && selectedCategoryId.trim() !== '') {
-                    const category = categories.find(cat => cat.id === selectedCategoryId);
-                    return category ? category.color + '60' : '#ffffff';
-                  }
-                  return '#ffffff';
-                }
-              })(),
-            }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  hideModal();
-                  // Delay resetForm to prevent title change during modal closing animation
-                  setTimeout(() => {
-                    resetForm();
-                  }, 300);
-                }}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="close" size={16} color="#666" />
-              </TouchableOpacity>
-              
-              <Text style={{ 
-                fontSize: 16, 
-                fontWeight: '600', 
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
-                {editingTodo ? 'Edit Task' : 'New Task'}
-              </Text>
-              
-              <TouchableOpacity 
-                onPress={editingTodo ? handleEditSave : handleSave}
-                disabled={!newTodo.trim()}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ffffff',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons 
-                  name="checkmark" 
-                  size={16} 
-                  color={newTodo.trim() ? 'white' : '#999'} 
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Content */}
-            <ScrollView 
-              style={{ flex: 1 }}
-              contentContainerStyle={{ 
-                padding: 16, 
-                paddingBottom: 100, // Increased bottom padding for better scrolling
-                minHeight: '100%' // Ensures content is scrollable even when short
-              }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={true} // Show scroll indicator
-              bounces={true} // Enable bounce effect
-              alwaysBounceVertical={true} // Always allow vertical bounce
-              scrollEventThrottle={16} // Smooth scrolling
-            >
-              {/* Task Title Card */}
-              <View style={{
-                backgroundColor: 'white',
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 18,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05,
-                shadowRadius: 4,
-                elevation: 1,
-              }}>
-                <TextInput
-                  ref={newTodoInputRef}
-                  style={{
-                    fontSize: 17,
-                    fontFamily: 'Onest',
-                    fontWeight: '500',
-                    marginBottom: 5,
-                  }}
-                  placeholder="Task Title"
-                  placeholderTextColor="#888"
-                  value={newTodo}
-                  onChangeText={setNewTodo}
-                />
-
-                <TextInput
-                  ref={newDescriptionInputRef}
-                  style={{
-                    fontSize: 13,
-                    color: '#666',
-                    fontFamily: 'Onest',
-                    fontWeight: '400',
-                    marginTop: 5,
-                    paddingVertical: 2,
-                    paddingHorizontal: 0,
-                    textAlignVertical: 'top',
-                    minHeight: 60,
-                  }}
-                  placeholder="Description (optional)"
-                  placeholderTextColor="#999"
-                  value={newDescription}
-                  onChangeText={setNewDescription}
-                  multiline
-                  numberOfLines={3}
-                />
-              </View>
-
-              {/* Date Card */}
-              <View style={{
-                backgroundColor: 'white',
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 18,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05,
-                shadowRadius: 4,
-                elevation: 1,
-              }}>
-                <Text style={{
-                  fontSize: 14,
-                  fontWeight: '600',
-                  color: '#333',
-                  marginBottom: 12,
-                  fontFamily: 'Onest'
-                }}>
-                  Due Date
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setShowDatePicker(prev => !prev);
-                    Keyboard.dismiss();
-                  }}
-                  style={{
-                    backgroundColor: '#f8f9fa',
-                    borderRadius: 8,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderWidth: 1,
-                    borderColor: showDatePicker ? '#007AFF' : '#f0f0f0',
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Text style={{
-                      fontSize: 14,
-                      color: '#333',
-                      fontFamily: 'Onest',
-                      fontWeight: '500'
-                    }}>
-                      {taskDate ? 
-                        (() => {
-                          const today = moment().startOf('day');
-                          const tomorrow = moment().add(1, 'day').startOf('day');
-                          const taskMoment = moment(taskDate).startOf('day');
-                          
-                          if (taskMoment.isSame(today)) {
-                            return 'Today';
-                          } else if (taskMoment.isSame(tomorrow)) {
-                            return 'Tomorrow';
-                          } else {
-                            return moment(taskDate).format('MMM D, YYYY');
-                          }
-                        })() : 
-                        'Select date'
-                      }
-                    </Text>
-                    <Ionicons name="chevron-down" size={12} color="#999" />
-                  </View>
-                </TouchableOpacity>
-
-                {showDatePicker && (
-                  <View style={{
-                    backgroundColor: '#f8f9fa',
-                    borderRadius: 8,
-                    padding: 12,
-                    marginTop: 8,
-                    borderWidth: 1,
-                    borderColor: '#e0e0e0',
-                  }}>
-                    <RNCalendar
-                      current={taskDate ? moment(taskDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')}
-                      onDayPress={(day: DateData) => {
-                        // Create a new date using the dateString to avoid timezone issues
-                        const selectedDate = new Date(day.dateString + 'T00:00:00');
-                        setTaskDate(selectedDate);
-                        setShowDatePicker(false);
-                        Keyboard.dismiss();
-                      }}
-                      markedDates={{
-                        [taskDate ? moment(taskDate).format('YYYY-MM-DD') : '']: {
-                          selected: true,
-                          selectedColor: '#007AFF',
-                        },
-                        [moment().format('YYYY-MM-DD')]: {
-                          today: true,
-                          todayTextColor: '#007AFF',
-                        }
-                      }}
-                      theme={{
-                        backgroundColor: 'transparent',
-                        calendarBackground: 'transparent',
-                        textSectionTitleColor: '#333',
-                        selectedDayBackgroundColor: '#007AFF',
-                        selectedDayTextColor: '#ffffff',
-                        todayTextColor: '#007AFF',
-                        dayTextColor: '#333',
-                        textDisabledColor: '#d9e1e8',
-                        dotColor: '#007AFF',
-                        selectedDotColor: '#ffffff',
-                        arrowColor: '#007AFF',
-                        monthTextColor: '#333',
-                        indicatorColor: '#007AFF',
-                        textDayFontFamily: 'Onest',
-                        textMonthFontFamily: 'Onest',
-                        textDayHeaderFontFamily: 'Onest',
-                        textDayFontWeight: '400',
-                        textMonthFontWeight: '600',
-                        textDayHeaderFontWeight: '500',
-                        textDayFontSize: 14,
-                        textMonthFontSize: 16,
-                        textDayHeaderFontSize: 12,
-                      }}
-                      style={{
-                        width: '100%',
-                      }}
-                    />
-                  </View>
-                )}
-              </View>
-
-              {/* Category Card */}
-              <View style={{
-                backgroundColor: 'white',
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 18,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05,
-                shadowRadius: 4,
-                elevation: 1,
-              }}>
-                <Text style={{
-                  fontSize: 14,
-                  fontWeight: '600',
-                  color: '#333',
-                  marginBottom: 12,
-                  fontFamily: 'Onest'
-                }}>
-                  Category
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (categories.length === 0) {
-                      // If no categories exist, automatically show new category input
-                      setShowNewCategoryInput(true);
-                      setNewCategoryName('');
-                      setNewCategoryColor('#BF9264');
-                      setShowCategoryBox(false);
-                    } else {
-                      // If categories exist, toggle the category box
-                      setShowCategoryBox(prev => !prev);
+          <KeyboardAvoidingView 
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          >
+            <View style={{ flex: 1 }}>
+              {/* Minimal Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                paddingTop: 40,
+                backgroundColor: (() => {
+                  if (editingTodo) {
+                    if (selectedCategoryId && selectedCategoryId.trim() !== '') {
+                      const category = categories.find(cat => cat.id === selectedCategoryId);
+                      return category ? category.color + '60' : '#ffffff';
                     }
-                    Keyboard.dismiss();
+                    return '#ffffff';
+                  } else {
+                    // New task modal
+                    if (selectedCategoryId && selectedCategoryId.trim() !== '') {
+                      const category = categories.find(cat => cat.id === selectedCategoryId);
+                      return category ? category.color + '60' : '#ffffff';
+                    }
+                    return '#ffffff';
+                  }
+                })(),
+              }}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    hideModal();
+                    // Delay resetForm to prevent title change during modal closing animation
+                    setTimeout(() => {
+                      resetForm();
+                    }, 300);
                   }}
                   style={{
-                    backgroundColor: '#f8f9fa',
-                    borderRadius: 8,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                    borderWidth: 1,
-                    borderColor: showCategoryBox ? '#007AFF' : '#f0f0f0',
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
                   }}
                 >
-                  {!showCategoryBox ? (
+                  <Ionicons name="close" size={16} color="#666" />
+                </TouchableOpacity>
+                
+                <Text style={{ 
+                  fontSize: 16, 
+                  fontWeight: '600', 
+                  color: '#333',
+                  fontFamily: 'Onest'
+                }}>
+                  {editingTodo ? 'Edit Task' : 'New Task'}
+                </Text>
+                
+                <TouchableOpacity 
+                  onPress={editingTodo ? handleEditSave : handleSave}
+                  disabled={!newTodo.trim()}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ffffff',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons 
+                    name="checkmark" 
+                    size={16} 
+                    color={newTodo.trim() ? 'white' : '#999'} 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Content */}
+              <ScrollView 
+                ref={modalScrollViewRef}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ 
+                  padding: 16, 
+                  paddingBottom: 150, // Increased bottom padding for better scrolling with keyboard
+                  minHeight: '100%' // Ensures content is scrollable even when short
+                }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={true} // Show scroll indicator
+                bounces={true} // Enable bounce effect
+                alwaysBounceVertical={true} // Always allow vertical bounce
+                scrollEventThrottle={16} // Smooth scrolling
+                keyboardDismissMode="interactive" // Allow keyboard to be dismissed by scrolling
+              >
+                {/* Task Title Card */}
+                <View style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 18,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
+                }}>
+                  <TextInput
+                    ref={newTodoInputRef}
+                    style={{
+                      fontSize: 17,
+                      fontFamily: 'Onest',
+                      fontWeight: '500',
+                      marginBottom: 5,
+                    }}
+                    placeholder="Task Title"
+                    placeholderTextColor="#888"
+                    value={newTodo}
+                    onChangeText={setNewTodo}
+                  />
+
+                  <TextInput
+                    ref={newDescriptionInputRef}
+                    style={{
+                      fontSize: 13,
+                      color: '#666',
+                      fontFamily: 'Onest',
+                      fontWeight: '400',
+                      marginTop: 5,
+                      paddingVertical: 2,
+                      paddingHorizontal: 0,
+                      textAlignVertical: 'top',
+                      minHeight: 60,
+                    }}
+                    placeholder="Description (optional)"
+                    placeholderTextColor="#999"
+                    value={newDescription}
+                    onChangeText={setNewDescription}
+                    multiline
+                    numberOfLines={3}
+                  />
+                </View>
+
+                {/* Date Card */}
+                <View style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 18,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
+                }}>
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '600',
+                    color: '#333',
+                    marginBottom: 12,
+                    fontFamily: 'Onest'
+                  }}>
+                    Due Date
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowDatePicker(prev => !prev);
+                      Keyboard.dismiss();
+                    }}
+                    style={{
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: 8,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderWidth: 1,
+                      borderColor: showDatePicker ? '#667eea' : '#f0f0f0',
+                    }}
+                  >
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        {selectedCategoryId ? (
-                          <>
-                            <View style={{ 
-                              width: 8, 
-                              height: 8, 
-                              borderRadius: 4, 
-                              backgroundColor: categories.find(cat => cat.id === selectedCategoryId)?.color || '#666',
-                              marginRight: 8
-                            }} />
+                      <Text style={{
+                        fontSize: 14,
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        fontWeight: '500'
+                      }}>
+                        {taskDate ? 
+                          (() => {
+                            const today = moment().startOf('day');
+                            const tomorrow = moment().add(1, 'day').startOf('day');
+                            const taskMoment = moment(taskDate).startOf('day');
+                            
+                            if (taskMoment.isSame(today)) {
+                              return 'Today';
+                            } else if (taskMoment.isSame(tomorrow)) {
+                              return 'Tomorrow';
+                            } else {
+                              return moment(taskDate).format('MMM D, YYYY');
+                            }
+                          })() : 
+                          'Select date'
+                        }
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {showDatePicker && (
+                    <View style={{
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: 8,
+                      padding: 12,
+                      marginTop: 8,
+                      borderWidth: 1,
+                      borderColor: '#e0e0e0',
+                    }}>
+                      <RNCalendar
+                        current={taskDate ? moment(taskDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')}
+                        onDayPress={(day: DateData) => {
+                          // Create a new date using the dateString to avoid timezone issues
+                          const selectedDate = new Date(day.dateString + 'T00:00:00');
+                          setTaskDate(selectedDate);
+                          setShowDatePicker(false);
+                          Keyboard.dismiss();
+                        }}
+                        markedDates={{
+                          [taskDate ? moment(taskDate).format('YYYY-MM-DD') : '']: {
+                            selected: true,
+                            selectedColor: '#667eea',
+                          },
+                          [moment().format('YYYY-MM-DD')]: {
+                            today: true,
+                            todayTextColor: '#667eea',
+                          }
+                        }}
+                        theme={{
+                          backgroundColor: 'transparent',
+                          calendarBackground: 'transparent',
+                          textSectionTitleColor: '#333',
+                          selectedDayBackgroundColor: '#667eea',
+                          selectedDayTextColor: '#ffffff',
+                          todayTextColor: '#667eea',
+                          dayTextColor: '#333',
+                          textDisabledColor: '#d9e1e8',
+                          dotColor: '#667eea',
+                          selectedDotColor: '#ffffff',
+                          arrowColor: '#667eea',
+                          monthTextColor: '#333',
+                          indicatorColor: '#667eea',
+                          textDayFontFamily: 'Onest',
+                          textMonthFontFamily: 'Onest',
+                          textDayHeaderFontFamily: 'Onest',
+                          textDayFontWeight: '400',
+                          textMonthFontWeight: '600',
+                          textDayHeaderFontWeight: '500',
+                          textDayFontSize: 14,
+                          textMonthFontSize: 16,
+                          textDayHeaderFontSize: 12,
+                        }}
+                        style={{
+                          width: '100%',
+                        }}
+                      />
+                    </View>
+                  )}
+                </View>
+
+                {/* Category Card */}
+                <View style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 18,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
+                }}>
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '600',
+                    color: '#333',
+                    marginBottom: 12,
+                    fontFamily: 'Onest'
+                  }}>
+                    Category
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (categories.length === 0) {
+                        // If no categories exist, automatically show new category input
+                        setShowNewCategoryInput(true);
+                        setNewCategoryName('');
+                        setNewCategoryColor('#BF9264');
+                        setShowCategoryBox(false);
+                      } else {
+                        // If categories exist, toggle the category box
+                        setShowCategoryBox(prev => !prev);
+                      }
+                      Keyboard.dismiss();
+                    }}
+                    style={{
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: 8,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderWidth: 1,
+                      borderColor: showCategoryBox ? '#667eea' : '#f0f0f0',
+                    }}
+                  >
+                    {!showCategoryBox ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          {selectedCategoryId ? (
+                            <>
+                              <View style={{ 
+                                width: 8, 
+                                height: 8, 
+                                borderRadius: 4, 
+                                backgroundColor: categories.find(cat => cat.id === selectedCategoryId)?.color || '#666',
+                                marginRight: 8
+                              }} />
+                              <Text style={{ 
+                                fontSize: 14, 
+                                color: '#333',
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {categories.find(cat => cat.id === selectedCategoryId)?.label}
+                              </Text>
+                            </>
+                          ) : (
                             <Text style={{ 
                               fontSize: 14, 
-                              color: '#333',
+                              color: '#999',
                               fontFamily: 'Onest',
                               fontWeight: '500'
                             }}>
-                              {categories.find(cat => cat.id === selectedCategoryId)?.label}
+                              Choose category
                             </Text>
-                          </>
-                        ) : (
-                          <Text style={{ 
-                            fontSize: 14, 
-                            color: '#999',
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
-                            Choose category
-                          </Text>
-                        )}
+                          )}
+                        </View>
                       </View>
-                      <Ionicons name="chevron-down" size={12} color="#999" />
-                    </View>
-                  ) : (
-                    <View style={{ 
-                      flexDirection: 'row', 
-                      flexWrap: 'wrap', 
-                      justifyContent: 'flex-start',
-                      gap: 6,
-                    }}>
-                      {categories.map((cat) => (
-                        <Pressable
-                          key={cat.id}
+                    ) : (
+                      <View style={{ 
+                        flexDirection: 'row', 
+                        flexWrap: 'wrap', 
+                        justifyContent: 'flex-start',
+                        gap: 6,
+                      }}>
+                        {categories.map((cat) => (
+                          <Pressable
+                            key={cat.id}
+                            onPress={() => {
+                              setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
+                              setShowCategoryBox(false);
+                              Keyboard.dismiss();
+                            }}
+                            onLongPress={() => {
+                              Alert.alert(
+                                "Delete Category",
+                                `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
+                                [
+                                  { text: "Cancel", style: "cancel" },
+                                  {
+                                    text: "Delete",
+                                    style: "destructive",
+                                    onPress: () => handleDeleteCategory(cat.id),
+                                  },
+                                ]
+                              );
+                            }}
+                            delayLongPress={500}
+                            style={({ pressed }) => ({
+                              backgroundColor: selectedCategoryId === cat.id ? cat.color + '20' : '#f8f9fa',
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                              borderRadius: 16,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 4,
+                            })}
+                          >
+                            <View style={{ 
+                              width: 6, 
+                              height: 6, 
+                              borderRadius: 3, 
+                              backgroundColor: cat.color,
+                            }} />
+                            <Text style={{ 
+                              color: '#333', 
+                              fontSize: 12, 
+                              fontFamily: 'Onest',
+                              fontWeight: selectedCategoryId === cat.id ? '600' : '500'
+                            }}>
+                              {cat.label}
+                            </Text>
+                          </Pressable>
+                        ))}
+                        <TouchableOpacity
                           onPress={() => {
-                            setSelectedCategoryId(prev => prev === cat.id ? '' : cat.id);
-                            setShowCategoryBox(false);
+                            setShowNewCategoryInput(true);
+                            setNewCategoryName('');
+                            setNewCategoryColor('#BF9264');
                             Keyboard.dismiss();
                           }}
-                          onLongPress={() => {
-                            Alert.alert(
-                              "Delete Category",
-                              `Are you sure you want to delete "${cat.label}"? This will also delete all tasks in this category.`,
-                              [
-                                { text: "Cancel", style: "cancel" },
-                                {
-                                  text: "Delete",
-                                  style: "destructive",
-                                  onPress: () => handleDeleteCategory(cat.id),
-                                },
-                              ]
-                            );
-                          }}
-                          delayLongPress={500}
-                          style={({ pressed }) => ({
-                            backgroundColor: selectedCategoryId === cat.id ? cat.color + '20' : '#f8f9fa',
+                          style={{
+                            backgroundColor: '#f8f9fa',
                             paddingVertical: 6,
                             paddingHorizontal: 10,
                             borderRadius: 16,
                             flexDirection: 'row',
                             alignItems: 'center',
                             gap: 4,
-                          })}
-                        >
-                          <View style={{ 
-                            width: 6, 
-                            height: 6, 
-                            borderRadius: 3, 
-                            backgroundColor: cat.color,
-                          }} />
-                          <Text style={{ 
-                            color: '#333', 
-                            fontSize: 12, 
-                            fontFamily: 'Onest',
-                            fontWeight: selectedCategoryId === cat.id ? '600' : '500'
-                          }}>
-                            {cat.label}
-                          </Text>
-                        </Pressable>
-                      ))}
-                      <TouchableOpacity
-                        onPress={() => {
-                          setShowNewCategoryInput(true);
-                          setNewCategoryName('');
-                          setNewCategoryColor('#BF9264');
-                          Keyboard.dismiss();
-                        }}
-                        style={{
-                          backgroundColor: '#f8f9fa',
-                          paddingVertical: 6,
-                          paddingHorizontal: 10,
-                          borderRadius: 16,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        <Ionicons name="add" size={12} color="#666" />
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  {showNewCategoryInput && (
-                    <View style={{
-                      backgroundColor: '#f8f9fa',
-                      padding: 12,
-                      borderRadius: 8,
-                      marginTop: 8,
-                    }}>
-                      <Text style={{
-                        fontSize: 14,
-                        color: '#333',
-                        fontFamily: 'Onest',
-                        fontWeight: '600',
-                        marginBottom: 8,
-                      }}>
-                        New Category
-                      </Text>
-                      <TextInput
-                        ref={categoryInputRef}
-                        style={{
-                          backgroundColor: 'white',
-                          padding: 8,
-                          borderRadius: 6,
-                          marginBottom: 8,
-                          fontSize: 14,
-                          fontFamily: 'Onest',
-                          borderWidth: 1,
-                          borderColor: '#e0e0e0',
-                        }}
-                        placeholder="Category name"
-                        value={newCategoryName}
-                        onChangeText={setNewCategoryName}
-                      />
-                      
-                      {/* Color Picker */}
-                      <Text style={{
-                        fontSize: 12,
-                        color: '#666',
-                        fontFamily: 'Onest',
-                        fontWeight: '500',
-                        marginBottom: 6,
-                      }}>
-                        Color
-                      </Text>
-                      <View style={{
-                        flexDirection: 'row',
-                        flexWrap: 'wrap',
-                        gap: 6,
-                        marginBottom: 12,
-                      }}>
-                        {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF', '#FF9A8B', '#A0C3B2', '#E4D6A7', '#D8BFD8', '#B0E0E6', '#FFE5B4', '#FADADD', '#C1E1C1', '#F0D9FF', '#D0F0C0', '#FFFACD'].map((color) => (
-                          <TouchableOpacity
-                            key={color}
-                            onPress={() => setNewCategoryColor(color)}
-                            style={{
-                              width: 22,
-                              height: 22,
-                              borderRadius: 11,
-                              backgroundColor: color,
-                              borderWidth: newCategoryColor === color ? 1 : 0,
-                              borderColor: '#333',
-                              justifyContent: 'center',
-                              alignItems: 'center',
-                            }}
-                          >
-                            {newCategoryColor === color && (
-                              <Ionicons name="checkmark" size={12} color="white" />
-                            )}
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-
-                      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setShowNewCategoryInput(false);
-                            setNewCategoryName('');
-                            setNewCategoryColor('#E3F2FD');
-                          }}
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 16,
-                            justifyContent: 'center',
-                            alignItems: 'center',
                           }}
                         >
-                          <Ionicons name="close" size={16} color="#666" />
+                          <Ionicons name="add" size={12} color="#666" />
                         </TouchableOpacity>
-                        <TouchableOpacity
-                          onPress={async () => {
-                            if (!newCategoryName.trim()) return;
-                            
-                            try {
-                              const { data: { user } } = await supabase.auth.getUser();
-                              if (!user) {
-                                Alert.alert('Error', 'You must be logged in to create categories.');
-                                return;
-                              }
-                          
-                              const newCategory = {
-                                id: uuidv4(),
-                                label: newCategoryName.trim(),
-                                color: newCategoryColor,
-                              };
-                          
-                              const { data: savedCategory, error: categoryError } = await supabase
-                                .from('categories')
-                                .insert({
-                                  id: newCategory.id,
-                                  label: newCategory.label,
-                                  color: newCategory.color,
-                                  user_id: user.id,
-                                  type: 'task'  // Add type field
-                                })
-                                .select()
-                                .single();
-                          
-                              if (categoryError || !savedCategory) {
-                                console.error('Error saving category:', categoryError);
-                                Alert.alert('Error', 'Failed to save category. Please try again.');
-                                return;
-                              }
-                          
-                              // Update state in the correct order
-                              setCategories(prev => [...prev, savedCategory]);
-                              setSelectedCategoryId(savedCategory.id);
-                              setNewCategoryName('');
-                              setShowNewCategoryInput(false);
-                          
-                            } catch (error) {
-                              console.error('Error creating category:', error);
-                              Alert.alert('Error', 'An unexpected error occurred. Please try again.');
-                            }
-                          }}
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 16,
-                            backgroundColor: '#FF6B6B',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                          }}
-                        >
-                          <Ionicons name="checkmark" size={16} color="white" />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              {/* Options Card */}
-              <View style={{
-                backgroundColor: 'white',
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 18,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05,
-                shadowRadius: 4,
-                elevation: 1,
-              }}>
-                <View style={{ gap: 8 }}>
-                  {/* Reminder */}
-                  <View>
-                    <View style={{ 
-                      flexDirection: 'row', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      marginBottom: 4,
-                    }}>
-                      <Text style={{ 
-                        fontSize: 14, 
-                        color: '#333', 
-                        fontFamily: 'Onest',
-                        fontWeight: '500'
-                      }}>
-                        Reminder
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setShowReminderPicker(prev => !prev);
-                          Keyboard.dismiss();
-                        }}
-                        style={{
-                          backgroundColor: '#f8f9fa',
-                          borderRadius: 8,
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderWidth: 1,
-                          borderColor: showReminderPicker ? '#007AFF' : '#f0f0f0',
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Text style={{
-                            fontSize: 14,
-                            color: '#333',
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
-                            {reminderTime ? moment(reminderTime).format('MMM D, h:mm A') : 'No reminder'}
-                          </Text>
-                          <Ionicons name="chevron-down" size={12} color="#999" />
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-
-                    {showReminderPicker && (
-                      <View style={{
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        padding: 12,
-                        marginTop: 8,
-                        borderWidth: 1,
-                        borderColor: '#e0e0e0',
-                      }}>
-                        <DateTimePicker
-                          value={reminderTime instanceof Date ? reminderTime : new Date()}
-                          mode="datetime"
-                          display="spinner"
-                          onChange={(event, selectedTime) => {
-                            if (selectedTime && selectedTime > new Date()) {
-                              setReminderTime(selectedTime);
-                              // Don't close the picker - let user manually close it
-                            }
-                          }}
-                          minimumDate={new Date()}
-                          style={{
-                            height: 120,
-                            width: '100%',
-                          }}
-                          textColor="#333"
-                        />
-                        
-                        <View style={{
-                          flexDirection: 'row',
-                          justifyContent: 'space-between',
-                          marginTop: 12,
-                        }}>
-                          <TouchableOpacity
-                            onPress={() => {
-                              const now = new Date();
-                              const in15Min = new Date(now.getTime() + 15 * 60000);
-                              setReminderTime(in15Min);
-                              Keyboard.dismiss();
-                              // Don't close the picker
-                            }}
-                            style={{
-                              backgroundColor: '#007AFF',
-                              paddingHorizontal: 12,
-                              paddingVertical: 6,
-                              borderRadius: 6,
-                            }}
-                          >
-                            <Text style={{
-                              fontSize: 12,
-                              color: 'white',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              15 min
-                            </Text>
-                          </TouchableOpacity>
-                          
-                          <TouchableOpacity
-                            onPress={() => {
-                              const now = new Date();
-                              const in1Hour = new Date(now.getTime() + 60 * 60000);
-                              setReminderTime(in1Hour);
-                              Keyboard.dismiss();
-                              // Don't close the picker
-                            }}
-                            style={{
-                              backgroundColor: '#007AFF',
-                              paddingHorizontal: 12,
-                              paddingVertical: 6,
-                              borderRadius: 6,
-                            }}
-                          >
-                            <Text style={{
-                              fontSize: 12,
-                              color: 'white',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              1 hour
-                            </Text>
-                          </TouchableOpacity>
-                          
-                          <TouchableOpacity
-                            onPress={() => {
-                              const now = new Date();
-                              const tomorrow = new Date(now.getTime() + 24 * 60 * 60000);
-                              setReminderTime(tomorrow);
-                              Keyboard.dismiss();
-                              // Don't close the picker
-                            }}
-                            style={{
-                              backgroundColor: '#007AFF',
-                              paddingHorizontal: 12,
-                              paddingVertical: 6,
-                              borderRadius: 6,
-                            }}
-                          >
-                            <Text style={{
-                              fontSize: 12,
-                              color: 'white',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              Tomorrow
-                            </Text>
-                          </TouchableOpacity>
-                          
-                          <TouchableOpacity
-                            onPress={() => {
-                              setReminderTime(null);
-                              setShowReminderPicker(false);
-                              Keyboard.dismiss();
-                            }}
-                            style={{
-                              backgroundColor: 'transparent',
-                              paddingHorizontal: 12,
-                              paddingVertical: 6,
-                              borderRadius: 6,
-                            }}
-                          >
-                            <Text style={{
-                              fontSize: 12,
-                              color: '#FF6B6B',
-                              fontFamily: 'Onest',
-                              fontWeight: '500'
-                            }}>
-                              Clear
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
                       </View>
                     )}
-                  </View>
 
-                  {/* Repeat */}
-                  <View>
-                    <View style={{ 
-                      flexDirection: 'row', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between',
-                      marginBottom: 4,
-                    }}>
-                      <Text style={{ 
-                        fontSize: 14, 
-                        color: '#333', 
-                        fontFamily: 'Onest',
-                        fontWeight: '500'
-                      }}>
-                        Repeat
-                      </Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setShowRepeatPicker(prev => !prev);
-                          Keyboard.dismiss();
-                        }}
-                        style={{
-                          backgroundColor: '#f8f9fa',
-                          borderRadius: 8,
-                          paddingVertical: 8,
-                          paddingHorizontal: 12,
-                          borderWidth: 1,
-                          borderColor: showRepeatPicker ? '#007AFF' : '#f0f0f0',
-                        }}
-                      >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <Text style={{
-                            fontSize: 14,
-                            color: '#333',
-                            fontFamily: 'Onest',
-                            fontWeight: '500'
-                          }}>
-                            {selectedRepeat === 'none' ? 'Does not repeat' : REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label}
-                          </Text>
-                          <Ionicons name="chevron-down" size={12} color="#999" />
-                        </View>
-                      </TouchableOpacity>
-                    </View>
-
-                    {showRepeatPicker && (
+                    {showNewCategoryInput && (
                       <View style={{
                         backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
                         padding: 12,
+                        borderRadius: 8,
                         marginTop: 8,
-                        borderWidth: 1,
-                        borderColor: '#e0e0e0',
                       }}>
+                        <Text style={{
+                          fontSize: 14,
+                          color: '#333',
+                          fontFamily: 'Onest',
+                          fontWeight: '600',
+                          marginBottom: 8,
+                        }}>
+                          New Category
+                        </Text>
+                        <TextInput
+                          ref={categoryInputRef}
+                          style={{
+                            backgroundColor: 'white',
+                            padding: 8,
+                            borderRadius: 6,
+                            marginBottom: 8,
+                            fontSize: 14,
+                            fontFamily: 'Onest',
+                            borderWidth: 1,
+                            borderColor: '#e0e0e0',
+                          }}
+                          placeholder="Category name"
+                          value={newCategoryName}
+                          onChangeText={setNewCategoryName}
+                        />
+                        
+                        {/* Color Picker */}
+                        <Text style={{
+                          fontSize: 12,
+                          color: '#666',
+                          fontFamily: 'Onest',
+                          fontWeight: '500',
+                          marginBottom: 6,
+                        }}>
+                          Color
+                        </Text>
                         <View style={{
+                          flexDirection: 'row',
+                          flexWrap: 'wrap',
+                          gap: 6,
                           marginBottom: 12,
                         }}>
-                          {REPEAT_OPTIONS.map((option) => (
+                          {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF', '#FF9A8B', '#A0C3B2', '#E4D6A7', '#D8BFD8', '#B0E0E6', '#FFE5B4', '#FADADD', '#C1E1C1', '#F0D9FF', '#D0F0C0', '#FFFACD'].map((color) => (
                             <TouchableOpacity
-                              key={option.value}
-                              onPress={() => {
-                                if (option.value === 'custom') {
-                                  setSelectedRepeat(option.value);
-                                  setShowRepeatPicker(false);
-                                  Keyboard.dismiss();
-                                } else if (option.value === 'none') {
-                                  setSelectedRepeat('none');
-                                  setRepeatEndDate(null);
-                                  setShowRepeatPicker(false);
-                                  Keyboard.dismiss();
-                                } else {
-                                  setSelectedRepeat(option.value);
-                                  setShowRepeatPicker(false);
-                                  Keyboard.dismiss();
-                                }
-                              }}
+                              key={color}
+                              onPress={() => setNewCategoryColor(color)}
                               style={{
-                                backgroundColor: selectedRepeat === option.value ? '#f0f0f0' : 'transparent',
-                                paddingVertical: 12,
-                                paddingHorizontal: 16,
-                                borderRadius: 8,
-                                marginVertical: 2,
-                                flexDirection: 'row',
+                                width: 22,
+                                height: 22,
+                                borderRadius: 11,
+                                backgroundColor: color,
+                                borderWidth: newCategoryColor === color ? 1 : 0,
+                                borderColor: '#333',
+                                justifyContent: 'center',
                                 alignItems: 'center',
-                                justifyContent: 'space-between',
                               }}
                             >
-                              <Text style={{
-                                fontSize: 14,
-                                color: '#333',
-                                fontFamily: 'Onest',
-                                fontWeight: selectedRepeat === option.value ? '600' : '500'
-                              }}>
-                                {option.label}
-                              </Text>
-                              {selectedRepeat === option.value && (
-                                <Ionicons name="checkmark" size={16} color="#007AFF" />
+                              {newCategoryColor === color && (
+                                <Ionicons name="checkmark" size={12} color="white" />
                               )}
                             </TouchableOpacity>
                           ))}
                         </View>
 
-                        {selectedRepeat && selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
-                          <View style={{
-                            borderTopWidth: 1,
-                            borderTopColor: '#e0e0e0',
-                            paddingTop: 12,
-                          }}>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setShowInlineEndDatePicker(prev => !prev);
-                                Keyboard.dismiss();
-                              }}
-                              style={{
-                                backgroundColor: repeatEndDate ? '#f0f0f0' : 'transparent',
-                                paddingVertical: 12,
-                                paddingHorizontal: 16,
-                                borderRadius: 8,
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                              }}
-                            >
-                              <Text style={{
-                                fontSize: 14,
-                                color: '#333',
-                                fontFamily: 'Onest',
-                                fontWeight: repeatEndDate ? '600' : '500'
-                              }}>
-                                {repeatEndDate ? 
-                                  `Ends ${moment(repeatEndDate).format('MMM D, YYYY')}` : 
-                                  'Set end date'}
-                              </Text>
-                              {repeatEndDate ? (
-                                <Ionicons name="checkmark" size={16} color="#007AFF" />
-                              ) : (
-                                <Ionicons name="calendar-outline" size={16} color="#666" />
-                              )}
-                            </TouchableOpacity>
-
-                            {showInlineEndDatePicker && (
-                              <View style={{
-                                backgroundColor: '#ffffff',
-                                borderRadius: 8,
-                                padding: 12,
-                                marginTop: 8,
-                                borderWidth: 1,
-                                borderColor: '#e0e0e0',
-                              }}>
-                                <View style={{
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  marginBottom: 12,
-                                }}>
-                                  <Text style={{
-                                    fontSize: 14,
-                                    fontWeight: '600',
-                                    color: '#333',
-                                    fontFamily: 'Onest'
-                                  }}>
-                                    Select End Date
-                                  </Text>
-                                  <TouchableOpacity
-                                    onPress={() => {
-                                      setRepeatEndDate(null);
-                                      setShowInlineEndDatePicker(false);
-                                    }}
-                                    style={{
-                                      paddingHorizontal: 8,
-                                      paddingVertical: 4,
-                                    }}
-                                  >
-                                    <Text style={{
-                                      fontSize: 12,
-                                      color: '#FF6B6B',
-                                      fontFamily: 'Onest',
-                                      fontWeight: '500'
-                                    }}>
-                                      Clear
-                                    </Text>
-                                  </TouchableOpacity>
-                                </View>
-                                
-                                <RNCalendar
-                                  current={repeatEndDate ? moment(repeatEndDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')}
-                                  onDayPress={(day: DateData) => {
-                                    const selectedDate = new Date(day.dateString + 'T00:00:00');
-                                    setRepeatEndDate(selectedDate);
-                                    setShowInlineEndDatePicker(false);
-                                    Keyboard.dismiss();
-                                  }}
-                                  markedDates={{
-                                    [repeatEndDate ? moment(repeatEndDate).format('YYYY-MM-DD') : '']: {
-                                      selected: true,
-                                      selectedColor: '#007AFF',
-                                    },
-                                    [moment().format('YYYY-MM-DD')]: {
-                                      today: true,
-                                      todayTextColor: '#007AFF',
-                                    }
-                                  }}
-                                  minDate={moment().format('YYYY-MM-DD')}
-                                  theme={{
-                                    backgroundColor: 'transparent',
-                                    calendarBackground: 'transparent',
-                                    textSectionTitleColor: '#333',
-                                    selectedDayBackgroundColor: '#007AFF',
-                                    selectedDayTextColor: '#ffffff',
-                                    todayTextColor: '#007AFF',
-                                    dayTextColor: '#333',
-                                    textDisabledColor: '#d9e1e8',
-                                    dotColor: '#007AFF',
-                                    selectedDotColor: '#ffffff',
-                                    arrowColor: '#007AFF',
-                                    monthTextColor: '#333',
-                                    indicatorColor: '#007AFF',
-                                    textDayFontFamily: 'Onest',
-                                    textMonthFontFamily: 'Onest',
-                                    textDayHeaderFontFamily: 'Onest',
-                                    textDayFontWeight: '400',
-                                    textMonthFontWeight: '600',
-                                    textDayHeaderFontWeight: '500',
-                                    textDayFontSize: 14,
-                                    textMonthFontSize: 16,
-                                    textDayHeaderFontSize: 12,
-                                  }}
-                                  style={{
-                                    width: '100%',
-                                  }}
-                                />
-                              </View>
-                            )}
-                          </View>
-                        )}
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              setShowNewCategoryInput(false);
+                              setNewCategoryName('');
+                              setNewCategoryColor('#E3F2FD');
+                            }}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Ionicons name="close" size={16} color="#666" />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            onPress={async () => {
+                              if (!newCategoryName.trim()) return;
+                              
+                              try {
+                                const { data: { user } } = await supabase.auth.getUser();
+                                if (!user) {
+                                  Alert.alert('Error', 'You must be logged in to create categories.');
+                                  return;
+                                }
+                            
+                                const newCategory = {
+                                  id: uuidv4(),
+                                  label: newCategoryName.trim(),
+                                  color: newCategoryColor,
+                                };
+                            
+                                const { data: savedCategory, error: categoryError } = await supabase
+                                  .from('categories')
+                                  .insert({
+                                    id: newCategory.id,
+                                    label: newCategory.label,
+                                    color: newCategory.color,
+                                    user_id: user.id,
+                                    type: 'task'  // Add type field
+                                  })
+                                  .select()
+                                  .single();
+                            
+                                if (categoryError || !savedCategory) {
+                                  console.error('Error saving category:', categoryError);
+                                  Alert.alert('Error', 'Failed to save category. Please try again.');
+                                  return;
+                                }
+                            
+                                // Update state in the correct order
+                                setCategories(prev => [...prev, savedCategory]);
+                                setSelectedCategoryId(savedCategory.id);
+                                setNewCategoryName('');
+                                setShowNewCategoryInput(false);
+                            
+                              } catch (error) {
+                                console.error('Error creating category:', error);
+                                Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+                              }
+                            }}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor: '#FF6B6B',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Ionicons name="checkmark" size={16} color="white" />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     )}
-                  </View>
+                  </TouchableOpacity>
                 </View>
-              </View>
 
-              {/* Add Friends Card */}
-              <View style={{
-                backgroundColor: 'white',
-                borderRadius: 12,
-                padding: 16,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 1 },
-                shadowOpacity: 0.05,
-                shadowRadius: 4,
-                elevation: 1,
-              }}>
-                <Text style={{
-                  fontSize: 14,
-                  fontWeight: '600',
-                  color: '#333',
-                  marginBottom: 10,
-                  fontFamily: 'Onest'
+                {/* Options Card */}
+                <View style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 18,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
                 }}>
-                  Friends
-                </Text>
-                
-                {/* Selected Friends Section */}
-                {selectedFriends.length > 0 && (
-                  <View style={{ marginBottom: 12 }}>
-                    <View style={{
-                      flexDirection: 'row',
-                      flexWrap: 'wrap',
-                      gap: 8,
-                    }}>
-                      {selectedFriends.map(friendId => {
-                        const friend = friends.find(f => f.friend_id === friendId);
-                        if (!friend) return null;
-                        
-                        return (
-                          <View key={friendId} style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            backgroundColor: '#007AFF',
-                            paddingHorizontal: 10,
-                            paddingVertical: 6,
-                            borderRadius: 16,
-                            gap: 6,
-                          }}>
-                            {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
-                              <Image 
-                                source={{ uri: friend.friend_avatar }} 
-                                style={{ width: 16, height: 16, borderRadius: 8 }} 
-                              />
-                            ) : (
-                              <View 
-                                style={{ 
-                                  width: 16, 
-                                  height: 16, 
-                                  borderRadius: 8,
-                                  backgroundColor: 'rgba(255,255,255,0.2)',
-                                  justifyContent: 'center',
-                                  alignItems: 'center'
-                                }}
-                              >
-                                <Ionicons name="person" size={8} color="white" />
-                              </View>
-                            )}
-                            <Text style={{ 
-                              fontSize: 12, 
-                              color: 'white', 
+                  <View style={{ gap: 8 }}>
+                    {/* Reminder */}
+                    <View>
+                      <View style={styles.modalTimeRow}>
+                        <Text style={styles.modalLabel}>
+                          Reminder
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            if (showReminderPicker) {
+                              setShowReminderPicker(false);
+                            } else {
+                              setShowReminderPicker(true);
+                              setShowReminderOptions(false);
+                              setShowRepeatPicker(false);
+                              setShowEndDatePicker(false);
+                            }
+                          }}
+                          style={showReminderPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                        >
+                          <Text style={styles.modalTimeText}>
+                            {reminderTime ? reminderTime.toLocaleString([], { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              hour: 'numeric', 
+                              minute: '2-digit', 
+                              hour12: true 
+                            }) : 'No reminder'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                      {showReminderPicker && (
+                        <View style={styles.modalPickerContainer}>
+                          <DateTimePicker
+                            value={reminderTime || new Date()}
+                            mode="datetime"
+                            display="spinner"
+                            onChange={(event, selectedDate) => {
+                              if (selectedDate) {
+                                setReminderTime(selectedDate);
+                                debouncePickerClose('reminder');
+                              }
+                            }}
+                            style={{ height: 120, width: '100%' }}
+                            textColor="#333"
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Repeat */}
+                    <View>
+                      <View style={{ 
+                        flexDirection: 'row', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        marginBottom: 4,
+                      }}>
+                        <Text style={{ 
+                          fontSize: 14, 
+                          color: '#333', 
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          Repeat
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setShowRepeatPicker(prev => !prev);
+                            Keyboard.dismiss();
+                          }}
+                          style={{
+                            backgroundColor: '#f8f9fa',
+                            borderRadius: 8,
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
+                            borderWidth: 1,
+                            borderColor: showRepeatPicker ? '#667eea' : '#f0f0f0',
+                          }}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={{
+                              fontSize: 14,
+                              color: '#333',
                               fontFamily: 'Onest',
                               fontWeight: '500'
                             }}>
-                              {friend.friend_name}
+                              {selectedRepeat === 'none' ? 'Does not repeat' : REPEAT_OPTIONS.find(opt => opt.value === selectedRepeat)?.label}
                             </Text>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setSelectedFriends(prev => prev.filter(id => id !== friendId));
-                              }}
-                              style={{
-                                marginLeft: 2,
-                              }}
-                            >
-                              <Ionicons name="close" size={12} color="white" />
-                            </TouchableOpacity>
                           </View>
-                        );
-                      })}
+                        </TouchableOpacity>
+                      </View>
+
+                      {showRepeatPicker && (
+                        <View style={{
+                          backgroundColor: '#f8f9fa',
+                          borderRadius: 8,
+                          padding: 8,
+                          marginTop: 4,
+                          borderWidth: 1,
+                          borderColor: '#e0e0e0',
+                        }}>
+                          <View style={{
+                            marginBottom: 8,
+                          }}>
+                            {REPEAT_OPTIONS.map((option) => (
+                              <TouchableOpacity
+                                key={option.value}
+                                onPress={() => {
+                                  if (option.value === 'custom') {
+                                    setSelectedRepeat(option.value);
+                                    setShowRepeatPicker(false);
+                                    Keyboard.dismiss();
+                                  } else if (option.value === 'none') {
+                                    setSelectedRepeat('none');
+                                    setRepeatEndDate(null);
+                                    setShowRepeatPicker(false);
+                                    Keyboard.dismiss();
+                                  } else {
+                                    setSelectedRepeat(option.value);
+                                    // Don't close the picker when selecting a repeat option
+                                    // so the end date section remains visible
+                                    Keyboard.dismiss();
+                                  }
+                                }}
+                                style={{
+                                  backgroundColor: selectedRepeat === option.value ? '#f0f0f0' : 'transparent',
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 6,
+                                  marginVertical: 1,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                }}
+                              >
+                                <Text style={{
+                                  fontSize: 14,
+                                  color: '#333',
+                                  fontFamily: 'Onest',
+                                  fontWeight: selectedRepeat === option.value ? '600' : '500'
+                                }}>
+                                  {option.label}
+                                </Text>
+                                {selectedRepeat === option.value && (
+                                  <Ionicons name="checkmark" size={16} color="#007AFF" />
+                                )}
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+
+                          {selectedRepeat && selectedRepeat !== 'none' && selectedRepeat !== 'custom' && (
+                            <View style={{
+                              borderTopWidth: 1,
+                              borderTopColor: '#e0e0e0',
+                              paddingTop: 8,
+                            }}>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setShowInlineEndDatePicker(prev => !prev);
+                                  Keyboard.dismiss();
+                                }}
+                                style={{
+                                  backgroundColor: repeatEndDate ? '#f0f0f0' : 'transparent',
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 6,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                }}
+                              >
+                                <Text style={{
+                                  fontSize: 14,
+                                  color: '#333',
+                                  fontFamily: 'Onest',
+                                  fontWeight: repeatEndDate ? '600' : '500'
+                                }}>
+                                  {repeatEndDate ? 
+                                    `Ends ${moment(repeatEndDate).format('MMM D, YYYY')}` : 
+                                    'Set end date'}
+                                </Text>
+                                {repeatEndDate ? (
+                                  <Ionicons name="checkmark" size={16} color="#007AFF" />
+                                ) : (
+                                  <Ionicons name="calendar-outline" size={16} color="#666" />
+                                )}
+                              </TouchableOpacity>
+
+                              {showInlineEndDatePicker && (
+                                <View style={{
+                                  backgroundColor: '#ffffff',
+                                  borderRadius: 8,
+                                  padding: 8,
+                                  marginTop: 4,
+                                  borderWidth: 1,
+                                  borderColor: '#e0e0e0',
+                                }}>
+                                  <View style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    marginBottom: 8,
+                                  }}>
+                                    <TouchableOpacity
+                                      onPress={() => {
+                                        setRepeatEndDate(null);
+                                        setShowInlineEndDatePicker(false);
+                                      }}
+                                      style={{
+                                        paddingHorizontal: 8,
+                                        paddingVertical: 4,
+                                      }}
+                                    >
+                                      <Text style={{
+                                        fontSize: 12,
+                                        color: '#FF6B6B',
+                                        fontFamily: 'Onest',
+                                        fontWeight: '500'
+                                      }}>
+                                        Clear
+                                      </Text>
+                                    </TouchableOpacity>
+                                  </View>
+                                  
+                                  <RNCalendar
+                                    current={repeatEndDate ? moment(repeatEndDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')}
+                                    onDayPress={(day: DateData) => {
+                                      const selectedDate = new Date(day.dateString + 'T00:00:00');
+                                      setRepeatEndDate(selectedDate);
+                                      setShowInlineEndDatePicker(false);
+                                      setShowRepeatPicker(false);
+                                      Keyboard.dismiss();
+                                    }}
+                                    markedDates={{
+                                      [repeatEndDate ? moment(repeatEndDate).format('YYYY-MM-DD') : '']: {
+                                        selected: true,
+                                        selectedColor: '#007AFF',
+                                      },
+                                      [moment().format('YYYY-MM-DD')]: {
+                                        today: true,
+                                        todayTextColor: '#007AFF',
+                                      }
+                                    }}
+                                    minDate={moment().format('YYYY-MM-DD')}
+                                    theme={{
+                                      backgroundColor: 'transparent',
+                                      calendarBackground: 'transparent',
+                                      textSectionTitleColor: '#333',
+                                      selectedDayBackgroundColor: '#007AFF',
+                                      selectedDayTextColor: '#ffffff',
+                                      todayTextColor: '#007AFF',
+                                      dayTextColor: '#333',
+                                      textDisabledColor: '#d9e1e8',
+                                      dotColor: '#007AFF',
+                                      selectedDotColor: '#ffffff',
+                                      arrowColor: '#007AFF',
+                                      monthTextColor: '#333',
+                                      indicatorColor: '#007AFF',
+                                      textDayFontFamily: 'Onest',
+                                      textMonthFontFamily: 'Onest',
+                                      textDayHeaderFontFamily: 'Onest',
+                                      textDayFontWeight: '400',
+                                      textMonthFontWeight: '600',
+                                      textDayHeaderFontWeight: '500',
+                                      textDayFontSize: 14,
+                                      textMonthFontSize: 16,
+                                      textDayHeaderFontSize: 12,
+                                    }}
+                                    style={{
+                                      width: '100%',
+                                    }}
+                                  />
+                                </View>
+                              )}
+                            </View>
+                          )}
+                        </View>
+                      )}
                     </View>
                   </View>
-                )}
-                
-                <TextInput
-                  placeholder="Search friends..."
-                  value={searchFriend}
-                  onChangeText={setSearchFriend}
-                  onFocus={() => setIsSearchFocused(true)}
-                  onBlur={() => setIsSearchFocused(false)}
-                  style={{
-                    backgroundColor: '#f8f9fa',
-                    borderRadius: 8,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
+                </View>
+
+                {/* Add Friends Card */}
+                <View style={{
+                  backgroundColor: 'white',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 20, // Increased bottom margin
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
+                }}>
+                  <Text style={{
                     fontSize: 14,
-                    marginBottom: 10,
-                    fontFamily: 'Onest',
+                    fontWeight: '600',
                     color: '#333',
-                    borderWidth: 1,
-                    borderColor: '#e9ecef',
-                  }}
-                  placeholderTextColor="#999"
-                />
-                {(searchFriend.trim() !== '' || isSearchFocused) && (
-                  <FlatList
-                    data={friends.filter(f =>
-                      f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
-                      f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
-                    )}
-                    keyExtractor={item => item.friend_id}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    renderItem={({ item }) => (
-                      <TouchableOpacity
-                        style={{
-                          marginRight: 10,
-                          alignItems: 'center',
-                          opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
-                          paddingVertical: 2,
-                        }}
-                        onPress={() => {
-                          setSelectedFriends(prev =>
-                            prev.includes(item.friend_id)
-                              ? prev.filter(id => id !== item.friend_id)
-                              : [...prev, item.friend_id]
-                          );
-                        }}
-                      >
-                        {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
-                          <Image 
-                            source={{ uri: item.friend_avatar }} 
-                            style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
-                          />
-                        ) : (
-                          <View 
-                            style={{ 
-                              width: 36, 
-                              height: 36, 
-                              borderRadius: 18, 
-                              marginBottom: 4,
-                              backgroundColor: '#E9ECEF',
-                              justifyContent: 'center',
-                              alignItems: 'center'
-                            }}
-                          >
-                            <Ionicons name="person" size={16} color="#6C757D" />
-                          </View>
-                        )}
-                        <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
-                      </TouchableOpacity>
-                    )}
-                    ListEmptyComponent={
-                      <View style={{ 
-                        alignItems: 'center', 
-                        justifyContent: 'center',
-                        paddingVertical: 16,
-                        minWidth: 180
+                    marginBottom: 10,
+                    fontFamily: 'Onest'
+                  }}>
+                    Friends
+                  </Text>
+                  
+                  {/* Selected Friends Section */}
+                  {selectedFriends.length > 0 && (
+                    <View style={{ marginBottom: 12 }}>
+                      <View style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 8,
                       }}>
-                        <Ionicons name="people-outline" size={20} color="#CED4DA" />
-                        <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
-                          No friends found
-                        </Text>
+                        {selectedFriends.map(friendId => {
+                          const friend = friends.find(f => f.friend_id === friendId);
+                          if (!friend) return null;
+                          
+                          return (
+                            <View key={friendId} style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: '#007AFF',
+                              paddingHorizontal: 10,
+                              paddingVertical: 6,
+                              borderRadius: 16,
+                              gap: 6,
+                            }}>
+                              {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
+                                <Image 
+                                  source={{ uri: friend.friend_avatar }} 
+                                  style={{ width: 16, height: 16, borderRadius: 8 }} 
+                                />
+                              ) : (
+                                <View 
+                                  style={{ 
+                                    width: 16, 
+                                    height: 16, 
+                                    borderRadius: 8,
+                                    backgroundColor: 'rgba(255,255,255,0.2)',
+                                    justifyContent: 'center',
+                                    alignItems: 'center'
+                                  }}
+                                >
+                                  <Ionicons name="person" size={8} color="white" />
+                                </View>
+                              )}
+                              <Text style={{ 
+                                fontSize: 12, 
+                                color: 'white', 
+                                fontFamily: 'Onest',
+                                fontWeight: '500'
+                              }}>
+                                {friend.friend_name}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setSelectedFriends(prev => prev.filter(id => id !== friendId));
+                                }}
+                                style={{
+                                  marginLeft: 2,
+                                }}
+                              >
+                                <Ionicons name="close" size={12} color="white" />
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
                       </View>
-                    }
-                    style={{ minHeight: 70 }}
+                    </View>
+                  )}
+                  
+                  <TextInput
+                    ref={friendsSearchInputRef}
+                    placeholder="Search friends..."
+                    value={searchFriend}
+                    onChangeText={setSearchFriend}
+                    onFocus={() => {
+                      setIsSearchFocused(true);
+                      // Automatic scroll to friends section
+                      setTimeout(() => {
+                        modalScrollViewRef.current?.scrollTo({ 
+                          y: 1200, // Large value for dramatic scroll
+                          animated: true 
+                        });
+                      }, 100);
+                    }}
+                    onBlur={() => setIsSearchFocused(false)}
+                    style={{
+                      backgroundColor: '#f8f9fa',
+                      borderRadius: 8,
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      fontSize: 14,
+                      marginBottom: 10,
+                      fontFamily: 'Onest',
+                      color: '#333',
+                      borderWidth: 1,
+                      borderColor: '#e9ecef',
+                    }}
+                    placeholderTextColor="#999"
                   />
-                )}
-              </View>
-            </ScrollView>
-          </View>
+                  {(searchFriend.trim() !== '' || isSearchFocused) && (
+                    <FlatList
+                      data={friends.filter(f =>
+                        f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
+                        f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
+                      )}
+                      keyExtractor={item => `${item.friend_id}-${item.friendship_id}`}
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      renderItem={({ item }) => (
+                        <TouchableOpacity
+                          style={{
+                            marginRight: 10,
+                            alignItems: 'center',
+                            opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
+                            paddingVertical: 2,
+                          }}
+                          onPress={() => {
+                            setSelectedFriends(prev =>
+                              prev.includes(item.friend_id)
+                                ? prev.filter(id => id !== item.friend_id)
+                                : [...prev, item.friend_id]
+                            );
+                          }}
+                        >
+                          {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
+                            <Image 
+                              source={{ uri: item.friend_avatar }} 
+                              style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                            />
+                          ) : (
+                            <View 
+                              style={{ 
+                                width: 36, 
+                                height: 36, 
+                                borderRadius: 18, 
+                                marginBottom: 4,
+                                backgroundColor: '#E9ECEF',
+                                justifyContent: 'center',
+                                alignItems: 'center'
+                              }}
+                            >
+                              <Ionicons name="person" size={16} color="#6C757D" />
+                            </View>
+                          )}
+                          <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                        </TouchableOpacity>
+                      )}
+                      ListEmptyComponent={
+                        <View style={{ 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          paddingVertical: 16,
+                          minWidth: 180
+                        }}>
+                          <Ionicons name="people-outline" size={20} color="#CED4DA" />
+                          <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
+                            No friends found
+                          </Text>
+                        </View>
+                      }
+                      style={{ minHeight: 90 }} // Increased height for better accessibility
+                    />
+                  )}
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
 
@@ -4867,7 +4849,7 @@ export default function TodoScreen() {
           setIsNewCategoryModalVisible(false);
         }}
       >
-        <KeyboardAvoidingView
+        <KeyboardAvoidingView 
           style={{ flex: 1 }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
@@ -5306,7 +5288,7 @@ export default function TodoScreen() {
                           paddingVertical: 8,
                     paddingHorizontal: 12,
                     borderWidth: 1,
-                          borderColor: showHabitReminderPicker ? '#007AFF' : '#f0f0f0',
+                          borderColor: showHabitReminderPicker ? '#667eea' : '#f0f0f0',
                   }}
                 >
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -5318,7 +5300,6 @@ export default function TodoScreen() {
                             }}>
                             {habitReminderTime ? moment(habitReminderTime).format('MMM D, h:mm A') : 'No reminder'}
                             </Text>
-                      <Ionicons name="chevron-down" size={12} color="#999" />
                     </View>
                       </TouchableOpacity>
                     </View>
@@ -5327,8 +5308,8 @@ export default function TodoScreen() {
                       <View style={{
                         backgroundColor: '#f8f9fa',
                         borderRadius: 8,
-                        padding: 12,
-                        marginTop: 8,
+                        padding: 8,
+                        marginTop: 4,
                         borderWidth: 1,
                         borderColor: '#e0e0e0',
                       }}>
@@ -5343,114 +5324,42 @@ export default function TodoScreen() {
                           }}
                           minimumDate={new Date()}
                           style={{
-                            height: 120,
+                            height: 80,
                             width: '100%',
                           }}
                           textColor="#333"
                         />
                         
-                    <View style={{ 
-                      flexDirection: 'row', 
-                          justifyContent: 'space-between',
-                          marginTop: 12,
-                    }}>
+                        <View style={{ 
+                          flexDirection: 'row', 
+                          justifyContent: 'flex-end',
+                          marginTop: 8,
+                        }}>
                           <TouchableOpacity
-                          onPress={() => {
-                              const now = new Date();
-                              const in15Min = new Date(now.getTime() + 15 * 60000);
-                              setHabitReminderTime(in15Min);
-                              Keyboard.dismiss();
-                          }}
-                            style={{
-                              backgroundColor: '#007AFF',
-                              paddingHorizontal: 12,
-                            paddingVertical: 6,
-                              borderRadius: 6,
-                            }}
-                        >
-                          <Text style={{ 
-                            fontSize: 12, 
-                              color: 'white',
-                            fontFamily: 'Onest',
-                              fontWeight: '500'
-                          }}>
-                              15 min
-                          </Text>
-                          </TouchableOpacity>
-                          
-                      <TouchableOpacity
-                        onPress={() => {
-                              const now = new Date();
-                              const in1Hour = new Date(now.getTime() + 60 * 60000);
-                              setHabitReminderTime(in1Hour);
-                              Keyboard.dismiss();
-                        }}
-                        style={{
-                              backgroundColor: '#007AFF',
-                              paddingHorizontal: 12,
-                          paddingVertical: 6,
-                              borderRadius: 6,
-                        }}
-                      >
-                      <Text style={{
-                        fontSize: 12,
-                              color: 'white',
-                        fontFamily: 'Onest',
-                              fontWeight: '500'
-                      }}>
-                              1 hour
-                      </Text>
-                          </TouchableOpacity>
-
-                        <TouchableOpacity
-                          onPress={() => {
-                              const now = new Date();
-                              const tomorrow = new Date(now.getTime() + 24 * 60 * 60000);
-                              setHabitReminderTime(tomorrow);
-                              Keyboard.dismiss();
-                          }}
-                          style={{
-                              backgroundColor: '#007AFF',
-                            paddingHorizontal: 12,
-                              paddingVertical: 6,
-                            borderRadius: 6,
-                          }}
-                        >
-                          <Text style={{
-                              fontSize: 12,
-                              color: 'white',
-                            fontFamily: 'Onest',
-                              fontWeight: '500'
-                          }}>
-                              Tomorrow
-                          </Text>
-                        </TouchableOpacity>
-                          
-                        <TouchableOpacity
                             onPress={() => {
                               setHabitReminderTime(null);
                               setShowHabitReminderPicker(false);
                               Keyboard.dismiss();
-                          }}
-                          style={{
+                            }}
+                            style={{
                               backgroundColor: 'transparent',
-                            paddingHorizontal: 12,
+                              paddingHorizontal: 12,
                               paddingVertical: 6,
-                            borderRadius: 6,
-                          }}
-                        >
-                          <Text style={{
+                              borderRadius: 6,
+                            }}
+                          >
+                            <Text style={{
                               fontSize: 12,
                               color: '#FF6B6B',
-                            fontFamily: 'Onest',
+                              fontFamily: 'Onest',
                               fontWeight: '500'
-                          }}>
+                            }}>
                               Clear
-                          </Text>
-                        </TouchableOpacity>
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
-                    </View>
-                  )}
+                    )}
                   </View>
 
                   {/* Photo Proof */}
@@ -5863,142 +5772,140 @@ export default function TodoScreen() {
           setEditingNoteText('');
         }}
       >
-          <View style={{ 
-          flex: 1, 
-          backgroundColor: 'rgba(0, 0, 0, 0.3)',
-        }}>
-            <View style={{ 
-            position: 'absolute',
-            top: '25%',
-            right: 20,
-                    backgroundColor: 'white', 
-            borderRadius: 12,
-            width: 280,
-            maxHeight: 400,
-                    shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.15,
-                    shadowRadius: 8,
-            elevation: 8,
-            overflow: 'hidden',
+        <KeyboardAvoidingView 
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 50}
+        >
+          <TouchableWithoutFeedback onPress={() => {
+            setIsNotesViewerModalVisible(false);
+            setSelectedHabitForViewingNotes(null);
+            setEditingNoteInViewer(null);
+            setEditingNoteText('');
           }}>
-            {/* Arrow pointing to the icon */}
-            <View style={{
-              position: 'absolute',
-              top: -8,
-              right: 20,
-              width: 0,
-              height: 0,
-              backgroundColor: 'transparent',
-              borderStyle: 'solid',
-              borderLeftWidth: 8,
-              borderRightWidth: 8,
-              borderBottomWidth: 8,
-              borderLeftColor: 'transparent',
-              borderRightColor: 'transparent',
-              borderBottomColor: 'white',
-              zIndex: 1,
-            }} />
-            
-            {/* Modal Header */}
+            <View style={{ 
+              flex: 1, 
+              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+              justifyContent: 'flex-start',
+              alignItems: 'center',
+              paddingTop: 100,
+            }}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={{ 
+                  backgroundColor: 'white', 
+                  borderRadius: 12,
+                  width: 320,
+                  maxHeight: '60%',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.15,
+                  shadowRadius: 8,
+                  elevation: 8,
+                  overflow: 'hidden',
+                }}>
+                  
+                  {/* Modal Header */}
                   <View style={{ 
-              flexDirection: 'row', 
+                    flexDirection: 'row', 
                     alignItems: 'center',
-              justifyContent: 'space-between', 
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
-            }}>
-                          <Text style={{ 
-                fontSize: 14,
-                            fontWeight: '600', 
-                            color: '#333', 
-                            fontFamily: 'Onest',
-                            flex: 1,
-                          }}>
-                {selectedHabitForViewingNotes?.text}
-                          </Text>
-              
-              <TouchableOpacity 
-                onPress={() => {
-                  setIsNotesViewerModalVisible(false);
-                  setSelectedHabitForViewingNotes(null);
-                  setEditingNoteInViewer(null);
-                  setEditingNoteText('');
-                }}
-                style={{
-                  padding: 4,
-                }}
-              >
-                <Ionicons name="close" size={16} color="#666" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Note Editor */}
-            <TextInput
-              style={{
-                            flex: 1,
-                            fontSize: 14, 
-                color: '#000',
-                lineHeight: 20,
-                padding: 16,
-                textAlignVertical: 'top',
-                fontFamily: 'Onest',
-                minHeight: 120,
-                maxHeight: 280,
-              }}
-              placeholder="Start writing..."
-              placeholderTextColor="#999"
-              value={editingNoteText}
-              onChangeText={setEditingNoteText}
-              multiline
-              textAlignVertical="top"
-              autoFocus
-            />
-            
-            {/* Save Button */}
-                        <View style={{ 
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              borderTopWidth: 1,
-              borderTopColor: '#f0f0f0',
-              alignItems: 'flex-end',
-            }}>
-              <TouchableOpacity
-                onPress={async () => {
-                  if (editingNoteText.trim() && selectedHabitForViewingNotes) {
-                    // Get the most recent note date or use today's date
-                    const notes = selectedHabitForViewingNotes.notes || {};
-                    const noteDates = Object.keys(notes);
-                    const noteDate = noteDates.length > 0 ? noteDates[0] : moment().format('YYYY-MM-DD');
+                    justifyContent: 'space-between', 
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: '#f0f0f0',
+                  }}>
+                    <Text style={{ 
+                      fontSize: 14,
+                      fontWeight: '600', 
+                      color: '#333', 
+                      fontFamily: 'Onest',
+                      flex: 1,
+                    }}>
+                      {selectedHabitForViewingNotes?.text}
+                    </Text>
                     
-                    await updateExistingNote(selectedHabitForViewingNotes.id, noteDate, editingNoteText.trim());
-                    setIsNotesViewerModalVisible(false);
-                    setSelectedHabitForViewingNotes(null);
-                    setEditingNoteInViewer(null);
-                    setEditingNoteText('');
-                  }
-                }}
-                style={{
-                  backgroundColor: editingNoteText.trim() ? '#007AFF' : '#f0f0f0',
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
-                  borderRadius: 8,
-                }}
-              >
-              <Text style={{ 
-                  fontSize: 14,
-                fontWeight: '600', 
-                  color: editingNoteText.trim() ? 'white' : '#999',
-                  fontFamily: 'Onest',
-              }}>
-                  Save
-              </Text>
-              </TouchableOpacity>
+                    <TouchableOpacity 
+                      onPress={() => {
+                        setIsNotesViewerModalVisible(false);
+                        setSelectedHabitForViewingNotes(null);
+                        setEditingNoteInViewer(null);
+                        setEditingNoteText('');
+                      }}
+                      style={{
+                        padding: 4,
+                      }}
+                    >
+                      <Ionicons name="close" size={16} color="#666" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Note Editor */}
+                  <TextInput
+                    style={{
+                      flex: 1,
+                      fontSize: 14, 
+                      color: '#000',
+                      lineHeight: 20,
+                      padding: 16,
+                      textAlignVertical: 'top',
+                      fontFamily: 'Onest',
+                      minHeight: 120,
+                      maxHeight: 200,
+                    }}
+                    placeholder="Start writing..."
+                    placeholderTextColor="#999"
+                    value={editingNoteText}
+                    onChangeText={setEditingNoteText}
+                    multiline
+                    textAlignVertical="top"
+                    autoFocus
+                  />
+                  
+                  {/* Save Button */}
+                  <View style={{ 
+                    paddingHorizontal: 16,
+                    paddingVertical: 12,
+                    borderTopWidth: 1,
+                    borderTopColor: '#f0f0f0',
+                    alignItems: 'flex-end',
+                  }}>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        if (editingNoteText.trim() && selectedHabitForViewingNotes) {
+                          // Get the most recent note date or use today's date
+                          const notes = selectedHabitForViewingNotes.notes || {};
+                          const noteDates = Object.keys(notes);
+                          const noteDate = noteDates.length > 0 ? noteDates[0] : moment().format('YYYY-MM-DD');
+                          
+                          await updateExistingNote(selectedHabitForViewingNotes.id, noteDate, editingNoteText.trim());
+                          setIsNotesViewerModalVisible(false);
+                          setSelectedHabitForViewingNotes(null);
+                          setEditingNoteInViewer(null);
+                          setEditingNoteText('');
+                        }
+                      }}
+                      style={{
+                        backgroundColor: editingNoteText.trim() ? '#007AFF' : '#f0f0f0',
+                        paddingHorizontal: 16,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                      }}
+                    >
+                      <Text style={{ 
+                        fontSize: 14,
+                        fontWeight: '600', 
+                        color: editingNoteText.trim() ? 'white' : '#999',
+                        fontFamily: 'Onest',
+                      }}>
+                        Save
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
             </View>
-          </View>
-        </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Unified Photo/Notes Modal */}
@@ -6272,71 +6179,83 @@ export default function TodoScreen() {
                 <Ionicons name="close" size={16} color="#666" />
               </TouchableOpacity>
               
+              {/* Centered Habit Name and Month Navigation */}
               <View style={{
-                flexDirection: 'row',
+                flexDirection: 'column',
                 alignItems: 'center',
-                gap: 16,
+                flex: 1,
+                justifyContent: 'center',
               }}>
-                <TouchableOpacity
-                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'))}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    backgroundColor: '#f8f9fa',
-                  }}
-                >
-                  <Ionicons name="chevron-back" size={16} color="#666" />
-                </TouchableOpacity>
-                
-                <Text style={{ 
-                  fontSize: 16, 
-                  fontWeight: '600', 
+                {/* Habit Name */}
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '600',
                   color: '#333',
                   fontFamily: 'Onest',
-                  minWidth: 120,
+                  marginBottom: 8,
                   textAlign: 'center',
                 }}>
-                  {selectedMonthForProgress.format('MMMM YYYY')}
+                  Monthly Progress
                 </Text>
                 
-                <TouchableOpacity
-                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().add(1, 'month'))}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    backgroundColor: '#f8f9fa',
-                  }}
-                >
-                  <Ionicons name="chevron-forward" size={16} color="#666" />
-                </TouchableOpacity>
+                {/* Month Navigation */}
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 16,
+                }}>
+                  <TouchableOpacity
+                    onPress={() => setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'))}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      backgroundColor: '#f8f9fa',
+                    }}
+                  >
+                    <Ionicons name="chevron-back" size={16} color="#666" />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    onPress={() => setSelectedMonthForProgress(moment().startOf('month'))}
+                    style={{
+                      minWidth: 120,
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <Text style={{ 
+                      fontSize: 16, 
+                      fontWeight: '600', 
+                      color: '#333',
+                      fontFamily: 'Onest',
+                      textAlign: 'center',
+                    }}>
+                      {selectedMonthForProgress.format('MMMM YYYY')}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    onPress={() => setSelectedMonthForProgress(prev => prev.clone().add(1, 'month'))}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      backgroundColor: '#f8f9fa',
+                    }}
+                  >
+                    <Ionicons name="chevron-forward" size={16} color="#666" />
+                  </TouchableOpacity>
+                </View>
               </View>
               
-              <TouchableOpacity
-                onPress={() => setSelectedMonthForProgress(moment())}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: '#f8f9fa',
-                }}
-              >
-                <Text style={{
-                  fontSize: 12,
-                  fontWeight: '600',
-                  color: '#666',
-                  fontFamily: 'Onest',
-                }}>
-                  Today
-                </Text>
-              </TouchableOpacity>
+              {/* Empty space to balance the close button */}
+              <View style={{ width: 32 }} />
             </View>
 
             {/* Content */}
@@ -6347,31 +6266,22 @@ export default function TodoScreen() {
             >
               {habits.map((habit) => (
                 <View key={habit.id} style={{ marginBottom: 24 }}>
-                  {/* Habit Header */}
+                  {/* Habit Name and Progress */}
                   <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     marginBottom: 16,
                   }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{
-                        fontSize: 18,
-                        fontWeight: '600',
-                        color: '#333',
-                        fontFamily: 'Onest',
-                        marginBottom: 4,
-                      }}>
-                        {habit.text}
-                      </Text>
-                      <Text style={{
-                        fontSize: 14,
-                        color: '#666',
-                        fontFamily: 'Onest',
-                      }}>
-                        {selectedMonthForProgress.format('MMMM YYYY')}
-                      </Text>
-                    </View>
+                    <Text style={{
+                      fontSize: 16,
+                      fontWeight: '600',
+                      color: '#333',
+                      fontFamily: 'Onest',
+                      flex: 1,
+                    }}>
+                      {habit.text}
+                    </Text>
                     
                     <View style={{
                       backgroundColor: `${habit.color}20`,
@@ -6435,16 +6345,27 @@ export default function TodoScreen() {
                               <TouchableOpacity
                                 key={dateStr}
                                 onPress={() => {
-                                  // Show note content if it exists
-                                  if (hasNote) {
-                                    Alert.alert(
-                                      `Note for ${currentDate.format('MMMM D, YYYY')}`,
-                                      hasNote,
-                                      [
-                                        { text: 'Close', style: 'default' }
-                                      ]
-                                    );
-                                  }
+                                  console.log('Date pressed:', dateStr);
+                                  console.log('Setting modal data:', {
+                                    habit: habit.text,
+                                    date: dateStr,
+                                    formattedDate: currentDate.format('MMMM D, YYYY'),
+                                    note: hasNote || undefined,
+                                    photo: hasPhoto || undefined,
+                                    isCompleted
+                                  });
+                                  
+                                  // Always show detail modal for any date
+                                  setSelectedDateData({
+                                    habit,
+                                    date: dateStr,
+                                    formattedDate: currentDate.format('MMMM D, YYYY'),
+                                    note: hasNote || undefined,
+                                    photo: hasPhoto || undefined,
+                                    isCompleted
+                                  });
+                                  setIsDetailModalVisible(true);
+                                  console.log('Modal should now be visible');
                                 }}
                                 onLongPress={() => {
                                   // Allow completing habits for any date in the selected month
@@ -6525,7 +6446,9 @@ export default function TodoScreen() {
                                     padding: 3,
                                     justifyContent: 'center',
                                     alignItems: 'center',
-                                  }}>
+                                  }}
+                                  pointerEvents="none"
+                                  >
                                     <Text style={{
                                       fontSize: 10,
                                       color: isCompleted ? '#333' : '#ffffff',
@@ -6550,7 +6473,9 @@ export default function TodoScreen() {
                                     backgroundColor: isCompleted ? '#ffffff' : '#FF6B6B',
                                     borderWidth: 0.5,
                                     borderColor: isCompleted ? '#ffffff' : '#FF6B6B',
-                                  }} />
+                                  }}
+                                  pointerEvents="none"
+                                  />
                                 )}
                               </TouchableOpacity>
                             );
@@ -6566,6 +6491,195 @@ export default function TodoScreen() {
             </ScrollView>
           </View>
         </SafeAreaView>
+      </Modal>
+      
+      {/* Detail Modal for Heatmap Dates */}
+      <Modal
+        visible={isDetailModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsDetailModalVisible(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <View style={{
+            backgroundColor: '#ffffff',
+            borderRadius: 16,
+            padding: 24,
+            margin: 20,
+            maxWidth: '90%',
+            maxHeight: '80%',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.25,
+            shadowRadius: 12,
+            elevation: 8,
+          }}>
+            {selectedDateData && (
+              <>
+                {/* Header */}
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 20,
+                }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: 18,
+                      fontWeight: '600',
+                      color: '#333',
+                      fontFamily: 'Onest',
+                      marginBottom: 4,
+                    }}>
+                      {selectedDateData.habit.text}
+                    </Text>
+                    <Text style={{
+                      fontSize: 14,
+                      color: '#666',
+                      fontFamily: 'Onest',
+                    }}>
+                      {selectedDateData.formattedDate}
+                    </Text>
+                  </View>
+                  
+                  <TouchableOpacity
+                    onPress={() => setIsDetailModalVisible(false)}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      backgroundColor: '#f8f9fa',
+                    }}
+                  >
+                    <Ionicons name="close" size={16} color="#666" />
+                  </TouchableOpacity>
+                </View>
+                
+                {/* Completion Status */}
+                {selectedDateData.isCompleted && (
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginBottom: 16,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                    backgroundColor: `${selectedDateData.habit.color}20`,
+                    borderRadius: 8,
+                  }}>
+                    <View style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: selectedDateData.habit.color,
+                      marginRight: 8,
+                    }} />
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: selectedDateData.habit.color,
+                      fontFamily: 'Onest',
+                    }}>
+                      Completed
+                    </Text>
+                  </View>
+                )}
+                
+                {/* Photo */}
+                {selectedDateData.photo && (
+                  <View style={{ marginBottom: 16 }}>
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: '#333',
+                      fontFamily: 'Onest',
+                      marginBottom: 8,
+                    }}>
+                      Photo
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        // Show photo in full screen
+                        if (selectedDateData.photo) {
+                          setAllPhotosForViewing([{
+                            habit: selectedDateData.habit,
+                            photoUrl: selectedDateData.photo,
+                            date: selectedDateData.date,
+                            formattedDate: selectedDateData.formattedDate,
+                          }]);
+                          setCurrentPhotoIndex(0);
+                          setIsDetailModalVisible(false);
+                        }
+                      }}
+                    >
+                      <Image
+                        source={{ uri: selectedDateData.photo }}
+                        style={{
+                          width: '100%',
+                          height: 200,
+                          borderRadius: 12,
+                          backgroundColor: '#f8f9fa',
+                        }}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                
+                {/* Note */}
+                {selectedDateData.note && (
+                  <View>
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: '#333',
+                      fontFamily: 'Onest',
+                      marginBottom: 8,
+                    }}>
+                      Note
+                    </Text>
+                    <View style={{
+                      backgroundColor: '#f8f9fa',
+                      padding: 16,
+                      borderRadius: 12,
+                      borderLeftWidth: 4,
+                      borderLeftColor: selectedDateData.habit.color,
+                    }}>
+                      <Text style={{
+                        fontSize: 14,
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        lineHeight: 20,
+                      }}>
+                        {selectedDateData.note}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                {/* If no data, show a message */}
+                {!selectedDateData.isCompleted && !selectedDateData.note && !selectedDateData.photo && (
+                  <View style={{ alignItems: 'center', marginTop: 24 }}>
+                    <Text style={{
+                      fontSize: 15,
+                      color: '#999',
+                      fontFamily: 'Onest',
+                      textAlign: 'center',
+                    }}>
+                      No activity, note, or photo for this date.
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </View>
       </Modal>
     </GestureHandlerRootView>
   );

@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
       width: 50,
       height: 50,
       borderRadius: 25,
-      backgroundColor: '#A0C3B2',
+      backgroundColor: '#667eea',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,
@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
       alignItems: 'center',
     },
     selectedRepeatType: {
-      backgroundColor: '#007AFF',
+      backgroundColor: '#667eea',
     },
     repeatTypeText: {
       fontSize: 12,
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
       justifyContent: 'center',
     },
     selectedWeekDay: {
-      backgroundColor: '#007AFF',
+      backgroundColor: '#667eea',
     },
     weekDayText: {
       fontSize: 13,
@@ -281,10 +281,10 @@ const styles = StyleSheet.create({
       borderColor: 'transparent',
     },
     selectedColorOption: {
-      borderColor: '#007AFF',
+      borderColor: '#667eea',
     },
     editButton: {
-      backgroundColor: '#007AFF',
+      backgroundColor: '#667eea',
       justifyContent: 'center',
       alignItems: 'center',
       width: 56,

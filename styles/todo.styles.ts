@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
       width: 50,
       height: 50,
       borderRadius: 25,
-      backgroundColor: '#A0C3B2',
+      backgroundColor: '#667eea',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
     },
     
     leftAction: {
-      backgroundColor: '#007AFF',
+      backgroundColor: '#667eea',
       justifyContent: 'center',
       alignItems: 'center',
       width: 64,
@@ -201,8 +201,51 @@ const styles = StyleSheet.create({
       color: 'white',
       fontSize: 16,
       fontWeight: '600',
+      fontFamily: 'Onest',
     },
-    
+    // Add modal styles to match event modal
+    modalTimeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    modalLabel: {
+      fontSize: 14,
+      color: '#333',
+      fontFamily: 'Onest',
+      fontWeight: '500',
+    },
+    modalTimeButton: {
+      backgroundColor: '#f8f9fa',
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: '#f0f0f0',
+    },
+    modalTimeButtonFocused: {
+      backgroundColor: '#f8f9fa',
+      borderRadius: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: '#667eea',
+    },
+    modalTimeText: {
+      fontSize: 14,
+      color: '#333',
+      fontFamily: 'Onest',
+      fontWeight: '500',
+    },
+    modalPickerContainer: {
+      backgroundColor: '#f8f9fa',
+      borderRadius: 8,
+      padding: 8,
+      marginTop: 4,
+      borderWidth: 1,
+      borderColor: '#e0e0e0',
+    },
   });
 
 export default styles;

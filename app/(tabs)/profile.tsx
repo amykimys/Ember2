@@ -6,6 +6,7 @@ import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-goo
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 
 interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
@@ -138,6 +139,8 @@ export default function ProfileScreen() {
   const [photoSharesPage, setPhotoSharesPage] = useState(0);
   const [hasMorePhotoShares, setHasMorePhotoShares] = useState(true);
   const [isRefreshingPhotoShares, setIsRefreshingPhotoShares] = useState(false);
+  const [unreadPhotoShares, setUnreadPhotoShares] = useState(0);
+  const [lastViewedPhotoShareTime, setLastViewedPhotoShareTime] = useState<number>(0);
 
   // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -200,6 +203,7 @@ export default function ProfileScreen() {
   // Add useEffect to listen for photo deletion events and refresh memories
   useEffect(() => {
     let lastCheckTime = 0;
+    let lastPhotoShareCheckTime = 0;
     
     const checkForPhotoDeletions = () => {
       // Check if there's a global timestamp indicating a photo was deleted
@@ -211,9 +215,18 @@ export default function ProfileScreen() {
           loadMemories(user.id);
         }
       }
+      
+      // Check if there's a global timestamp indicating a photo was shared
+      if (globalAny.lastPhotoShareTime && globalAny.lastPhotoShareTime > lastPhotoShareCheckTime) {
+        lastPhotoShareCheckTime = globalAny.lastPhotoShareTime;
+        console.log('🔄 Photo share detected, refreshing friends feed...');
+        if (user?.id) {
+          loadPhotoShares(true);
+        }
+      }
     };
 
-    // Check every 2 seconds for photo deletions
+    // Check every 2 seconds for photo deletions and shares
     const interval = setInterval(checkForPhotoDeletions, 2000);
 
     return () => {
@@ -1135,265 +1148,229 @@ export default function ProfileScreen() {
     setIsEditingProfile(false);
   };
 
-  const requestCameraPermission = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Camera permission is required to take photos.');
-      return false;
+  // Add this function before handlePickAndUploadAvatar
+  const ensureAvatarsBucket = async () => {
+    try {
+      console.log('🔍 Checking if avatars bucket exists...');
+      
+      // Try to list files in avatars bucket
+      const { data, error } = await supabase.storage
+        .from('avatars')
+        .list('', { limit: 1 });
+      
+      if (error) {
+        console.log('❌ Avatars bucket not accessible:', error.message);
+        return false;
       }
-    return true;
+      
+      console.log('✅ Avatars bucket is accessible');
+      return true;
+    } catch (error) {
+      console.log('❌ Error checking avatars bucket:', error);
+      return false;
+    }
   };
 
-  const requestMediaLibraryPermission = async () => {
+  const handlePickAndUploadAvatar = async () => {
+    if (!user) return;
+    
+    // Ask for permission
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Media library permission is required to select photos.');
-      return false;
+      Alert.alert('Permission needed', 'Media library permission is required.');
+      return;
     }
-    return true;
-  };
-
-  const handleImagePicker = async (source: 'camera' | 'library') => {
-    try {
-      let permissionGranted = false;
-
-      if (source === 'camera') {
-        permissionGranted = await requestCameraPermission();
-      } else {
-        permissionGranted = await requestMediaLibraryPermission();
-      }
-
-      if (!permissionGranted) return;
-
-      const options: ImagePicker.ImagePickerOptions = {
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.8,
-      };
-
-      let result;
-      if (source === 'camera') {
-        result = await ImagePicker.launchCameraAsync(options);
-      } else {
-        result = await ImagePicker.launchImageLibraryAsync(options);
-      }
-
-      if (!result.canceled && result.assets[0]) {
-        await uploadImage(result.assets[0].uri);
-      }
-    } catch (error) {
-      console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to select image. Please try again.');
-    }
-  };
-
-  const uploadImage = async (uri: string) => {
-    if (!user) return;
-
+    
+    // Pick image with better quality settings
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1.0, // Use maximum quality
+      base64: true, // Get base64 directly from picker
+    });
+    
+    if (result.canceled || !result.assets[0]) return;
+    
     setIsUploadingImage(true);
+    
     try {
-      console.log('🖼️ Starting image upload for URI:', uri);
+      console.log('🖼️ Starting profile image upload...');
       
-      // Convert image to base64
-      const response = await fetch(uri);
-      const blob = await response.blob();
+      const uri = result.assets[0].uri;
+      const fileSize = result.assets[0].fileSize;
+      const base64Data = result.assets[0].base64;
       
-      console.log('🖼️ Image blob created, size:', blob.size, 'bytes');
+      console.log('🖼️ Selected image URI:', uri);
+      console.log('🖼️ File size:', fileSize, 'bytes');
+      console.log('🖼️ Base64 data available:', !!base64Data);
       
-      // Create a unique filename
-      const fileExt = uri.split('.').pop() || 'jpg';
-      const fileName = `avatars/profile-${user.id}-${Date.now()}.${fileExt}`;
-
-      console.log('🖼️ Uploading file:', fileName);
-
-      // Upload to Supabase Storage
-      const { data, error: uploadError } = await supabase.storage
-        .from('memories')
-        .upload(fileName, blob, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error('❌ Upload error:', uploadError);
-        throw uploadError;
+      if (!base64Data) {
+        throw new Error('No base64 data available from image picker');
       }
-
-      console.log('✅ Upload successful:', data);
-
-      // Get the public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('memories')
-        .getPublicUrl(fileName);
-
-      console.log('🔗 Generated public URL:', publicUrl);
       
-      // Test the URL to make sure it's accessible
-      try {
-        const testResponse = await fetch(publicUrl, { method: 'HEAD' });
-        console.log('🔍 URL test response status:', testResponse.status);
-        if (!testResponse.ok) {
-          console.warn('⚠️ URL test failed with status:', testResponse.status);
+      // Ensure we have a proper file extension
+      let fileExt = 'jpg'; // Default to jpg
+      
+      // Try to get extension from URI
+      if (uri.includes('.')) {
+        const uriExt = uri.split('.').pop()?.toLowerCase();
+        if (uriExt && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(uriExt)) {
+          fileExt = uriExt;
         }
-      } catch (testError) {
-        console.warn('⚠️ URL test failed:', testError);
       }
-        
-      // Update the profile with the new avatar URL
+      
+      console.log('🖼️ Using file extension:', fileExt);
+      console.log('🖼️ Base64 data length:', base64Data.length);
+      
+      // For React Native, we need to use a different approach
+      // Upload base64 data directly to Supabase storage
+      console.log('🖼️ Using base64 upload approach for React Native');
+      
+      const fileName = `avatar-${user.id}-${Date.now()}.${fileExt}`;
+      console.log('🖼️ Using filename:', fileName);
+      
+      // Try different buckets in order - prioritize avatars bucket
+      const bucketsToTry = ['avatars', 'memories', 'habit-photos'];
+      let uploadSuccess = false;
+      let finalUrl = '';
+      let uploadError = null;
+      
+      for (const bucketName of bucketsToTry) {
+        try {
+          console.log(`🖼️ Trying bucket: ${bucketName}`);
+          
+          // Check if bucket is accessible first
+          const { data: bucketCheck, error: bucketError } = await supabase.storage
+            .from(bucketName)
+            .list('', { limit: 1 });
+          
+          if (bucketError) {
+            console.log(`❌ Bucket ${bucketName} not accessible:`, bucketError.message);
+            continue;
+          }
+          
+          console.log(`✅ Bucket ${bucketName} is accessible`);
+          
+          // Upload base64 data directly
+          const { data, error } = await supabase.storage
+            .from(bucketName)
+            .upload(fileName, `data:image/${fileExt};base64,${base64Data}`, { 
+              upsert: true,
+              cacheControl: '3600'
+            });
+          
+          if (error) {
+            console.log(`❌ Failed to upload to ${bucketName}:`, error.message);
+            uploadError = error;
+            continue;
+          }
+          
+          console.log(`✅ Successfully uploaded to ${bucketName}:`, data);
+          
+          // Get public URL
+          const { data: { publicUrl } } = supabase.storage
+            .from(bucketName)
+            .getPublicUrl(data.path);
+          
+          console.log(`🔗 Generated URL from ${bucketName}:`, publicUrl);
+          
+          // Validate the URL format
+          if (!publicUrl || !publicUrl.startsWith('http')) {
+            console.error('❌ Invalid public URL generated:', publicUrl);
+            uploadError = new Error('Invalid public URL generated');
+            continue;
+          }
+          
+          finalUrl = publicUrl;
+          uploadSuccess = true;
+          console.log(`✅ Successfully uploaded to ${bucketName}: ${finalUrl}`);
+          break;
+          
+        } catch (bucketError) {
+          console.log(`❌ Error with bucket ${bucketName}:`, bucketError);
+          uploadError = bucketError;
+          continue;
+        }
+      }
+      
+      if (!uploadSuccess) {
+        console.error('❌ All bucket upload attempts failed');
+        throw uploadError || new Error('Failed to upload to any available bucket');
+      }
+      
+      console.log('✅ Upload successful, final URL:', finalUrl);
+      
+      // Update profile
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({
-          avatar_url: publicUrl,
+        .update({ 
+          avatar_url: finalUrl,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
-
+      
       if (updateError) {
-        console.error('❌ Update error:', updateError);
+        console.error('❌ Profile update error:', updateError);
         throw updateError;
       }
-
-      console.log('✅ Profile updated with new avatar URL');
-
+      
+      console.log('✅ Profile updated successfully');
+      
       // Update local state
-      setProfile(prev => prev ? { ...prev, avatar_url: publicUrl } : null);
-      setEditForm(prev => ({ ...prev, avatar_url: publicUrl }));
-
-      console.log('✅ Local state updated with new avatar URL');
-
+      setProfile(prev => prev ? { ...prev, avatar_url: finalUrl } : null);
+      setEditForm(prev => ({ ...prev, avatar_url: finalUrl }));
+      
+      console.log('✅ Local state updated successfully');
+      
       Alert.alert('Success', 'Profile photo updated successfully!');
-    } catch (error) {
-      console.error('❌ Error uploading image:', error);
-      Alert.alert('Error', 'Failed to upload image. Please try again.');
+      
+    } catch (error: any) {
+      console.error('❌ Error in profile image upload:', error);
+      
+      let errorMessage = 'Failed to upload image. Please try again.';
+      
+      if (error.message) {
+        if (error.message.includes('0-byte') || error.message.includes('process image') || error.message.includes('Failed to read') || error.message.includes('No base64 data')) {
+          errorMessage = 'Failed to process image. Please try a different photo or restart the app.';
+        } else if (error.message.includes('bucket')) {
+          errorMessage = 'Storage not accessible. Please try again later.';
+        } else if (error.message.includes('permission')) {
+          errorMessage = 'Permission denied. Please check your account.';
+        } else if (error.message.includes('network')) {
+          errorMessage = 'Network error. Please check your connection.';
+        }
+      }
+      
+      Alert.alert('Error', errorMessage);
     } finally {
       setIsUploadingImage(false);
     }
   };
 
-  const showImagePickerOptions = () => {
-    Alert.alert(
-      'Change Profile Photo',
-      'Choose an option',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Take Photo', onPress: () => handleImagePicker('camera') },
-        { text: 'Choose from Library', onPress: () => handleImagePicker('library') },
-      ]
-    );
-  };
-
-  const checkProfileImageExists = async (imageUrl: string) => {
-    try {
-      console.log('🔍 Checking if profile image exists in storage...');
-      
-      // Extract the file path from the URL
-      const url = new URL(imageUrl);
-      const pathParts = url.pathname.split('/');
-      const bucketName = pathParts[3]; // memories
-      const filePath = pathParts.slice(4).join('/'); // avatars/profile-...
-      
-      console.log('🔍 Bucket:', bucketName);
-      console.log('🔍 File path:', filePath);
-      
-      // Check if the file exists in storage
-      const { data: fileData, error: fileError } = await supabase.storage
-        .from(bucketName)
-        .list(filePath.split('/').slice(0, -1).join('/'), {
-          search: filePath.split('/').pop()
-        });
-      
-      if (fileError) {
-        console.error('❌ Error checking file existence:', fileError);
-        return false;
-      }
-      
-      console.log('🔍 Files found in directory:', fileData);
-      
-      if (fileData && fileData.length > 0) {
-        console.log('✅ File exists in storage');
-        return true;
-      } else {
-        console.log('❌ File does not exist in storage');
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ Error checking file existence:', error);
-      return false;
-    }
-  };
-
-  const testProfileImageUrl = async (imageUrl: string) => {
-    try {
-      console.log('🔍 Testing profile image URL:', imageUrl);
-      
-      if (!imageUrl) {
-        console.log('❌ No image URL provided');
-        return;
-      }
-
-      // Test if the URL is valid
-      const url = new URL(imageUrl);
-      console.log('✅ URL is valid:', url.toString());
-
-      // Try to fetch the image
-      const response = await fetch(imageUrl, { method: 'HEAD' });
-      console.log('🔍 Image URL response status:', response.status);
-      console.log('🔍 Image URL response headers:', response.headers);
-      
-      if (response.ok) {
-        console.log('✅ Profile image URL is accessible');
-        return true;
-      } else {
-        console.log('❌ Profile image URL is not accessible:', response.status, response.statusText);
-        return false;
-      }
-    } catch (error) {
-      console.error('❌ Error testing profile image URL:', error);
-      return false;
-    }
-  };
-
   const renderProfileHeader = () => (
     <View style={styles.profileHeader}>
-      <TouchableOpacity style={styles.avatarContainer} onPress={handleEditProfile}>
+      <TouchableOpacity style={styles.avatarContainer} onPress={handlePickAndUploadAvatar}>
         {profile?.avatar_url ? (
           <Image 
-            source={{ uri: profile.avatar_url }} 
+            source={{ 
+              uri: profile.avatar_url,
+              // Add cache busting to force reload
+              cache: 'reload',
+              headers: {
+                'Cache-Control': 'no-cache'
+              }
+            }} 
             style={styles.avatar}
             onError={(error) => {
               console.error('❌ Profile image loading error:', error.nativeEvent.error);
               console.error('❌ Profile image URL:', profile.avatar_url);
-              console.error('❌ Error details:', {
-                errorCode: error.nativeEvent.error?.code,
-                errorMessage: error.nativeEvent.error?.message,
-                url: profile.avatar_url,
-                urlLength: profile.avatar_url?.length
-              });
-              
-              // If the image fails to load, check if it exists and clear if not
-              if (profile?.avatar_url) {
-                checkProfileImageExists(profile.avatar_url).then(async (exists) => {
-                  if (!exists) {
-                    console.log('🗑️ Profile image file does not exist, clearing URL...');
-                    // Clear the invalid URL from the database
-                    if (user) {
-                      try {
-                        await supabase
-                          .from('profiles')
-                          .update({ avatar_url: '' })
-                          .eq('id', user.id);
-                        
-                        console.log('✅ Cleared invalid profile image URL');
-                        // Update local state
-                        setProfile(prev => prev ? { ...prev, avatar_url: '' } : null);
-                        setEditForm(prev => ({ ...prev, avatar_url: '' }));
-                      } catch (err: any) {
-                        console.error('❌ Error clearing profile image URL:', err);
-                      }
-                    }
-                  }
-                });
+              // Try to clear the problematic URL and show placeholder
+              if (user) {
+                console.log('🧹 Clearing problematic profile image URL');
+                supabase.from('profiles').update({ avatar_url: '' }).eq('id', user.id);
+                setProfile(prev => prev ? { ...prev, avatar_url: '' } : null);
+                setEditForm(prev => ({ ...prev, avatar_url: '' }));
               }
             }}
             onLoad={() => {
@@ -1411,38 +1388,21 @@ export default function ProfileScreen() {
             <Ionicons name="person" size={32} color="#fff" />
           </View>
         )}
-        <TouchableOpacity style={styles.editAvatarButton} onPress={showImagePickerOptions}>
-          <Ionicons name="camera" size={14} color="#fff" />
-        </TouchableOpacity>
-      </TouchableOpacity>
-      
-        <Text style={styles.profileName}>
-          {profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}
-        </Text>
-      
-        {profile?.bio && (
-          <Text style={styles.profileBio}>{profile.bio}</Text>
+        {isUploadingImage && (
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 40 }}>
+            <ActivityIndicator size="small" color="#667eea" />
+          </View>
         )}
-      
+      </TouchableOpacity>
+      <TouchableOpacity onPress={handleEditProfile} style={styles.profileNameContainer}>
+        <Text style={styles.profileName}>{profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}</Text>
+      </TouchableOpacity>
+      {profile?.bio && <Text style={styles.profileBio}>{profile.bio}</Text>}
       <TouchableOpacity style={styles.friendCountContainer} onPress={() => setShowSimpleFriendsModal(true)}>
         <Ionicons name="people" size={16} color="#8E8E93" />
         <Text style={styles.friendCountText}>{friends.length} friends</Text>
       </TouchableOpacity>
-      
-      {/* Debug button for profile image */}
-      {profile?.avatar_url && (
-        <TouchableOpacity 
-          style={styles.debugButton} 
-          onPress={async () => {
-            console.log('🔍 Starting comprehensive profile image debug...');
-            await testProfileImageUrl(profile.avatar_url);
-            await checkProfileImageExists(profile.avatar_url);
-          }}
-        >
-          <Text style={styles.debugButtonText}>Debug Profile Image</Text>
-        </TouchableOpacity>
-      )}
-      </View>
+    </View>
   );
 
   const renderFeatureCard = (icon: string, title: string, subtitle: string, count?: number, onPress?: () => void) => (
@@ -1518,17 +1478,30 @@ export default function ProfileScreen() {
             <View style={styles.editAvatarContainer}>
               {editForm.avatar_url ? (
                 <Image 
-                  source={{ uri: editForm.avatar_url }} 
+                  source={{ 
+                    uri: editForm.avatar_url,
+                    // Add cache busting and better error handling
+                    cache: 'reload',
+                    headers: {
+                      'Cache-Control': 'no-cache'
+                    }
+                  }} 
                   style={styles.editAvatar}
                   onError={(error) => {
                     console.error('❌ Edit profile image loading error:', error.nativeEvent.error);
                     console.error('❌ Edit profile image URL:', editForm.avatar_url);
-                    console.error('❌ Edit profile error details:', {
+                    
+                    // Log the specific error details for debugging
+                    console.error('❌ Edit image error details:', {
                       errorCode: error.nativeEvent.error?.code,
                       errorMessage: error.nativeEvent.error?.message,
                       url: editForm.avatar_url,
-                      urlLength: editForm.avatar_url?.length
+                      urlLength: editForm.avatar_url?.length,
+                      urlStartsWith: editForm.avatar_url?.substring(0, 20)
                     });
+                    
+                    // Don't immediately clear the URL - just log the error
+                    console.log('⚠️ Edit profile image failed to load. This might be a temporary issue.');
                   }}
                   onLoad={() => {
                     console.log('✅ Edit profile image loaded successfully:', editForm.avatar_url);
@@ -1545,7 +1518,7 @@ export default function ProfileScreen() {
                   <Ionicons name="person" size={40} color="#fff" />
                 </View>
               )}
-              <TouchableOpacity style={styles.editAvatarButton} onPress={showImagePickerOptions}>
+              <TouchableOpacity style={styles.editAvatarButton} onPress={handlePickAndUploadAvatar}>
                 <Ionicons name="camera" size={16} color="#fff" />
                 </TouchableOpacity>
             </View>
@@ -1949,7 +1922,7 @@ export default function ProfileScreen() {
 
         {isLoadingMemories ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#007AFF" />
+            <ActivityIndicator size="large" color="#667eea" />
             <Text style={styles.loadingText}>Loading memories...</Text>
           </View>
         ) : memories.length === 0 ? (
@@ -1959,16 +1932,6 @@ export default function ProfileScreen() {
             <Text style={styles.emptySubtext}>
               Photos from your habits and events will appear here
             </Text>
-            <TouchableOpacity
-              style={styles.debugButton} 
-              onPress={() => {
-                console.log('🔍 Debug: Current memories state:', memories);
-                console.log('🔍 Debug: User ID:', user?.id);
-                Alert.alert('Debug Info', `User ID: ${user?.id}\nMemories count: ${memories.length}\nCheck console for more details.`);
-              }}
-            >
-              <Text style={styles.debugButtonText}>Debug Info</Text>
-            </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.debugButton, { marginTop: 12, backgroundColor: '#34C759' }]} 
               onPress={async () => {
@@ -2143,8 +2106,8 @@ export default function ProfileScreen() {
                     await loadMemories(user.id);
                   }
                 }}
-                colors={['#007AFF']}
-                tintColor="#007AFF"
+                colors={['#667eea']}
+                tintColor="#667eea"
               />
             }
             contentContainerStyle={styles.memoriesList}
@@ -2211,6 +2174,7 @@ export default function ProfileScreen() {
       onShow={() => {
         if (user?.id) {
           loadPhotoShares(true);
+          markPhotoSharesAsRead();
         }
       }}
     >
@@ -2221,13 +2185,13 @@ export default function ProfileScreen() {
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Friends Feed</Text>
           <TouchableOpacity onPress={handlePhotoSharesRefresh}>
-            <Ionicons name="refresh" size={24} color="#007AFF" />
+            <Ionicons name="refresh" size={24} color="#667eea" />
           </TouchableOpacity>
         </View>
 
         {isLoadingPhotoShares ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#007AFF" />
+            <ActivityIndicator size="large" color="#667eea" />
             <Text style={styles.loadingText}>Loading friends feed...</Text>
           </View>
         ) : photoShares.length === 0 ? (
@@ -2241,7 +2205,7 @@ export default function ProfileScreen() {
         ) : (
           <FlatList
             data={photoShares}
-            keyExtractor={(item) => item.update_id}
+            keyExtractor={(item, index) => `${item.update_id}-${index}`}
             renderItem={({ item }) => (
               <View style={styles.photoShareCard}>
                 {/* User Header */}
@@ -2254,7 +2218,6 @@ export default function ProfileScreen() {
                       style={styles.userAvatar}
                     />
                     <View style={styles.userDetails}>
-                      <Text style={styles.userName}>{item.user_name}</Text>
                       <Text style={styles.userUsername}>@{item.user_username}</Text>
                     </View>
                   </View>
@@ -3229,7 +3192,7 @@ export default function ProfileScreen() {
       // 3. Check memories bucket access
       try {
         const { data: memoriesBucketData, error: memoriesBucketError } = await supabase.storage
-          .from('memories')
+            .from('memories')
           .list('', { limit: 10 });
 
         if (memoriesBucketError) {
@@ -3300,9 +3263,9 @@ export default function ProfileScreen() {
       const { data, error } = await supabase.rpc('get_friends_photo_shares', {
         current_user_id: user.id,
         limit_count: limit
-      });
-
-      if (error) {
+            });
+          
+          if (error) {
         console.error('Error loading photo shares:', error);
         Alert.alert('Error', 'Failed to load friends feed. Please try again.');
         return;
@@ -3310,6 +3273,11 @@ export default function ProfileScreen() {
 
       if (refresh) {
         setPhotoShares(data || []);
+        // Count unread photo shares (created after last viewed time)
+        const unreadCount = (data || []).filter((share: PhotoShare) => 
+          new Date(share.created_at).getTime() > lastViewedPhotoShareTime
+        ).length;
+        setUnreadPhotoShares(unreadCount);
       } else {
         setPhotoShares(prev => [...prev, ...(data || [])]);
       }
@@ -3335,6 +3303,11 @@ export default function ProfileScreen() {
     }
   };
 
+  const markPhotoSharesAsRead = () => {
+    setLastViewedPhotoShareTime(Date.now());
+    setUnreadPhotoShares(0);
+  };
+
   const formatTimeAgo = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -3348,7 +3321,7 @@ export default function ProfileScreen() {
     } else if (diffInSeconds < 86400) {
       const hours = Math.floor(diffInSeconds / 3600);
       return `${hours}h ago`;
-    } else {
+            } else {
       const days = Math.floor(diffInSeconds / 86400);
       return `${days}d ago`;
     }
@@ -3540,11 +3513,11 @@ export default function ProfileScreen() {
             setActiveFriendsTab('search');
             setShowFriendsModal(true);
           }}>
-            <Ionicons name="person-add-outline" size={20} color="#007AFF" />
+            <Ionicons name="person-add-outline" size={20} color="#667eea" />
           </TouchableOpacity>
           <View style={styles.headerSpacer} />
           <TouchableOpacity style={styles.settingsButton} onPress={() => setShowSettingsModal(true)}>
-            <Ionicons name="settings-outline" size={20} color="#007AFF" />
+            <Ionicons name="settings-outline" size={20} color="#667eea" />
       </TouchableOpacity>
     </View>
       )}
@@ -3561,32 +3534,34 @@ export default function ProfileScreen() {
               memories.reduce((total, group) => total + group.memories.length, 0),
               () => setShowMemoriesModal(true)
             )}
-            {renderFeatureCard(
-              'people',
-              'Friends Feed',
-              'Photos from friends',
-              photoShares.length,
-              () => setShowFriendsFeedModal(true)
-            )}
           </View>
         )}
 
         <View style={styles.accountSection}>
-          {user ? (
-            <View style={styles.signInContainer}>
-              <Text style={styles.signInTitle}>Account Settings</Text>
-              <Text style={styles.signInSubtitle}>Tap the settings icon to manage your account</Text>
-            </View>
-          ) : (
-            <View style={styles.signInContainer}>
-          <Text style={styles.signInTitle}>Sign in to sync your data</Text>
-              <GoogleSigninButton
-                size={GoogleSigninButton.Size.Wide}
-                color={GoogleSigninButton.Color.Light}
-                onPress={handleSignIn}
-            disabled={isLoading}
-              />
-              {isLoading && <ActivityIndicator style={styles.loadingIndicator} color="#007AFF" />}
+          {user ? null : (
+            <View style={styles.gradientSignInWrapper}>
+              <View style={styles.floatingCard}>
+                {/* Logo */}
+                <View style={styles.gradientLogo}>
+                  <Ionicons name="leaf" size={36} color="#fff" />
+                </View>
+                {/* Title */}
+                <Text style={styles.gradientTitle}>Jani</Text>
+                {/* Sign In Button */}
+                <TouchableOpacity
+                  style={styles.gradientButton}
+                  onPress={handleSignIn}
+                  disabled={isLoading}
+                >
+                  <Ionicons name="logo-google" size={20} color="#fff" />
+                  <Text style={styles.gradientButtonText}>
+                    {isLoading ? 'Signing in...' : 'Get Started'}
+                  </Text>
+                  {isLoading && (
+                    <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 12 }} />
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         </View>
@@ -3606,7 +3581,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#fff',
   },
   scrollView: {
     flex: 1,
@@ -3714,7 +3689,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#F0F8FF',
+    backgroundColor: '#f0f4ff',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -3735,7 +3710,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   featureCount: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#667eea',
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -3841,28 +3816,30 @@ const styles = StyleSheet.create({
   },
   signInContainer: {
     backgroundColor: '#fff',
-    padding: 24,
-    borderRadius: 12,
+    padding: 32,
+    borderRadius: 16,
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+    marginTop: 32,
+    marginBottom: 32,
   },
   signInTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 24,
+    fontWeight: '700',
     color: '#000',
-    marginBottom: 20,
+    marginBottom: 8,
     textAlign: 'center',
     fontFamily: 'Onest',
   },
   signInSubtitle: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#8E8E93',
-    marginTop: 10,
     textAlign: 'center',
+    lineHeight: 22,
     fontFamily: 'Onest',
   },
   loadingIndicator: {
@@ -4010,15 +3987,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 80,
+    justifyContent: 'center',
+    marginTop: 16,
+    padding: 12,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
   },
   loadingText: {
     fontSize: 14,
-    color: '#8E8E93',
-    marginTop: 16,
+    color: '#007AFF',
+    marginLeft: 8,
+    fontWeight: '500',
     fontFamily: 'Onest',
   },
   emptyContainer: {
@@ -4294,7 +4275,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   debugButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#667eea',
     padding: 12,
     borderRadius: 20,
   },
@@ -4413,9 +4394,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
   },
   sourceContainer: {
     flexDirection: 'row',
@@ -4446,8 +4426,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
     fontFamily: 'Onest',
-    flex: 1,
-    marginRight: 8,
+    marginBottom: 8,
   },
   listContainer: {
     padding: 20,
@@ -4477,14 +4456,813 @@ const styles = StyleSheet.create({
   },
   selectText: {
     fontSize: 16,
-    color: '#007AFF',
+    color: '#667eea',
     fontWeight: '600',
     fontFamily: 'Onest',
   },
   cancelText: {
     fontSize: 16,
-    color: '#007AFF',
+    color: '#667eea',
     fontWeight: '600',
     fontFamily: 'Onest',
+  },
+  signedInContainer: {
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  signedInHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  signedInTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+    marginRight: 8,
+    fontFamily: 'Onest',
+  },
+  signedInSubtitle: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginTop: 10,
+    textAlign: 'center',
+    fontFamily: 'Onest',
+  },
+  settingsButtonText: {
+    fontSize: 16,
+    color: '#667eea',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+    marginLeft: 8,
+  },
+  signInHeader: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  signInIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  signInFeatures: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F8FF',
+    padding: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  featureText: {
+    fontSize: 14,
+    color: '#000',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+    marginLeft: 8,
+  },
+  signInActions: {
+    marginBottom: 16,
+  },
+  googleButton: {
+    width: '100%',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  privacyText: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginTop: 10,
+    textAlign: 'center',
+    fontFamily: 'Onest',
+  },
+  minimalSignInContainer: {
+    backgroundColor: '#fff',
+    padding: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+    marginTop: 32,
+    marginBottom: 32,
+  },
+  minimalSignInTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 8,
+    textAlign: 'center',
+    fontFamily: 'Onest',
+  },
+  minimalSignInSubtitle: {
+    fontSize: 15,
+    color: '#8E8E93',
+    textAlign: 'center',
+    marginBottom: 24,
+    fontFamily: 'Onest',
+  },
+  minimalSignInActions: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  minimalGoogleButton: {
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  minimalPrivacyText: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 16,
+  },
+  appSignInContainer: {
+    backgroundColor: '#fff',
+    padding: 32,
+    borderRadius: 22,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  appSignInWrapper: {
+    backgroundColor: '#667eea',
+    borderRadius: 24,
+    padding: 2,
+    marginHorizontal: 16,
+    marginTop: 32,
+    marginBottom: 32,
+  },
+  appLogoContainer: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  appLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#007AFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  appName: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 6,
+    fontFamily: 'Onest',
+    letterSpacing: -0.5,
+  },
+  appTagline: {
+    fontSize: 16,
+    color: '#8E8E93',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 22,
+  },
+  signInSection: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  welcomeTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    color: '#000',
+    marginBottom: 8,
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    letterSpacing: -0.3,
+  },
+  welcomeSubtitle: {
+    fontSize: 16,
+    color: '#8E8E93',
+    textAlign: 'center',
+    lineHeight: 22,
+    fontFamily: 'Onest',
+    marginBottom: 24,
+  },
+  signInButtonContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  appGoogleButton: {
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  appLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  appLoadingText: {
+    fontSize: 14,
+    color: '#8E8E93',
+    marginLeft: 8,
+    fontFamily: 'Onest',
+    fontWeight: '500',
+  },
+  appPrivacyText: {
+    fontSize: 12,
+    color: '#C7C7CC',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 16,
+  },
+  signedInIconContainer: {
+    marginBottom: 16,
+  },
+  prettySignInWrapper: {
+    backgroundColor: '#667eea',
+    borderRadius: 28,
+    padding: 3,
+    marginHorizontal: 16,
+    marginTop: 32,
+    marginBottom: 32,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  prettySignInContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 25,
+    padding: 36,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  prettyLogoContainer: {
+    alignItems: 'center',
+    marginBottom: 36,
+  },
+  prettyLogo: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  prettyAppName: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#1a1a1a',
+    marginBottom: 8,
+    fontFamily: 'Onest',
+    letterSpacing: -1,
+  },
+  prettyTagline: {
+    fontSize: 17,
+    color: '#666',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  prettySignInSection: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  prettyWelcomeTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#1a1a1a',
+    marginBottom: 10,
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    letterSpacing: -0.5,
+  },
+  prettyWelcomeSubtitle: {
+    fontSize: 17,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 24,
+    fontFamily: 'Onest',
+    marginBottom: 28,
+    fontWeight: '500',
+  },
+  prettySignInButtonContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  prettyGoogleButton: {
+    width: '100%',
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  prettyLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  prettyLoadingText: {
+    fontSize: 15,
+    color: '#666',
+    marginLeft: 10,
+    fontFamily: 'Onest',
+    fontWeight: '600',
+  },
+  prettyPrivacyText: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  decorativeCircle1: {
+    position: 'absolute',
+    top: -20,
+    right: -20,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+  },
+  decorativeCircle2: {
+    position: 'absolute',
+    bottom: -15,
+    left: -15,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(118, 75, 162, 0.1)',
+  },
+  decorativeCircle3: {
+    position: 'absolute',
+    top: '50%',
+    right: -10,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(102, 126, 234, 0.08)',
+  },
+  minimalLogoContainer: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  minimalLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  minimalAppName: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 6,
+    fontFamily: 'Onest',
+    letterSpacing: -0.5,
+  },
+  minimalTagline: {
+    fontSize: 16,
+    color: '#8E8E93',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 22,
+  },
+  minimalSignInSection: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  minimalWelcomeTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 8,
+    textAlign: 'center',
+    fontFamily: 'Onest',
+  },
+  minimalWelcomeSubtitle: {
+    fontSize: 15,
+    color: '#8E8E93',
+    textAlign: 'center',
+    marginBottom: 24,
+    fontFamily: 'Onest',
+  },
+  minimalSignInButtonContainer: {
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  minimalLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  minimalLoadingText: {
+    fontSize: 15,
+    color: '#666',
+    marginLeft: 10,
+    fontFamily: 'Onest',
+    fontWeight: '600',
+  },
+  signInLogoContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  signInLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  signInAppName: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#000',
+    marginBottom: 6,
+    fontFamily: 'Onest',
+    letterSpacing: -0.5,
+  },
+  signInWelcomeContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  signInWelcomeTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#222',
+    marginBottom: 8,
+    textAlign: 'center',
+    fontFamily: 'Onest',
+  },
+  signInWelcomeSubtitle: {
+    fontSize: 15,
+    color: '#8E8E93',
+    textAlign: 'center',
+    marginBottom: 24,
+    fontFamily: 'Onest',
+  },
+
+  signInGoogleButton: {
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  signInLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 18,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  signInLoadingText: {
+    fontSize: 15,
+    color: '#666',
+    marginLeft: 10,
+    fontFamily: 'Onest',
+    fontWeight: '600',
+  },
+  signInPrivacyText: {
+    fontSize: 12,
+    color: '#C7C7CC',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 16,
+  },
+  modernSignInWrapper: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 20,
+    padding: 32,
+    marginHorizontal: 16,
+    marginTop: 32,
+    marginBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  modernHeader: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  modernLogo: {
+    width: 64,
+    height: 64,
+    borderRadius: 16,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modernAppTitle: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#fff',
+    marginBottom: 8,
+    fontFamily: 'Onest',
+    letterSpacing: -1,
+  },
+  modernSubtitle: {
+    fontSize: 16,
+    color: '#999',
+    textAlign: 'center',
+    fontFamily: 'Onest',
+    lineHeight: 22,
+  },
+  modernSignInButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  modernButtonText: {
+    fontSize: 17,
+    color: '#1a1a1a',
+    fontWeight: '700',
+    fontFamily: 'Onest',
+    marginLeft: 12,
+  },
+  modernFeatures: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 24,
+  },
+  modernFeature: {
+    alignItems: 'center',
+  },
+  modernFeatureIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(102, 126, 234, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  modernFeatureText: {
+    fontSize: 12,
+    color: '#999',
+    fontFamily: 'Onest',
+    fontWeight: '500',
+  },
+  cleanSignInContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 40,
+    marginHorizontal: 20,
+    marginTop: 40,
+    marginBottom: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  cleanLogo: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginBottom: 24,
+  },
+  cleanTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontFamily: 'Onest',
+    letterSpacing: -0.5,
+  },
+  cleanSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 40,
+    fontFamily: 'Onest',
+    lineHeight: 22,
+  },
+  cleanButton: {
+    backgroundColor: '#1a1a1a',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  cleanButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+    marginLeft: 12,
+  },
+  cleanDivider: {
+    height: 1,
+    backgroundColor: '#f0f0f0',
+    marginVertical: 24,
+  },
+  cleanFooter: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cleanFooterText: {
+    fontSize: 13,
+    color: '#999',
+    fontFamily: 'Onest',
+  },
+  gradientSignInWrapper: {
+    backgroundColor: '#fff',
+    borderRadius: 0,
+    padding: 0,
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
+    minHeight: 400,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gradientBackground: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+  },
+  floatingCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 32,
+    marginHorizontal: 24,
+    alignItems: 'center',
+  },
+  gradientLogo: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: '#667eea',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  gradientTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 8,
+    fontFamily: 'Onest',
+    textAlign: 'center',
+  },
+  gradientSubtitle: {
+    fontSize: 15,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 32,
+    fontFamily: 'Onest',
+    lineHeight: 20,
+  },
+  gradientButton: {
+    backgroundColor: '#667eea',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gradientButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+    fontFamily: 'Onest',
+    marginLeft: 12,
+  },
+  profileNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  editIcon: {
+    marginLeft: 8,
   },
 });

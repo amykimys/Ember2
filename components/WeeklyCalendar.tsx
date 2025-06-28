@@ -116,9 +116,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 }, ref) => {
     const baseDate = new Date(selectedDate);
     const flatListRef = useRef<FlatList>(null);
-    const timeScrollViewRef = useRef<ScrollView>(null);
+    const [currentWeekScrollViewRef, setCurrentWeekScrollViewRef] = useState<ScrollView | null>(null);
     const [clickedCell, setClickedCell] = useState<{ dayIndex: number; hourIndex: number } | null>(null);
     const clickTimeoutRef = useRef<NodeJS.Timeout>();
+    const hasScrolledToCurrentTime = useRef(false);
     
     // Regenerate weeks array whenever selectedDate changes
     const weeks = useMemo(() => {
@@ -358,23 +359,40 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       eventsKeys: Object.keys(events)
     });
 
+    // Check if this is the current week (today's week)
+    const today = new Date();
+    const isCurrentWeek = weekDates.some(date => isToday(date));
+
     // Sticky all-day row
     const allDayRow = (
       <View style={{ 
         flexDirection: 'row', 
-        backgroundColor: 'white', 
+        backgroundColor: '#ffffff', 
         borderBottomWidth: 1, 
-        borderColor: '#eee', 
+        borderColor: '#dadce0', 
         minHeight: 36, 
         zIndex: 10, 
       }}>
         {/* Time column spacer for alignment */}
         <View style={{ 
           width: TIME_COLUMN_WIDTH, 
-          backgroundColor: 'white',
+          backgroundColor: '#ffffff',
           borderRightWidth: 1,
-          borderColor: '#eee'
-        }} />
+          borderColor: '#dadce0',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <Text style={{
+            fontSize: 10,
+            color: '#5f6368',
+            fontWeight: '500',
+            fontFamily: 'Onest',
+            textTransform: 'uppercase',
+            letterSpacing: 0.8,
+          }}>
+            All Day
+          </Text>
+        </View>
         {weekDates.map((date, idx) => {
           const dateKey = getLocalDateString(date);
           const allDayEvents = (events[dateKey] || []).filter(e => e.isAllDay);
@@ -390,10 +408,11 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 width: DAY_COLUMN_WIDTH,
                 alignItems: 'center',
                 justifyContent: 'flex-start',
-                minHeight: allDayEvents.length > 0 ? allDayEvents.length * 28 : 45,
+                minHeight: allDayEvents.length > 0 ? allDayEvents.length * 26 + 12 : 36,
                 borderRightWidth: 1,
-                borderColor: '#eee',
-                backgroundColor: 'white',
+                borderColor: '#dadce0',
+                backgroundColor: '#ffffff',
+                paddingVertical: 6,
               }}
             >
               {allDayEvents.map((event, i) => (
@@ -425,12 +444,15 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                   style={[
                     styles.allDayEventBox,
                     {
-                      backgroundColor: `${event.categoryColor || '#FF9A8B'}70`,
-                      width: DAY_COLUMN_WIDTH,
+                      backgroundColor: getEventColor(event.categoryColor, event.categoryName),
+                      width: DAY_COLUMN_WIDTH - 12,
                     }
                   ]}
                 >
-                  <Text style={styles.allDayEventText} numberOfLines={1}>{event.title}</Text>
+                  <Text style={[
+                    styles.allDayEventText,
+                    { color: getEventTextColor(event.categoryColor, event.categoryName) }
+                  ]} numberOfLines={1}>{event.title}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -463,8 +485,21 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         </View>
         {/* Time Grid */}
         <ScrollView 
-          ref={timeScrollViewRef}
+          ref={(ref) => {
+            if (isCurrentWeek) {
+              setCurrentWeekScrollViewRef(ref);
+            }
+          }}
           style={{ flex: 1 }}
+          onLayout={() => {
+            // Auto-scroll to current time when the current week's ScrollView is laid out
+            if (isCurrentWeek && !hasScrolledToCurrentTime.current) {
+              setTimeout(() => {
+                scrollToCurrentTime();
+                hasScrolledToCurrentTime.current = true;
+              }, 100);
+            }
+          }}
         >
           <View style={{ flexDirection: 'row' }}>
             {/* Time Column */}
@@ -584,11 +619,11 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                             {
                               top: position.top,
                               height: position.height,
-                              backgroundColor: `${event.categoryColor || '#FF9A8B'}40`,
+                              backgroundColor: getEventColor(event.categoryColor || event.categoryName),
                               position: 'absolute',
                               left: leftPosition,
-                              width: columnWidth - 2, // Small gap between columns
-                              marginHorizontal: 1,
+                              width: columnWidth - 4, // Small gap between columns
+                              marginHorizontal: 2,
                             },
                           ]}
                           onPress={() => {
@@ -619,7 +654,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                           }}
                         >
                           <View style={styles.eventTextContainer}>
-                            <Text style={styles.eventText} numberOfLines={2}>
+                            <Text style={[
+                              styles.eventText,
+                              { color: getEventTextColor(event.categoryColor || event.categoryName) }
+                            ]} numberOfLines={2}>
                               {event.title}
                             </Text>
                           </View>
@@ -645,6 +683,49 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     return `${year}-${month}-${day}`;
   };
 
+  // Helper function to get Google Calendar-like event colors
+  const getEventColor = (categoryColor?: string, categoryName?: string): string => {
+    if (categoryColor) {
+      return categoryColor;
+    }
+    
+    // Google Calendar default colors
+    const colors = [
+      '#4285f4', // Blue
+      '#ea4335', // Red
+      '#fbbc04', // Yellow
+      '#34a853', // Green
+      '#ff6d01', // Orange
+      '#46bdc6', // Teal
+      '#7b1fa2', // Purple
+      '#d01884', // Pink
+    ];
+    
+    if (categoryName) {
+      // Simple hash function to get consistent color for category
+      let hash = 0;
+      for (let i = 0; i < categoryName.length; i++) {
+        hash = categoryName.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      return colors[Math.abs(hash) % colors.length];
+    }
+    
+    return colors[0]; // Default blue
+  };
+
+  // Helper function to get appropriate text color for event background
+  const getEventTextColor = (categoryColor?: string, categoryName?: string): string => {
+    const bgColor = getEventColor(categoryColor, categoryName);
+    
+    // For light colors, use dark text; for dark colors, use white text
+    const lightColors = ['#fbbc04', '#ff6d01', '#46bdc6'];
+    if (lightColors.includes(bgColor)) {
+      return '#202124'; // Dark text
+    }
+    
+    return '#ffffff'; // White text for most colors
+  };
+
   // Update scrollToWeek to handle any target date
   const scrollToWeek = useCallback((targetDate: Date) => {
     const weekStart = new Date(targetDate);
@@ -667,7 +748,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     }
   }, [weeks, setSelectedDate]);
 
-  // Simple function to scroll to current time
+  // Simple function to scroll to current time and center it
   const scrollToCurrentTime = useCallback(() => {
     const now = new Date();
     const hours = now.getHours();
@@ -675,39 +756,43 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     const totalMinutes = hours * 60 + minutes;
     const currentTimePosition = (totalMinutes / 60) * CELL_HEIGHT;
     
-    // Scroll to show current time at the top with a small offset
-    const scrollPosition = Math.max(0, currentTimePosition - 50);
+    // Position the red line higher in the visible area (about 1/3 from the top)
+    const windowHeight = Dimensions.get('window').height;
+    // Estimate header height (date headers + all-day row + weekday strip)
+    const headerHeight = 40 + 36 + 40; // adjust as needed
+    const visibleHeight = windowHeight - headerHeight;
+    // Position the red line at about 1/3 from the top of the visible area
+    const targetPosition = visibleHeight * 0.3;
+    const scrollPosition = Math.max(0, currentTimePosition - targetPosition);
     
-    timeScrollViewRef.current?.scrollTo({
-      y: scrollPosition,
-      animated: true
-    });
-  }, []);
+    if (currentWeekScrollViewRef) {
+      currentWeekScrollViewRef.scrollTo({
+        y: scrollPosition,
+        animated: true
+      });
+    }
+  }, [currentWeekScrollViewRef]);
 
-  // Auto-scroll to current time when viewing today
+  // Reset the scroll flag when selectedDate changes
+  useEffect(() => {
+    hasScrolledToCurrentTime.current = false;
+  }, [selectedDate]);
+
+  // Auto-scroll to current time and center it when viewing today
   useEffect(() => {
     const today = new Date();
     const weekStart = getWeekStartDate();
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 6);
-    
     // Check if today is in the current week
     const isTodayInWeek = today >= weekStart && today <= weekEnd;
-    
     if (isTodayInWeek) {
-      const currentHour = today.getHours();
-      const currentMinute = today.getMinutes();
-      
-      // Calculate scroll position (each hour is 60px, each minute is 1px)
-      const scrollPosition = (currentHour - 6) * 60 + currentMinute;
-      
-      // Scroll to current time with offset for header
-      timeScrollViewRef.current?.scrollTo({
-        y: Math.max(0, scrollPosition - 100),
-        animated: true
-      });
+      // Center the current time line
+      setTimeout(() => {
+        scrollToCurrentTime();
+      }, 300);
     }
-  }, [selectedDate]);
+  }, [selectedDate, scrollToCurrentTime]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -715,7 +800,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         <TouchableOpacity 
           style={styles.weekStrip}
           onPress={() => {
-            scrollToWeek(new Date());
+            // Get the first day of the current month
+            const now = new Date();
+            const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+            scrollToWeek(firstDayOfMonth);
           }}
         >
           <View style={{ flex: 1, alignItems: 'center' }}>
@@ -758,12 +846,12 @@ const styles = StyleSheet.create({
   weekStrip: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 0,
-    paddingBottom: 8,
-    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderColor: '#F0E1D2',
-    backgroundColor: 'white',
+    borderColor: '#dadce0',
+    backgroundColor: '#ffffff',
   },
   dateContainer: {
     width: 25,
@@ -773,11 +861,11 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     flexDirection: 'row',
-    backgroundColor: 'white',
-    paddingTop: 2,
+    backgroundColor: '#ffffff',
+    paddingTop: 6,
     paddingBottom: 8,
-    borderBottomWidth: 0.5,
-    borderColor: '#E5E5E5',
+    borderBottomWidth: 1,
+    borderColor: '#dadce0',
   },
   timeColumnHeader: {
     width: TIME_COLUMN_WIDTH,
@@ -788,37 +876,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   weekdayText: {
-    fontSize: 12,
-    color: '#999999',
-    fontWeight: '400',
+    fontSize: 10,
+    color: '#5f6368',
+    fontWeight: '500',
     fontFamily: 'Onest',
-    marginBottom: 4,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   todayText: {
-    color: '#A0C3B2',
-    fontWeight: '500',
+    color: '#667eea',
+    fontWeight: '600',
   },
   timeColumn: {
     width: TIME_COLUMN_WIDTH,
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
     borderRightWidth: 1,
-    borderColor: '#EEEEEE',
-    paddingRight: 4,
+    borderColor: '#dadce0',
+    paddingRight: 12,
   },
   timeText: {
-    fontSize: 12,
-    color: '#666',
+    fontSize: 10,
+    color: '#5f6368',
     fontFamily: 'Onest',
     textAlign: 'right',
     marginBottom: -7,
     marginTop: 0,
     backgroundColor: 'transparent',
-    paddingRight: 8,
+    paddingRight: 12,
+    fontWeight: '400',
   },
   dayColumn: {
     width: DAY_COLUMN_WIDTH,
     position: 'relative',
-    backgroundColor: 'white',
+    backgroundColor: '#ffffff',
   },
   gridBackground: {
     position: 'absolute',
@@ -828,7 +919,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 0,
     borderRightWidth: 1,
-    borderColor: '#EEEEEE',
+    borderColor: '#dadce0',
   },
   eventsLayer: {
     position: 'absolute',
@@ -841,7 +932,7 @@ const styles = StyleSheet.create({
   cellContainer: {
     height: CELL_HEIGHT,
     borderBottomWidth: 1,
-    borderColor: '#EEEEEE',
+    borderColor: '#f8f9fa',
     position: 'relative',
     backgroundColor: 'transparent',
   },
@@ -855,7 +946,7 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   clickedCell: {
-    backgroundColor: '#A0C3B220',
+    backgroundColor: '#e8f0fe',
   },
   eventCell: {
     height: 45,
@@ -866,78 +957,98 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: '#FF9A8B20',
-    borderRadius: 1,
-    padding: 2,
-    minHeight: 20,
+    backgroundColor: '#4285f4',
+    borderRadius: 4,
+    padding: 6,
+    minHeight: 22,
     zIndex: 2,
+    marginHorizontal: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
   eventTextContainer: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     zIndex: 2,
   },
   eventText: {
-    fontSize: 12.5,
-    color: '#3a3a3a',
+    fontSize: 11,
+    color: '#ffffff',
     fontFamily: 'Onest',
-    textAlign: 'center',
+    textAlign: 'left',
+    fontWeight: '500',
+    lineHeight: 14,
   },
 
   monthLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#666',
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#202124',
     fontFamily: 'Onest',
   },
   allDayEventBox: {
-    borderRadius: 1,
-    paddingHorizontal: 0,
-    paddingVertical: 2,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
     minWidth: 40,
     maxWidth: '100%',
     alignSelf: 'center',
-    backgroundColor: '#FF9A8B20',
+    backgroundColor: '#4285f4',
+    marginVertical: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1,
   },
   allDayEventText: {
-    color: '#3a3a3a',
-    fontSize: 11,
+    color: '#ffffff',
+    fontSize: 10,
     fontFamily: 'Onest',
     textAlign: 'center',
+    fontWeight: '500',
   },
   currentTimeLine: {
     position: 'absolute',
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#ea4335',
     zIndex: 10,
   },
   currentTimeDot: {
     position: 'absolute',
-    left: -4,
-    top: -3,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FF3B30',
+    left: -5,
+    top: -4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#ea4335',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   currentTimeLineContent: {
     position: 'absolute',
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: '#FF3B30',
+    backgroundColor: '#ea4335',
   },
   dateText: {
-    fontSize: 16,
-    fontWeight: '400',
-    color: '#333333',
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#202124',
     fontFamily: 'Onest',
   },
   todayDateText: {
-    color: '#A0C3B2',
+    color: '#667eea',
     fontWeight: '600',
   },
 });

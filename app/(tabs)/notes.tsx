@@ -547,10 +547,12 @@ export default function NotesScreen() {
   // Memoized empty state component
   const EmptyState = useMemo(() => (
     <View style={styles.emptyState}>
-      <Text style={styles.emptyStateTitle}>No notes</Text>
-      <Text style={styles.emptyStateSubtitle}>
-        Create your first note
-      </Text>
+      <View style={styles.emptyStateContent}>
+        <Text style={styles.emptyStateTitle}>No notes</Text>
+        <Text style={styles.emptyStateSubtitle}>
+          Create your first note
+        </Text>
+      </View>
     </View>
   ), []);
 
@@ -581,6 +583,7 @@ export default function NotesScreen() {
               renderItem={renderNoteItem}
               keyExtractor={keyExtractor}
               style={styles.notesList}
+              contentContainerStyle={notes.length === 0 ? styles.emptyListContainer : undefined}
               showsVerticalScrollIndicator={false}
               refreshControl={
                 <RefreshControl
@@ -711,9 +714,14 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     flex: 1,
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 120,
+  },
+  emptyStateContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyStateTitle: {
     fontSize: 24,
@@ -825,5 +833,11 @@ const styles = StyleSheet.create({
     lineHeight: 26,
     fontFamily: 'Onest',
     flex: 1,
+  },
+  emptyListContainer: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingBottom: 120,
   },
 }); 

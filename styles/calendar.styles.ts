@@ -138,10 +138,10 @@ export const calendarStyles = StyleSheet.create({
     backgroundColor: '#FAF9F6',
   },
   selectedContainer: {
-    backgroundColor: '#A0C3B2',
+    backgroundColor: '#667eea',
   },
   todayText: {
-    color: '#A0C3B2',
+    color: '#667eea',
     fontWeight: '500',
   },
   selectedText: {
@@ -293,7 +293,7 @@ export const calendarStyles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#007AFF',
+    borderColor: '#667eea',
   },
   modalTimeText: {
     fontSize: 14,
@@ -321,7 +321,7 @@ export const calendarStyles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#007AFF',
+    borderColor: '#667eea',
   },
   modalCategoryText: {
     fontSize: 14,
@@ -354,7 +354,7 @@ export const calendarStyles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 6,
     borderRadius: 4,
-    backgroundColor: '#007AFF20',
+    backgroundColor: '#667eea20',
     marginBottom: 1,
   },
   modalCategoryOptionText: {
@@ -418,7 +418,7 @@ export const calendarStyles = StyleSheet.create({
     borderRadius: 6,
   },
   modalFormButtonPrimary: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#667eea',
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 6,
