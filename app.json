@@ -18,6 +18,12 @@
             "CFBundleURLSchemes": [
               "com.googleusercontent.apps.407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds"
             ]
+          },
+          {
+            "CFBundleURLName": "oauth2redirect",
+            "CFBundleURLSchemes": [
+              "com.yunseokim.jani"
+            ]
           }
         ]
       }
@@ -42,6 +48,13 @@
           "imageWidth": 120,
           "resizeMode": "contain",
           "backgroundColor": "#667eea"
+        }
+      ],
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds",
+          "iosClientId": "407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds.apps.googleusercontent.com"
         }
       ]
     ],

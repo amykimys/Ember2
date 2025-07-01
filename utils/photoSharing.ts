@@ -75,9 +75,9 @@ export const promptPhotoSharing = (
           // For now, we'll share without a caption
           // In a real implementation, you'd show a modal with TextInput
           sharePhotoWithFriends(photoData).then(success => {
-            if (success && onSuccess) {
-              onSuccess();
-            }
+          if (success && onSuccess) {
+            onSuccess();
+          }
           });
         }
       }

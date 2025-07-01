@@ -97,6 +97,8 @@ export default function FriendsFeedScreen() {
 
       const limit = 50; // Load more photos at once since no server-side pagination
 
+      console.log('🔄 Loading photo shares for user:', user.id);
+
       const { data, error } = await supabase
         .rpc('get_friends_photo_shares', {
           current_user_id: user.id,
@@ -109,6 +111,25 @@ export default function FriendsFeedScreen() {
       }
 
       if (data) {
+        console.log('✅ Photo shares loaded:', data.length, 'items');
+        
+        // Debug: Log each photo share to check avatar URLs
+        data.forEach((share: PhotoShare, index: number) => {
+          console.log(`📸 Photo share ${index + 1}:`, {
+            user_id: share.user_id,
+            user_name: share.user_name,
+            user_username: share.user_username,
+            user_avatar: share.user_avatar,
+            avatar_status: share.user_avatar ? 
+              (share.user_avatar.startsWith('http') ? 'VALID_URL' : 'INVALID_FORMAT') : 
+              'NULL_OR_EMPTY',
+            photo_url: share.photo_url,
+            caption: share.caption,
+            source_type: share.source_type,
+            source_title: share.source_title
+          });
+        });
+        
         setPhotoShares(data);
         
         // Mark as read when viewing
@@ -175,6 +196,21 @@ export default function FriendsFeedScreen() {
             <Image
               source={{ uri: share.user_avatar }}
               style={{ width: 40, height: 40, borderRadius: 20 }}
+              onError={(error) => {
+                console.error('❌ Profile avatar loading error:', {
+                  user_id: share.user_id,
+                  user_username: share.user_username,
+                  avatar_url: share.user_avatar,
+                  error: error.nativeEvent.error
+                });
+              }}
+              onLoad={() => {
+                console.log('✅ Profile avatar loaded successfully:', {
+                  user_id: share.user_id,
+                  user_username: share.user_username,
+                  avatar_url: share.user_avatar
+                });
+              }}
             />
           ) : (
             <Ionicons name="person" size={20} color="#6C757D" />

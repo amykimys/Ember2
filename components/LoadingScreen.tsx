@@ -151,7 +151,6 @@ export default function LoadingScreen({ onLoadingComplete }: LoadingScreenProps)
               },
             ]}
           >
-            <Text style={styles.tagline}>Your Personal Productivity Companion</Text>
           </Animated.View>
 
           {/* Progress Bar */}

@@ -1186,8 +1186,7 @@ export default function ProfileScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 1.0, // Use maximum quality
-      base64: true, // Get base64 directly from picker
+      quality: 0.5, // Reduced quality to ensure smaller file size
     });
     
     if (result.canceled || !result.assets[0]) return;
@@ -1199,113 +1198,91 @@ export default function ProfileScreen() {
       
       const uri = result.assets[0].uri;
       const fileSize = result.assets[0].fileSize;
-      const base64Data = result.assets[0].base64;
       
       console.log('🖼️ Selected image URI:', uri);
       console.log('🖼️ File size:', fileSize, 'bytes');
-      console.log('🖼️ Base64 data available:', !!base64Data);
-      
-      if (!base64Data) {
-        throw new Error('No base64 data available from image picker');
-      }
-      
-      // Ensure we have a proper file extension
-      let fileExt = 'jpg'; // Default to jpg
-      
-      // Try to get extension from URI
+        
+      // Check file size (limit to 2MB for profile photos)
+      if (fileSize && fileSize > 2 * 1024 * 1024) {
+        throw new Error('Image file is too large. Please select an image smaller than 2MB.');
+        }
+        
+      // Get file extension
+      let fileExt = 'jpg';
       if (uri.includes('.')) {
         const uriExt = uri.split('.').pop()?.toLowerCase();
         if (uriExt && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(uriExt)) {
           fileExt = uriExt;
         }
-      }
-      
+        }
+        
       console.log('🖼️ Using file extension:', fileExt);
-      console.log('🖼️ Base64 data length:', base64Data.length);
       
-      // For React Native, we need to use a different approach
-      // Upload base64 data directly to Supabase storage
-      console.log('🖼️ Using base64 upload approach for React Native');
-      
-      const fileName = `avatar-${user.id}-${Date.now()}.${fileExt}`;
+      // Create unique filename with avatars folder path
+      const fileName = `avatars/avatar-${user.id}-${Date.now()}.${fileExt}`;
       console.log('🖼️ Using filename:', fileName);
       
-      // Try different buckets in order - prioritize avatars bucket
-      const bucketsToTry = ['avatars', 'memories', 'habit-photos'];
-      let uploadSuccess = false;
-      let finalUrl = '';
-      let uploadError = null;
-      
-      for (const bucketName of bucketsToTry) {
-        try {
-          console.log(`🖼️ Trying bucket: ${bucketName}`);
-          
-          // Check if bucket is accessible first
-          const { data: bucketCheck, error: bucketError } = await supabase.storage
-            .from(bucketName)
-            .list('', { limit: 1 });
-          
-          if (bucketError) {
-            console.log(`❌ Bucket ${bucketName} not accessible:`, bucketError.message);
-            continue;
+      // Upload to memories bucket in the avatars folder
+      console.log('🖼️ Uploading to memories/avatars folder...');
+        
+        const { data, error } = await supabase.storage
+        .from('memories')
+        .upload(fileName, {
+          uri: uri,
+          type: `image/${fileExt}`,
+          name: fileName,
+        } as any, { 
+            upsert: true,
+          cacheControl: '3600',
+          contentType: `image/${fileExt}` // Explicitly set content type
+          });
+        
+        if (error) {
+        console.error('❌ Upload to memories/avatars failed:', error);
+        throw new Error('Failed to upload image. Please try again.');
           }
           
-          console.log(`✅ Bucket ${bucketName} is accessible`);
+      console.log('✅ Upload to memories/avatars successful:', data);
           
-          // Upload base64 data directly
-          const { data, error } = await supabase.storage
-            .from(bucketName)
-            .upload(fileName, `data:image/${fileExt};base64,${base64Data}`, { 
-              upsert: true,
-              cacheControl: '3600'
-            });
-          
-          if (error) {
-            console.log(`❌ Failed to upload to ${bucketName}:`, error.message);
-            uploadError = error;
-            continue;
-          }
-          
-          console.log(`✅ Successfully uploaded to ${bucketName}:`, data);
-          
-          // Get public URL
+      // Get public URL from memories bucket
           const { data: { publicUrl } } = supabase.storage
-            .from(bucketName)
+        .from('memories')
             .getPublicUrl(data.path);
           
-          console.log(`🔗 Generated URL from ${bucketName}:`, publicUrl);
+      await updateProfileWithAvatar(publicUrl);
           
-          // Validate the URL format
-          if (!publicUrl || !publicUrl.startsWith('http')) {
-            console.error('❌ Invalid public URL generated:', publicUrl);
-            uploadError = new Error('Invalid public URL generated');
-            continue;
-          }
-          
-          finalUrl = publicUrl;
-          uploadSuccess = true;
-          console.log(`✅ Successfully uploaded to ${bucketName}: ${finalUrl}`);
-          break;
-          
-        } catch (bucketError) {
-          console.log(`❌ Error with bucket ${bucketName}:`, bucketError);
-          uploadError = bucketError;
-          continue;
+    } catch (error: any) {
+      console.error('❌ Error in profile image upload:', error);
+      
+      let errorMessage = 'Failed to upload image. Please try again.';
+      
+      if (error.message) {
+        if (error.message.includes('too large')) {
+          errorMessage = error.message;
+        } else if (error.message.includes('permission')) {
+          errorMessage = 'Permission denied. Please check your account.';
+        } else if (error.message.includes('network')) {
+          errorMessage = 'Network error. Please check your connection.';
         }
       }
       
-      if (!uploadSuccess) {
-        console.error('❌ All bucket upload attempts failed');
-        throw uploadError || new Error('Failed to upload to any available bucket');
-      }
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const updateProfileWithAvatar = async (avatarUrl: string) => {
+    if (!user) return;
+    
+    try {
+      console.log('🔄 Updating profile with avatar URL:', avatarUrl);
       
-      console.log('✅ Upload successful, final URL:', finalUrl);
-      
-      // Update profile
+      // Update profile in database
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ 
-          avatar_url: finalUrl,
+          avatar_url: avatarUrl,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
@@ -1318,33 +1295,16 @@ export default function ProfileScreen() {
       console.log('✅ Profile updated successfully');
       
       // Update local state
-      setProfile(prev => prev ? { ...prev, avatar_url: finalUrl } : null);
-      setEditForm(prev => ({ ...prev, avatar_url: finalUrl }));
+      setProfile(prev => prev ? { ...prev, avatar_url: avatarUrl } : null);
+      setEditForm(prev => ({ ...prev, avatar_url: avatarUrl }));
       
       console.log('✅ Local state updated successfully');
       
       Alert.alert('Success', 'Profile photo updated successfully!');
       
-    } catch (error: any) {
-      console.error('❌ Error in profile image upload:', error);
-      
-      let errorMessage = 'Failed to upload image. Please try again.';
-      
-      if (error.message) {
-        if (error.message.includes('0-byte') || error.message.includes('process image') || error.message.includes('Failed to read') || error.message.includes('No base64 data')) {
-          errorMessage = 'Failed to process image. Please try a different photo or restart the app.';
-        } else if (error.message.includes('bucket')) {
-          errorMessage = 'Storage not accessible. Please try again later.';
-        } else if (error.message.includes('permission')) {
-          errorMessage = 'Permission denied. Please check your account.';
-        } else if (error.message.includes('network')) {
-          errorMessage = 'Network error. Please check your connection.';
-        }
-      }
-      
-      Alert.alert('Error', errorMessage);
-    } finally {
-      setIsUploadingImage(false);
+    } catch (error) {
+      console.error('❌ Error updating profile:', error);
+      throw error;
     }
   };
 
@@ -1385,17 +1345,18 @@ export default function ProfileScreen() {
           />
         ) : (
           <View style={styles.avatarPlaceholder}>
-            <Ionicons name="person" size={32} color="#fff" />
+            <Ionicons name="person" size={40} color="#fff" />
           </View>
         )}
         {isUploadingImage && (
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 40 }}>
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 50 }}>
             <ActivityIndicator size="small" color="#667eea" />
           </View>
         )}
       </TouchableOpacity>
       <TouchableOpacity onPress={handleEditProfile} style={styles.profileNameContainer}>
-        <Text style={styles.profileName}>{profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}</Text>
+      <Text style={styles.profileName}>{profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}</Text>
+        <Text style={styles.profileUsername}>@{profile?.username || user?.user_metadata?.username || 'username'}</Text>
       </TouchableOpacity>
       {profile?.bio && <Text style={styles.profileBio}>{profile.bio}</Text>}
       <TouchableOpacity style={styles.friendCountContainer} onPress={() => setShowSimpleFriendsModal(true)}>
@@ -1519,7 +1480,7 @@ export default function ProfileScreen() {
                 </View>
               )}
               <TouchableOpacity style={styles.editAvatarButton} onPress={handlePickAndUploadAvatar}>
-                <Ionicons name="camera" size={16} color="#fff" />
+                <Ionicons name="camera" size={18} color="#fff" />
                 </TouchableOpacity>
             </View>
             <Text style={styles.editAvatarLabel}>Profile Picture</Text>
@@ -3278,7 +3239,7 @@ export default function ProfileScreen() {
           new Date(share.created_at).getTime() > lastViewedPhotoShareTime
         ).length;
         setUnreadPhotoShares(unreadCount);
-      } else {
+          } else {
         setPhotoShares(prev => [...prev, ...(data || [])]);
       }
 
@@ -3505,6 +3466,92 @@ export default function ProfileScreen() {
     );
   };
 
+  const testStorageAccess = async () => {
+    try {
+      console.log('🔍 Testing storage access...');
+      
+      // Test avatars bucket
+      const { data: avatarsData, error: avatarsError } = await supabase.storage
+        .from('avatars')
+        .list('', { limit: 1 });
+      
+      if (avatarsError) {
+        console.log('❌ Avatars bucket error:', avatarsError.message);
+      } else {
+        console.log('✅ Avatars bucket accessible');
+      }
+      
+      // Test memories bucket
+      const { data: memoriesData, error: memoriesError } = await supabase.storage
+        .from('memories')
+        .list('', { limit: 1 });
+      
+      if (memoriesError) {
+        console.log('❌ Memories bucket error:', memoriesError.message);
+      } else {
+        console.log('✅ Memories bucket accessible');
+      }
+      
+      // Show options for cleanup
+      Alert.alert(
+        'Storage Test', 
+        'Check console for results. Would you like to clean up the large avatar file?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Cleanup Avatar', onPress: cleanupLargeAvatar }
+        ]
+      );
+      
+    } catch (error) {
+      console.error('❌ Storage test error:', error);
+      Alert.alert('Error', 'Storage test failed');
+    }
+  };
+
+  const cleanupLargeAvatar = async () => {
+    if (!user) return;
+    
+    try {
+      console.log('🧹 Cleaning up large avatar file...');
+      
+      // Delete the problematic file from memories bucket
+      const { error: deleteError } = await supabase.storage
+        .from('memories')
+        .remove(['avatar-cf77e7d5-5743-46d5-add9-de9a1db64fd4-1751088440678.jpg']);
+      
+      if (deleteError) {
+        console.log('❌ Failed to delete large avatar:', deleteError.message);
+      } else {
+        console.log('✅ Large avatar file deleted successfully');
+      }
+      
+      // Clear the avatar URL from profile
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ 
+          avatar_url: '',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+      
+      if (updateError) {
+        console.log('❌ Failed to clear avatar URL:', updateError.message);
+      } else {
+        console.log('✅ Avatar URL cleared from profile');
+        
+        // Update local state
+        setProfile(prev => prev ? { ...prev, avatar_url: '' } : null);
+        setEditForm(prev => ({ ...prev, avatar_url: '' }));
+      }
+      
+      Alert.alert('Cleanup Complete', 'Large avatar file has been removed');
+      
+    } catch (error) {
+      console.error('❌ Error cleaning up avatar:', error);
+      Alert.alert('Error', 'Failed to cleanup avatar file');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {user && (
@@ -3544,14 +3591,14 @@ export default function ProfileScreen() {
                 {/* Logo */}
                 <View style={styles.gradientLogo}>
                   <Ionicons name="leaf" size={36} color="#fff" />
-                </View>
+              </View>
                 {/* Title */}
                 <Text style={styles.gradientTitle}>Jani</Text>
                 {/* Sign In Button */}
                 <TouchableOpacity
                   style={styles.gradientButton}
-                  onPress={handleSignIn}
-                  disabled={isLoading}
+                    onPress={handleSignIn}
+                    disabled={isLoading}
                 >
                   <Ionicons name="logo-google" size={20} color="#fff" />
                   <Text style={styles.gradientButtonText}>
@@ -3610,17 +3657,17 @@ const styles = StyleSheet.create({
   },
   avatarContainer: {
     position: 'relative',
-    marginBottom: 24,
+    marginBottom: 12, // Reduced from 24 to bring name closer
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100, // Increased from 80 to 100
+    height: 100, // Increased from 80 to 100
+    borderRadius: 50, // Increased from 40 to 50
   },
   avatarPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100, // Increased from 80 to 100
+    height: 100, // Increased from 80 to 100
+    borderRadius: 50, // Increased from 40 to 50
     backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -3630,9 +3677,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     right: 0,
     backgroundColor: '#007AFF',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 28, // Increased from 24 to 28
+    height: 28, // Increased from 24 to 28
+    borderRadius: 14, // Increased from 12 to 14
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -3640,8 +3687,14 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: '#000',
-    marginBottom: 4,
+    marginBottom: 2,
     fontFamily: 'Onest',
+  },
+  profileUsername: {
+    fontSize: 14,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+    marginBottom: 4,
   },
   profileEmail: {
     fontSize: 16,
@@ -3653,7 +3706,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 8, // Reduced from 16 to 8
     fontFamily: 'Onest',
   },
   editProfileButton: {
@@ -4234,7 +4287,7 @@ const styles = StyleSheet.create({
   friendCountContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 2, // Reduced from 4 to 2
   },
   friendCountText: {
     fontSize: 17,
@@ -5255,7 +5308,7 @@ const styles = StyleSheet.create({
     marginLeft: 12,
   },
   profileNameContainer: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     marginBottom: 4,
     paddingVertical: 4,

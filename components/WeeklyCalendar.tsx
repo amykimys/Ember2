@@ -412,7 +412,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 borderRightWidth: 1,
                 borderColor: '#dadce0',
                 backgroundColor: '#ffffff',
-                paddingVertical: 6,
+                paddingVertical: 2,
+                paddingHorizontal: 2,
               }}
             >
               {allDayEvents.map((event, i) => (
@@ -444,14 +445,14 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                   style={[
                     styles.allDayEventBox,
                     {
-                      backgroundColor: getEventColor(event.categoryColor, event.categoryName),
-                      width: DAY_COLUMN_WIDTH - 12,
+                      backgroundColor: `${getEventColor(event.categoryColor, event.categoryName)}30`, // Lighter background like monthly calendar
+                      width: '100%', // Full width to fit snugly
                     }
                   ]}
                 >
                   <Text style={[
                     styles.allDayEventText,
-                    { color: getEventTextColor(event.categoryColor, event.categoryName) }
+                    { color: '#3A3A3A' } // Dark text like monthly calendar
                   ]} numberOfLines={1}>{event.title}</Text>
                 </TouchableOpacity>
               ))}
@@ -619,11 +620,13 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                             {
                               top: position.top,
                               height: position.height,
-                              backgroundColor: getEventColor(event.categoryColor || event.categoryName),
+                              backgroundColor: `${getEventColor(event.categoryColor || event.categoryName)}30`, // Lighter background like monthly calendar
                               position: 'absolute',
                               left: leftPosition,
                               width: columnWidth - 4, // Small gap between columns
                               marginHorizontal: 2,
+                              paddingVertical: 2,
+                              paddingHorizontal: 4,
                             },
                           ]}
                           onPress={() => {
@@ -656,7 +659,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                           <View style={styles.eventTextContainer}>
                             <Text style={[
                               styles.eventText,
-                              { color: getEventTextColor(event.categoryColor || event.categoryName) }
+                              { color: '#3A3A3A' } // Dark text like monthly calendar
                             ]} numberOfLines={2}>
                               {event.title}
                             </Text>
@@ -767,9 +770,9 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     
     if (currentWeekScrollViewRef) {
       currentWeekScrollViewRef.scrollTo({
-        y: scrollPosition,
-        animated: true
-      });
+      y: scrollPosition,
+      animated: true
+    });
     }
   }, [currentWeekScrollViewRef]);
 
@@ -957,12 +960,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     right: 0,
-    backgroundColor: '#4285f4',
+    backgroundColor: '#4285f4', // This will be overridden by category color
     borderRadius: 4,
-    padding: 6,
     minHeight: 22,
     zIndex: 2,
-    marginHorizontal: 2,
+    marginHorizontal: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -972,15 +974,15 @@ const styles = StyleSheet.create({
   eventTextContainer: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     zIndex: 2,
   },
   eventText: {
     fontSize: 11,
-    color: '#ffffff',
+    color: '#3A3A3A',
     fontFamily: 'Onest',
     textAlign: 'left',
-    fontWeight: '500',
+    fontWeight: '400',
     lineHeight: 14,
   },
 
@@ -991,14 +993,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   allDayEventBox: {
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    borderRadius: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
     minWidth: 40,
     maxWidth: '100%',
-    alignSelf: 'center',
+    alignSelf: 'stretch',
     backgroundColor: '#4285f4',
-    marginVertical: 1,
+    marginVertical: 0,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -1006,11 +1008,11 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   allDayEventText: {
-    color: '#ffffff',
-    fontSize: 10,
+    color: '#3A3A3A',
+    fontSize: 11,
     fontFamily: 'Onest',
     textAlign: 'center',
-    fontWeight: '500',
+    fontWeight: '400',
   },
   currentTimeLine: {
     position: 'absolute',

@@ -10,10 +10,11 @@ interface MonthlyCalendarProps {
 }
 
 const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPress }) => {
-  // Calculate min and max dates (1 year in the past and 2 years in the future)
+  // Calculate min and max dates (5 years from January of previous year to December 2028)
   // Use startOf('day') to ensure we include the full day
-  const minDate = moment().subtract(1, 'year').startOf('day').format('YYYY-MM-DD');
-  const maxDate = moment().add(2, 'years').endOf('day').format('YYYY-MM-DD');
+  const currentYear = moment().year();
+  const minDate = moment().year(currentYear - 1).month(0).date(1).startOf('day').format('YYYY-MM-DD');
+  const maxDate = moment().year(2028).month(11).date(31).endOf('day').format('YYYY-MM-DD');
   const [currentDate, setCurrentDate] = useState(selectedDate);
 
   // Handle day press with proper date validation

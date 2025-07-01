@@ -173,7 +173,9 @@ const getWeeklyProgressPercentage = (habit: Habit) => {
   const weekEnd = moment().endOf('isoWeek');
   
   const completedThisWeek = (habit.completedDays || []).filter(date => {
-    const habitDate = moment(date, 'YYYY-MM-DD');
+    // Handle both old format (YYYY-MM-DD) and new format (YYYY-MM-DD-HH-MM-SS)
+    const dateOnly = date.split('-').slice(0, 3).join('-'); // Extract YYYY-MM-DD part
+    const habitDate = moment(dateOnly, 'YYYY-MM-DD');
     return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
   }).length;
   
@@ -787,12 +789,13 @@ export default function TodoScreen() {
       console.log('  - Selected month for progress:', selectedMonthForProgress.format('MMMM YYYY'));
       console.log('  - Habit completedDays:', habitToToggle.completedDays);
       
-      const isCompletedToday = habitToToggle.completedDays.includes(today);
+      const isCompletedToday = habitToToggle.completedDays.some(date => date.startsWith(today));
 
-      if (isCompletedToday) {
-        // If already completed today, do nothing
-        return;
-      }
+      // Remove the restriction - allow multiple completions per day
+      // if (isCompletedToday) {
+      //   // If already completed today, do nothing
+      //   return;
+      // }
 
       if (habitToToggle.requirePhoto) {
         // Show photo prompt
@@ -816,7 +819,14 @@ export default function TodoScreen() {
       }
 
       const currentCompletedDays = habitToToggle.completedDays || [];
-      const newCompletedDays = [...currentCompletedDays, today];
+      
+      // For multiple completions per day, we need to make each completion unique
+      // We'll use a timestamp format: YYYY-MM-DD-HH-MM-SS
+      const now = moment();
+      const uniqueCompletionId = `${today}-${now.format('HH-mm-ss')}`;
+      
+      // Add the unique completion ID to the array
+      const newCompletedDays = [...currentCompletedDays, uniqueCompletionId];
 
       // Update in Supabase
       const { error } = await supabase
@@ -1558,6 +1568,7 @@ export default function TodoScreen() {
         overshootLeft={false}
         rightThreshold={30}
         leftThreshold={30}
+        enableTrackpadTwoFingerGesture={false}
       >
         {swipingTodoId === todo.id ? (
           <View style={{ borderRadius: 12, overflow: 'hidden' }}>
@@ -2078,8 +2089,8 @@ export default function TodoScreen() {
           return;
         }
 
-        if (session?.user) {
-          setUser(session.user);
+      if (session?.user) {
+        setUser(session.user);
           await fetchData(session.user);
         }
       } catch (error) {
@@ -3158,22 +3169,22 @@ export default function TodoScreen() {
               flexDirection: 'row',
               alignItems: 'center',
               gap: 8,
-            }}>
-              <TouchableOpacity
+          }}>
+            <TouchableOpacity
                 onPress={goToToday}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <Text style={{
-                  fontSize: 25,
-                  fontWeight: '700',
-                  color: '#333',
-                  fontFamily: 'Onest',
-                }}>
-                  {moment(currentDate).format('MMMM D')}
-                </Text>
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{
+                fontSize: 25,
+                fontWeight: '700',
+                color: '#333',
+                fontFamily: 'Onest',
+              }}>
+                {moment(currentDate).format('MMMM D')}
+              </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setShowDatePicker(true)}
@@ -3181,8 +3192,8 @@ export default function TodoScreen() {
                   padding: 4,
                 }}
               >
-                <Ionicons name="chevron-down" size={16} color="#666" style={{ marginLeft: 1 }} />
-              </TouchableOpacity>
+              <Ionicons name="chevron-down" size={16} color="#666" style={{ marginLeft: 1 }} />
+            </TouchableOpacity>
             </View>
 
             {/* Monthly Progress Button - Only show when habits tab is active */}
@@ -3397,30 +3408,6 @@ export default function TodoScreen() {
                           backgroundColor: `${darkenColor(habit.color, 0.2)}90`,
                         }]}>
                           <TouchableOpacity
-                            onPress={async () => {
-                              if (!user?.id) {
-                                Alert.alert('Error', 'You must be logged in to share habits.');
-                                return;
-                              }
-                              
-                              // For now, show a simple message about sharing
-                              Alert.alert(
-                                'Share Habit',
-                                `Sharing "${habit.text}" with friends is coming soon!`,
-                                [{ text: 'OK', style: 'default' }]
-                              );
-                            }}
-                            style={[styles.trashIconContainer, { 
-                              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                              marginRight: 8,
-                            }]}
-                            activeOpacity={0.5}
-                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          >
-                            <Ionicons name="share-outline" size={20} color="white" />
-                          </TouchableOpacity>
-                          
-                          <TouchableOpacity
                             onPress={() => {
                               if (Platform.OS !== 'web') {
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -3434,72 +3421,7 @@ export default function TodoScreen() {
                           </TouchableOpacity>
                         </View>
                       )}
-                      renderLeftActions={() => (
-                        <View
-                          style={{
-                            backgroundColor: '#007AFF',
-                            width: 80, // Single icon width
-                            height: '100%',
-                          alignItems: 'center',
-                            justifyContent: 'center',
-                            borderRadius: 8,
-                          }}
-                        >
-                          {/* Camera Icon */}
-                          <TouchableOpacity
-                            onPress={() => {
-                              if (swipeableRefs.current[habit.id]) {
-                                swipeableRefs.current[habit.id].close();
-                              }
-                              const photos = habit.photos || {};
-                              const photoEntries = Object.entries(photos);
-                              
-                              if (photoEntries.length > 0) {
-                                // Sort photos by date (most recent first) and show the first one
-                                const sortedPhotos = photoEntries
-                                  .sort(([dateA], [dateB]) => dateB.localeCompare(dateA))
-                                  .map(([date, photoUrl]) => ({
-                                    date,
-                                    photoUrl,
-                                    formattedDate: moment(date).format('MMM D, YYYY')
-                                  }));
-                                
-                                // Set up all photos for navigation
-                                setAllPhotosForViewing(sortedPhotos.map(photo => ({
-                                  habit,
-                                  photoUrl: photo.photoUrl,
-                                  date: photo.date,
-                                  formattedDate: photo.formattedDate
-                                })));
-                                setCurrentPhotoIndex(0);
-                                
-                                // Show the most recent photo directly
-                                setSelectedPhotoForViewing({ 
-                                  habit, 
-                                  photoUrl: sortedPhotos[0].photoUrl, 
-                                  date: sortedPhotos[0].date, 
-                                  formattedDate: sortedPhotos[0].formattedDate 
-                                });
-                                setIsPhotoViewerVisible(true);
-                              } else {
-                                // Open photo modal to add photos
-                              setSelectedHabitForPhoto(habit);
-                              setIsPhotoModalVisible(true);
-                              }
-                            }}
-                            style={{
-                              width: 48,
-                              height: 48,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              borderRadius: 24,
-                              backgroundColor: 'rgba(255,255,255,0.2)',
-                            }}
-                          >
-                            <Ionicons name="camera" size={22} color="white" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
+                      renderLeftActions={undefined}
                       onSwipeableRightOpen={() => {
                         if (Platform.OS !== 'web') {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -3509,10 +3431,16 @@ export default function TodoScreen() {
                       onSwipeableLeftOpen={() => {
                         // This will be handled by individual button presses
                       }}
+                      friction={1.5}
+                      overshootRight={false}
+                      overshootLeft={false}
+                      rightThreshold={30}
+                      leftThreshold={30}
                       containerStyle={{
                         marginVertical: 4,
                         borderRadius: 12,
-                        overflow: 'hidden'
+                        overflow: 'hidden',
+                        opacity: 1
                       }}
                     >
                       <View
@@ -3851,7 +3779,7 @@ export default function TodoScreen() {
                     width: 32,
                     height: 32,
                     borderRadius: 16,
-                    backgroundColor: newTodo.trim() ? '#FF6B6B' : '#ffffff',
+                    backgroundColor: newTodo.trim() ? '#667eea' : '#ffffff',
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}
@@ -4396,7 +4324,7 @@ export default function TodoScreen() {
                               minute: '2-digit', 
                               hour12: true 
                             }) : 'No reminder'}
-                          </Text>
+                            </Text>
                         </TouchableOpacity>
                       </View>
                       {showReminderPicker && (
@@ -5056,7 +4984,7 @@ export default function TodoScreen() {
                   width: 32,
                   height: 32,
                   borderRadius: 16,
-                  backgroundColor: newHabit.trim() ? '#A0C3B2' : '#ffffff',
+                  backgroundColor: newHabit.trim() ? '#667eea' : '#ffffff',
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}
@@ -5165,12 +5093,12 @@ export default function TodoScreen() {
                         Keyboard.dismiss();
                       }}
                       style={{
-                        backgroundColor: habitTargetPerWeek === goal ? '#A0C3B2' : '#f8f9fa',
+                        backgroundColor: habitTargetPerWeek === goal ? '#667eea' : '#f8f9fa',
                         paddingVertical: 8,
                         paddingHorizontal: 12,
                         borderRadius: 16,
                         borderWidth: 1,
-                        borderColor: habitTargetPerWeek === goal ? '#A0C3B2' : '#e0e0e0',
+                        borderColor: habitTargetPerWeek === goal ? '#667eea' : '#e0e0e0',
                       }}
                     >
                       <Text style={{
@@ -5330,36 +5258,36 @@ export default function TodoScreen() {
                           textColor="#333"
                         />
                         
-                        <View style={{ 
-                          flexDirection: 'row', 
+                    <View style={{ 
+                      flexDirection: 'row', 
                           justifyContent: 'flex-end',
                           marginTop: 8,
                         }}>
-                          <TouchableOpacity
+                        <TouchableOpacity
                             onPress={() => {
                               setHabitReminderTime(null);
                               setShowHabitReminderPicker(false);
                               Keyboard.dismiss();
-                            }}
-                            style={{
+                          }}
+                          style={{
                               backgroundColor: 'transparent',
-                              paddingHorizontal: 12,
+                            paddingHorizontal: 12,
                               paddingVertical: 6,
-                              borderRadius: 6,
-                            }}
-                          >
-                            <Text style={{
+                            borderRadius: 6,
+                          }}
+                        >
+                          <Text style={{
                               fontSize: 12,
                               color: '#FF6B6B',
-                              fontFamily: 'Onest',
+                            fontFamily: 'Onest',
                               fontWeight: '500'
-                            }}>
+                          }}>
                               Clear
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
+                          </Text>
+                        </TouchableOpacity>
                       </View>
-                    )}
+                    </View>
+                  )}
                   </View>
 
                   {/* Photo Proof */}
@@ -5396,7 +5324,7 @@ export default function TodoScreen() {
                           width: 44,
                           height: 24,
                           borderRadius: 12,
-                          backgroundColor: habitRequirePhoto ? '#A0C3B2' : '#f0f0f0',
+                          backgroundColor: habitRequirePhoto ? '#667eea' : '#f0f0f0',
                           justifyContent: 'center',
                           alignItems: 'center',
                           paddingHorizontal: 2,
@@ -5783,127 +5711,127 @@ export default function TodoScreen() {
             setEditingNoteInViewer(null);
             setEditingNoteText('');
           }}>
-            <View style={{ 
-              flex: 1, 
-              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+          <View style={{ 
+          flex: 1, 
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
               justifyContent: 'flex-start',
               alignItems: 'center',
               paddingTop: 100,
-            }}>
+        }}>
               <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={{ 
-                  backgroundColor: 'white', 
-                  borderRadius: 12,
+            <View style={{ 
+                    backgroundColor: 'white', 
+            borderRadius: 12,
                   width: 320,
                   maxHeight: '60%',
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.15,
-                  shadowRadius: 8,
-                  elevation: 8,
-                  overflow: 'hidden',
-                }}>
-                  
-                  {/* Modal Header */}
+                    shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.15,
+                    shadowRadius: 8,
+            elevation: 8,
+            overflow: 'hidden',
+          }}>
+            
+            {/* Modal Header */}
                   <View style={{ 
-                    flexDirection: 'row', 
+              flexDirection: 'row', 
                     alignItems: 'center',
-                    justifyContent: 'space-between', 
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    borderBottomWidth: 1,
-                    borderBottomColor: '#f0f0f0',
-                  }}>
-                    <Text style={{ 
-                      fontSize: 14,
-                      fontWeight: '600', 
-                      color: '#333', 
-                      fontFamily: 'Onest',
-                      flex: 1,
-                    }}>
-                      {selectedHabitForViewingNotes?.text}
-                    </Text>
-                    
-                    <TouchableOpacity 
-                      onPress={() => {
-                        setIsNotesViewerModalVisible(false);
-                        setSelectedHabitForViewingNotes(null);
-                        setEditingNoteInViewer(null);
-                        setEditingNoteText('');
-                      }}
-                      style={{
-                        padding: 4,
-                      }}
-                    >
-                      <Ionicons name="close" size={16} color="#666" />
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Note Editor */}
-                  <TextInput
-                    style={{
-                      flex: 1,
-                      fontSize: 14, 
-                      color: '#000',
-                      lineHeight: 20,
-                      padding: 16,
-                      textAlignVertical: 'top',
-                      fontFamily: 'Onest',
-                      minHeight: 120,
-                      maxHeight: 200,
-                    }}
-                    placeholder="Start writing..."
-                    placeholderTextColor="#999"
-                    value={editingNoteText}
-                    onChangeText={setEditingNoteText}
-                    multiline
-                    textAlignVertical="top"
-                    autoFocus
-                  />
-                  
-                  {/* Save Button */}
-                  <View style={{ 
-                    paddingHorizontal: 16,
-                    paddingVertical: 12,
-                    borderTopWidth: 1,
-                    borderTopColor: '#f0f0f0',
-                    alignItems: 'flex-end',
-                  }}>
-                    <TouchableOpacity
-                      onPress={async () => {
-                        if (editingNoteText.trim() && selectedHabitForViewingNotes) {
-                          // Get the most recent note date or use today's date
-                          const notes = selectedHabitForViewingNotes.notes || {};
-                          const noteDates = Object.keys(notes);
-                          const noteDate = noteDates.length > 0 ? noteDates[0] : moment().format('YYYY-MM-DD');
-                          
-                          await updateExistingNote(selectedHabitForViewingNotes.id, noteDate, editingNoteText.trim());
-                          setIsNotesViewerModalVisible(false);
-                          setSelectedHabitForViewingNotes(null);
-                          setEditingNoteInViewer(null);
-                          setEditingNoteText('');
-                        }
-                      }}
-                      style={{
-                        backgroundColor: editingNoteText.trim() ? '#007AFF' : '#f0f0f0',
-                        paddingHorizontal: 16,
-                        paddingVertical: 8,
-                        borderRadius: 8,
-                      }}
-                    >
-                      <Text style={{ 
-                        fontSize: 14,
-                        fontWeight: '600', 
-                        color: editingNoteText.trim() ? 'white' : '#999',
-                        fontFamily: 'Onest',
-                      }}>
-                        Save
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
+              justifyContent: 'space-between', 
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderBottomWidth: 1,
+              borderBottomColor: '#f0f0f0',
+            }}>
+                          <Text style={{ 
+                fontSize: 14,
+                            fontWeight: '600', 
+                            color: '#333', 
+                            fontFamily: 'Onest',
+                            flex: 1,
+                          }}>
+                {selectedHabitForViewingNotes?.text}
+                          </Text>
+              
+              <TouchableOpacity 
+                onPress={() => {
+                  setIsNotesViewerModalVisible(false);
+                  setSelectedHabitForViewingNotes(null);
+                  setEditingNoteInViewer(null);
+                  setEditingNoteText('');
+                }}
+                style={{
+                  padding: 4,
+                }}
+              >
+                <Ionicons name="close" size={16} color="#666" />
+              </TouchableOpacity>
             </View>
+
+            {/* Note Editor */}
+            <TextInput
+              style={{
+                            flex: 1,
+                            fontSize: 14, 
+                color: '#000',
+                lineHeight: 20,
+                padding: 16,
+                textAlignVertical: 'top',
+                fontFamily: 'Onest',
+                minHeight: 120,
+                      maxHeight: 200,
+              }}
+              placeholder="Start writing..."
+              placeholderTextColor="#999"
+              value={editingNoteText}
+              onChangeText={setEditingNoteText}
+              multiline
+              textAlignVertical="top"
+              autoFocus
+            />
+            
+            {/* Save Button */}
+                        <View style={{ 
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              borderTopWidth: 1,
+              borderTopColor: '#f0f0f0',
+              alignItems: 'flex-end',
+            }}>
+              <TouchableOpacity
+                onPress={async () => {
+                  if (editingNoteText.trim() && selectedHabitForViewingNotes) {
+                    // Get the most recent note date or use today's date
+                    const notes = selectedHabitForViewingNotes.notes || {};
+                    const noteDates = Object.keys(notes);
+                    const noteDate = noteDates.length > 0 ? noteDates[0] : moment().format('YYYY-MM-DD');
+                    
+                    await updateExistingNote(selectedHabitForViewingNotes.id, noteDate, editingNoteText.trim());
+                    setIsNotesViewerModalVisible(false);
+                    setSelectedHabitForViewingNotes(null);
+                    setEditingNoteInViewer(null);
+                    setEditingNoteText('');
+                  }
+                }}
+                style={{
+                  backgroundColor: editingNoteText.trim() ? '#007AFF' : '#f0f0f0',
+                  paddingHorizontal: 16,
+                  paddingVertical: 8,
+                  borderRadius: 8,
+                }}
+              >
+              <Text style={{ 
+                  fontSize: 14,
+                fontWeight: '600', 
+                  color: editingNoteText.trim() ? 'white' : '#999',
+                  fontFamily: 'Onest',
+              }}>
+                  Save
+              </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+              </TouchableWithoutFeedback>
+        </View>
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </Modal>
@@ -6199,58 +6127,58 @@ export default function TodoScreen() {
                 </Text>
                 
                 {/* Month Navigation */}
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 16,
-                }}>
-                  <TouchableOpacity
-                    onPress={() => setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'))}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      backgroundColor: '#f8f9fa',
-                    }}
-                  >
-                    <Ionicons name="chevron-back" size={16} color="#666" />
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    onPress={() => setSelectedMonthForProgress(moment().startOf('month'))}
-                    style={{
-                      minWidth: 120,
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      borderRadius: 8,
-                    }}
-                  >
-                    <Text style={{ 
-                      fontSize: 16, 
-                      fontWeight: '600', 
-                      color: '#333',
-                      fontFamily: 'Onest',
-                      textAlign: 'center',
-                    }}>
-                      {selectedMonthForProgress.format('MMMM YYYY')}
-                    </Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity
-                    onPress={() => setSelectedMonthForProgress(prev => prev.clone().add(1, 'month'))}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      backgroundColor: '#f8f9fa',
-                    }}
-                  >
-                    <Ionicons name="chevron-forward" size={16} color="#666" />
-                  </TouchableOpacity>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 16,
+              }}>
+                <TouchableOpacity
+                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'))}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: '#f8f9fa',
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={16} color="#666" />
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={() => setSelectedMonthForProgress(moment().startOf('month'))}
+                  style={{
+                    minWidth: 120,
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ 
+                    fontSize: 16, 
+                    fontWeight: '600', 
+                    color: '#333',
+                    fontFamily: 'Onest',
+                    textAlign: 'center',
+                  }}>
+                    {selectedMonthForProgress.format('MMMM YYYY')}
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().add(1, 'month'))}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: '#f8f9fa',
+                  }}
+                >
+                  <Ionicons name="chevron-forward" size={16} color="#666" />
+                </TouchableOpacity>
                 </View>
               </View>
               
@@ -6273,15 +6201,15 @@ export default function TodoScreen() {
                     justifyContent: 'space-between',
                     marginBottom: 16,
                   }}>
-                    <Text style={{
+                      <Text style={{
                       fontSize: 16,
-                      fontWeight: '600',
-                      color: '#333',
-                      fontFamily: 'Onest',
+                        fontWeight: '600',
+                        color: '#333',
+                        fontFamily: 'Onest',
                       flex: 1,
-                    }}>
-                      {habit.text}
-                    </Text>
+                      }}>
+                        {habit.text}
+                      </Text>
                     
                     <View style={{
                       backgroundColor: `${habit.color}20`,

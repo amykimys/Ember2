@@ -14,7 +14,8 @@ import {
   Switch,
   PanResponder,
   Image,
-  ActivityIndicator
+  ActivityIndicator,
+  KeyboardAvoidingView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -31,6 +32,7 @@ import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles
 import { promptPhotoSharing, PhotoShareData, sharePhotoWithFriends } from '../../utils/photoSharing';
 import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends } from '../../utils/sharing';
 import type { SharedEvent } from '../../utils/sharing';
+import { GoogleCalendarSync } from '../../components/GoogleCalendarSync';
 
 // Add robust ID generation function that works with TEXT ids
 const generateEventId = (): string => {
@@ -157,12 +159,21 @@ const REMINDER_OPTIONS = [
 
 const CalendarScreen: React.FC = () => {
   const today = new Date();
-  const [currentMonthIndex, setCurrentMonthIndex] = useState(12); // center month in 25-month buffer
+  // Calculate the index of the current month in the 60-month array (5 years starting from Jan of previous year to Dec 2028)
+  const currentYearForIndex = today.getFullYear();
+  const currentMonthForIndex = today.getMonth();
+  const startYearForIndex = currentYearForIndex - 1;
+  const currentMonthIndexInArray = (currentYearForIndex - startYearForIndex) * 12 + currentMonthForIndex;
+  
+  const [currentMonthIndex, setCurrentMonthIndex] = useState(currentMonthIndexInArray);
   const flatListRef = useRef<FlatList>(null);
   const weeklyCalendarRef = useRef<WeeklyCalendarViewRef>(null);
 
   // Add ref for the event title input
   const eventTitleInputRef = useRef<TextInput>(null);
+
+  // Add ref for friends search input in event modal
+  const eventFriendsSearchInputRef = useRef<TextInput>(null);
 
   // Add nextTimeBoxId state
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
@@ -287,6 +298,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Add ref for photo viewer FlatList
   const photoViewerFlatListRef = useRef<FlatList>(null);
   
+  // Add ref for event modal ScrollView
+  const eventModalScrollViewRef = useRef<ScrollView>(null);
+  
+  // Add ref for edit event modal ScrollView
+  const editEventModalScrollViewRef = useRef<ScrollView>(null);
+  
   // Add ref for Swipeable components
   const swipeableRefs = useRef<{ [key: string]: any }>({});
   
@@ -315,6 +332,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Shared events notification modal state
   const [showSharedEventsModal, setShowSharedEventsModal] = useState(false);
   const [pendingSharedEvents, setPendingSharedEvents] = useState<CalendarEvent[]>([]);
+
+  // Google Calendar sync modal state
+  const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
 
   // Add PanResponder for photo viewer modal
   const photoViewerPanResponder = useRef(
@@ -799,85 +819,78 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   // Add a function to refresh events
   const refreshEvents = async () => {
-    if (user?.id) {
-      // Fetch both regular events and shared events in parallel
-      const [regularEventsResult, sharedEvents] = await Promise.all([
-        supabase
+    try {
+      console.log('🔄 [Calendar] Refreshing events...');
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('❌ [Calendar] No user found, skipping refresh');
+        return;
+      }
+
+      console.log('👤 [Calendar] Refreshing events for user:', user.id);
+
+      const { data: eventsData, error: eventsError } = await supabase
           .from('events')
           .select('*')
           .eq('user_id', user.id)
-          .order('date', { ascending: true }),
-        fetchSharedEvents(user.id)
-      ]);
+        .order('date', { ascending: true });
 
-      const { data: eventsData, error } = regularEventsResult;
-
-      if (error) {
+      if (eventsError) {
+        console.error('❌ [Calendar] Error fetching events:', eventsError);
         return;
       }
 
-      // Combine regular events and shared events
-      const allEvents = [...(eventsData || []), ...sharedEvents];
-
-      if (allEvents.length === 0) {
-        setEvents({});
-        return;
-      }
-
-      const transformedEvents = allEvents.reduce((acc, event) => {
+      console.log('📅 [Calendar] Fetched events from database:', eventsData?.length || 0);
+      
+      if (eventsData) {
+        const parsedEvents: { [date: string]: CalendarEvent[] } = {};
+        
+        eventsData.forEach(event => {
+          console.log('📋 [Calendar] Processing event:', event.title, 'on', event.date);
+          
         const parseDate = (dateStr: string | null) => {
           if (!dateStr) return null;
-          try {
             const date = new Date(dateStr);
             return isNaN(date.getTime()) ? null : date;
-          } catch (error) {
-            return null;
-          }
         };
 
-        const transformedEvent = {
+          const calendarEvent: CalendarEvent = {
           id: event.id,
-          title: event.title || 'Untitled Event',
-          description: event.description,
-          location: event.location,
+            title: event.title,
+            description: event.description || '',
+            location: event.location || '',
           date: event.date,
-          startDateTime: event.start_datetime ? parseDate(event.start_datetime) : undefined,
-          endDateTime: event.end_datetime ? parseDate(event.end_datetime) : undefined,
-          categoryName: event.category_name,
-          categoryColor: event.category_color,
-          reminderTime: event.reminder_time ? parseDate(event.reminder_time) : null,
+            startDateTime: parseDate(event.start_datetime) || undefined,
+            endDateTime: parseDate(event.end_datetime) || undefined,
+            categoryName: event.category_name || '',
+            categoryColor: event.category_color || '#667eea',
+            reminderTime: parseDate(event.reminder_time),
           repeatOption: event.repeat_option || 'None',
-          repeatEndDate: event.repeat_end_date ? parseDate(event.repeat_end_date) : null,
+            repeatEndDate: parseDate(event.repeat_end_date),
           customDates: event.custom_dates || [],
           customTimes: event.custom_times || {},
+            isContinued: event.is_continued || false,
           isAllDay: event.is_all_day || false,
           photos: event.photos || [],
-          // Shared event properties (for shared events)
-          isShared: event.isShared || false,
-          sharedBy: event.sharedBy,
-          sharedByUsername: event.sharedByUsername,
-          sharedByFullName: event.sharedByFullName,
-          sharedStatus: event.sharedStatus
+            isShared: event.is_shared || false,
+            sharedBy: event.shared_by || '',
+            sharedByUsername: event.shared_by_username || '',
+            sharedByFullName: event.shared_by_full_name || '',
+            sharedStatus: event.shared_status || 'pending',
         };
 
-        if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
-          transformedEvent.customDates.forEach((date: string) => {
-            if (!acc[date]) {
-              acc[date] = [];
+          if (!parsedEvents[event.date]) {
+            parsedEvents[event.date] = [];
             }
-            acc[date].push(transformedEvent);
+          parsedEvents[event.date].push(calendarEvent);
           });
-        } else {
-          if (!acc[transformedEvent.date]) {
-            acc[transformedEvent.date] = [];
-          }
-          acc[transformedEvent.date].push(transformedEvent);
+
+        console.log('🗓️ [Calendar] Parsed events by date:', Object.keys(parsedEvents));
+        setEvents(parsedEvents);
         }
-
-        return acc;
-      }, {} as { [date: string]: CalendarEvent[] });
-
-      setEvents(transformedEvents);
+    } catch (error) {
+      console.error('❌ [Calendar] Error in refreshEvents:', error);
     }
   };
 
@@ -1244,7 +1257,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     return { key: generateMonthKey(year, month), year, month, days };
   };
 
-  const months = Array.from({ length: 25 }, (_, i) => getMonthData(today, i - 12));
+  // Generate 60 months (5 years) starting from January of the previous year to December 2028
+  const currentYear = today.getFullYear();
+  const startYear = currentYear - 1;
+  const endYear = 2028;
+  const totalYears = endYear - startYear + 1;
+  const months = Array.from({ length: totalYears * 12 }, (_, i) => {
+    const year = startYear + Math.floor(i / 12);
+    const month = i % 12;
+    const baseDate = new Date(year, month, 1);
+    return getMonthData(baseDate, 0);
+  });
 
   const isToday = (date: Date | null) =>
     date?.toDateString() === new Date().toDateString();
@@ -2597,11 +2620,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           if (user?.id && eventId) {
             // Set up the photo share data and show caption modal
             setPendingPhotoShare({
-              photoUrl,
-              sourceType: 'event',
-              sourceId: eventIdForSharing,
-              sourceTitle: eventTitle,
-              userId: user.id
+                photoUrl,
+                sourceType: 'event',
+                sourceId: eventIdForSharing,
+                sourceTitle: eventTitle,
+                userId: user.id
             });
             setPhotoCaption('');
             setShowCaptionModal(true);
@@ -3018,10 +3041,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         <TouchableOpacity
           onPress={() => {
             const today = new Date();
-            const monthIndex = months.findIndex(
-              (m) => m.year === today.getFullYear() && m.month === today.getMonth()
-            );
-            if (monthIndex !== -1) {
+            const currentYearForToday = today.getFullYear();
+            const currentMonthForToday = today.getMonth();
+            const startYearForToday = currentYearForToday - 1;
+            const monthIndex = (currentYearForToday - startYearForToday) * 12 + currentMonthForToday;
+            
+            if (monthIndex >= 0 && monthIndex < months.length) {
               flatListRef.current?.scrollToIndex({
                 index: monthIndex,
                 animated: true,
@@ -3040,6 +3065,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         <View style={styles.modalRowGap}>
           <TouchableOpacity onPress={() => setCalendarMode('week')}>
             <MaterialIcons name="calendar-view-week" size={24} color="#333" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            onPress={() => setShowGoogleSyncModal(true)}
+            style={{
+              backgroundColor: '#4285F4',
+              padding: 8,
+              borderRadius: 8,
+              marginHorizontal: 4
+            }}
+          >
+            <Ionicons name="logo-google" size={20} color="white" />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => {
@@ -3526,237 +3562,246 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         presentationStyle="pageSheet"
       >
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
-          <View style={{ flex: 1 }}>
-            {/* Minimal Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              paddingTop: 40,
-              backgroundColor: selectedCategory?.color ? selectedCategory.color + '40' : 'white',
-            }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  setShowModal(false);
-                  resetEventForm();
+            <View style={{ flex: 1 }}>
+              {/* Minimal Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                paddingTop: 40,
+                backgroundColor: selectedCategory?.color ? selectedCategory.color + '40' : 'white',
+              }}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    setShowModal(false);
+                    resetEventForm();
+                  }}
+                  style={styles.modalHeaderButton}
+                >
+                  <Ionicons name="close" size={16} color="#666" />
+                </TouchableOpacity>
+                
+                <Text style={styles.modalHeaderTitle}>
+                  New Event
+                </Text>
+                
+                <TouchableOpacity 
+                  onPress={() => handleSaveEvent()}
+                  disabled={!newEventTitle.trim()}
+                  style={[
+                    styles.modalHeaderButton,
+                    { backgroundColor: newEventTitle.trim() ? '#667eea' : '#ffffff' }
+                  ]}
+                >
+                  <Ionicons 
+                    name="checkmark" 
+                    size={16} 
+                    color={newEventTitle.trim() ? 'white' : '#999'} 
+                  />
+                </TouchableOpacity>
+              </View>
+
+              {/* Content */}
+              <ScrollView 
+                ref={eventModalScrollViewRef}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ 
+                  padding: 16, 
+                paddingBottom: 250, // Reduced bottom padding for less dramatic scroll
+                  minHeight: '100%' // Ensures content is scrollable even when short
                 }}
-                style={styles.modalHeaderButton}
+                keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+              bounces={true}
+              alwaysBounceVertical={true}
+              scrollEventThrottle={16}
+              keyboardDismissMode="interactive"
               >
-                <Ionicons name="close" size={16} color="#666" />
-              </TouchableOpacity>
-              
-              <Text style={styles.modalHeaderTitle}>
-                New Event
-              </Text>
-              
-              <TouchableOpacity 
-                onPress={() => handleSaveEvent()}
-                disabled={!newEventTitle.trim()}
-                style={[
-                  styles.modalHeaderButton,
-                  { backgroundColor: newEventTitle.trim() ? '#007AFF' : '#ffffff' }
-                ]}
-              >
-                <Ionicons 
-                  name="checkmark" 
-                  size={16} 
-                  color={newEventTitle.trim() ? 'white' : '#999'} 
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Content */}
-            <ScrollView 
-              style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 20 }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-                  <TouchableOpacity 
-                    onPress={() => {
-                      if (repeatOption === 'Custom') {
-                        setRepeatOption('None');
-                      } else {
-                        setCustomModalTitle('');
-                        setCustomModalDescription('');
-                        setCustomSelectedDates([getLocalDateString(startDateTime)]);
-                        setCustomDateTimes({
-                          default: {
-                            start: startDateTime,
-                            end: endDateTime,
-                            reminder: reminderTime,
-                            repeat: 'None',
-                            dates: [getLocalDateString(startDateTime)]
-                          }
-                        });
-                        setEditingEvent(null);
-                        setIsEditingEvent(false);
-                        setRepeatOption('Custom');
-                        setShowModal(false);
-                        setShowCustomDatesPicker(true);
-                      }
-                    }}
-                  >
-                  </TouchableOpacity>
-
-                  {repeatOption !== 'Custom' ? (
-                    <>
-                  {/* Event Title Card */}
-                  <View style={styles.modalCard}>
-              
-                      <TextInput
-                      style={styles.modalInput}
-                      placeholder="Event Title"
-                      placeholderTextColor="#888"
-                        value={newEventTitle}
-                        onChangeText={setNewEventTitle}
-                        ref={eventTitleInputRef}
-                      />
-  
-                      <TextInput
-                        style={styles.modalInputDescription}
-                        placeholder="Description"
-                        placeholderTextColor="#999"
-                        value={newEventDescription}
-                        onChangeText={setNewEventDescription}
-                        multiline
-                        numberOfLines={3}
-                      />
-
-                      <TextInput
-                        style={styles.modalInputLocation}
-                        placeholder="Location"
-                        placeholderTextColor="#999"
-                        value={newEventLocation}
-                        onChangeText={setNewEventLocation}
-                      />
-                  </View>
-
-                  {/* Time & Date Card */}
-                  <View style={styles.modalCard}>
-                    
-                    {/* All Day Toggle */}
-                    <View style={styles.modalToggleRow}>
-                      <Text style={styles.modalLabel}>
-                        All-day event
-                      </Text>
-                      <View style={{ transform: [{ scale: 0.8 }] }}>
-                        <Switch 
-                          value={isAllDay} 
-                          onValueChange={setIsAllDay}
-                          trackColor={{ false: 'white', true: '#007AFF' }}
-                          thumbColor={isAllDay ? 'white' : '#f4f3f4'}
-                        />
-                      </View>
-                    </View>
-
-                    {/* Start & End Time */}
-                    <View style={styles.modalGapContainer}>
-                      <View>
-                        <View style={styles.modalTimeRow}>
-                          <Text style={styles.modalLabel}>
-                            Starts
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              if (showStartPicker) {
-                                setShowStartPicker(false);
-                              } else {
-                                setShowStartPicker(true);
-                                setShowEndPicker(false);
-                              }
-                              Keyboard.dismiss();
-                            }}
-                            style={showStartPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
-                          >
-                            <Text style={styles.modalTimeText}>
-                              {startDateTime.toLocaleString([], {
-                                month: 'short',
-                                day: 'numeric',
-                                ...(isAllDay ? {} : {
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true
-                                })
-                              }).replace(',', ' ·')}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-
-                      <View>
-                        <View style={styles.modalTimeRow}>
-                          <Text style={styles.modalLabel}>
-                            Ends
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              Keyboard.dismiss();
-                              if (showEndPicker) {
-                                setShowEndPicker(false);
-                              } else {
-                                setShowEndPicker(true);
-                                setShowStartPicker(false);
-                              }
-                            }}
-                            style={showEndPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
-                          >
-                            <Text style={styles.modalTimeText}>
-                              {endDateTime.toLocaleString([], {
-                                month: 'short',
-                                day: 'numeric',
-                                ...(isAllDay ? {} : {
-                                  hour: 'numeric',
-                                  minute: '2-digit',
-                                  hour12: true
-                                })
-                              }).replace(',', ' ·')}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    </View>
-
-                    {/* Date/Time Picker */}
-                    {(showStartPicker || showEndPicker) && (
-                      <View style={styles.modalPickerContainer}>
-                        <DateTimePicker
-                          value={showStartPicker ? startDateTime : endDateTime}
-                          mode={isAllDay ? "date" : "datetime"}
-                          display="spinner"
-                          onChange={(event, selectedDate) => {
-                            if (selectedDate) {
-                              if (showStartPicker) {
-                                setStartDateTime(selectedDate);
-                                if (endDateTime < selectedDate) {
-                                  const newEnd = new Date(selectedDate);
-                                  newEnd.setHours(newEnd.getHours() + 1);
-                                  setEndDateTime(newEnd);
-                                }
-                                debouncePickerClose('start');
-                              } else {
-                                setEndDateTime(selectedDate);
-                                debouncePickerClose('end');
-                              }
-                            }
-                          }}
-                          style={{ height: isAllDay ? 40 : 60, width: '100%' }}
-                          textColor="#333"
-                        />
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Category Card */}
-                  <View style={styles.modalCard}>
-                    <Text style={styles.modalSectionHeader}>
-                      Category
-                    </Text>
-                    <TouchableOpacity
+                    <TouchableOpacity 
                       onPress={() => {
-                        Keyboard.dismiss();
+                        if (repeatOption === 'Custom') {
+                          setRepeatOption('None');
+                        } else {
+                          setCustomModalTitle('');
+                          setCustomModalDescription('');
+                          setCustomSelectedDates([getLocalDateString(startDateTime)]);
+                          setCustomDateTimes({
+                            default: {
+                              start: startDateTime,
+                              end: endDateTime,
+                              reminder: reminderTime,
+                              repeat: 'None',
+                              dates: [getLocalDateString(startDateTime)]
+                            }
+                          });
+                          setEditingEvent(null);
+                          setIsEditingEvent(false);
+                          setRepeatOption('Custom');
+                          setShowModal(false);
+                          setShowCustomDatesPicker(true);
+                        }
+                      }}
+                    >
+                    </TouchableOpacity>
+
+                    {repeatOption !== 'Custom' ? (
+                      <>
+                    {/* Event Title Card */}
+                    <View style={styles.modalCard}>
+                
+                        <TextInput
+                        style={styles.modalInput}
+                        placeholder="Event Title"
+                        placeholderTextColor="#888"
+                          value={newEventTitle}
+                          onChangeText={setNewEventTitle}
+                          ref={eventTitleInputRef}
+                        />
+    
+                        <TextInput
+                          style={styles.modalInputDescription}
+                          placeholder="Description"
+                          placeholderTextColor="#999"
+                          value={newEventDescription}
+                          onChangeText={setNewEventDescription}
+                          multiline
+                          numberOfLines={3}
+                        />
+
+                        <TextInput
+                          style={styles.modalInputLocation}
+                          placeholder="Location"
+                          placeholderTextColor="#999"
+                          value={newEventLocation}
+                          onChangeText={setNewEventLocation}
+                        />
+                    </View>
+
+                    {/* Time & Date Card */}
+                    <View style={styles.modalCard}>
+                      
+                      {/* All Day Toggle */}
+                      <View style={styles.modalToggleRow}>
+                        <Text style={styles.modalLabel}>
+                          All-day event
+                        </Text>
+                        <View style={{ transform: [{ scale: 0.8 }] }}>
+                          <Switch 
+                            value={isAllDay} 
+                            onValueChange={setIsAllDay}
+                            trackColor={{ false: 'white', true: '#007AFF' }}
+                            thumbColor={isAllDay ? 'white' : '#f4f3f4'}
+                          />
+                        </View>
+                      </View>
+
+                      {/* Start & End Time */}
+                      <View style={styles.modalGapContainer}>
+                        <View>
+                          <View style={styles.modalTimeRow}>
+                            <Text style={styles.modalLabel}>
+                              Starts
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => {
+                                if (showStartPicker) {
+                                  setShowStartPicker(false);
+                                } else {
+                                  setShowStartPicker(true);
+                                  setShowEndPicker(false);
+                                }
+                                Keyboard.dismiss();
+                              }}
+                              style={showStartPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                            >
+                              <Text style={styles.modalTimeText}>
+                                {startDateTime.toLocaleString([], {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  ...(isAllDay ? {} : {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })
+                                }).replace(',', ' ·')}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+
+                        <View>
+                          <View style={styles.modalTimeRow}>
+                            <Text style={styles.modalLabel}>
+                              Ends
+                            </Text>
+                            <TouchableOpacity
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                if (showEndPicker) {
+                                  setShowEndPicker(false);
+                                } else {
+                                  setShowEndPicker(true);
+                                  setShowStartPicker(false);
+                                }
+                              }}
+                              style={showEndPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                            >
+                              <Text style={styles.modalTimeText}>
+                                {endDateTime.toLocaleString([], {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  ...(isAllDay ? {} : {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })
+                                }).replace(',', ' ·')}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Date/Time Picker */}
+                      {(showStartPicker || showEndPicker) && (
+                        <View style={styles.modalPickerContainer}>
+                          <DateTimePicker
+                            value={showStartPicker ? startDateTime : endDateTime}
+                            mode={isAllDay ? "date" : "datetime"}
+                            display="spinner"
+                            onChange={(event, selectedDate) => {
+                              if (selectedDate) {
+                                if (showStartPicker) {
+                                  setStartDateTime(selectedDate);
+                                  if (endDateTime < selectedDate) {
+                                    const newEnd = new Date(selectedDate);
+                                    newEnd.setHours(newEnd.getHours() + 1);
+                                    setEndDateTime(newEnd);
+                                  }
+                                  debouncePickerClose('start');
+                                } else {
+                                  setEndDateTime(selectedDate);
+                                  debouncePickerClose('end');
+                                }
+                              }
+                            }}
+                            style={{ height: isAllDay ? 40 : 60, width: '100%' }}
+                            textColor="#333"
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Category Card */}
+                    <View style={styles.modalCard}>
+                      <Text style={styles.modalSectionHeader}>
+                        Category
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => {
+                          Keyboard.dismiss();
                         if (categories.length === 0) {
                           // If no categories exist, automatically show new category input
                           setShowAddCategoryForm(true);
@@ -3773,166 +3818,166 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           } else {
                             setShowCategoryPicker(true);
                           }
-                        }
-                      }}
-                      style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
-                    >
-                      {!showCategoryPicker ? (
-                        <View style={styles.modalRowBetween}>
-                          <View style={styles.modalRow}>
-                            {selectedCategory ? (
-                              <>
-                                <View style={[
-                                  styles.modalCategoryDotLarge,
-                                  { backgroundColor: selectedCategory.color }
-                                ]} />
-                                <Text style={styles.modalCategoryText}>
-                                  {selectedCategory.name}
+                          }
+                        }}
+                        style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
+                      >
+                        {!showCategoryPicker ? (
+                          <View style={styles.modalRowBetween}>
+                            <View style={styles.modalRow}>
+                              {selectedCategory ? (
+                                <>
+                                  <View style={[
+                                    styles.modalCategoryDotLarge,
+                                    { backgroundColor: selectedCategory.color }
+                                  ]} />
+                                  <Text style={styles.modalCategoryText}>
+                                    {selectedCategory.name}
+                                  </Text>
+                                </>
+                              ) : (
+                                <Text style={styles.modalCategoryPlaceholder}>
+                                  Choose category
                                 </Text>
-                              </>
-                            ) : (
-                              <Text style={styles.modalCategoryPlaceholder}>
-                                Choose category
-                              </Text>
-                            )}
+                              )}
+                            </View>
+                            <Ionicons name="chevron-down" size={12} color="#999" />
                           </View>
-                          <Ionicons name="chevron-down" size={12} color="#999" />
-                        </View>
-                      ) : (
-                        <View style={styles.modalWrapContainer}>
-                          {categories.map((cat, idx) => (
-                            <Pressable
-                              key={idx}
-                              onPress={() => {
-                                setSelectedCategory(cat);
-                                setShowCategoryPicker(false);
-                                setShowAddCategoryForm(false);
-                              }}
-                              onLongPress={() => handleCategoryLongPress(cat)}
-                              style={[
-                                selectedCategory?.name === cat.name ? styles.modalCategoryChipSelected : styles.modalCategoryChip,
-                                { backgroundColor: selectedCategory?.name === cat.name ? cat.color + '20' : '#f8f9fa' }
-                              ]}
+                        ) : (
+                          <View style={styles.modalWrapContainer}>
+                            {categories.map((cat, idx) => (
+                              <Pressable
+                                key={idx}
+                                onPress={() => {
+                                  setSelectedCategory(cat);
+                                  setShowCategoryPicker(false);
+                                  setShowAddCategoryForm(false);
+                                }}
+                                onLongPress={() => handleCategoryLongPress(cat)}
+                                style={[
+                                  selectedCategory?.name === cat.name ? styles.modalCategoryChipSelected : styles.modalCategoryChip,
+                                  { backgroundColor: selectedCategory?.name === cat.name ? cat.color + '20' : '#f8f9fa' }
+                                ]}
+                              >
+                                <View style={[
+                                  styles.modalCategoryDot,
+                                  { backgroundColor: cat.color }
+                                ]} />
+                                <Text style={selectedCategory?.name === cat.name ? styles.modalCategoryChipTextSelected : styles.modalCategoryChipText}>
+                                  {cat.name}
+                                </Text>
+                              </Pressable>
+                            ))}
+                            <TouchableOpacity
+                              onPress={() => setShowAddCategoryForm(true)}
+                              style={styles.modalAddButton}
                             >
-                              <View style={[
-                                styles.modalCategoryDot,
-                                { backgroundColor: cat.color }
-                              ]} />
-                              <Text style={selectedCategory?.name === cat.name ? styles.modalCategoryChipTextSelected : styles.modalCategoryChipText}>
-                                {cat.name}
-                              </Text>
-                            </Pressable>
-                          ))}
-                          <TouchableOpacity
-                            onPress={() => setShowAddCategoryForm(true)}
-                            style={styles.modalAddButton}
-                          >
-                            <Ionicons name="add" size={12} color="#666" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
+                              <Ionicons name="add" size={12} color="#666" />
+                            </TouchableOpacity>
+                          </View>
+                        )}
 
-                      {showAddCategoryForm && (
-                        <View style={styles.modalAddCategoryForm}>
-                          <Text style={styles.modalFormSectionTitle}>
-                            New Category
-                          </Text>
-                          <TextInput
-                            style={styles.modalAddCategoryInput}
-                            placeholder="Category name"
-                            value={newCategoryName}
-                            onChangeText={setNewCategoryName}
-                          />
-                          
-                          {/* Color Picker */}
-                          <Text style={styles.modalFormSubtitle}>
-                            Color
-                          </Text>
-                          <View style={styles.modalColorPicker}>
-                            {CATEGORY_COLORS.map((color) => (
-                              <TouchableOpacity
-                                key={color}
-                                onPress={() => setNewCategoryColor(color)}
+                        {showAddCategoryForm && (
+                          <View style={styles.modalAddCategoryForm}>
+                            <Text style={styles.modalFormSectionTitle}>
+                              New Category
+                            </Text>
+                            <TextInput
+                              style={styles.modalAddCategoryInput}
+                              placeholder="Category name"
+                              value={newCategoryName}
+                              onChangeText={setNewCategoryName}
+                            />
+                            
+                            {/* Color Picker */}
+                            <Text style={styles.modalFormSubtitle}>
+                              Color
+                            </Text>
+                            <View style={styles.modalColorPicker}>
+                              {CATEGORY_COLORS.map((color) => (
+                                <TouchableOpacity
+                                  key={color}
+                                  onPress={() => setNewCategoryColor(color)}
                                 style={[
                                   newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption,
                                   { backgroundColor: color }
                                 ]}
-                              >
-                                {newCategoryColor === color && (
-                                  <Ionicons name="checkmark" size={12} color="white" />
-                                )}
-                              </TouchableOpacity>
-                            ))}
-                          </View>
+                                >
+                                  {newCategoryColor === color && (
+                                    <Ionicons name="checkmark" size={12} color="white" />
+                                  )}
+                                </TouchableOpacity>
+                              ))}
+                            </View>
 
-                          <View style={styles.modalFormActions}>
-                            <TouchableOpacity
-                              onPress={() => {
-                                setShowAddCategoryForm(false);
-                                setNewCategoryName('');
+                            <View style={styles.modalFormActions}>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setShowAddCategoryForm(false);
+                                  setNewCategoryName('');
                                 setNewCategoryColor(CATEGORY_COLORS[0]);
-                              }}
-                              style={styles.modalFormButton}
-                            >
-                              <Text style={styles.modalFormButtonText}>
-                                Cancel
-                              </Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                              onPress={async () => {
-                                if (newCategoryName.trim()) {
-                                  const { data, error } = await supabase
-                                    .from('categories')
-                                    .insert([
-                                      {
-                                        label: newCategoryName.trim(),
-                                        color: newCategoryColor,
-                                        user_id: user?.id,
-                                        type: 'calendar'
-                                      }
-                                    ])
-                                    .select();
+                                }}
+                                style={styles.modalFormButton}
+                              >
+                                <Text style={styles.modalFormButtonText}>
+                                  Cancel
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  if (newCategoryName.trim()) {
+                                    const { data, error } = await supabase
+                                      .from('categories')
+                                      .insert([
+                                        {
+                                          label: newCategoryName.trim(),
+                                          color: newCategoryColor,
+                                          user_id: user?.id,
+                                          type: 'calendar'
+                                        }
+                                      ])
+                                      .select();
 
-                                  if (error) {
-                                    return;
-                                  }
+                                    if (error) {
+                                      return;
+                                    }
 
-                                  if (data) {
-                                    const newCategory = {
-                                      id: data[0].id,
-                                      name: data[0].label,
-                                      color: data[0].color,
-                                    };
-                                    setCategories(prev => [...prev, newCategory]);
-                                    setSelectedCategory(newCategory);
-                                    setShowAddCategoryForm(false);
-                                    setNewCategoryName('');
+                                    if (data) {
+                                      const newCategory = {
+                                        id: data[0].id,
+                                        name: data[0].label,
+                                        color: data[0].color,
+                                      };
+                                      setCategories(prev => [...prev, newCategory]);
+                                      setSelectedCategory(newCategory);
+                                      setShowAddCategoryForm(false);
+                                      setNewCategoryName('');
                                     setNewCategoryColor(CATEGORY_COLORS[0]);
+                                    }
                                   }
-                                }
-                              }}
-                              style={styles.modalFormButtonPrimary}
-                            >
-                              <Text style={styles.modalFormButtonTextPrimary}>
-                                Add
-                              </Text>
-                            </TouchableOpacity>
+                                }}
+                                style={styles.modalFormButtonPrimary}
+                              >
+                                <Text style={styles.modalFormButtonTextPrimary}>
+                                  Add
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
                           </View>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </View>
+                        )}
+                      </TouchableOpacity>
+                    </View>
 
-                  {/* Options Card */}
-                  <View style={styles.modalCard}>
-                    <View style={styles.modalGapContainer}>
-                      {/* Reminder */}
-                      <View>
-                        <View style={styles.modalTimeRow}>
-                          <Text style={styles.modalLabel}>
-                            Reminder
-                          </Text>
-                          <TouchableOpacity
+                    {/* Options Card */}
+                    <View style={styles.modalCard}>
+                      <View style={styles.modalGapContainer}>
+                        {/* Reminder */}
+                        <View>
+                          <View style={styles.modalTimeRow}>
+                            <Text style={styles.modalLabel}>
+                              Reminder
+                            </Text>
+                            <TouchableOpacity
                             onPress={() => {
                               if (showReminderPicker) {
                                 setShowReminderPicker(false);
@@ -3944,8 +3989,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               }
                             }}
                             style={showReminderPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
-                          >
-                            <Text style={styles.modalTimeText}>
+                            >
+                              <Text style={styles.modalTimeText}>
                               {reminderTime ? reminderTime.toLocaleString([], { 
                                 month: 'short', 
                                 day: 'numeric', 
@@ -3953,9 +3998,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 minute: '2-digit', 
                                 hour12: true 
                               }) : 'No reminder'}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
                         {showReminderPicker && (
                           <View style={styles.modalPickerContainer}>
                             <DateTimePicker
@@ -3973,87 +4018,87 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             />
                           </View>
                         )}
-                        {showReminderOptions && (
-                          <View style={styles.modalCategoryPicker}>
-                            <ScrollView 
-                              showsVerticalScrollIndicator={false}
-                              contentContainerStyle={{ paddingVertical: 2 }}
-                            >
-                              {REMINDER_OPTIONS.map(opt => (
-                                <TouchableOpacity
-                                  key={opt.value}
-                                  onPress={() => {
-                                    setReminderOffset(opt.value);
-                                    setShowReminderOptions(false);
-                                  }}
-                                  style={reminderOffset === opt.value ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
-                                >
-                                  <Text style={reminderOffset === opt.value ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
-                                    {opt.label}
-                                  </Text>
-                                </TouchableOpacity>
-                              ))}
-                            </ScrollView>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Repeat */}
-                      <View>
-                        <View style={styles.modalTimeRow}>
-                          <Text style={styles.modalLabel}>
-                            Repeat
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => {
-                              const newRepeatPickerState = !showRepeatPicker;
-                              setShowRepeatPicker(newRepeatPickerState);
-                              if (newRepeatPickerState) {
-                                setShowReminderPicker(false);
-                                setShowEndDatePicker(false);
-                              }
-                            }}
-                            style={showRepeatPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
-                          >
-                            <Text style={styles.modalTimeText}>
-                              {repeatOption === 'None' ? 'Does not repeat' : repeatOption}
-                            </Text>
-                          </TouchableOpacity>
+                          {showReminderOptions && (
+                            <View style={styles.modalCategoryPicker}>
+                              <ScrollView 
+                                showsVerticalScrollIndicator={false}
+                                contentContainerStyle={{ paddingVertical: 2 }}
+                              >
+                                {REMINDER_OPTIONS.map(opt => (
+                                  <TouchableOpacity
+                                    key={opt.value}
+                                    onPress={() => {
+                                      setReminderOffset(opt.value);
+                                      setShowReminderOptions(false);
+                                    }}
+                                    style={reminderOffset === opt.value ? styles.modalCategoryOptionSelected : styles.modalCategoryOption}
+                                  >
+                                    <Text style={reminderOffset === opt.value ? styles.modalCategoryOptionTextSelected : styles.modalCategoryOptionText}>
+                                      {opt.label}
+                                    </Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          )}
                         </View>
-                      </View>
 
-                      {/* End Date (if repeating) */}
-                      {repeatOption !== 'None' && (repeatOption as string) !== 'Custom' && (
+                        {/* Repeat */}
                         <View>
                           <View style={styles.modalTimeRow}>
                             <Text style={styles.modalLabel}>
-                              End Date
+                              Repeat
                             </Text>
                             <TouchableOpacity
                               onPress={() => {
-                                const newEndDatePickerState = !showEndDatePicker;
-                                setShowEndDatePicker(newEndDatePickerState);
-                                if (newEndDatePickerState) {
+                                const newRepeatPickerState = !showRepeatPicker;
+                                setShowRepeatPicker(newRepeatPickerState);
+                                if (newRepeatPickerState) {
                                   setShowReminderPicker(false);
-                                  setShowRepeatPicker(false);
+                                  setShowEndDatePicker(false);
                                 }
                               }}
-                              style={showEndDatePicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                              style={showRepeatPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                             >
                               <Text style={styles.modalTimeText}>
-                                {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
-                                  month: 'short', 
-                                  day: 'numeric', 
-                                  year: '2-digit' 
-                                }) : 'No end date'}
+                                {repeatOption === 'None' ? 'Does not repeat' : repeatOption}
                               </Text>
                             </TouchableOpacity>
                           </View>
                         </View>
-                      )}
-                    </View>
 
-                    {showRepeatPicker && (
+                        {/* End Date (if repeating) */}
+                      {repeatOption !== 'None' && (repeatOption as string) !== 'Custom' && (
+                          <View>
+                            <View style={styles.modalTimeRow}>
+                              <Text style={styles.modalLabel}>
+                                End Date
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  const newEndDatePickerState = !showEndDatePicker;
+                                  setShowEndDatePicker(newEndDatePickerState);
+                                  if (newEndDatePickerState) {
+                                    setShowReminderPicker(false);
+                                    setShowRepeatPicker(false);
+                                  }
+                                }}
+                                style={showEndDatePicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                              >
+                                <Text style={styles.modalTimeText}>
+                                  {repeatEndDate ? repeatEndDate.toLocaleDateString([], { 
+                                    month: 'short', 
+                                    day: 'numeric', 
+                                    year: '2-digit' 
+                                  }) : 'No end date'}
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        )}
+                      </View>
+
+                      {showRepeatPicker && (
                       <View style={{
                         backgroundColor: '#f8f9fa',
                         borderRadius: 8,
@@ -4064,7 +4109,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       }}>
                         <View style={{ marginBottom: 8 }}>
                           {['Does not repeat', 'Daily', 'Weekly', 'Monthly', 'Yearly'].map((option) => (
-                            <TouchableOpacity
+                            <TouchableOpacity 
                               key={option}
                               onPress={() => {
                                 if (option === 'Does not repeat') {
@@ -4168,31 +4213,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           </View>
                         )}
                       </View>
-                    )}
-                  </View>
-                    </>
-                  ) : (
-                    <>
-                  {/* Custom Event Form */}
-                  <View style={styles.modalCard}>
-                    <Text style={styles.modalSectionHeader}>
-                      Event Details
-                    </Text>
-                      <TextInput
-                      style={styles.modalInput}
-                      placeholder="Event Title"
-                      placeholderTextColor="#888"
-                        value={newEventTitle}
-                        onChangeText={setNewEventTitle}
-                      />
+                      )}
+                    </View>
+                      </>
+                    ) : (
+                      <>
+                    {/* Custom Event Form */}
+                    <View style={styles.modalCard}>
+                      <Text style={styles.modalSectionHeader}>
+                        Event Details
+                      </Text>
+                        <TextInput
+                        style={styles.modalInput}
+                        placeholder="Event Title"
+                        placeholderTextColor="#888"
+                          value={newEventTitle}
+                          onChangeText={setNewEventTitle}
+                        />
 
-                    {/* Category Selection for Custom Events */}
-                    <Text style={styles.modalSectionHeader}>
-                      Category
-                    </Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            Keyboard.dismiss();
+                      {/* Category Selection for Custom Events */}
+                      <Text style={styles.modalSectionHeader}>
+                        Category
+                      </Text>
+                          <TouchableOpacity
+                            onPress={() => {
+                              Keyboard.dismiss();
                             if (categories.length === 0) {
                               // If no categories exist, automatically show new category input
                               setShowAddCategoryForm(true);
@@ -4209,334 +4254,343 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               } else {
                                 setShowCategoryPicker(true);
                               }
-                            }
-                          }}
-                          style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
-                        >
-                          {!showCategoryPicker ? (
-                        <View style={styles.modalRowBetween}>
-                            <View style={styles.modalRow}>
-                              {selectedCategory ? (
-                                <>
-                                  <View style={[
-                                    styles.modalCategoryDotLarge,
-                                    { backgroundColor: selectedCategory.color }
-                                  ]} />
-                                  <Text style={styles.modalCategoryText}>
-                                    {selectedCategory.name}
-                          </Text>
-                                </>
-                              ) : (
-                                <Text style={styles.modalCategoryPlaceholder}>
-                                Choose category
-                                </Text>
-                              )}
-                          </View>
-                          <Ionicons name="chevron-down" size={12} color="#999" />
+                              }
+                            }}
+                            style={showCategoryPicker ? styles.modalCategoryButtonFocused : styles.modalCategoryButton}
+                          >
+                            {!showCategoryPicker ? (
+                          <View style={styles.modalRowBetween}>
+                              <View style={styles.modalRow}>
+                                {selectedCategory ? (
+                                  <>
+                                    <View style={[
+                                      styles.modalCategoryDotLarge,
+                                      { backgroundColor: selectedCategory.color }
+                                    ]} />
+                                    <Text style={styles.modalCategoryText}>
+                                      {selectedCategory.name}
+                            </Text>
+                                  </>
+                                ) : (
+                                  <Text style={styles.modalCategoryPlaceholder}>
+                                  Choose category
+                                  </Text>
+                                )}
                             </View>
-                          ) : (
-                            <View style={styles.modalWrapContainer}>
-                            {categories.map((cat, idx) => (
-                                <Pressable
-                                key={idx}
-                                onPress={() => {
-                                    setSelectedCategory(cat);
-                                  setShowCategoryPicker(false);
-                                    setShowAddCategoryForm(false);
-                                  }}
-                                
-                                >
-                                  <View style={[
-                                    styles.modalCategoryDot,
-                                    { backgroundColor: cat.color }
-                                  ]} />
-                                  <Text style={styles.modalCategoryText}>
-                                    {cat.name}
-                                  </Text>
-                                </Pressable>
-                            ))}
-                            <TouchableOpacity
-                              onPress={() => setShowAddCategoryForm(true)}
-                              style={styles.modalAddButton}
-                            >
-                              <Ionicons name="add" size={12} color="#666" />
-                              <Text style={styles.modalFormSubtitle}>
-                                New
-                              </Text>
-                            </TouchableOpacity>
-                        </View>
-                      )}
-
-                              {showAddCategoryForm && (
-                                <View style={styles.modalAddCategoryForm}>
-                                  <Text style={styles.modalFormSectionTitle}>
-                                    New Category
-                                  </Text>
-                                  <TextInput
-                                      style={styles.modalAddCategoryInput}
-                                      placeholder="Category name"
-                                      value={newCategoryName}
-                                      onChangeText={setNewCategoryName}
-                                    />
-                                    
-                          {/* Color Picker */}
-                                    <Text style={styles.modalFormSubtitle}>
-                                      Color
+                            <Ionicons name="chevron-down" size={12} color="#999" />
+                              </View>
+                            ) : (
+                              <View style={styles.modalWrapContainer}>
+                              {categories.map((cat, idx) => (
+                                  <Pressable
+                                  key={idx}
+                                  onPress={() => {
+                                      setSelectedCategory(cat);
+                                    setShowCategoryPicker(false);
+                                      setShowAddCategoryForm(false);
+                                    }}
+                                  
+                                  >
+                                    <View style={[
+                                      styles.modalCategoryDot,
+                                      { backgroundColor: cat.color }
+                                    ]} />
+                                    <Text style={styles.modalCategoryText}>
+                                      {cat.name}
                                     </Text>
-                                    <View style={styles.modalColorPicker}>
-                                      {CATEGORY_COLORS.map((color) => (
-                                        <TouchableOpacity
-                                          key={color}
-                                          onPress={() => setNewCategoryColor(color)}
+                                  </Pressable>
+                              ))}
+                              <TouchableOpacity
+                                onPress={() => setShowAddCategoryForm(true)}
+                                style={styles.modalAddButton}
+                              >
+                                <Ionicons name="add" size={12} color="#666" />
+                                <Text style={styles.modalFormSubtitle}>
+                                  New
+                                </Text>
+                              </TouchableOpacity>
+                          </View>
+                        )}
+
+                                {showAddCategoryForm && (
+                                  <View style={styles.modalAddCategoryForm}>
+                                    <Text style={styles.modalFormSectionTitle}>
+                                      New Category
+                                    </Text>
+                                    <TextInput
+                                        style={styles.modalAddCategoryInput}
+                                        placeholder="Category name"
+                                        value={newCategoryName}
+                                        onChangeText={setNewCategoryName}
+                                      />
+                                      
+                            {/* Color Picker */}
+                                      <Text style={styles.modalFormSubtitle}>
+                                        Color
+                                      </Text>
+                                      <View style={styles.modalColorPicker}>
+                                        {CATEGORY_COLORS.map((color) => (
+                                          <TouchableOpacity
+                                            key={color}
+                                            onPress={() => setNewCategoryColor(color)}
                                           style={[
                                             newCategoryColor === color ? styles.modalColorOptionSelected : styles.modalColorOption,
                                             { backgroundColor: color }
                                           ]}
-                                        >
-                                          {newCategoryColor === color && (
-                                            <Ionicons name="checkmark" size={12} color="white" />
-                                          )}
-                                        </TouchableOpacity>
-                                      ))}
-                                    </View>
+                                          >
+                                            {newCategoryColor === color && (
+                                              <Ionicons name="checkmark" size={12} color="white" />
+                                            )}
+                                          </TouchableOpacity>
+                                        ))}
+                                      </View>
 
-                          <View style={styles.modalFormActions}>
-                                      <TouchableOpacity
-                                        onPress={() => {
-                                          setShowAddCategoryForm(false);
-                                          setNewCategoryName('');
+                            <View style={styles.modalFormActions}>
+                                        <TouchableOpacity
+                                          onPress={() => {
+                                            setShowAddCategoryForm(false);
+                                            setNewCategoryName('');
                                 setNewCategoryColor(CATEGORY_COLORS[0]);
-                                        }}
-                                        style={styles.modalFormButton}
-                                      >
-                                        <Text style={styles.modalFormButtonText}>
-                                          Cancel
-                                        </Text>
-                                      </TouchableOpacity>
-                                      <TouchableOpacity
-                                        onPress={async () => {
-                                          if (newCategoryName.trim()) {
-                                            const { data, error } = await supabase
-                                              .from('categories')
-                                              .insert([
-                                                {
-                                                  label: newCategoryName.trim(),
-                                                  color: newCategoryColor,
-                                                  user_id: user?.id,
-                                        type: 'calendar'
-                                                }
-                                              ])
-                                              .select();
+                                          }}
+                                          style={styles.modalFormButton}
+                                        >
+                                          <Text style={styles.modalFormButtonText}>
+                                            Cancel
+                                          </Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                          onPress={async () => {
+                                            if (newCategoryName.trim()) {
+                                              const { data, error } = await supabase
+                                                .from('categories')
+                                                .insert([
+                                                  {
+                                                    label: newCategoryName.trim(),
+                                                    color: newCategoryColor,
+                                                    user_id: user?.id,
+                                          type: 'calendar'
+                                                  }
+                                                ])
+                                                .select();
 
-                                            if (error) {
-                                              
-                                              return;
-                                            }
+                                              if (error) {
+                                                
+                                                return;
+                                              }
 
-                                            if (data) {
-                                              const newCategory = {
-                                                id: data[0].id,
-                                                name: data[0].label,
-                                                color: data[0].color,
-                                              };
-                                              setCategories(prev => [...prev, newCategory]);
-                                              setSelectedCategory(newCategory);
-                                              setShowAddCategoryForm(false);
-                                              setNewCategoryName('');
+                                              if (data) {
+                                                const newCategory = {
+                                                  id: data[0].id,
+                                                  name: data[0].label,
+                                                  color: data[0].color,
+                                                };
+                                                setCategories(prev => [...prev, newCategory]);
+                                                setSelectedCategory(newCategory);
+                                                setShowAddCategoryForm(false);
+                                                setNewCategoryName('');
                                               setNewCategoryColor(CATEGORY_COLORS[0]);
+                                              }
                                             }
-                                          }
-                                        }}
-                                        style={styles.modalFormButtonPrimary}
-                                      >
-                                        <Text style={styles.modalFormButtonTextPrimary}>
-                                          Add
-                                        </Text>
-                                      </TouchableOpacity>
-                                    </View>
-                              </View>
-                            )}
-                        </TouchableOpacity>
-                      </View>
-                    </>
-                  )}
-                  
-                  {/* Share with Friends Card */}
-                  <View style={{
-                    backgroundColor: 'white',
-                    borderRadius: 12,
-                    padding: 16,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 1 },
-                    shadowOpacity: 0.05,
-                    shadowRadius: 4,
-                    elevation: 1,
-                  }}>
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: '#333',
-                      marginBottom: 10,
-                      fontFamily: 'Onest'
-                    }}>
-                      Friends
-                    </Text>
+                                          }}
+                                          style={styles.modalFormButtonPrimary}
+                                        >
+                                          <Text style={styles.modalFormButtonTextPrimary}>
+                                            Add
+                                          </Text>
+                                        </TouchableOpacity>
+                                      </View>
+                                </View>
+                              )}
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    )}
                     
-                    {/* Selected Friends Section */}
-                    {selectedFriends.length > 0 && (
-                      <View style={{ marginBottom: 12 }}>
-                        <View style={{
-                          flexDirection: 'row',
-                          flexWrap: 'wrap',
-                          gap: 8,
-                        }}>
-                          {selectedFriends.map(friendId => {
-                            const friend = friends.find(f => f.friend_id === friendId);
-                            if (!friend) return null;
-                            
-                            return (
-                              <View key={friendId} style={{
-                                flexDirection: 'row',
-                                alignItems: 'center',
-                                backgroundColor: '#007AFF',
-                                paddingHorizontal: 10,
-                                paddingVertical: 6,
-                                borderRadius: 16,
-                                gap: 6,
-                              }}>
-                                {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
-                                  <Image 
-                                    source={{ uri: friend.friend_avatar }} 
-                                    style={{ width: 16, height: 16, borderRadius: 8 }} 
-                                  />
-                                ) : (
-                                  <View 
-                                    style={{ 
-                                      width: 16, 
-                                      height: 16, 
-                                      borderRadius: 8,
-                                      backgroundColor: 'rgba(255,255,255,0.2)',
-                                      justifyContent: 'center',
-                                      alignItems: 'center'
+                    {/* Share with Friends Card */}
+                    <View style={{
+                      backgroundColor: 'white',
+                      borderRadius: 12,
+                      padding: 16,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.05,
+                      shadowRadius: 4,
+                      elevation: 1,
+                    }}>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: '#333',
+                        marginBottom: 10,
+                        fontFamily: 'Onest'
+                      }}>
+                        Friends
+                      </Text>
+                      
+                      {/* Selected Friends Section */}
+                      {selectedFriends.length > 0 && (
+                        <View style={{ marginBottom: 12 }}>
+                          <View style={{
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            gap: 8,
+                          }}>
+                            {selectedFriends.map(friendId => {
+                              const friend = friends.find(f => f.friend_id === friendId);
+                              if (!friend) return null;
+                              
+                              return (
+                                <View key={friendId} style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  backgroundColor: '#007AFF',
+                                  paddingHorizontal: 10,
+                                  paddingVertical: 6,
+                                  borderRadius: 16,
+                                  gap: 6,
+                                }}>
+                                  {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
+                                    <Image 
+                                      source={{ uri: friend.friend_avatar }} 
+                                      style={{ width: 16, height: 16, borderRadius: 8 }} 
+                                    />
+                                  ) : (
+                                    <View 
+                                      style={{ 
+                                        width: 16, 
+                                        height: 16, 
+                                        borderRadius: 8,
+                                        backgroundColor: 'rgba(255,255,255,0.2)',
+                                        justifyContent: 'center',
+                                        alignItems: 'center'
+                                      }}
+                                    >
+                                      <Ionicons name="person" size={8} color="white" />
+                                    </View>
+                                  )}
+                                  <Text style={{ 
+                                    fontSize: 12, 
+                                    color: 'white', 
+                                    fontFamily: 'Onest',
+                                    fontWeight: '500'
+                                  }}>
+                                    {friend.friend_name}
+                                  </Text>
+                                  <TouchableOpacity
+                                    onPress={() => {
+                                      setSelectedFriends(prev => prev.filter(id => id !== friendId));
+                                    }}
+                                    style={{
+                                      marginLeft: 2,
                                     }}
                                   >
-                                    <Ionicons name="person" size={8} color="white" />
-                                  </View>
-                                )}
-                                <Text style={{ 
-                                  fontSize: 12, 
-                                  color: 'white', 
-                                  fontFamily: 'Onest',
-                                  fontWeight: '500'
-                                }}>
-                                  {friend.friend_name}
-                                </Text>
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    setSelectedFriends(prev => prev.filter(id => id !== friendId));
-                                  }}
-                                  style={{
-                                    marginLeft: 2,
+                                    <Ionicons name="close" size={12} color="white" />
+                                  </TouchableOpacity>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        </View>
+                      )}
+                      
+                      <TextInput
+                        ref={eventFriendsSearchInputRef}
+                        placeholder="Search friends..."
+                        value={searchFriend}
+                        onChangeText={setSearchFriend}
+                        onFocus={() => {
+                          setIsSearchFocused(true);
+                        // Scroll to friends section when keyboard appears
+                        setTimeout(() => {
+                          eventModalScrollViewRef.current?.scrollToEnd({ 
+                            animated: true 
+                          });
+                        }, 100);
+                        }}
+                        onBlur={() => setIsSearchFocused(false)}
+                        style={{
+                          backgroundColor: '#f8f9fa',
+                          borderRadius: 8,
+                          paddingHorizontal: 12,
+                          paddingVertical: 8,
+                          fontSize: 14,
+                          marginBottom: 10,
+                          fontFamily: 'Onest',
+                          color: '#333',
+                          borderWidth: 1,
+                          borderColor: '#e9ecef',
+                        }}
+                        placeholderTextColor="#999"
+                      />
+                      {(searchFriend.trim() !== '' || isSearchFocused) && (
+                        <FlatList
+                          data={friends.filter(f =>
+                            f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
+                            f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
+                          )}
+                        keyExtractor={item => `${item.friend_id}-${item.friendship_id}`}
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          renderItem={({ item }) => (
+                            <TouchableOpacity
+                              style={{
+                                marginRight: 10,
+                                alignItems: 'center',
+                                opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
+                                paddingVertical: 2,
+                              }}
+                              onPress={() => {
+                                setSelectedFriends(prev =>
+                                  prev.includes(item.friend_id)
+                                    ? prev.filter(id => id !== item.friend_id)
+                                    : [...prev, item.friend_id]
+                                );
+                              }}
+                            >
+                              {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
+                                <Image 
+                                  source={{ uri: item.friend_avatar }} 
+                                  style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                                />
+                              ) : (
+                                <View 
+                                  style={{ 
+                                    width: 36, 
+                                    height: 36, 
+                                    borderRadius: 18, 
+                                    marginBottom: 4,
+                                    backgroundColor: '#E9ECEF',
+                                    justifyContent: 'center',
+                                    alignItems: 'center'
                                   }}
                                 >
-                                  <Ionicons name="close" size={12} color="white" />
-                                </TouchableOpacity>
-                              </View>
-                            );
-                          })}
-                        </View>
-                      </View>
-                    )}
-                    
-                    <TextInput
-                      placeholder="Search friends..."
-                      value={searchFriend}
-                      onChangeText={setSearchFriend}
-                      onFocus={() => setIsSearchFocused(true)}
-                      onBlur={() => setIsSearchFocused(false)}
-                      style={{
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        fontSize: 14,
-                        marginBottom: 10,
-                        fontFamily: 'Onest',
-                        color: '#333',
-                        borderWidth: 1,
-                        borderColor: '#e9ecef',
-                      }}
-                      placeholderTextColor="#999"
-                    />
-                    {(searchFriend.trim() !== '' || isSearchFocused) && (
-                      <FlatList
-                        data={friends.filter(f =>
-                          f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
-                          f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
-                        )}
-                        keyExtractor={item => item.friend_id}
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        renderItem={({ item }) => (
-                          <TouchableOpacity
-                            style={{
-                              marginRight: 10,
-                              alignItems: 'center',
-                              opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
-                              paddingVertical: 2,
-                            }}
-                            onPress={() => {
-                              setSelectedFriends(prev =>
-                                prev.includes(item.friend_id)
-                                  ? prev.filter(id => id !== item.friend_id)
-                                  : [...prev, item.friend_id]
-                              );
-                            }}
-                          >
-                            {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
-                              <Image 
-                                source={{ uri: item.friend_avatar }} 
-                                style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
-                              />
-                            ) : (
-                              <View 
-                                style={{ 
-                                  width: 36, 
-                                  height: 36, 
-                                  borderRadius: 18, 
-                                  marginBottom: 4,
-                                  backgroundColor: '#E9ECEF',
-                                  justifyContent: 'center',
-                                  alignItems: 'center'
-                                }}
-                              >
-                                <Ionicons name="person" size={16} color="#6C757D" />
-                              </View>
-                            )}
-                            <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
-                          </TouchableOpacity>
-                        )}
-                        ListEmptyComponent={
-                          <View style={{ 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            paddingVertical: 16,
-                            minWidth: 180
-                          }}>
-                            <Ionicons name="people-outline" size={20} color="#CED4DA" />
-                            <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
-                              No friends found
-                            </Text>
-                          </View>
-                        }
+                                  <Ionicons name="person" size={16} color="#6C757D" />
+                                </View>
+                              )}
+                              <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                            </TouchableOpacity>
+                          )}
+                          ListEmptyComponent={
+                            <View style={{ 
+                              alignItems: 'center', 
+                              justifyContent: 'center',
+                              paddingVertical: 16,
+                              minWidth: 180
+                            }}>
+                              <Ionicons name="people-outline" size={20} color="#CED4DA" />
+                              <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
+                                No friends found
+                              </Text>
+                            </View>
+                          }
                         style={{ minHeight: 70 }}
-                      />
-                    )}
+                        />
+                      )}
+                    </View>
+                    
+                    </ScrollView>
                   </View>
-                  
-                  </ScrollView>
-                </View>
-        </SafeAreaView>
+          </SafeAreaView>
         </Modal>
 
         {/* Edit Event Modal */}
@@ -4579,7 +4633,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   disabled={!editedEventTitle.trim()}
                   style={[
                     styles.modalHeaderButton,
-                    { backgroundColor: editedEventTitle.trim() ? '#007AFF' : '#ffffff' }
+                    { backgroundColor: editedEventTitle.trim() ? '#667eea' : '#ffffff' }
                   ]}
                 >
                   <Ionicons 
@@ -4592,10 +4646,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
               {/* Edit Content */}
               <ScrollView 
+                ref={editEventModalScrollViewRef}
                 style={{ flex: 1 }}
-                contentContainerStyle={{ padding: 16, paddingBottom: 20 }}
+                contentContainerStyle={{ 
+                  padding: 16, 
+                  paddingBottom: 380, // Increased bottom padding for better scrolling with keyboard
+                  minHeight: '100%' // Ensures content is scrollable even when short
+                }}
                 keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={true}
+                bounces={true}
+                alwaysBounceVertical={true}
+                scrollEventThrottle={16}
+                keyboardDismissMode="interactive"
               >
                 {/* Event Title Card */}
                 <View style={styles.modalCard}>
@@ -4754,10 +4817,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         setShowCategoryPicker(false);
                       } else {
                         // If categories exist, toggle the category box
-                        if (showCategoryPicker) {
+                      if (showCategoryPicker) {
                           setShowCategoryPicker(false);
-                          setShowAddCategoryForm(false);
-                          setNewCategoryName('');
+                        setShowAddCategoryForm(false);
+                        setNewCategoryName('');
                           setNewCategoryColor(CATEGORY_COLORS[0]);
                         } else {
                           setShowCategoryPicker(true);
@@ -4926,15 +4989,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           onPress={() => {
                             if (showReminderPicker) {
                               setShowReminderPicker(false);
-                            } else {
+                                  } else {
                               setShowReminderPicker(true);
-                              setShowReminderOptions(false);
+                                  setShowReminderOptions(false);
                               setShowRepeatPicker(false);
                               setShowEndDatePicker(false);
                             }
-                          }}
+                                }}
                           style={showReminderPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
-                        >
+                              >
                           <Text style={styles.modalTimeText}>
                             {editedReminderTime ? editedReminderTime.toLocaleString([], { 
                               month: 'short', 
@@ -4943,8 +5006,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               minute: '2-digit', 
                               hour12: true 
                             }) : 'No reminder'}
-                          </Text>
-                        </TouchableOpacity>
+                                </Text>
+                              </TouchableOpacity>
                       </View>
                       {showReminderPicker && (
                         <View style={styles.modalPickerContainer}>
@@ -5153,7 +5216,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     placeholder="Search friends..."
                     value={editSearchFriend}
                     onChangeText={setEditSearchFriend}
-                    onFocus={() => setEditIsSearchFocused(true)}
+                    onFocus={() => {
+                      setEditIsSearchFocused(true);
+                      // Scroll to friends section when keyboard appears
+                      setTimeout(() => {
+                        editEventModalScrollViewRef.current?.scrollToEnd({ 
+                          animated: true 
+                        });
+                        // Then scroll back up to position friends section above keyboard
+                        setTimeout(() => {
+                          editEventModalScrollViewRef.current?.scrollTo({ 
+                            y: 8000, // Very dramatic scroll to ensure friends section is visible
+                            animated: true 
+                          });
+                        }, 100);
+                      }, 100);
+                    }}
                     onBlur={() => setEditIsSearchFocused(false)}
                     style={{
                       backgroundColor: '#f8f9fa',
@@ -5175,7 +5253,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         f.friend_name.toLowerCase().includes(editSearchFriend.toLowerCase()) ||
                         f.friend_username.toLowerCase().includes(editSearchFriend.toLowerCase())
                       )}
-                      keyExtractor={item => item.friend_id}
+                      keyExtractor={item => `${item.friend_id}-${item.friendship_id}`}
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       renderItem={({ item }) => (
@@ -5693,95 +5771,181 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         transparent
         onRequestClose={handleCancelCaption}
       >
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-          <View style={{
-            height: '50%',
-            backgroundColor: '#fff',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            overflow: 'hidden',
-          }}>
-            <SafeAreaView style={{ flex: 1 }}>
-              <View style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                paddingHorizontal: 20,
-                paddingVertical: 16,
-                borderBottomWidth: 1,
-                borderBottomColor: '#f0f0f0',
-              }}>
-                <TouchableOpacity onPress={handleCancelCaption}>
-                  <Text style={{ fontSize: 16, color: '#8E8E93', fontFamily: 'Onest' }}>
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-                <Text style={{ fontSize: 18, fontWeight: '600', color: '#000', fontFamily: 'Onest' }}>
-                  Add Caption
-                </Text>
-                <TouchableOpacity onPress={handleShareWithCaption}>
-                  <Text style={{ fontSize: 16, color: '#007AFF', fontWeight: '600', fontFamily: 'Onest' }}>
-                    Share
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={{ flex: 1, padding: 20 }}>
-                {/* Selected Photo */}
-                {pendingPhotoShare && (
-                  <View style={{ marginBottom: 16 }}>
-                    <Image
-                      source={{ uri: pendingPhotoShare.photoUrl }}
-                      style={{
-                        width: '100%',
-                        aspectRatio: 1, // Square aspect ratio to maintain consistency
-                        borderRadius: 12,
-                        marginBottom: 12,
-                        backgroundColor: '#ffffff', // White background
-                      }}
-                      resizeMode="contain"
-                    />
-                  </View>
-                )}
-                
-                <Text style={{ fontSize: 16, color: '#000', marginBottom: 12, fontFamily: 'Onest' }}>
-                  Add a caption to your photo (optional):
-                </Text>
-                
-                <TextInput
-                  style={{
-                    borderWidth: 1,
-                    borderColor: '#E5E5E7',
-                    borderRadius: 12,
-                    padding: 16,
-                    fontSize: 16,
-                    color: '#000',
-                    fontFamily: 'Onest',
-                    minHeight: 100,
-                    textAlignVertical: 'top',
-                  }}
-                  placeholder="What's happening in this photo?"
-                  placeholderTextColor="#8E8E93"
-                  value={photoCaption}
-                  onChangeText={setPhotoCaption}
-                  multiline
-                  maxLength={200}
-                  autoFocus
-                />
-                
-                <Text style={{ 
-                  fontSize: 12, 
-                  color: '#8E8E93', 
-                  textAlign: 'right', 
-                  marginTop: 8,
-                  fontFamily: 'Onest'
+        <KeyboardAvoidingView 
+          style={{ flex: 1 }} 
+          behavior="padding"
+          keyboardVerticalOffset={0}
+        >
+          <View style={{ flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)' }}>
+            <View style={{
+              maxHeight: '80%',
+              backgroundColor: '#fff',
+              borderRadius: 20,
+              marginHorizontal: 20,
+              overflow: 'hidden',
+            }}>
+              <SafeAreaView style={{ flex: 1 }}>
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
+                  paddingVertical: 16,
+                  borderBottomWidth: 1,
+                  borderBottomColor: '#f0f0f0',
                 }}>
-                  {photoCaption.length}/200
-                </Text>
-              </View>
-            </SafeAreaView>
+                  <TouchableOpacity onPress={handleCancelCaption}>
+                    <Text style={{ fontSize: 16, color: '#8E8E93', fontFamily: 'Onest' }}>
+                      Cancel
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 18, fontWeight: '600', color: '#000', fontFamily: 'Onest' }}>
+                    Add Caption
+                  </Text>
+                  <TouchableOpacity onPress={handleShareWithCaption}>
+                    <Text style={{ fontSize: 16, color: '#007AFF', fontWeight: '600', fontFamily: 'Onest' }}>
+                      Share
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }}>
+                  {/* Selected Photo */}
+                  {pendingPhotoShare && (
+                    <View style={{ marginBottom: 16 }}>
+                      <Image
+                        source={{ uri: pendingPhotoShare.photoUrl }}
+                        style={{
+                          width: '100%',
+                          aspectRatio: 1, // Square aspect ratio to maintain consistency
+                          borderRadius: 12,
+                          marginBottom: 12,
+                          backgroundColor: '#ffffff', // White background
+                        }}
+                        resizeMode="contain"
+                      />
+                    </View>
+                  )}
+                  
+                  <Text style={{ fontSize: 16, color: '#000', marginBottom: 12, fontFamily: 'Onest' }}>
+                    Add a caption to your photo (optional):
+                  </Text>
+                  
+                  <TextInput
+                    style={{
+                      borderWidth: 1,
+                      borderColor: '#E5E5E7',
+                      borderRadius: 12,
+                      padding: 16,
+                      fontSize: 16,
+                      color: '#000',
+                      fontFamily: 'Onest',
+                      minHeight: 100,
+                      textAlignVertical: 'top',
+                    }}
+                    placeholder="What's happening in this photo?"
+                    placeholderTextColor="#8E8E93"
+                    value={photoCaption}
+                    onChangeText={setPhotoCaption}
+                    multiline
+                    maxLength={200}
+                    autoFocus
+                  />
+                  
+                  <Text style={{ 
+                    fontSize: 12, 
+                    color: '#8E8E93', 
+                    textAlign: 'right', 
+                    marginTop: 8,
+                    fontFamily: 'Onest'
+                  }}>
+                    {photoCaption.length}/200
+                  </Text>
+                </ScrollView>
+              </SafeAreaView>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Google Calendar Sync Modal */}
+      <Modal
+        visible={showGoogleSyncModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowGoogleSyncModal(false)}
+        presentationStyle="pageSheet"
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
+          <View style={{ flex: 1 }}>
+            {/* Header */}
+            <View style={{ 
+              flexDirection: 'row', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              backgroundColor: 'white',
+              borderBottomWidth: 1,
+              borderBottomColor: '#e0e0e0',
+            }}>
+              <TouchableOpacity 
+                onPress={() => setShowGoogleSyncModal(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons name="close" size={20} color="#666" />
+              </TouchableOpacity>
+              
+              <Text style={{
+                fontSize: 18,
+                fontWeight: '600',
+                color: '#333',
+                fontFamily: 'Onest'
+              }}>
+                Google Calendar Sync
+              </Text>
+              
+              <View style={{ width: 32 }} />
+            </View>
+
+            {/* Content - Make it scrollable */}
+            <View style={{ flex: 1 }}>
+              <GoogleCalendarSync
+                userId={user?.id}
+                onEventsSynced={(syncedEvents) => {
+                  // Handle synced events here
+                  console.log('Synced events:', syncedEvents);
+                  
+                  // Show success message
+                  Alert.alert(
+                    'Sync Complete',
+                    `Successfully synced ${syncedEvents.length} events from Google Calendar!`,
+                    [
+                      {
+                        text: 'OK',
+                        onPress: () => {
+                          // Close the modal
+                          setShowGoogleSyncModal(false);
+                          // Refresh the events to show the new synced events
+                          refreshEvents();
+                        }
+                      }
+                    ]
+                  );
+                }}
+                onCalendarUnsynced={() => {
+                  // Refresh events when a calendar is unsynced
+                  refreshEvents();
+                }}
+              />
+            </View>
+          </View>
+        </SafeAreaView>
       </Modal>
       </>
       
