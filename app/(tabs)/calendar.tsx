@@ -28,6 +28,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as FileSystem from 'expo-file-system';
+import * as Notifications from 'expo-notifications';
 import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles';
 import { promptPhotoSharing, PhotoShareData, sharePhotoWithFriends } from '../../utils/photoSharing';
 import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends } from '../../utils/sharing';
@@ -39,6 +40,201 @@ const generateEventId = (): string => {
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 15);
   return `event_${timestamp}_${random}`;
+};
+
+// New notification system implementation
+const initializeNotifications = async (): Promise<boolean> => {
+  try {
+    console.log('🔔 [Notifications] Initializing notification system...');
+    
+    // Request permissions
+    const { status } = await Notifications.requestPermissionsAsync();
+    console.log('🔔 [Notifications] Permission status:', status);
+    
+    if (status !== 'granted') {
+      console.log('🔔 [Notifications] Permission denied');
+      return false;
+    }
+    
+    // Set up notification handler for foreground
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+    
+    console.log('🔔 [Notifications] Notification system initialized successfully');
+    return true;
+  } catch (error) {
+    console.error('🔔 [Notifications] Error initializing notifications:', error);
+    return false;
+  }
+};
+
+const scheduleEventNotification = async (event: CalendarEvent): Promise<void> => {
+  try {
+    console.log('🔔 [Notifications] Scheduling notification for event:', event.title);
+    
+    if (!event.reminderTime) {
+      console.log('🔔 [Notifications] No reminder time set');
+      return;
+    }
+    
+    const now = new Date();
+    const reminderTime = new Date(event.reminderTime);
+    
+    if (reminderTime <= now) {
+      console.log('🔔 [Notifications] Reminder time has passed');
+      return;
+    }
+    
+    const delayMs = reminderTime.getTime() - now.getTime();
+    const delaySeconds = Math.floor(delayMs / 1000);
+    
+    console.log('🔔 [Notifications] Scheduling notification in', delaySeconds, 'seconds');
+    
+    // Cancel any existing notifications for this event
+    await cancelEventNotification(event.id);
+    
+    const notificationId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Event Reminder',
+        body: `${event.title}${event.startDateTime ? ` - ${event.startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}`,
+        sound: 'default',
+        data: { eventId: event.id },
+      },
+      trigger: {
+        type: 'timeInterval',
+        seconds: delaySeconds,
+        repeats: false,
+      } as Notifications.TimeIntervalTriggerInput,
+    });
+    
+    console.log('🔔 [Notifications] Notification scheduled with ID:', notificationId);
+    
+  } catch (error) {
+    console.error('🔔 [Notifications] Error scheduling notification:', error);
+  }
+};
+
+const cancelEventNotification = async (eventId: string): Promise<void> => {
+  try {
+    const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+    
+    for (const notification of scheduledNotifications) {
+      if (notification.content.data?.eventId === eventId) {
+        await Notifications.cancelScheduledNotificationAsync(notification.identifier);
+        console.log('🔔 [Notifications] Cancelled notification for event:', eventId);
+      }
+    }
+  } catch (error) {
+    console.error('🔔 [Notifications] Error cancelling notification:', error);
+  }
+};
+
+const testNotification = async (): Promise<void> => {
+  try {
+    console.log('🔔 [Notifications] ===== STARTING COMPREHENSIVE TEST =====');
+    
+    // Step 1: Check permissions
+    console.log('🔔 [Notifications] Step 1: Checking permissions...');
+    const { status: currentStatus } = await Notifications.getPermissionsAsync();
+    console.log('🔔 [Notifications] Current permission status:', currentStatus);
+    
+    if (currentStatus !== 'granted') {
+      console.log('🔔 [Notifications] Requesting permissions...');
+      const { status: newStatus } = await Notifications.requestPermissionsAsync();
+      console.log('🔔 [Notifications] New permission status:', newStatus);
+      
+      if (newStatus !== 'granted') {
+        Toast.show({
+          type: 'error',
+          text1: 'Permission Denied',
+          text2: 'Please enable notifications in Settings',
+          position: 'bottom',
+        });
+        return;
+      }
+    }
+    
+    // Step 2: Set up notification handler
+    console.log('🔔 [Notifications] Step 2: Setting up notification handler...');
+    Notifications.setNotificationHandler({
+      handleNotification: async () => {
+        console.log('🔔 [Notifications] Notification handler called');
+        return {
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        };
+      },
+    });
+    
+    // Step 3: Cancel all existing notifications
+    console.log('🔔 [Notifications] Step 3: Cancelling existing notifications...');
+    await Notifications.cancelAllScheduledNotificationsAsync();
+    
+    // Step 4: Test immediate notification
+    console.log('🔔 [Notifications] Step 4: Testing immediate notification...');
+    const immediateId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'IMMEDIATE TEST',
+        body: 'This should appear right now!',
+        sound: 'default',
+        data: { type: 'immediate_test' },
+      },
+      trigger: null,
+    });
+    console.log('🔔 [Notifications] Immediate notification ID:', immediateId);
+    
+    // Step 5: Test scheduled notification
+    console.log('🔔 [Notifications] Step 5: Testing scheduled notification...');
+    const scheduledId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'SCHEDULED TEST',
+        body: 'This should appear in 10 seconds',
+        sound: 'default',
+        data: { type: 'scheduled_test' },
+      },
+      trigger: {
+        type: 'timeInterval',
+        seconds: 10,
+        repeats: false,
+      } as Notifications.TimeIntervalTriggerInput,
+    });
+    console.log('🔔 [Notifications] Scheduled notification ID:', scheduledId);
+    
+    // Step 6: Verify scheduled notifications
+    console.log('🔔 [Notifications] Step 6: Verifying scheduled notifications...');
+    const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
+    console.log('🔔 [Notifications] Total scheduled notifications:', allScheduled.length);
+    console.log('🔔 [Notifications] Scheduled notifications:', allScheduled);
+    
+    // Step 7: Check presented notifications
+    console.log('🔔 [Notifications] Step 7: Checking presented notifications...');
+    const presented = await Notifications.getPresentedNotificationsAsync();
+    console.log('🔔 [Notifications] Presented notifications:', presented.length);
+    
+    Toast.show({
+      type: 'success',
+      text1: 'Test Complete',
+      text2: `Scheduled: ${allScheduled.length} notifications`,
+      position: 'bottom',
+    });
+    
+    console.log('🔔 [Notifications] ===== TEST COMPLETE =====');
+    
+  } catch (error) {
+    console.error('🔔 [Notifications] Test error:', error);
+    Toast.show({
+      type: 'error',
+      text1: 'Test Failed',
+      text2: error instanceof Error ? error.message : 'Unknown error',
+      position: 'bottom',
+    });
+  }
 };
 
 // Add type definitions for custom times
@@ -78,6 +274,11 @@ interface CalendarEvent {
   sharedByUsername?: string;
   sharedByFullName?: string;
   sharedStatus?: 'pending' | 'accepted' | 'declined';
+  // Add Google Calendar properties
+  googleCalendarId?: string;
+  googleEventId?: string;
+  isGoogleEvent?: boolean;
+  calendarColor?: string;
 }
 
 interface WeeklyCalendarViewProps {
@@ -276,7 +477,7 @@ const [customTimePickerTimeout, setCustomTimePickerTimeout] = useState<NodeJS.Ti
   const [selectedDateForCustomTime, setSelectedDateForCustomTime] = useState<Date | null>(null);
   const [customStartTime, setCustomStartTime] = useState<Date>(new Date());
   const [customEndTime, setCustomEndTime] = useState<Date>(new Date(new Date().getTime() + 60 * 60 * 1000));
-const [customModalTitle, setCustomModalTitle] = useState('');
+  const [customModalTitle, setCustomModalTitle] = useState('');
 const [customModalDescription, setCustomModalDescription] = useState('');
 
 
@@ -450,6 +651,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           
           if (eventsError) {
           }
+
+          // Request notification permissions
+          const { status: existingStatus } = await Notifications.getPermissionsAsync();
+          let finalStatus = existingStatus;
+          
+          if (existingStatus !== 'granted') {
+            const { status } = await Notifications.requestPermissionsAsync();
+            finalStatus = status;
+          }
+          
+          if (finalStatus !== 'granted') {
+            console.log('Notification permissions not granted');
+            return;
+          }
+          
+          console.log('Notification permissions granted');
         }
       } catch (error) {
       }
@@ -607,14 +824,27 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }
           };
 
+          // Handle all-day events differently to avoid timezone issues
+          let startDateTime, endDateTime;
+          if (event.is_all_day) {
+            // For all-day events, create dates from the date string directly
+            const [year, month, day] = event.date.split('-').map(Number);
+            startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+            endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+          } else {
+            // For regular events, parse the datetime strings
+            startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
+            endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+          }
+
           const transformedEvent = {
             id: `shared_${sharedEvent.id}`, // Prefix to distinguish from regular events
             title: event.title || 'Untitled Event',
             description: event.description,
             location: event.location,
             date: event.date,
-            startDateTime: event.start_datetime ? parseDate(event.start_datetime) : undefined,
-            endDateTime: event.end_datetime ? parseDate(event.end_datetime) : undefined,
+            startDateTime: startDateTime,
+            endDateTime: endDateTime,
             categoryName: event.category_name,
             categoryColor: '#007AFF', // iOS blue for shared events
             isAllDay: event.is_all_day || false,
@@ -719,8 +949,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }
           };
 
-          const startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
-          const endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+          // Handle all-day events differently to avoid timezone issues
+          let startDateTime, endDateTime;
+          if (event.is_all_day) {
+            // For all-day events, create dates from the date string directly
+            const [year, month, day] = event.date.split('-').map(Number);
+            startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+            endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+          } else {
+            // For regular events, parse the datetime strings
+            startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
+            endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+          }
+          
           const reminderTime = event.reminder_time ? parseDate(event.reminder_time) : null;
           const repeatEndDate = event.repeat_end_date ? parseDate(event.repeat_end_date) : null;
 
@@ -764,7 +1005,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             sharedBy: event.sharedBy,
             sharedByUsername: event.sharedByUsername,
             sharedByFullName: event.sharedByFullName,
-            sharedStatus: event.sharedStatus
+            sharedStatus: event.sharedStatus,
+            // Google Calendar properties
+            googleCalendarId: event.google_calendar_id,
+            googleEventId: event.google_event_id,
+            isGoogleEvent: event.is_google_event || false
           };
 
           console.log('🔍 [Calendar] Processing event:', {
@@ -855,14 +1100,27 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             return isNaN(date.getTime()) ? null : date;
         };
 
+          // Handle all-day events differently to avoid timezone issues
+          let startDateTime, endDateTime;
+          if (event.is_all_day) {
+            // For all-day events, create dates from the date string directly
+            const [year, month, day] = event.date.split('-').map(Number);
+            startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+            endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+          } else {
+            // For regular events, parse the datetime strings
+            startDateTime = parseDate(event.start_datetime) || undefined;
+            endDateTime = parseDate(event.end_datetime) || undefined;
+          }
+
           const calendarEvent: CalendarEvent = {
           id: event.id,
             title: event.title,
             description: event.description || '',
             location: event.location || '',
           date: event.date,
-            startDateTime: parseDate(event.start_datetime) || undefined,
-            endDateTime: parseDate(event.end_datetime) || undefined,
+            startDateTime: startDateTime,
+            endDateTime: endDateTime,
             categoryName: event.category_name || '',
             categoryColor: event.category_color || '#667eea',
             reminderTime: parseDate(event.reminder_time),
@@ -878,6 +1136,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             sharedByUsername: event.shared_by_username || '',
             sharedByFullName: event.shared_by_full_name || '',
             sharedStatus: event.shared_status || 'pending',
+            // Google Calendar properties
+            googleCalendarId: event.google_calendar_id,
+            googleEventId: event.google_event_id,
+            isGoogleEvent: event.is_google_event || false,
+            calendarColor: event.calendar_color,
         };
 
           if (!parsedEvents[event.date]) {
@@ -1278,6 +1541,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   
   const handleDeleteEvent = async (eventId: string) => {
     try {
+      // Cancel any scheduled notifications for this event
+      await cancelEventNotification(eventId);
+
       // Delete from database
       const { error } = await supabase
         .from('events')
@@ -1421,6 +1687,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         photos: eventPhotos
       };
 
+      console.log('🔄 [Repeat] Creating event with repeat settings:', {
+        title: eventToSave.title,
+        repeatOption: eventToSave.repeatOption,
+        repeatEndDate: eventToSave.repeatEndDate,
+        isAllDay: eventToSave.isAllDay,
+        stateRepeatOption: repeatOption,
+        stateRepeatEndDate: repeatEndDate
+      });
+
       // For all-day events, we only store the date without time components
       if (eventToSave.isAllDay) {
         const startDate = new Date(eventToSave.date);
@@ -1439,49 +1714,41 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return [event];
         }
 
-        const events: CalendarEvent[] = [event];
-        const startDate = new Date(event.date); // Use date instead of startDateTime for all-day events
-        const endDate = event.repeatEndDate || new Date(startDate.getFullYear() + 1, startDate.getMonth(), startDate.getDate());
-        let currentDate = new Date(startDate);
-
-        // Helper function to check if a date matches the repeat pattern
-        const isDateInPattern = (date: Date, baseDate: Date, option: RepeatOption): boolean => {
-          switch (option) {
-            case 'Daily':
-              return true; // Every day matches
-            case 'Weekly':
-              return date.getDay() === baseDate.getDay(); // Same day of week
-            case 'Monthly':
-              return date.getDate() === baseDate.getDate(); // Same day of month
-            case 'Yearly':
-              return date.getMonth() === baseDate.getMonth() && date.getDate() === baseDate.getDate(); // Same month and day
-            default:
-              return false;
-          }
-        };
+        const events: CalendarEvent[] = [];
+        const baseDate = event.startDateTime || new Date(event.date);
+        const endDate = event.repeatEndDate || new Date(baseDate.getFullYear() + 1, baseDate.getMonth(), baseDate.getDate());
+        
+        console.log('🔄 [Repeat] Generating repeated events:', {
+          title: event.title,
+          repeatOption: event.repeatOption,
+          baseDate: baseDate.toISOString(),
+          endDate: endDate.toISOString(),
+          isAllDay: event.isAllDay
+        });
 
         // Helper function to create an event for a specific date
         const createEventForDate = (date: Date): CalendarEvent => {
           const newEvent: CalendarEvent = {
             ...event,
-            id: `${event.id}_${date.toISOString()}`,
+            id: `${event.id}_${date.getTime()}`,
             date: getLocalDateString(date),
-            isAllDay: event.isAllDay // Preserve the all-day status
+            isAllDay: event.isAllDay
           };
 
           if (event.isAllDay) {
-            // For all-day events, just use the date without time
-            newEvent.startDateTime = new Date(date);
-            newEvent.endDateTime = new Date(date);
+            // For all-day events, set the date without time
+            newEvent.startDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            newEvent.endDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate());
           } else if (event.startDateTime && event.endDateTime) {
             // For regular events, maintain the time from the original event
+            const startTime = event.startDateTime;
+            const endTime = event.endDateTime;
+            const duration = endTime.getTime() - startTime.getTime();
+            
             newEvent.startDateTime = new Date(date);
-            newEvent.endDateTime = new Date(date);
-            newEvent.startDateTime.setHours(event.startDateTime.getHours(), event.startDateTime.getMinutes());
-            newEvent.endDateTime.setHours(
-              event.startDateTime.getHours() + (event.endDateTime.getHours() - event.startDateTime.getHours()),
-              event.startDateTime.getMinutes() + (event.endDateTime.getMinutes() - event.startDateTime.getMinutes())
-            );
+            newEvent.startDateTime.setHours(startTime.getHours(), startTime.getMinutes(), startTime.getSeconds());
+            
+            newEvent.endDateTime = new Date(newEvent.startDateTime.getTime() + duration);
           }
 
           // Adjust reminder time if it exists
@@ -1493,48 +1760,38 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return newEvent;
         };
 
-        // Helper function to check if a date is already included in events
-        const isDateAlreadyIncluded = (date: Date): boolean => {
-          return events.some(e => {
-            const eventDate = e.startDateTime ? new Date(e.startDateTime) : null;
-            return eventDate?.getTime() === date.getTime();
-          });
-        };
+        // Generate events based on repeat pattern
+        let currentDate = new Date(baseDate);
+        let eventCount = 0;
+        const maxEvents = 100; // Prevent infinite loops
 
-        // Generate events up to but not including the end date
-        while (currentDate < endDate) {
-          // Increment date based on repeat option
+        while (currentDate <= endDate && eventCount < maxEvents) {
+          events.push(createEventForDate(new Date(currentDate)));
+          eventCount++;
+
+          // Calculate next date based on repeat option
+          const nextDate = new Date(currentDate);
           switch (event.repeatOption) {
             case 'Daily':
-              currentDate.setDate(currentDate.getDate() + 1);
+              nextDate.setDate(nextDate.getDate() + 1);
               break;
             case 'Weekly':
-              currentDate.setDate(currentDate.getDate() + 7);
+              nextDate.setDate(nextDate.getDate() + 7);
               break;
             case 'Monthly':
-              currentDate.setMonth(currentDate.getMonth() + 1);
+              nextDate.setMonth(nextDate.getMonth() + 1);
               break;
             case 'Yearly':
-              currentDate.setFullYear(currentDate.getFullYear() + 1);
+              nextDate.setFullYear(nextDate.getFullYear() + 1);
               break;
             default:
-              return events;
+              break;
           }
-
-          // If we've gone past the end date, check if we should include the end date
-          if (currentDate > endDate) {
-            // Only add the end date if it matches the pattern and isn't already included
-            if (isDateInPattern(endDate, startDate, event.repeatOption) && !isDateAlreadyIncluded(endDate)) {
-              events.push(createEventForDate(new Date(endDate)));
-            }
-            break;
-          }
-
-          // Only add the event if it's not already included
-          if (!isDateAlreadyIncluded(currentDate)) {
-            events.push(createEventForDate(new Date(currentDate)));
-          }
+          
+          currentDate = nextDate;
         }
+
+        console.log('🔄 [Repeat] Generated', events.length, 'events');
         return events;
       };
 
@@ -1547,8 +1804,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         title: event.title,
         description: event.description,
         date: event.date,
-        start_datetime: event.startDateTime ? formatDateToUTC(event.startDateTime) : null,
-        end_datetime: event.endDateTime ? formatDateToUTC(event.endDateTime) : null,
+        start_datetime: event.isAllDay ? null : (event.startDateTime ? formatDateToUTC(event.startDateTime) : null),
+        end_datetime: event.isAllDay ? null : (event.endDateTime ? formatDateToUTC(event.endDateTime) : null),
         category_name: event.categoryName || null,
         category_color: event.categoryColor || null,
         reminder_time: event.reminderTime ? formatDateToUTC(event.reminderTime) : null,
@@ -1676,6 +1933,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       // Update local state with all events
       setEvents(prev => {
         const updated = { ...prev };
+        console.log('🔄 [Repeat] Updating local state with', allEvents.length, 'events');
+        
         allEvents.forEach(event => {
           if (event.customDates && event.customDates.length > 0) {
             event.customDates.forEach(date => {
@@ -1692,10 +1951,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }
             updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
             updated[dateKey].push(event);
+            console.log('🔄 [Repeat] Added event to date', dateKey, ':', event.title);
           }
         });
+        
+        console.log('🔄 [Repeat] Final state has events on dates:', Object.keys(updated));
         return updated;
       });
+
+      // Schedule notifications for all events with reminders
+      for (const event of allEvents) {
+        if (event.reminderTime) {
+          await scheduleEventNotification(event);
+        }
+      }
 
       // Share event with selected friends if any
       if (selectedFriends.length > 0 && allEvents.length > 0) {
@@ -1719,11 +1988,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         text1: editingEvent ? 'Event updated successfully' : 'Event created successfully',
         position: 'bottom',
       });
-
-      // Refresh events from database to ensure consistency
-      setTimeout(() => {
-        refreshEvents();
-      }, 500);
     } catch (error) {
       Alert.alert('Error', 'Failed to save event. Please try again.');
     }
@@ -1873,7 +2137,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 }}
                                 onLongPress={() => handleLongPress(event)}
                               >
-                                {event.isShared ? (
+                                {event.isGoogleEvent ? (
+                                  // Show Google Calendar dot for Google events
+                                  <View
+                                    style={[
+                                      styles.googleEventDot,
+                                      { 
+                                        backgroundColor: event.calendarColor || '#4285F4'
+                                      }
+                                    ]}
+                                  />
+                                ) : event.isShared ? (
                                   // Show title for shared events
                                   <View
                                     style={[
@@ -1955,14 +2229,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 style={[
                                   styles.eventBoxText,
                                   {
-                                    backgroundColor: event.isShared 
-                                      ? '#007AFF20' // Light iOS blue background for shared events
-                                      : `${event.categoryColor || '#6366F1'}30`, // Lighter background color
-                                    borderWidth: event.isShared ? 1 : 0,
-                                    borderColor: event.isShared ? '#007AFF' : 'transparent'
+                                    backgroundColor: event.isGoogleEvent 
+                                      ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
+                                      : event.isShared 
+                                        ? '#007AFF20' // Light iOS blue background for shared events
+                                        : `${event.categoryColor || '#6366F1'}30`, // Lighter background color
+                                    borderWidth: event.isShared ? 1 : (event.isGoogleEvent ? 1 : 0),
+                                    borderColor: event.isShared ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent')
                                   }
                                 ]}
                               >
+
                                 <Text
                                   numberOfLines={1}
                                   style={[
@@ -2308,7 +2585,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return updated;
       });
 
-      // Step 8: Share event with selected friends if any
+      // Step 8: Cancel old notifications and schedule new ones
+      await cancelEventNotification(originalEvent.id);
+      if (newEvent.reminderTime) {
+        await scheduleEventNotification(newEvent);
+      }
+
+      // Step 9: Share event with selected friends if any
       if (editSelectedFriends.length > 0) {
         await shareEventWithEditSelectedFriends(insertedEvent.id);
         
@@ -2318,7 +2601,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setEditIsSearchFocused(false);
       }
 
-      // Step 9: Close modal and show success message
+      // Step 10: Close modal and show success message
       setShowEditEventModal(false);
       setEditingEvent(null);
       setSelectedEvent(null);
@@ -2372,6 +2655,38 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       subscription.unsubscribe();
     };
   }, [user?.id]);
+
+  // Initialize notifications when component mounts
+  useEffect(() => {
+    const initNotifications = async () => {
+      await initializeNotifications();
+    };
+    
+    initNotifications();
+  }, []);
+
+  // Add notification listeners
+  useEffect(() => {
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('🔔 [Notifications] Notification received:', notification);
+      
+      Toast.show({
+        type: 'success',
+        text1: 'Event Reminder',
+        text2: notification.request.content.body || 'You have an upcoming event',
+        position: 'bottom',
+      });
+    });
+
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('🔔 [Notifications] Notification response received:', response);
+    });
+
+    return () => {
+      Notifications.removeNotificationSubscription(notificationListener);
+      Notifications.removeNotificationSubscription(responseListener);
+    };
+  }, []);
 
   // Add a function to handle database connection issues
   const handleDatabaseError = (error: any) => {
@@ -2493,6 +2808,83 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       refreshEvents();
     }, [])
   );
+
+  // Reschedule notifications when events are loaded
+  useEffect(() => {
+    const rescheduleNotifications = async () => {
+      try {
+        console.log('🔔 [Notifications] Rescheduling notifications for', Object.keys(events).length, 'months of events');
+        
+        // Cancel all existing notifications
+        await Notifications.cancelAllScheduledNotificationsAsync();
+        
+        // Get all events with reminders
+        const allEvents = Object.values(events).flat();
+        const eventsWithReminders = allEvents.filter(event => 
+          event.reminderTime && 
+          new Date(event.reminderTime) > new Date()
+        );
+        
+        console.log('🔔 [Notifications] Found', eventsWithReminders.length, 'events with future reminders');
+        
+        // Schedule notifications for each event
+        for (const event of eventsWithReminders) {
+          await scheduleEventNotification(event);
+        }
+        
+        console.log('🔔 [Notifications] Finished rescheduling notifications');
+      } catch (error) {
+        console.error('🔔 [Notifications] Error rescheduling notifications:', error);
+      }
+    };
+
+    // Only reschedule if we have events and notifications are initialized
+    if (Object.keys(events).length > 0) {
+      rescheduleNotifications();
+    }
+  }, [events]);
+
+  // Add a function to check notification settings
+  const checkNotificationSettings = async () => {
+    try {
+      console.log('🔔 [Notifications] Checking notification settings...');
+      
+      // Check permissions
+      const { status } = await Notifications.getPermissionsAsync();
+      console.log('🔔 [Notifications] Permission status:', status);
+      
+      // Get scheduled notifications
+      const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      console.log('🔔 [Notifications] Scheduled notifications:', scheduledNotifications.length);
+      
+      // Log each scheduled notification
+      scheduledNotifications.forEach((notification, index) => {
+        console.log(`🔔 [Notifications] Notification ${index + 1}:`, {
+          id: notification.identifier,
+          title: notification.content.title,
+          body: notification.content.body,
+          trigger: notification.trigger
+        });
+      });
+
+      // Show results in a toast
+      Toast.show({
+        type: 'info',
+        text1: 'Notification Status',
+        text2: `Permissions: ${status}, Scheduled: ${scheduledNotifications.length}`,
+        position: 'bottom',
+      });
+      
+    } catch (error) {
+      console.error('🔔 [Notifications] Error checking settings:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Settings Check Error',
+        text2: error instanceof Error ? error.message : 'Unknown error',
+        position: 'bottom',
+      });
+    }
+  };
 
   // Photo-related functions
   const uploadEventPhoto = async (photoUri: string, eventId: string): Promise<string> => {
@@ -3069,13 +3461,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           <TouchableOpacity 
             onPress={() => setShowGoogleSyncModal(true)}
             style={{
-              backgroundColor: '#4285F4',
               padding: 8,
-              borderRadius: 8,
               marginHorizontal: 4
             }}
           >
-            <Ionicons name="logo-google" size={20} color="white" />
+            <Ionicons name="logo-google" size={20} color="#4285F4" />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => {
@@ -3107,6 +3497,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </TouchableOpacity>
         </View>
       </View>
+
+
 
       {/* Shared Event Notifications */}
       {pendingSharedEvents.length > 0 && (
@@ -3264,8 +3656,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             borderRadius: 12,
                             paddingVertical: 8,
                             paddingHorizontal: 16,
-                            borderWidth: event.isShared ? 2 : 0,
-                            borderColor: event.isShared ? '#007AFF' : 'transparent',
+                            borderWidth: event.isShared ? 2 : (event.isGoogleEvent ? 1 : 0),
+                            borderColor: event.isShared ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
+                            borderStyle: 'solid',
                           }}
                           onPress={() => handleSharedEventPress(event)}
                           onLongPress={() => handleLongPress(event)}
@@ -3276,7 +3669,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               width: 5.5,
                               height: 46,
                               borderRadius: 3,
-                              backgroundColor: event.isShared ? '#007AFF' : (event.categoryColor || '#6366F1'),
+                              backgroundColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : (event.isShared ? '#007AFF' : (event.categoryColor || '#6366F1')),
                               marginRight: 14,
                             }}
                           />
@@ -3291,7 +3684,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               }}>
                                 {event.title}
                               </Text>
-                              {event.isShared && (
+
+                              {event.isShared && !event.isGoogleEvent && (
                                 <View style={{ 
                                   marginLeft: 8, 
                                   backgroundColor: '#007AFF', 
@@ -3312,7 +3706,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             <Text style={{ fontSize: 15, color: '#666', marginBottom: event.description ? 2 : 0 }}>
                               {event.isAllDay
                                 ? 'All day'
-                                : `${new Date(event.startDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${new Date(event.endDateTime!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                                : `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'} – ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'}`}
                             </Text>
                             {event.description ? (
                               <Text style={{ fontSize: 12, color: '#999' }} numberOfLines={2}>
@@ -3503,6 +3897,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setEditedRepeatOption={setEditedRepeatOption}
         setEditedRepeatEndDate={setEditedRepeatEndDate}
         setEditedEventPhotos={setEditedEventPhotos}
+        setEditedAllDay={setIsEditedAllDay}
         setShowEditEventModal={setShowEditEventModal}
         hideHeader={true}
         setVisibleWeekMonth={setVisibleWeekMonth}
@@ -4113,16 +4508,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               key={option}
                               onPress={() => {
                                 if (option === 'Does not repeat') {
-                                  setEditedRepeatOption('None');
-                                  setEditedRepeatEndDate(null);
+                                  setRepeatOption('None');
+                                  setRepeatEndDate(null);
                                   setShowRepeatPicker(false);
                                 } else {
-                                  setEditedRepeatOption(option as RepeatOption);
+                                  setRepeatOption(option as RepeatOption);
                                   // Don't close the picker so the end date section remains visible
                                 }
                               }}
                               style={{
-                                backgroundColor: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '#f0f0f0' : 'transparent',
+                                backgroundColor: (option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? '#f0f0f0' : 'transparent',
                                 paddingVertical: 8,
                                 paddingHorizontal: 12,
                                 borderRadius: 6,
@@ -4136,22 +4531,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 fontSize: 14,
                                 color: '#333',
                                 fontFamily: 'Onest',
-                                fontWeight: (option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) ? '600' : '500',
+                                fontWeight: (option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) ? '600' : '500',
                               }}>
                                 {option}
                               </Text>
-                              {(option === 'Does not repeat' ? editedRepeatOption === 'None' : editedRepeatOption === option) && (
+                              {(option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) && (
                                 <Ionicons name="checkmark" size={16} color="#007AFF" />
                               )}
                             </TouchableOpacity>
                           ))}
                         </View>
-                        {editedRepeatOption !== 'None' && (editedRepeatOption as string) !== 'Custom' && (
+                        {repeatOption !== 'None' && (repeatOption as string) !== 'Custom' && (
                         <View style={{ borderTopWidth: 1, borderTopColor: '#e0e0e0', paddingTop: 8 }}>
                             <TouchableOpacity
                               onPress={() => setShowEditInlineEndDatePicker(prev => !prev)}
                               style={{
-                                backgroundColor: editedRepeatEndDate ? '#f0f0f0' : 'transparent',
+                                backgroundColor: repeatEndDate ? '#f0f0f0' : 'transparent',
                                 paddingVertical: 8,
                                 paddingHorizontal: 12,
                                 borderRadius: 6,
@@ -4164,11 +4559,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 fontSize: 14,
                                 color: '#333',
                                 fontFamily: 'Onest',
-                                fontWeight: editedRepeatEndDate ? '600' : '500',
+                                fontWeight: repeatEndDate ? '600' : '500',
                               }}>
-                                {editedRepeatEndDate ? `Ends ${editedRepeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Set end date'}
+                                {repeatEndDate ? `Ends ${repeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Set end date'}
                               </Text>
-                              {editedRepeatEndDate ? (
+                              {repeatEndDate ? (
                                 <Ionicons name="checkmark" size={16} color="#007AFF" />
                               ) : (
                                 <Ionicons name="calendar-outline" size={16} color="#666" />
@@ -4186,7 +4581,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                                   <TouchableOpacity
                                     onPress={() => {
-                                      setEditedRepeatEndDate(null);
+                                      setRepeatEndDate(null);
                                       setShowEditInlineEndDatePicker(false);
                                     }}
                                     style={{ paddingHorizontal: 8, paddingVertical: 4 }}
@@ -4195,12 +4590,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   </TouchableOpacity>
                                 </View>
                                 <DateTimePicker
-                                  value={editedRepeatEndDate || new Date()}
+                                  value={repeatEndDate || new Date()}
                                   mode="date"
                                   display="spinner"
                                   onChange={(event, selectedDate) => {
                                     if (selectedDate) {
-                                      setEditedRepeatEndDate(selectedDate);
+                                      setRepeatEndDate(selectedDate);
                                       setShowEditInlineEndDatePicker(false);
                                       setShowRepeatPicker(false);
                                     }
@@ -5108,12 +5503,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   {showEndDatePicker && (
                     <View style={styles.modalPickerContainer}>
                       <DateTimePicker
-                        value={editedRepeatEndDate || new Date()}
+                        value={repeatEndDate || new Date()}
                         mode="date"
                         display="spinner"
                         onChange={(event, selectedDate) => {
                           if (selectedDate) {
-                            setEditedRepeatEndDate(selectedDate);
+                            setRepeatEndDate(selectedDate);
                             debouncePickerClose('endDate');
                           }
                         }}
@@ -5313,27 +5708,35 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   )}
                 </View>
 
-                 {/* Delete Button */}
-                 <TouchableOpacity
-                  onPress={async () => {
-                    if (selectedEvent?.event.id) {
-                      try {
-                        await handleDeleteEvent(selectedEvent.event.id);
-                        setShowEditEventModal(false);
-                        setSelectedEvent(null);
-                        setEditingEvent(null);
-                      } catch (error) {
-                        
-                        Alert.alert('Error', 'Failed to delete event. Please try again.');
-                      }
-                    }
-                  }}
-                  style={styles.modalDeleteButton}
-                >
-                  <Text style={styles.modalDeleteButtonText}>
-                    Delete Event
-                  </Text>
-                </TouchableOpacity>
+                 {/* Delete Button and Save Button Row */}
+                 <View style={styles.modalActionRow}>
+                   <TouchableOpacity
+                     onPress={async () => {
+                       if (selectedEvent?.event.id) {
+                         try {
+                           await handleDeleteEvent(selectedEvent.event.id);
+                           setShowEditEventModal(false);
+                           setSelectedEvent(null);
+                           setEditingEvent(null);
+                         } catch (error) {
+                           Alert.alert('Error', 'Failed to delete event. Please try again.');
+                         }
+                       }
+                     }}
+                     style={styles.modalDeleteButton}
+                   >
+                     <Text style={styles.modalDeleteButtonText}>
+                       Delete
+                     </Text>
+                   </TouchableOpacity>
+                   <TouchableOpacity
+                     onPress={() => handleEditEvent()}
+                     disabled={!editedEventTitle.trim()}
+                     style={[styles.modalFormButtonPrimary, { opacity: editedEventTitle.trim() ? 1 : 0.5 }]}
+                   >
+                     <Text style={styles.modalFormButtonTextPrimary}>Save</Text>
+                   </TouchableOpacity>
+                 </View>
 
               </ScrollView>
             </View>
@@ -5663,7 +6066,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           fontFamily: 'Onest',
                         }}>
                           {event.date} • {event.isAllDay ? 'All day' : 
-                            `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                            `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'} - ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'}`
                           }
                         </Text>
                       </View>
@@ -5921,25 +6324,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   // Handle synced events here
                   console.log('Synced events:', syncedEvents);
                   
-                  // Show success message
-                  Alert.alert(
-                    'Sync Complete',
-                    `Successfully synced ${syncedEvents.length} events from Google Calendar!`,
-                    [
-                      {
-                        text: 'OK',
-                        onPress: () => {
-                          // Close the modal
-                          setShowGoogleSyncModal(false);
-                          // Refresh the events to show the new synced events
-                          refreshEvents();
-                        }
-                      }
-                    ]
-                  );
+                  // Close the modal and refresh events
+                  setShowGoogleSyncModal(false);
+                  refreshEvents();
                 }}
                 onCalendarUnsynced={() => {
                   // Refresh events when a calendar is unsynced
+                  refreshEvents();
+                }}
+                onCalendarColorUpdated={() => {
+                  // Refresh events when a calendar color is updated
                   refreshEvents();
                 }}
               />

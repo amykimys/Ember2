@@ -59,6 +59,17 @@ interface CalendarEvent {
   isContinued?: boolean;
   isAllDay?: boolean;
   photos?: string[];
+  // Add shared event properties
+  isShared?: boolean;
+  sharedBy?: string;
+  sharedByUsername?: string;
+  sharedByFullName?: string;
+  sharedStatus?: 'pending' | 'accepted' | 'declined';
+  // Add Google Calendar properties
+  googleCalendarId?: string;
+  googleEventId?: string;
+  isGoogleEvent?: boolean;
+  calendarColor?: string;
 }
 
 export interface WeeklyCalendarViewRef {
@@ -83,6 +94,7 @@ interface WeeklyCalendarViewProps {
     setEditedRepeatOption: React.Dispatch<React.SetStateAction<'None' | 'Daily' | 'Weekly' | 'Monthly' | 'Yearly' | 'Custom'>>;
     setEditedRepeatEndDate: React.Dispatch<React.SetStateAction<Date | null>>;
     setEditedEventPhotos: React.Dispatch<React.SetStateAction<string[]>>;
+    setEditedAllDay: React.Dispatch<React.SetStateAction<boolean>>;
     setShowEditEventModal: (show: boolean) => void;
     hideHeader?: boolean;
     setVisibleWeekMonth: (date: Date) => void;
@@ -108,6 +120,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     setEditedRepeatOption,
     setEditedRepeatEndDate,
     setEditedEventPhotos,
+    setEditedAllDay,
     setShowEditEventModal,
     hideHeader = false,
     setVisibleWeekMonth,
@@ -353,11 +366,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       return date;
     });
 
-    console.log('WeeklyCalendar - Rendering Week:', {
-      weekStart: weekStart.toISOString(),
-      weekDates: weekDates.map(d => d.toISOString()),
-      eventsKeys: Object.keys(events)
-    });
+
 
     // Check if this is the current week (today's week)
     const today = new Date();
@@ -396,11 +405,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         {weekDates.map((date, idx) => {
           const dateKey = getLocalDateString(date);
           const allDayEvents = (events[dateKey] || []).filter(e => e.isAllDay);
-          console.log('WeeklyCalendar - Day Events:', {
-            date: dateKey,
-            allDayEvents: allDayEvents.length,
-            regularEvents: (events[dateKey] || []).filter(e => !e.isAllDay).length
-          });
+
           return (
             <View
               key={idx}
@@ -410,10 +415,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 justifyContent: 'flex-start',
                 minHeight: allDayEvents.length > 0 ? allDayEvents.length * 26 + 12 : 36,
                 borderRightWidth: 1,
-                borderColor: '#dadce0',
+                borderColor: '#f1f3f4',
                 backgroundColor: '#ffffff',
                 paddingVertical: 2,
-                paddingHorizontal: 2,
+                paddingHorizontal: 0,
               }}
             >
               {allDayEvents.map((event, i) => (
@@ -438,6 +443,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                     setEditedRepeatOption(event.repeatOption || 'None');
                     setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                     setEditedEventPhotos(event.photos || []);
+
+                    setEditedAllDay(event.isAllDay || false);
                     
                     // Show the modal immediately after setting the data
                     setShowEditEventModal(true);
@@ -445,7 +452,11 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                   style={[
                     styles.allDayEventBox,
                     {
-                      backgroundColor: `${getEventColor(event.categoryColor, event.categoryName)}30`, // Lighter background like monthly calendar
+                      backgroundColor: event.isGoogleEvent 
+                        ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
+                        : `${getEventColor(event.categoryColor, event.categoryName)}30`, // Lighter background like monthly calendar
+                      borderWidth: event.isGoogleEvent ? 1 : 0,
+                      borderColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent',
                       width: '100%', // Full width to fit snugly
                     }
                   ]}
@@ -541,16 +552,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
               const dayEvents = (events[dateKey] || []).filter(event => !event.isAllDay);
               const isCurrentDay = isToday(date);
 
-              console.log('WeeklyCalendar - Rendering Day Column:', {
-                date: dateKey,
-                eventsCount: dayEvents.length,
-                events: dayEvents.map(e => ({
-                  id: e.id,
-                  title: e.title,
-                  start: e.startDateTime?.toISOString(),
-                  end: e.endDateTime?.toISOString()
-                }))
-              });
+
 
               return (
                 <View key={dayIndex} style={styles.dayColumn}>
@@ -575,7 +577,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                             style={styles.cellTouchable}
                             activeOpacity={0.6}
                             onPress={() => {
-                              console.log('Cell pressed:', { dayIndex, row, date: date.toISOString(), cellHour });
+
                               try {
                                 const clickedDate = new Date(date);
                                 clickedDate.setHours(cellHour, 0, 0, 0);
@@ -585,7 +587,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                                 end.setHours(end.getHours() + 1);
                                 setEndDateTime(end);
                                 
-                                console.log('Setting modal to true');
+
                                 setShowModal(true);
                                 
                                 // Visual feedback
@@ -615,20 +617,24 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                       return (
                         <TouchableOpacity
                           key={`${event.id}-${eventIndex}`}
-                          style={[
-                            styles.eventBox,
-                            {
-                              top: position.top,
-                              height: position.height,
-                              backgroundColor: `${getEventColor(event.categoryColor || event.categoryName)}30`, // Lighter background like monthly calendar
-                              position: 'absolute',
-                              left: leftPosition,
-                              width: columnWidth - 4, // Small gap between columns
-                              marginHorizontal: 2,
-                              paddingVertical: 2,
-                              paddingHorizontal: 4,
-                            },
-                          ]}
+                                                      style={[
+                              styles.eventBox,
+                              {
+                                top: position.top,
+                                height: position.height,
+                                backgroundColor: event.isGoogleEvent 
+                                  ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
+                                  : `${event.categoryColor || '#6366F1'}30`, // Lighter background like monthly calendar
+                                position: 'absolute',
+                                left: leftPosition,
+                                width: columnWidth,
+                                marginHorizontal: 0,
+                                paddingVertical: 2,
+                                paddingHorizontal: 0,
+                                borderWidth: event.isGoogleEvent ? 1 : 0,
+                                borderColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent',
+                              },
+                            ]}
                           onPress={() => {
                             // Set all the event data at once to minimize re-renders
                             const eventData = {
@@ -648,6 +654,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                             setEditedRepeatOption(event.repeatOption || 'None');
                             setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                             setEditedEventPhotos(event.photos || []);
+
+                            setEditedAllDay(event.isAllDay || false);
                             
                             // Show the modal immediately after setting the data
                             setShowEditEventModal(true);
@@ -659,7 +667,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                           <View style={styles.eventTextContainer}>
                             <Text style={[
                               styles.eventText,
-                              { color: '#3A3A3A' } // Dark text like monthly calendar
+                              { 
+                                color: '#3A3A3A', // Same color as regular events
+                                fontWeight: '400' // Same weight as regular events
+                              }
                             ]} numberOfLines={2}>
                               {event.title}
                             </Text>
@@ -731,23 +742,31 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
 
   // Update scrollToWeek to handle any target date
   const scrollToWeek = useCallback((targetDate: Date) => {
+    // Calculate the week start for the target date
     const weekStart = new Date(targetDate);
     weekStart.setDate(targetDate.getDate() - targetDate.getDay());
     
-    // Find the closest week in our array
+    // Find the index of this week in our current array
     const weekIndex = weeks.findIndex(date => {
-        const diff = Math.abs(date.getTime() - weekStart.getTime());
-        return diff < 7 * 24 * 60 * 60 * 1000; // Within 7 days
+      const diff = Math.abs(date.getTime() - weekStart.getTime());
+      return diff < 7 * 24 * 60 * 60 * 1000; // Within 7 days
     });
 
     if (weekIndex !== -1) {
-        flatListRef.current?.scrollToIndex({
-            index: weekIndex,
-            animated: true
-        });
+      // If we found the week, scroll to it directly
+      flatListRef.current?.scrollToIndex({
+        index: weekIndex,
+        animated: true
+      });
     } else {
-        // If we can't find a close week, update selectedDate to trigger weeks array regeneration
-        setSelectedDate(weekStart);
+      // If we can't find the week, update selectedDate and scroll to center
+      setSelectedDate(targetDate);
+      setTimeout(() => {
+        flatListRef.current?.scrollToIndex({
+          index: 50,
+          animated: true
+        });
+      }, 100);
     }
   }, [weeks, setSelectedDate]);
 
@@ -803,10 +822,9 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         <TouchableOpacity 
           style={styles.weekStrip}
           onPress={() => {
-            // Get the first day of the current month
+            // Navigate to the current week (today's date)
             const now = new Date();
-            const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            scrollToWeek(firstDayOfMonth);
+            scrollToWeek(now);
           }}
         >
           <View style={{ flex: 1, alignItems: 'center' }}>
@@ -895,7 +913,7 @@ const styles = StyleSheet.create({
     width: TIME_COLUMN_WIDTH,
     backgroundColor: '#ffffff',
     borderRightWidth: 1,
-    borderColor: '#dadce0',
+    borderColor: '#f1f3f4',
     paddingRight: 12,
   },
   timeText: {
@@ -922,7 +940,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 0,
     borderRightWidth: 1,
-    borderColor: '#dadce0',
+    borderColor: '#f1f3f4',
   },
   eventsLayer: {
     position: 'absolute',
@@ -993,8 +1011,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   allDayEventBox: {
-    borderRadius: 3,
-    paddingHorizontal: 4,
+    borderRadius: 4,
+    paddingHorizontal: 0,
     paddingVertical: 2,
     minWidth: 40,
     maxWidth: '100%',
@@ -1052,6 +1070,22 @@ const styles = StyleSheet.create({
   todayDateText: {
     color: '#667eea',
     fontWeight: '600',
+  },
+  // Google Calendar Event styles
+  googleEventBox: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    backgroundColor: '#4285F410', // More transparent Google blue background
+    borderRadius: 4,
+    minHeight: 22,
+    zIndex: 2,
+    marginHorizontal: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
 });
 

@@ -7,6 +7,7 @@ import {
   ScrollView,
   ActivityIndicator,
   StyleSheet,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { googleCalendarService, GoogleCalendar } from '../utils/googleCalendar';
@@ -14,12 +15,14 @@ import { googleCalendarService, GoogleCalendar } from '../utils/googleCalendar';
 interface GoogleCalendarSyncProps {
   onEventsSynced?: (events: any[]) => void;
   onCalendarUnsynced?: () => void;
+  onCalendarColorUpdated?: () => void;
   userId?: string;
 }
 
 export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
   onEventsSynced,
   onCalendarUnsynced,
+  onCalendarColorUpdated,
   userId,
 }) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -27,6 +30,9 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
   const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
   const [selectedCalendars, setSelectedCalendars] = useState<string[]>([]);
   const [syncedCalendars, setSyncedCalendars] = useState<any[]>([]);
+  const [calendarColors, setCalendarColors] = useState<{ [calendarId: string]: string }>({});
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [selectedCalendarForColor, setSelectedCalendarForColor] = useState<GoogleCalendar | null>(null);
 
   useEffect(() => {
     checkConnectionStatus();
@@ -240,7 +246,8 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
                     calendarId,
                     timeMin,
                     timeMax,
-                    userId
+                    userId,
+                    calendarColors[calendarId] // Pass the selected color
                   );
                   allEvents.push(...events);
                 } catch (error) {
@@ -251,11 +258,6 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
               if (onEventsSynced) {
                 onEventsSynced(allEvents);
               }
-
-              Alert.alert(
-                'Sync Complete',
-                `Successfully synced ${allEvents.length} events from ${selectedCalendars.length} calendar(s) for the period (${currentYear - 1}-2028)`
-              );
             } catch (error) {
               console.error('Sync error:', error);
               Alert.alert('Error', 'Failed to sync events');
@@ -268,17 +270,86 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
     );
   };
 
+  const openColorPicker = (calendar: GoogleCalendar) => {
+    setSelectedCalendarForColor(calendar);
+    setShowColorPicker(true);
+  };
+
+  const openColorPickerForSynced = (syncedCalendar: any) => {
+    // Create a mock GoogleCalendar object for the synced calendar
+    const mockCalendar: GoogleCalendar = {
+      id: syncedCalendar.google_calendar_id,
+      summary: syncedCalendar.calendar_name,
+      description: syncedCalendar.calendar_description,
+      primary: syncedCalendar.is_primary,
+      backgroundColor: syncedCalendar.background_color,
+      foregroundColor: syncedCalendar.foreground_color,
+      accessRole: 'reader', // Default access role for synced calendars
+    };
+    setSelectedCalendarForColor(mockCalendar);
+    setShowColorPicker(true);
+  };
+
+  const selectColor = async (color: string) => {
+    if (selectedCalendarForColor) {
+      // Check if this is a synced calendar
+      const syncedCalendar = syncedCalendars.find(synced => synced.google_calendar_id === selectedCalendarForColor.id);
+      
+      if (syncedCalendar) {
+        // Update the synced calendar's color in the database
+        try {
+          await googleCalendarService.updateSyncedCalendarColor(
+            syncedCalendar.id,
+            color
+          );
+          
+          // Update local state
+          setSyncedCalendars(prev => prev.map(cal => 
+            cal.id === syncedCalendar.id 
+              ? { ...cal, background_color: color }
+              : cal
+          ));
+          
+          // Trigger a refresh of the calendar display
+          if (onCalendarColorUpdated) {
+            onCalendarColorUpdated();
+          }
+          
+          Alert.alert('Success', 'Calendar color updated successfully!');
+        } catch (error) {
+          console.error('Error updating calendar color:', error);
+          Alert.alert('Error', 'Failed to update calendar color');
+        }
+      } else {
+        // This is a new calendar, just update local state
+        setCalendarColors(prev => ({
+          ...prev,
+          [selectedCalendarForColor.id]: color
+        }));
+      }
+    }
+    setShowColorPicker(false);
+    setSelectedCalendarForColor(null);
+  };
+
+  const getCalendarColor = (calendarId: string) => {
+    // First check if this is a synced calendar
+    const syncedCalendar = syncedCalendars.find(synced => synced.google_calendar_id === calendarId);
+    if (syncedCalendar) {
+      return syncedCalendar.background_color || '#4285F4';
+    }
+    // Otherwise check the calendarColors state (for new calendars)
+    return calendarColors[calendarId] || '#4285F4'; // Default to Google blue
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Ionicons name="calendar" size={24} color="#667eea" />
-        <Text style={styles.title}>Google Calendar Sync</Text>
-      </View>
-
       {!isConnected ? (
         <View style={styles.connectSection}>
+          <Ionicons name="logo-google" size={48} color="#4285F4" />
+          <Text style={styles.title}>Connect Google Calendar</Text>
           <Text style={styles.description}>
-            Connect your Google Calendar to sync events with this app
+            Sync your Google Calendar events with this app
           </Text>
           <TouchableOpacity
             style={styles.connectButton}
@@ -288,70 +359,39 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
             {isLoading ? (
               <ActivityIndicator color="white" />
             ) : (
-              <>
-                <Ionicons name="logo-google" size={20} color="white" />
-                <Text style={styles.connectButtonText}>Connect Google Calendar</Text>
-              </>
+              <Text style={styles.connectButtonText}>Connect</Text>
             )}
           </TouchableOpacity>
         </View>
       ) : (
         <View style={styles.syncSection}>
-          <View style={styles.connectionStatus}>
-            <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
-            <Text style={styles.connectedText}>Connected to Google Calendar</Text>
-            <View style={styles.connectionButtons}>
-              <TouchableOpacity onPress={handleDisconnect} style={styles.disconnectButton}>
-                <Text style={styles.disconnectButtonText}>Disconnect</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                onPress={async () => {
-                  setIsLoading(true);
-                  try {
-                    const success = await googleCalendarService.reAuthenticate();
-                    if (success) {
-                      await loadCalendars();
-                      Alert.alert('Success', 'Re-authenticated successfully!');
-                    } else {
-                      Alert.alert('Error', 'Failed to re-authenticate');
-                    }
-                  } catch (error) {
-                    console.error('Re-authentication error:', error);
-                    Alert.alert('Error', 'Failed to re-authenticate');
-                  } finally {
-                    setIsLoading(false);
-                  }
-                }} 
-                style={styles.reauthButton}
-              >
-                <Text style={styles.reauthButtonText}>Re-authenticate</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
           {syncedCalendars.length > 0 && (
             <View style={styles.syncedSection}>
-              <Text style={styles.sectionTitle}>Currently Synced Calendars</Text>
+              <Text style={styles.sectionTitle}>Synced</Text>
               <View style={styles.syncedCalendarsList}>
                 {syncedCalendars.map(syncedCalendar => (
                   <View key={syncedCalendar.id} style={styles.syncedCalendarItem}>
-                    <View style={styles.syncedCalendarInfo}>
-                      <Text style={styles.syncedCalendarName}>{syncedCalendar.calendar_name}</Text>
-                      {syncedCalendar.calendar_description && (
-                        <Text style={styles.syncedCalendarDescription}>{syncedCalendar.calendar_description}</Text>
-                      )}
-                      <Text style={styles.lastSyncText}>
-                        Last synced: {new Date(syncedCalendar.last_sync_at).toLocaleDateString()}
-                      </Text>
+                    <View style={styles.syncedCalendarTopRow}>
+                      <View style={styles.syncedCalendarInfo}>
+                        <Text style={styles.syncedCalendarName}>{syncedCalendar.calendar_name}</Text>
+                      </View>
+                      <View style={styles.syncedCalendarActions}>
+                        <TouchableOpacity
+                          style={[
+                            styles.colorPickerButton,
+                            { backgroundColor: syncedCalendar.background_color || '#4285F4' }
+                          ]}
+                          onPress={() => openColorPickerForSynced(syncedCalendar)}
+                        />
+                        <TouchableOpacity
+                          style={styles.unsyncButton}
+                          onPress={() => handleUnsyncCalendar(syncedCalendar.google_calendar_id, syncedCalendar.calendar_name)}
+                          disabled={isLoading}
+                        >
+                          <Ionicons name="close" size={16} color="#999" />
+                        </TouchableOpacity>
+                      </View>
                     </View>
-                    <TouchableOpacity
-                      style={styles.unsyncButton}
-                      onPress={() => handleUnsyncCalendar(syncedCalendar.google_calendar_id, syncedCalendar.calendar_name)}
-                      disabled={isLoading}
-                    >
-                      <Ionicons name="close-circle" size={20} color="#FF6B6B" />
-                      <Text style={styles.unsyncButtonText}>Unsync</Text>
-                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
@@ -359,17 +399,17 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
           )}
 
           <Text style={styles.sectionTitle}>
-            Select Calendars to Sync 
+            Available Calendars
             {calendars.length > 0 && (
               <Text style={styles.calendarCount}>
-                {' '}({calendars.filter(cal => !syncedCalendars.some(synced => synced.google_calendar_id === cal.id)).length} available)
+                {' '}({calendars.filter(cal => !syncedCalendars.some(synced => synced.google_calendar_id === cal.id)).length})
               </Text>
             )}
           </Text>
           
           <ScrollView 
             style={styles.calendarList}
-            showsVerticalScrollIndicator={true}
+            showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 20 }}
           >
             {calendars.length > 0 ? (
@@ -389,33 +429,33 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
                     >
                       <View style={styles.calendarInfo}>
                         <Text style={styles.calendarName}>{calendar.summary}</Text>
-                        {calendar.description && (
-                          <Text style={styles.calendarDescription}>{calendar.description}</Text>
+                        {calendar.primary && (
+                          <Text style={styles.primaryBadge}>Primary</Text>
                         )}
-                        <View style={styles.calendarBadges}>
-                          {calendar.primary && (
-                            <Text style={styles.primaryBadge}>Primary</Text>
-                          )}
-                        </View>
                       </View>
-                      <Ionicons
-                        name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={24}
-                        color={isSelected ? '#667eea' : '#ccc'}
-                      />
+                      <View style={styles.calendarActions}>
+                        {isSelected && (
+                          <TouchableOpacity
+                            style={[
+                              styles.colorPickerButton,
+                              { backgroundColor: getCalendarColor(calendar.id) }
+                            ]}
+                            onPress={() => openColorPicker(calendar)}
+                          />
+                        )}
+                        <Ionicons
+                          name={isSelected ? 'checkmark' : 'ellipse-outline'}
+                          size={20}
+                          color={isSelected ? '#4285F4' : '#ccc'}
+                        />
+                      </View>
                     </TouchableOpacity>
                   );
                 })
             ) : (
               <View style={styles.noCalendarsContainer}>
                 <Text style={styles.noCalendarsText}>
-                  {calendars.length > 0 ? 'All calendars are already synced' : 'No calendars found'}
-                </Text>
-                <Text style={styles.noCalendarsSubtext}>
-                  {calendars.length > 0 
-                    ? 'To sync more calendars, first unsync some existing ones' 
-                    : 'Make sure you have calendars in your Google account'
-                  }
+                  {calendars.length > 0 ? 'All calendars synced' : 'No calendars found'}
                 </Text>
               </View>
             )}
@@ -432,21 +472,64 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
             {isLoading ? (
               <ActivityIndicator color="white" />
             ) : (
-              <>
-                <Ionicons name="sync" size={20} color="white" />
-                <Text style={styles.syncButtonText}>
-                  {selectedCalendars.length > 0 
-                    ? `Sync ${selectedCalendars.length} Calendar${selectedCalendars.length !== 1 ? 's' : ''}` 
-                    : calendars.filter(cal => !syncedCalendars.some(synced => synced.google_calendar_id === cal.id)).length === 0
-                      ? 'All Calendars Synced'
-                      : 'Select Calendars to Sync'
-                  }
-                </Text>
-              </>
+              <Text style={styles.syncButtonText}>
+                {selectedCalendars.length > 0 
+                  ? `Sync ${selectedCalendars.length} Calendar${selectedCalendars.length !== 1 ? 's' : ''}` 
+                  : 'Sync Calendars'
+                }
+              </Text>
             )}
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Color Picker Modal */}
+      <Modal
+        visible={showColorPicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowColorPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.colorPickerModal}>
+            <Text style={styles.colorPickerTitle}>
+              Choose Color for {selectedCalendarForColor?.summary}
+            </Text>
+            
+            <View style={styles.colorGrid}>
+              {[
+                '#4285F4', '#EA4335', '#FBBC04', '#34A853', // Google colors
+                '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', // Additional colors
+                '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F', // More colors
+                '#BB8FCE', '#85C1E9', '#F8C471', '#82E0AA', // Even more colors
+                '#E74C3C', '#9B59B6', '#3498DB', '#1ABC9C', // Popular colors
+                '#F1C40F', '#E67E22', '#95A5A6', '#34495E', // Final set
+              ].map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: color },
+                    getCalendarColor(selectedCalendarForColor?.id || '') === color && styles.selectedColorOption
+                  ]}
+                  onPress={() => selectColor(color)}
+                >
+                  {getCalendarColor(selectedCalendarForColor?.id || '') === color && (
+                    <Ionicons name="checkmark" size={20} color="white" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setShowColorPicker(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -455,45 +538,52 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'white',
-    padding: 16,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
+    padding: 20,
   },
   title: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: '600',
-    marginLeft: 8,
-    color: '#333',
+    marginTop: 16,
+    marginBottom: 8,
+    color: '#1a73e8',
     fontFamily: 'Onest',
+    textAlign: 'center',
   },
   connectSection: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    backgroundColor: '#f8f9ff',
+    borderRadius: 20,
+    margin: 20,
   },
   description: {
     textAlign: 'center',
-    color: '#666',
-    marginBottom: 20,
+    color: '#5f6368',
+    marginBottom: 32,
     lineHeight: 20,
     fontFamily: 'Onest',
+    fontSize: 16,
   },
   connectButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#667eea',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
+    backgroundColor: '#4285F4',
+    paddingHorizontal: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    minWidth: 120,
+    shadowColor: '#4285F4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   connectButtonText: {
     color: 'white',
     fontWeight: '600',
     fontFamily: 'Onest',
+    fontSize: 16,
+    textAlign: 'center',
   },
   syncSection: {
     flex: 1,
@@ -539,28 +629,45 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    marginBottom: 12,
-    color: '#333',
+    marginBottom: 16,
+    marginTop: 24,
+    color: '#1a73e8',
     fontFamily: 'Onest',
   },
   calendarList: {
     flex: 1,
-    marginBottom: 16,
+    marginBottom: 20,
   },
   calendarItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#e9ecef',
-    borderRadius: 8,
+    borderRadius: 12,
     marginBottom: 8,
+    backgroundColor: '#ffffff',
   },
   selectedCalendar: {
-    borderColor: '#667eea',
-    backgroundColor: '#f8f9ff',
+    borderColor: '#4285F4',
+    backgroundColor: '#f0f4ff',
+    shadowColor: '#4285F4',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  colorPickerButton: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   syncedCalendar: {
     borderColor: '#4CAF50',
@@ -568,6 +675,11 @@ const styles = StyleSheet.create({
   },
   calendarInfo: {
     flex: 1,
+  },
+  calendarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   calendarBadges: {
     flexDirection: 'row',
@@ -609,42 +721,51 @@ const styles = StyleSheet.create({
   },
   primaryBadge: {
     fontSize: 10,
-    color: '#667eea',
-    backgroundColor: '#f0f2ff',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    color: '#ffffff',
+    backgroundColor: '#4285F4',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
     alignSelf: 'flex-start',
     marginTop: 4,
     fontFamily: 'Onest',
+    fontWeight: '600',
   },
   syncButton: {
-    flexDirection: 'row',
+    backgroundColor: '#4285F4',
+    paddingVertical: 16,
+    borderRadius: 12,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#667eea',
-    paddingVertical: 12,
-    borderRadius: 8,
-    gap: 8,
+    shadowColor: '#4285F4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   syncButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: '#b0b0b0',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   syncButtonText: {
     color: 'white',
     fontWeight: '600',
     fontFamily: 'Onest',
+    fontSize: 16,
   },
   noCalendarsContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 40,
+    backgroundColor: '#f8f9ff',
+    borderRadius: 16,
+    margin: 20,
   },
   noCalendarsText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#5f6368',
     marginBottom: 8,
     fontFamily: 'Onest',
   },
@@ -662,55 +783,91 @@ const styles = StyleSheet.create({
   syncedCalendarItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#4CAF50',
-    borderRadius: 8,
+    borderColor: '#e8f0fe',
+    borderRadius: 12,
     marginBottom: 8,
-    backgroundColor: '#f0fff4',
+    backgroundColor: '#f8f9ff',
   },
   syncedCalendarInfo: {
     flex: 1,
   },
+  syncedCalendarTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  syncedCalendarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   syncedCalendarName: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '500',
     color: '#333',
     fontFamily: 'Onest',
   },
-  syncedCalendarDescription: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-    fontFamily: 'Onest',
-  },
-  lastSyncText: {
-    fontSize: 10,
-    color: '#4CAF50',
-    marginTop: 4,
-    fontFamily: 'Onest',
-  },
   unsyncButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#FF6B6B',
-    gap: 4,
-  },
-  unsyncButtonText: {
-    fontSize: 12,
-    color: '#FF6B6B',
-    fontWeight: '500',
-    fontFamily: 'Onest',
+    padding: 8,
+    borderRadius: 8,
   },
   calendarCount: {
     fontSize: 14,
     color: '#666',
     fontWeight: '400',
+    fontFamily: 'Onest',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  colorPickerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    width: '80%',
+    maxWidth: 400,
+  },
+  colorPickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 20,
+    color: '#333',
+    fontFamily: 'Onest',
+  },
+  colorGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  colorOption: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#e9ecef',
+  },
+  selectedColorOption: {
+    borderColor: '#333',
+    borderWidth: 3,
+  },
+  cancelButton: {
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontWeight: '500',
     fontFamily: 'Onest',
   },
 }); 

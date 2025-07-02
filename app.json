@@ -25,7 +25,9 @@
               "com.yunseokim.jani"
             ]
           }
-        ]
+        ],
+        "NSUserNotificationUsageDescription": "This app uses notifications to remind you about your calendar events.",
+        "UIBackgroundModes": ["remote-notification"]
       }
     },
     "android": {
@@ -55,6 +57,14 @@
         {
           "iosUrlScheme": "com.googleusercontent.apps.407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds",
           "iosClientId": "407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds.apps.googleusercontent.com"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#667eea",
+          "sounds": ["./assets/sounds/notification.wav"]
         }
       ]
     ],

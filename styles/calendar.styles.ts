@@ -193,6 +193,54 @@ export const calendarStyles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  // Google Calendar Event styles
+  googleEventBox: {
+    flexDirection: 'column',
+    justifyContent: 'flex-start', 
+    alignItems: 'center',
+    marginTop: 3,
+    width: '100%',
+    paddingHorizontal: 0,
+    minHeight: 0,
+    flex: 1,
+    gap: 2,
+    backgroundColor: '#4285F410', // More transparent Google blue background
+  },
+  googleEventText: {
+    fontSize: 12,
+    color: '#3A3A3A', // Same color as regular events
+    flex: 1,
+    fontFamily: 'Onest',
+    textAlign: 'center',
+    fontWeight: '400', // Same weight as regular events
+  },
+  googleEventDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#4285F4',
+    borderWidth: 1,
+    borderColor: '#4285F4',
+  },
+  googleEventBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#4285F4',
+    borderRadius: 8,
+    width: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1,
+  },
+  googleEventBadgeText: {
+    color: 'white',
+    fontSize: 8,
+    fontWeight: 'bold',
+    fontFamily: 'Onest',
+  },
+
   // Button styles
   addButton: {
     position: 'absolute',
@@ -419,9 +467,12 @@ export const calendarStyles = StyleSheet.create({
   },
   modalFormButtonPrimary: {
     backgroundColor: '#667eea',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    flex: 1,
+    marginLeft: 4,
+    marginTop: 0,
   },
   modalFormButtonText: {
     color: '#666',
@@ -436,17 +487,26 @@ export const calendarStyles = StyleSheet.create({
     fontWeight: '600',
   },
   modalDeleteButton: {
-    backgroundColor: '#FF6B6B',
+    backgroundColor: '#9B59B6',
     paddingVertical: 12,
     borderRadius: 12,
     alignItems: 'center',
-    marginTop: 20,
+    flex: 1,
+    marginRight: 4,
+    marginTop: 0,
   },
   modalDeleteButtonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 14,
     fontFamily: 'Onest',
     fontWeight: '600',
+  },
+  modalActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 20,
   },
 
   // Additional reusable modal styles

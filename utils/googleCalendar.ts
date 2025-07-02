@@ -44,6 +44,8 @@ export interface GoogleCalendar {
   description?: string;
   primary?: boolean;
   accessRole: string;
+  backgroundColor?: string;
+  foregroundColor?: string;
 }
 
 class GoogleCalendarService {
@@ -353,32 +355,52 @@ class GoogleCalendarService {
     calendarId: string = 'primary',
     timeMin?: string,
     timeMax?: string,
-    userId?: string
+    userId?: string,
+    customColor?: string
   ): Promise<any[]> {
     try {
       const events = await this.getEvents(calendarId, timeMin, timeMax);
       
+      // Use custom color if provided, otherwise get calendar info to get the color
+      let calendarColor = customColor;
+      if (!calendarColor) {
+        const calendar = await this.getCalendarInfo(calendarId);
+        calendarColor = calendar?.backgroundColor || '#4285F4'; // Default to Google blue if no color
+      }
+
       // Transform Google Calendar events to your app's format
       const transformedEvents = events.map(event => {
-        // Parse start and end times
-        const startDate = event.start.dateTime ? new Date(event.start.dateTime) : new Date(event.start.date!);
-        const endDate = event.end.dateTime ? new Date(event.end.dateTime) : new Date(event.end.date!);
-        
         // Determine if it's an all-day event
         const isAllDay = !event.start.dateTime && !event.end.dateTime;
         
+        let startDate, endDate, eventDate;
+        
+        if (isAllDay) {
+          // For all-day events, use the date string directly to avoid timezone issues
+          eventDate = event.start.date!; // This is already in YYYY-MM-DD format
+          // Create dates using local timezone to avoid UTC conversion issues
+          const [year, month, day] = eventDate.split('-').map(Number);
+          startDate = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+          endDate = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+        } else {
+          // For timed events, parse the datetime normally
+          startDate = new Date(event.start.dateTime!);
+          endDate = new Date(event.end.dateTime!);
+          eventDate = startDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+        }
+
         // Create the transformed event
         const transformedEvent = {
           id: `google_${event.id}`, // Prefix to avoid conflicts
           title: event.summary || 'Untitled Event',
           description: event.description || '',
           location: event.location || '',
-          date: startDate.toISOString().split('T')[0], // YYYY-MM-DD format
-          startDateTime: isAllDay ? undefined : startDate,
-          endDateTime: isAllDay ? undefined : endDate,
+          date: eventDate,
+          startDateTime: startDate,
+          endDateTime: endDate,
           isAllDay: isAllDay,
           categoryName: 'Google Calendar',
-          categoryColor: '#4285F4', // Google blue
+          categoryColor: calendarColor, // Use calendar's background color
           reminderTime: null,
           repeatOption: 'None' as const,
           repeatEndDate: null,
@@ -390,6 +412,7 @@ class GoogleCalendarService {
           googleCalendarId: calendarId,
           googleEventId: event.id,
           isGoogleEvent: true,
+          calendarColor: calendarColor, // Store the calendar color
         };
 
         return transformedEvent;
@@ -407,7 +430,9 @@ class GoogleCalendarService {
             calendarId,
             calendar.summary,
             calendar.description,
-            calendar.primary
+            calendar.primary,
+            customColor || calendar.backgroundColor, // Use custom color if provided
+            calendar.foregroundColor
           );
         }
       }
@@ -441,6 +466,7 @@ class GoogleCalendarService {
             google_calendar_id: event.googleCalendarId,
             google_event_id: event.googleEventId,
             is_google_event: event.isGoogleEvent,
+            calendar_color: event.calendarColor,
             created_at: new Date().toISOString(),
           });
 
@@ -462,7 +488,9 @@ class GoogleCalendarService {
     calendarId: string,
     calendarName: string,
     calendarDescription?: string,
-    isPrimary: boolean = false
+    isPrimary: boolean = false,
+    backgroundColor?: string,
+    foregroundColor?: string
   ): Promise<void> {
     try {
       const { error } = await supabase
@@ -473,6 +501,8 @@ class GoogleCalendarService {
           calendar_name: calendarName,
           calendar_description: calendarDescription,
           is_primary: isPrimary,
+          background_color: backgroundColor,
+          foreground_color: foregroundColor,
           last_sync_at: new Date().toISOString(),
         });
 
@@ -483,6 +513,59 @@ class GoogleCalendarService {
       }
     } catch (error) {
       console.error('Error tracking synced calendar:', error);
+      throw error;
+    }
+  }
+
+  // Update synced calendar color
+  async updateSyncedCalendarColor(
+    syncedCalendarId: string,
+    newColor: string
+  ): Promise<void> {
+    try {
+      // First, get the synced calendar to find the google_calendar_id
+      const { data: syncedCalendar, error: calendarError } = await supabase
+        .from('synced_calendars')
+        .select('google_calendar_id')
+        .eq('id', syncedCalendarId)
+        .single();
+
+      if (calendarError) {
+        console.error('Error fetching synced calendar:', calendarError);
+        throw calendarError;
+      }
+
+      // Update the synced calendar record
+      const { error: updateError } = await supabase
+        .from('synced_calendars')
+        .update({
+          background_color: newColor,
+          last_sync_at: new Date().toISOString(),
+        })
+        .eq('id', syncedCalendarId);
+
+      if (updateError) {
+        console.error('Error updating synced calendar color:', updateError);
+        throw updateError;
+      }
+
+      // Update all events from this calendar to use the new color
+      const { error: eventsError } = await supabase
+        .from('events')
+        .update({
+          category_color: newColor,
+          calendar_color: newColor,
+        })
+        .eq('google_calendar_id', syncedCalendar.google_calendar_id);
+
+      if (eventsError) {
+        console.error('Error updating events color:', eventsError);
+        throw eventsError;
+      }
+
+      console.log(`Successfully updated synced calendar color to ${newColor} and updated all events`);
+    } catch (error) {
+      console.error('Error updating synced calendar color:', error);
       throw error;
     }
   }
