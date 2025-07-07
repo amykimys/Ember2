@@ -21,12 +21,31 @@ DECLARE
   original_task_id TEXT;
   new_task_id TEXT;
   task_exists BOOLEAN;
+  friendship_exists BOOLEAN;
 BEGIN
   -- Check if the original task exists
   SELECT EXISTS(SELECT 1 FROM todos WHERE id = task_id) INTO task_exists;
   
   IF NOT task_exists THEN
     RAISE EXCEPTION 'Task with ID % does not exist', task_id;
+  END IF;
+
+  -- Check if friendship already exists between the users
+  SELECT EXISTS(
+    SELECT 1 FROM friendships 
+    WHERE (user_id = share_task_with_friend.user_id AND friend_id = share_task_with_friend.friend_id)
+       OR (user_id = share_task_with_friend.friend_id AND friend_id = share_task_with_friend.user_id)
+  ) INTO friendship_exists;
+
+  -- If no friendship exists, create it automatically
+  IF NOT friendship_exists THEN
+    INSERT INTO friendships (user_id, friend_id, status, created_at)
+    VALUES 
+      (share_task_with_friend.user_id, share_task_with_friend.friend_id, 'accepted', NOW()),
+      (share_task_with_friend.friend_id, share_task_with_friend.user_id, 'accepted', NOW())
+    ON CONFLICT (user_id, friend_id) DO NOTHING;
+    
+    RAISE NOTICE 'Friendship created automatically between users % and %', share_task_with_friend.user_id, share_task_with_friend.friend_id;
   END IF;
 
   -- Check if this task is already shared with this friend

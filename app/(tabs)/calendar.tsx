@@ -30,10 +30,12 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as FileSystem from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
 import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles';
-import { promptPhotoSharing, PhotoShareData, sharePhotoWithFriends } from '../../utils/photoSharing';
+import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
 import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends } from '../../utils/sharing';
 import type { SharedEvent } from '../../utils/sharing';
-import { GoogleCalendarSync } from '../../components/GoogleCalendarSync';
+import { Colors } from '../../constants/Colors';
+
+import { arePushNotificationsEnabled } from '../../utils/notificationUtils';
 
 // Add robust ID generation function that works with TEXT ids
 const generateEventId = (): string => {
@@ -77,6 +79,20 @@ const scheduleEventNotification = async (event: CalendarEvent): Promise<void> =>
   try {
     console.log('🔔 [Notifications] Scheduling notification for event:', event.title);
     
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      console.log('🔔 [Notifications] No user logged in, skipping notification');
+      return;
+    }
+
+    // Check if push notifications are enabled for this user
+    const notificationsEnabled = await arePushNotificationsEnabled(user.id);
+    if (!notificationsEnabled) {
+      console.log('🔔 [Notifications] Push notifications disabled for user, skipping notification');
+      return;
+    }
+    
     if (!event.reminderTime) {
       console.log('🔔 [Notifications] No reminder time set');
       return;
@@ -85,18 +101,37 @@ const scheduleEventNotification = async (event: CalendarEvent): Promise<void> =>
     const now = new Date();
     const reminderTime = new Date(event.reminderTime);
     
-    if (reminderTime <= now) {
-      console.log('🔔 [Notifications] Reminder time has passed');
+    // Adjust reminder time to be 10 seconds earlier to account for system delays
+    const adjustedReminderTime = new Date(reminderTime.getTime() - 10 * 1000);
+    
+    console.log('🔔 [Notifications] Current time:', now.toISOString());
+    console.log('🔔 [Notifications] Original reminder time:', reminderTime.toISOString());
+    console.log('🔔 [Notifications] Adjusted reminder time:', adjustedReminderTime.toISOString());
+    
+    if (adjustedReminderTime <= now) {
+      console.log('🔔 [Notifications] Adjusted reminder time has passed');
       return;
     }
     
-    const delayMs = reminderTime.getTime() - now.getTime();
+    const delayMs = adjustedReminderTime.getTime() - now.getTime();
     const delaySeconds = Math.floor(delayMs / 1000);
     
     console.log('🔔 [Notifications] Scheduling notification in', delaySeconds, 'seconds');
+    console.log('🔔 [Notifications] Adjusted reminder time (formatted):', adjustedReminderTime.toLocaleString());
     
     // Cancel any existing notifications for this event
     await cancelEventNotification(event.id);
+    
+    // Check permissions before scheduling
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') {
+      console.log('🔔 [Notifications] Permission not granted, requesting...');
+      const { status: newStatus } = await Notifications.requestPermissionsAsync();
+      if (newStatus !== 'granted') {
+        console.log('🔔 [Notifications] Permission denied');
+        return;
+      }
+    }
     
     const notificationId = await Notifications.scheduleNotificationAsync({
       content: {
@@ -106,13 +141,21 @@ const scheduleEventNotification = async (event: CalendarEvent): Promise<void> =>
         data: { eventId: event.id },
       },
       trigger: {
-        type: 'timeInterval',
-        seconds: delaySeconds,
-        repeats: false,
-      } as Notifications.TimeIntervalTriggerInput,
+        type: 'date',
+        date: adjustedReminderTime,
+      } as Notifications.DateTriggerInput,
     });
     
     console.log('🔔 [Notifications] Notification scheduled with ID:', notificationId);
+    
+    // Verify the notification was scheduled
+    const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+    const scheduledNotification = scheduledNotifications.find(n => n.identifier === notificationId);
+    if (scheduledNotification) {
+      console.log('🔔 [Notifications] Notification verified as scheduled:', scheduledNotification);
+    } else {
+      console.log('🔔 [Notifications] Warning: Notification not found in scheduled list');
+    }
     
   } catch (error) {
     console.error('🔔 [Notifications] Error scheduling notification:', error);
@@ -159,22 +202,18 @@ const testNotification = async (): Promise<void> => {
       }
     }
     
-    // Step 2: Set up notification handler
-    console.log('🔔 [Notifications] Step 2: Setting up notification handler...');
-    Notifications.setNotificationHandler({
-      handleNotification: async () => {
-        console.log('🔔 [Notifications] Notification handler called');
-        return {
-          shouldShowAlert: true,
-          shouldPlaySound: true,
-          shouldSetBadge: false,
-        };
-      },
-    });
+    // Step 2: Skip setting up notification handler (already done in initializeNotifications)
+    console.log('🔔 [Notifications] Step 2: Notification handler already set up');
     
-    // Step 3: Cancel all existing notifications
-    console.log('🔔 [Notifications] Step 3: Cancelling existing notifications...');
-    await Notifications.cancelAllScheduledNotificationsAsync();
+    // Step 3: Cancel only test notifications
+    console.log('🔔 [Notifications] Step 3: Cancelling existing test notifications...');
+    const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+    for (const notification of scheduledNotifications) {
+      if (notification.content.data?.type?.includes('test')) {
+        await Notifications.cancelScheduledNotificationAsync(notification.identifier);
+        console.log('🔔 [Notifications] Cancelled test notification:', notification.identifier);
+      }
+    }
     
     // Step 4: Test immediate notification
     console.log('🔔 [Notifications] Step 4: Testing immediate notification...');
@@ -189,31 +228,49 @@ const testNotification = async (): Promise<void> => {
     });
     console.log('🔔 [Notifications] Immediate notification ID:', immediateId);
     
-    // Step 5: Test scheduled notification
-    console.log('🔔 [Notifications] Step 5: Testing scheduled notification...');
+    // Step 5: Test scheduled notification with date trigger
+    console.log('🔔 [Notifications] Step 5: Testing scheduled notification with date trigger...');
+    const futureTime = new Date(Date.now() + 10 * 1000); // 10 seconds from now
     const scheduledId = await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'SCHEDULED TEST',
-        body: 'This should appear in 10 seconds',
+        title: 'SCHEDULED TEST (Date Trigger)',
+        body: 'This should appear in 10 seconds using date trigger',
         sound: 'default',
         data: { type: 'scheduled_test' },
       },
       trigger: {
+        type: 'date',
+        date: futureTime,
+      } as Notifications.DateTriggerInput,
+    });
+    console.log('🔔 [Notifications] Scheduled notification ID:', scheduledId);
+    console.log('🔔 [Notifications] Scheduled for:', futureTime.toLocaleString());
+    
+    // Step 6: Test scheduled notification with timeInterval trigger
+    console.log('🔔 [Notifications] Step 6: Testing scheduled notification with timeInterval trigger...');
+    const timeIntervalId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'SCHEDULED TEST (TimeInterval)',
+        body: 'This should appear in 15 seconds using timeInterval trigger',
+        sound: 'default',
+        data: { type: 'timeinterval_test' },
+      },
+      trigger: {
         type: 'timeInterval',
-        seconds: 10,
+        seconds: 15,
         repeats: false,
       } as Notifications.TimeIntervalTriggerInput,
     });
-    console.log('🔔 [Notifications] Scheduled notification ID:', scheduledId);
+    console.log('🔔 [Notifications] TimeInterval notification ID:', timeIntervalId);
     
-    // Step 6: Verify scheduled notifications
-    console.log('🔔 [Notifications] Step 6: Verifying scheduled notifications...');
+    // Step 7: Verify scheduled notifications
+    console.log('🔔 [Notifications] Step 7: Verifying scheduled notifications...');
     const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
     console.log('🔔 [Notifications] Total scheduled notifications:', allScheduled.length);
     console.log('🔔 [Notifications] Scheduled notifications:', allScheduled);
     
-    // Step 7: Check presented notifications
-    console.log('🔔 [Notifications] Step 7: Checking presented notifications...');
+    // Step 8: Check presented notifications
+    console.log('🔔 [Notifications] Step 8: Checking presented notifications...');
     const presented = await Notifications.getPresentedNotificationsAsync();
     console.log('🔔 [Notifications] Presented notifications:', presented.length);
     
@@ -477,7 +534,7 @@ const [customTimePickerTimeout, setCustomTimePickerTimeout] = useState<NodeJS.Ti
   const [selectedDateForCustomTime, setSelectedDateForCustomTime] = useState<Date | null>(null);
   const [customStartTime, setCustomStartTime] = useState<Date>(new Date());
   const [customEndTime, setCustomEndTime] = useState<Date>(new Date(new Date().getTime() + 60 * 60 * 1000));
-  const [customModalTitle, setCustomModalTitle] = useState('');
+const [customModalTitle, setCustomModalTitle] = useState('');
 const [customModalDescription, setCustomModalDescription] = useState('');
 
 
@@ -485,6 +542,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [visibleWeekMonthText, setVisibleWeekMonthText] = useState('');
 
   const [isAllDay, setIsAllDay] = useState(false);
+  
+  // Add debugging for isAllDay changes
+  useEffect(() => {
+    console.log('🔍 [Calendar] isAllDay state changed to:', isAllDay);
+  }, [isAllDay]);
   // Add state for editedIsAllDay for the edit modal
   const [isEditedAllDay, setIsEditedAllDay] = useState(false);
   
@@ -519,6 +581,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     friend_username: string;
     status: string;
     created_at: string;
+    communicationCount?: number; // Track communication frequency
   }>>([]);
   const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [searchFriend, setSearchFriend] = useState('');
@@ -533,9 +596,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Shared events notification modal state
   const [showSharedEventsModal, setShowSharedEventsModal] = useState(false);
   const [pendingSharedEvents, setPendingSharedEvents] = useState<CalendarEvent[]>([]);
+  
+  // Shared event details modal state
+  const [showSharedEventDetailsView, setShowSharedEventDetailsView] = useState(false);
+  const [selectedSharedEvent, setSelectedSharedEvent] = useState<CalendarEvent | null>(null);
+  const [sharedEventFriends, setSharedEventFriends] = useState<Array<{
+    friendship_id: string;
+    friend_id: string;
+    friend_name: string;
+    friend_avatar: string;
+    friend_username: string;
+    status: string;
+    created_at: string;
+  }>>([]);
 
-  // Google Calendar sync modal state
-  const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
+
 
   // Add PanResponder for photo viewer modal
   const photoViewerPanResponder = useRef(
@@ -759,6 +834,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       console.log('🔍 [Calendar] Fetched events data:', eventsData);
+      console.log('🔍 [Calendar] Raw events from database:', eventsData?.map(e => ({
+        id: e.id,
+        title: e.title,
+        start_datetime: e.start_datetime,
+        end_datetime: e.end_datetime,
+        is_all_day: e.is_all_day,
+        start_datetime_type: typeof e.start_datetime,
+        end_datetime_type: typeof e.end_datetime
+      })));
 
       // Create a map of event ID to event data
       const eventsMap = new Map();
@@ -813,28 +897,83 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           const event = eventsMap.get(sharedEvent.original_event_id);
           const sharerProfile = profilesMap.get(sharedEvent.shared_by);
           
-          // Parse dates
+          console.log('🔍 [Calendar] Processing shared event:', {
+            sharedEventId: sharedEvent.id,
+            originalEventId: sharedEvent.original_event_id,
+            eventFound: !!event,
+            eventTitle: event?.title,
+            eventStartDatetime: event?.start_datetime,
+            eventEndDatetime: event?.end_datetime,
+            eventIsAllDay: event?.is_all_day
+          });
+          
+          // Parse dates with better error handling and logging
           const parseDate = (dateStr: string | null) => {
             if (!dateStr) return null;
             try {
-              const date = new Date(dateStr);
-              return isNaN(date.getTime()) ? null : date;
+              console.log('🔍 [Calendar] Parsing date string:', dateStr);
+              
+              // Handle different datetime formats
+              let date: Date;
+              
+              // The formatDateToUTC function creates strings like "2025-01-15T10:00:00Z"
+              // So we should be able to parse them directly with new Date()
+              date = new Date(dateStr);
+              
+              if (isNaN(date.getTime())) {
+                console.warn('🔍 [Calendar] Invalid date string:', dateStr);
+                return null;
+              }
+              console.log('🔍 [Calendar] Successfully parsed date:', date.toISOString());
+              return date;
             } catch (error) {
+              console.error('🔍 [Calendar] Error parsing date:', dateStr, error);
               return null;
             }
           };
 
           // Handle all-day events differently to avoid timezone issues
           let startDateTime, endDateTime;
-          if (event.is_all_day) {
+          console.log('🔍 [Calendar] Event is_all_day flag:', event.is_all_day);
+          
+          // First, try to parse the start and end times
+          const parsedStart = event.start_datetime ? parseDate(event.start_datetime) : null;
+          const parsedEnd = event.end_datetime ? parseDate(event.end_datetime) : null;
+          
+          // Check if we have valid start and end times
+          const hasValidTimes = parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && 
+                               parsedEnd instanceof Date && !isNaN(parsedEnd.getTime());
+          
+          console.log('🔍 [Calendar] Time parsing results:', {
+            start_datetime: event.start_datetime,
+            end_datetime: event.end_datetime,
+            parsed_start: parsedStart,
+            parsed_end: parsedEnd,
+            has_valid_times: hasValidTimes,
+            original_is_all_day: event.is_all_day
+          });
+          
+          // Determine if this should be an all-day event
+          // Priority: valid times override the is_all_day flag
+          let isAllDay = !hasValidTimes && !!event.is_all_day;
+          
+          if (isAllDay) {
             // For all-day events, create dates from the date string directly
             const [year, month, day] = event.date.split('-').map(Number);
             startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
             endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+            console.log('🔍 [Calendar] All-day event times:', { startDateTime, endDateTime });
           } else {
-            // For regular events, parse the datetime strings
-            startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
-            endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+            // For regular events, use the parsed datetime values
+            startDateTime = parsedStart || undefined;
+            endDateTime = parsedEnd || undefined;
+            
+            console.log('🔍 [Calendar] Regular event times:', { 
+              startDateTime,
+              endDateTime,
+              start_is_valid: startDateTime instanceof Date && !isNaN(startDateTime.getTime()),
+              end_is_valid: endDateTime instanceof Date && !isNaN(endDateTime.getTime())
+            });
           }
 
           const transformedEvent = {
@@ -847,7 +986,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             endDateTime: endDateTime,
             categoryName: event.category_name,
             categoryColor: '#007AFF', // iOS blue for shared events
-            isAllDay: event.is_all_day || false,
+            isAllDay: isAllDay,
             photos: event.photos || [],
             // Shared event properties
             isShared: true,
@@ -856,6 +995,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             sharedByFullName: sharerProfile?.full_name || 'Unknown User',
             sharedStatus: sharedEvent.status
           };
+
+          console.log('🔍 [Calendar] Transformed shared event with times:', {
+            id: transformedEvent.id,
+            title: transformedEvent.title,
+            date: transformedEvent.date,
+            startDateTime: transformedEvent.startDateTime,
+            endDateTime: transformedEvent.endDateTime,
+            isAllDay: transformedEvent.isAllDay,
+            startDateTimeType: typeof transformedEvent.startDateTime,
+            endDateTimeType: typeof transformedEvent.endDateTime
+          });
 
           console.log('🔍 [Calendar] Transformed shared event:', {
             id: transformedEvent.id,
@@ -951,15 +1101,44 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
           // Handle all-day events differently to avoid timezone issues
           let startDateTime, endDateTime;
-          if (event.is_all_day) {
-            // For all-day events, create dates from the date string directly
-            const [year, month, day] = event.date.split('-').map(Number);
-            startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
-            endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+          
+          // Check if this is a Google Calendar event that should be all-day
+          const isGoogleAllDay = event.is_google_event && (!event.start_datetime || !event.end_datetime);
+          
+          // For shared events, they should already be properly transformed from fetchSharedEvents
+          // For regular events, use the standard logic
+          let isAllDay;
+          
+          if (event.isShared) {
+            // Shared events should already have the correct startDateTime, endDateTime, and isAllDay
+            // from the fetchSharedEvents transformation
+            startDateTime = event.startDateTime;
+            endDateTime = event.endDateTime;
+            isAllDay = event.isAllDay;
           } else {
-            // For regular events, parse the datetime strings
-            startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
-            endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+            // For regular events, use the standard logic
+            // Force isAllDay to true for Google Calendar all-day events or if explicitly marked as all-day
+            isAllDay = !!event.is_all_day || isGoogleAllDay;
+            
+            // Only override isAllDay if we have valid start and end times AND it's not a Google Calendar all-day event
+            if (event.start_datetime && event.end_datetime && !isGoogleAllDay) {
+              const parsedStart = parseDate(event.start_datetime);
+              const parsedEnd = parseDate(event.end_datetime);
+              if (parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && parsedEnd instanceof Date && !isNaN(parsedEnd.getTime())) {
+                isAllDay = false;
+              }
+            }
+            
+            if (isAllDay) {
+              // For all-day events, don't create Date objects for start/end times
+              // This prevents timezone conversion issues
+              startDateTime = undefined;
+              endDateTime = undefined;
+            } else {
+              // For regular events, parse the datetime strings
+              startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
+              endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+            }
           }
           
           const reminderTime = event.reminder_time ? parseDate(event.reminder_time) : null;
@@ -998,7 +1177,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             repeatEndDate,
             customDates: event.custom_dates || [],
             customTimes,
-            isAllDay: event.is_all_day || false,
+            isAllDay: isAllDay,
             photos: event.photos || [],
             // Shared event properties (for shared events)
             isShared: event.isShared || false,
@@ -1075,11 +1254,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       console.log('👤 [Calendar] Refreshing events for user:', user.id);
 
-      const { data: eventsData, error: eventsError } = await supabase
+      // Fetch both regular events and shared events in parallel
+      const [regularEventsResult, sharedEvents] = await Promise.all([
+        supabase
           .from('events')
           .select('*')
           .eq('user_id', user.id)
-        .order('date', { ascending: true });
+          .order('date', { ascending: true }),
+        fetchSharedEvents(user.id)
+      ]);
+
+      const { data: eventsData, error: eventsError } = regularEventsResult;
 
       if (eventsError) {
         console.error('❌ [Calendar] Error fetching events:', eventsError);
@@ -1087,71 +1272,95 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       console.log('📅 [Calendar] Fetched events from database:', eventsData?.length || 0);
+      console.log('📅 [Calendar] Fetched shared events:', sharedEvents.length);
       
-      if (eventsData) {
-        const parsedEvents: { [date: string]: CalendarEvent[] } = {};
+      // Combine regular events and shared events
+      const allEvents = [...(eventsData || []), ...sharedEvents];
+      
+      if (allEvents.length === 0) {
+        setEvents({});
+        return;
+      }
+
+      const parsedEvents: { [date: string]: CalendarEvent[] } = {};
+      
+      allEvents.forEach(event => {
+        console.log('📋 [Calendar] Processing event:', event.title, 'on', event.date, 'isShared:', event.isShared);
         
-        eventsData.forEach(event => {
-          console.log('📋 [Calendar] Processing event:', event.title, 'on', event.date);
-          
         const parseDate = (dateStr: string | null) => {
           if (!dateStr) return null;
             const date = new Date(dateStr);
             return isNaN(date.getTime()) ? null : date;
         };
 
-          // Handle all-day events differently to avoid timezone issues
-          let startDateTime, endDateTime;
-          if (event.is_all_day) {
-            // For all-day events, create dates from the date string directly
-            const [year, month, day] = event.date.split('-').map(Number);
-            startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
-            endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
-          } else {
-            // For regular events, parse the datetime strings
-            startDateTime = parseDate(event.start_datetime) || undefined;
-            endDateTime = parseDate(event.end_datetime) || undefined;
+        // Handle all-day events differently to avoid timezone issues
+        let startDateTime, endDateTime;
+        
+        // Check if this is a Google Calendar event that should be all-day
+        const isGoogleAllDay = event.is_google_event && (!event.start_datetime || !event.end_datetime);
+        
+        // Force isAllDay to true for Google Calendar all-day events or if explicitly marked as all-day
+        let isAllDay = !!event.is_all_day || isGoogleAllDay;
+        
+        // Only override isAllDay if we have valid start and end times AND it's not a Google Calendar all-day event
+        if (event.start_datetime && event.end_datetime && !isGoogleAllDay) {
+          const parsedStart = parseDate(event.start_datetime);
+          const parsedEnd = parseDate(event.end_datetime);
+          if (parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && parsedEnd instanceof Date && !isNaN(parsedEnd.getTime())) {
+            isAllDay = false;
           }
+        }
+        
+        if (isAllDay) {
+          // For all-day events, don't create Date objects for start/end times
+          // This prevents timezone conversion issues
+          startDateTime = undefined;
+          endDateTime = undefined;
+        } else {
+          // For regular events, parse the datetime strings
+          startDateTime = parseDate(event.start_datetime) || undefined;
+          endDateTime = parseDate(event.end_datetime) || undefined;
+        }
 
-          const calendarEvent: CalendarEvent = {
+        const calendarEvent: CalendarEvent = {
           id: event.id,
-            title: event.title,
-            description: event.description || '',
-            location: event.location || '',
+          title: event.title,
+          description: event.description || '',
+          location: event.location || '',
           date: event.date,
-            startDateTime: startDateTime,
-            endDateTime: endDateTime,
-            categoryName: event.category_name || '',
-            categoryColor: event.category_color || '#667eea',
-            reminderTime: parseDate(event.reminder_time),
+          startDateTime: startDateTime,
+          endDateTime: endDateTime,
+          categoryName: event.category_name,
+          categoryColor: event.category_color || '#667eea',
+          reminderTime: parseDate(event.reminder_time),
           repeatOption: event.repeat_option || 'None',
-            repeatEndDate: parseDate(event.repeat_end_date),
+          repeatEndDate: parseDate(event.repeat_end_date),
           customDates: event.custom_dates || [],
           customTimes: event.custom_times || {},
-            isContinued: event.is_continued || false,
-          isAllDay: event.is_all_day || false,
+          isContinued: event.is_continued || false,
+          isAllDay: isAllDay,
           photos: event.photos || [],
-            isShared: event.is_shared || false,
-            sharedBy: event.shared_by || '',
-            sharedByUsername: event.shared_by_username || '',
-            sharedByFullName: event.shared_by_full_name || '',
-            sharedStatus: event.shared_status || 'pending',
-            // Google Calendar properties
-            googleCalendarId: event.google_calendar_id,
-            googleEventId: event.google_event_id,
-            isGoogleEvent: event.is_google_event || false,
-            calendarColor: event.calendar_color,
+          // Shared event properties (for shared events)
+          isShared: event.isShared || false,
+          sharedBy: event.sharedBy,
+          sharedByUsername: event.sharedByUsername,
+          sharedByFullName: event.sharedByFullName,
+          sharedStatus: event.sharedStatus,
+          // Google Calendar properties
+          googleCalendarId: event.google_calendar_id,
+          googleEventId: event.google_event_id,
+          isGoogleEvent: event.is_google_event || false,
+          calendarColor: event.calendar_color,
         };
 
-          if (!parsedEvents[event.date]) {
-            parsedEvents[event.date] = [];
-            }
-          parsedEvents[event.date].push(calendarEvent);
-          });
-
-        console.log('🗓️ [Calendar] Parsed events by date:', Object.keys(parsedEvents));
-        setEvents(parsedEvents);
+        if (!parsedEvents[event.date]) {
+          parsedEvents[event.date] = [];
         }
+        parsedEvents[event.date].push(calendarEvent);
+      });
+
+      console.log('🗓️ [Calendar] Parsed events by date:', Object.keys(parsedEvents));
+      setEvents(parsedEvents);
     } catch (error) {
       console.error('❌ [Calendar] Error in refreshEvents:', error);
     }
@@ -1192,6 +1401,73 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     fetchFriends();
   }, [user]);
 
+  // Function to fetch communication frequency with friends
+  const fetchCommunicationFrequency = async (userId: string, friendIds: string[]) => {
+    try {
+      const counts: { [key: string]: number } = {};
+      
+      // Count shared events
+      const { data: sharedEvents } = await supabase
+        .from('shared_events')
+        .select('shared_by, shared_with')
+        .or(`shared_by.eq.${userId},shared_with.eq.${userId}`)
+        .in('shared_by', friendIds)
+        .in('shared_with', friendIds);
+
+      // Count shared tasks
+      const { data: sharedTasks } = await supabase
+        .from('shared_tasks')
+        .select('shared_by, shared_with')
+        .or(`shared_by.eq.${userId},shared_with.eq.${userId}`)
+        .in('shared_by', friendIds)
+        .in('shared_with', friendIds);
+
+      // Count photo shares
+      const { data: photoShares } = await supabase
+        .from('social_updates')
+        .select('user_id, shared_with')
+        .or(`user_id.eq.${userId},shared_with.eq.${userId}`)
+        .in('user_id', friendIds)
+        .in('shared_with', friendIds);
+
+      // Calculate total communication count for each friend
+      friendIds.forEach(friendId => {
+        let count = 0;
+        
+        // Count events shared with this friend
+        if (sharedEvents) {
+          count += sharedEvents.filter(se => 
+            (se.shared_by === userId && se.shared_with === friendId) ||
+            (se.shared_by === friendId && se.shared_with === userId)
+          ).length;
+        }
+        
+        // Count tasks shared with this friend
+        if (sharedTasks) {
+          count += sharedTasks.filter(st => 
+            (st.shared_by === userId && st.shared_with === friendId) ||
+            (st.shared_by === friendId && st.shared_with === userId)
+          ).length;
+        }
+        
+        // Count photo shares with this friend
+        if (photoShares) {
+          count += photoShares.filter(ps => 
+            (ps.user_id === userId && ps.shared_with === friendId) ||
+            (ps.user_id === friendId && ps.shared_with === userId)
+          ).length;
+        }
+        
+        counts[friendId] = count;
+      });
+
+      return counts;
+    } catch (error) {
+      console.error('Error fetching communication frequency:', error);
+      return {};
+    }
+  };
+
   // Friends-related functions
   const fetchFriends = async () => {
     try {
@@ -1226,6 +1502,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return;
       }
 
+      // Get all friend IDs
+      const friendIds = friendships.map(friendship => 
+        friendship.user_id === user.id ? friendship.friend_id : friendship.user_id
+      );
+
+      // Fetch communication frequency
+      const communicationCounts = await fetchCommunicationFrequency(user.id, friendIds);
+
       // Fetch profile data for each friend
       const friendsWithProfiles = await Promise.all(
         friendships.map(async (friendship) => {
@@ -1248,6 +1532,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             friend_username: profileData?.username || '',
             status: friendship.status,
             created_at: friendship.created_at,
+            communicationCount: communicationCounts[friendUserId] || 0,
           };
         })
       );
@@ -1287,7 +1572,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const getFilteredFriends = () => {
     if (!searchFriend.trim()) {
-      return friends;
+      // When no search term, show most frequently communicated friends first
+      return friends.sort((a, b) => {
+        // Sort by communication count (highest first), then by name
+        const aCount = a.communicationCount || 0;
+        const bCount = b.communicationCount || 0;
+        
+        if (aCount !== bCount) {
+          return bCount - aCount; // Higher count first
+        }
+        return a.friend_name.localeCompare(b.friend_name);
+      });
     }
     return friends.filter(friend => 
       friend.friend_name?.toLowerCase().includes(searchFriend.toLowerCase()) ||
@@ -1343,9 +1638,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
-  const fetchSharedFriendsForEvent = async (eventId: string) => {
+  const fetchSharedFriendsForEvent = async (eventId: string, isRecipient: boolean = false) => {
     try {
-      console.log('🔍 [Edit Modal] Fetching shared friends for event:', eventId);
+      console.log('🔍 [Edit Modal] Fetching shared friends for event:', eventId, 'isRecipient:', isRecipient);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -1376,12 +1671,41 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setTimeout(() => reject(new Error('Request timeout')), 5000); // 5 second timeout
       });
 
-      // Fetch shared events where this event is the original event
-      const queryPromise = supabase
-        .from('shared_events')
-        .select('shared_with')
-        .eq('original_event_id', eventId)
-        .eq('shared_by', user.id);
+      let queryPromise;
+      let eventOwnerId: string | null = null;
+      
+      if (isRecipient) {
+        // For recipients, we need to find all friends that this event was shared with
+        // First, find the shared_by user ID
+        const { data: sharedEventData, error: findError } = await supabase
+          .from('shared_events')
+          .select('shared_by')
+          .eq('original_event_id', eventId)
+          .eq('shared_with', user.id)
+          .single();
+        
+        if (findError || !sharedEventData) {
+          console.log('🔍 [Edit Modal] Could not find shared event for recipient');
+          return [];
+        }
+        
+        eventOwnerId = sharedEventData.shared_by;
+        
+        // Then find all friends that the event was shared with by that user
+        queryPromise = supabase
+          .from('shared_events')
+          .select('shared_with')
+          .eq('original_event_id', eventId)
+          .eq('shared_by', eventOwnerId);
+      } else {
+        // For owners, find all friends they shared the event with
+        eventOwnerId = user.id; // The current user is the owner
+        queryPromise = supabase
+          .from('shared_events')
+          .select('shared_with')
+          .eq('original_event_id', eventId)
+          .eq('shared_by', user.id);
+      }
 
       const { data: sharedEvents, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
 
@@ -1398,7 +1722,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       // Extract the friend IDs
-      const friendIds = sharedEvents.map((se: { shared_with: string }) => se.shared_with);
+      let friendIds = sharedEvents.map((se: { shared_with: string }) => se.shared_with);
+      
+      // For both recipients AND owners, include the event owner in the list
+      // This ensures everyone sees the complete list of involved people
+      if (eventOwnerId) {
+        friendIds = [...friendIds, eventOwnerId];
+        console.log('🔍 [Edit Modal] Added event owner to friend list:', eventOwnerId);
+      }
+      
       console.log('🔍 [Edit Modal] Found friend IDs:', friendIds);
       return friendIds;
     } catch (error) {
@@ -1687,6 +2019,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         photos: eventPhotos
       };
 
+      console.log('🔍 [Calendar] Event to save details:', {
+        title: eventToSave.title,
+        isAllDay: eventToSave.isAllDay,
+        startDateTime: eventToSave.startDateTime,
+        endDateTime: eventToSave.endDateTime,
+        startDateTimeType: typeof eventToSave.startDateTime,
+        endDateTimeType: typeof eventToSave.endDateTime,
+        startHours: eventToSave.startDateTime?.getHours(),
+        startMinutes: eventToSave.startDateTime?.getMinutes(),
+        endHours: eventToSave.endDateTime?.getHours(),
+        endMinutes: eventToSave.endDateTime?.getMinutes(),
+        startTimeString: eventToSave.startDateTime?.toLocaleTimeString(),
+        endTimeString: eventToSave.endDateTime?.toLocaleTimeString()
+      });
+
       console.log('🔄 [Repeat] Creating event with repeat settings:', {
         title: eventToSave.title,
         repeatOption: eventToSave.repeatOption,
@@ -1697,15 +2044,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       });
 
       // For all-day events, we only store the date without time components
+      console.log('🔍 [Calendar] Event to save isAllDay:', eventToSave.isAllDay);
+      console.log('🔍 [Calendar] State isAllDay:', isAllDay);
+      
       if (eventToSave.isAllDay) {
         const startDate = new Date(eventToSave.date);
         startDate.setHours(0, 0, 0, 0);
         eventToSave.startDateTime = startDate;
         eventToSave.endDateTime = startDate; // Use the same date for both start and end
+        console.log('🔍 [Calendar] Setting all-day event times:', { startDateTime: eventToSave.startDateTime, endDateTime: eventToSave.endDateTime });
       } else {
         // For regular events, store the full datetime
         eventToSave.startDateTime = new Date(startDateTime);
         eventToSave.endDateTime = new Date(endDateTime);
+        console.log('🔍 [Calendar] Setting regular event times:', { startDateTime: eventToSave.startDateTime, endDateTime: eventToSave.endDateTime });
       }
 
       // Generate repeated events if needed
@@ -1785,11 +2137,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               nextDate.setFullYear(nextDate.getFullYear() + 1);
               break;
             default:
-              break;
+            break;
           }
-          
+
           currentDate = nextDate;
-        }
+          }
 
         console.log('🔄 [Repeat] Generated', events.length, 'events');
         return events;
@@ -1799,33 +2151,49 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       const allEvents = generateRepeatedEvents(eventToSave);
 
       // Prepare database data for all events
-      const dbEvents = allEvents.map(event => ({
-        id: event.id, // Include the generated ID
-        title: event.title,
-        description: event.description,
-        date: event.date,
-        start_datetime: event.isAllDay ? null : (event.startDateTime ? formatDateToUTC(event.startDateTime) : null),
-        end_datetime: event.isAllDay ? null : (event.endDateTime ? formatDateToUTC(event.endDateTime) : null),
-        category_name: event.categoryName || null,
-        category_color: event.categoryColor || null,
-        reminder_time: event.reminderTime ? formatDateToUTC(event.reminderTime) : null,
-        repeat_option: event.repeatOption,
-        repeat_end_date: event.repeatEndDate ? formatDateToUTC(event.repeatEndDate) : null,
-        custom_dates: event.customDates,
-        custom_times: event.customTimes ? 
-          Object.entries(event.customTimes).reduce((acc, [date, times]) => ({
-            ...acc,
-            [date]: {
-              start: formatDateToUTC(times.start),
-              end: formatDateToUTC(times.end),
-              reminder: times.reminder ? formatDateToUTC(times.reminder) : null,
-              repeat: times.repeat
-            }
-          }), {}) : null,
-        is_all_day: event.isAllDay,
-        photos: event.photos || [],
-        user_id: currentUser.id // Use the verified current user ID
-      }));
+      const dbEvents = allEvents.map(event => {
+        const dbEvent = {
+          id: event.id, // Include the generated ID
+          title: event.title,
+          description: event.description,
+          date: event.date,
+          start_datetime: event.isAllDay ? null : (event.startDateTime ? formatDateToUTC(event.startDateTime) : null),
+          end_datetime: event.isAllDay ? null : (event.endDateTime ? formatDateToUTC(event.endDateTime) : null),
+          category_name: event.categoryName || null,
+          category_color: event.categoryColor || null,
+          reminder_time: event.reminderTime ? formatDateToUTC(event.reminderTime) : null,
+          repeat_option: event.repeatOption,
+          repeat_end_date: event.repeatEndDate ? formatDateToUTC(event.repeatEndDate) : null,
+          custom_dates: event.customDates,
+          custom_times: event.customTimes ? 
+            Object.entries(event.customTimes).reduce((acc, [date, times]) => ({
+              ...acc,
+              [date]: {
+                start: formatDateToUTC(times.start),
+                end: formatDateToUTC(times.end),
+                reminder: times.reminder ? formatDateToUTC(times.reminder) : null,
+                repeat: times.repeat
+              }
+            }), {}) : null,
+          is_all_day: event.isAllDay,
+          photos: event.photos || [],
+          user_id: currentUser.id // Use the verified current user ID
+        };
+        
+        console.log('🔍 [Calendar] Database event data:', {
+          id: dbEvent.id,
+          title: dbEvent.title,
+          is_all_day: dbEvent.is_all_day,
+          start_datetime: dbEvent.start_datetime,
+          end_datetime: dbEvent.end_datetime,
+          start_datetime_type: typeof dbEvent.start_datetime,
+          end_datetime_type: typeof dbEvent.end_datetime,
+          start_datetime_length: dbEvent.start_datetime?.length,
+          end_datetime_length: dbEvent.end_datetime?.length
+        });
+        
+        return dbEvent;
+      });
 
       let dbError;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
@@ -1895,6 +2263,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
 
         // Insert the updated event
+        console.log('🔍 [Calendar] About to insert updated events into database:', dbEvents.map(e => ({
+          id: e.id,
+          title: e.title,
+          is_all_day: e.is_all_day,
+          start_datetime: e.start_datetime,
+          end_datetime: e.end_datetime
+        })));
+        
         const { error: insertError } = await supabase
           .from('events')
           .insert(dbEvents);
@@ -1902,6 +2278,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         dbError = insertError;
       } else {
         // Insert all new events
+        console.log('🔍 [Calendar] About to insert new events into database:', dbEvents.map(e => ({
+          id: e.id,
+          title: e.title,
+          is_all_day: e.is_all_day,
+          start_datetime: e.start_datetime,
+          end_datetime: e.end_datetime
+        })));
+        
         const { error: insertError } = await supabase
           .from('events')
           .insert(dbEvents);
@@ -1998,19 +2382,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gestureState) => {
         // Make vertical scrolling much more sensitive than horizontal
-        const verticalThreshold = 10; // Very low threshold for vertical
-        const horizontalThreshold = 50; // Higher threshold for horizontal
+        const verticalThreshold = 5; // Very low threshold for vertical
+        const horizontalThreshold = 60; // Higher threshold for horizontal (but not too high)
         
         const isVertical = Math.abs(gestureState.dy) > verticalThreshold;
         const isHorizontal = Math.abs(gestureState.dx) > horizontalThreshold;
         
         // Prioritize vertical gestures when in compact mode
         if (isMonthCompact) {
-          return isVertical && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+          // Make vertical gestures much more sensitive when event list is up
+          // But still allow horizontal gestures if they're very deliberate
+          return isVertical && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
         }
         
         // Default behavior for expanded mode
-        return Math.abs(gestureState.dy) > 20;
+        return Math.abs(gestureState.dy) > 15;
       },
       onPanResponderRelease: (_, gestureState) => {
         if (gestureState.dy < -30) {
@@ -2148,36 +2534,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     ]}
                                   />
                                 ) : event.isShared ? (
-                                  // Show title for shared events
+                                  // Show dot for shared events (pending or accepted)
                                   <View
                                     style={[
-                                      styles.eventBoxText,
-                                      {
+                                      styles.eventDot,
+                                      { 
                                         backgroundColor: '#007AFF20',
                                         borderWidth: 1,
-                                        borderColor: '#007AFF',
-                                        marginBottom: 2,
-                                        paddingHorizontal: 6,
-                                        paddingVertical: 3,
-                                        borderRadius: 4,
-                                        minHeight: 20
+                                        borderColor: '#007AFF'
                                       }
                                     ]}
-                                  >
-                                    <Text
-                                      numberOfLines={1}
-                                      style={[
-                                        styles.eventText,
-                                        { 
-                                          color: '#007AFF',
-                                          fontWeight: '600',
-                                          fontSize: 11
-                                        }
-                                      ]}
-                                    >
-                                      {event.title}
-                                    </Text>
-                                  </View>
+                                  />
                                 ) : (
                                   // Show dot for regular events
                                   <View
@@ -2272,6 +2639,24 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     try {
       console.log('🔍 [Edit Modal] Opening edit modal for event:', event.id);
       
+      // Check if this is a shared event and if the current user is the owner
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('🔍 [Edit Modal] No user found');
+        return;
+      }
+      
+      // For shared events, check if the current user is the owner
+      const isOwner = event.isShared && event.sharedBy === user.id;
+      const isRecipient = event.isShared && event.sharedBy !== user.id;
+      
+      if (isRecipient) {
+        console.log('🔍 [Edit Modal] User is recipient of shared event, showing view-only modal');
+        // For recipients, show a view-only modal with shared friends info
+        handleSharedEventPress(event);
+        return;
+      }
+      
       // Handle all events, not just custom ones
       setSelectedEvent({ event, dateKey: event.date, index: 0 });
       setEditingEvent(event);
@@ -2299,7 +2684,33 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       // Fetch existing shared friends for this event (non-blocking)
       try {
         console.log('🔍 [Edit Modal] Fetching shared friends...');
-        const sharedFriendIds = await fetchSharedFriendsForEvent(event.id);
+        
+        // For shared events, we need to extract the original event ID
+        let eventIdToQuery = event.id;
+        if (event.isShared && event.id.startsWith('shared_')) {
+          // Extract the original event ID from the shared event ID
+          // shared_123456-7890-abcdef -> 123456-7890-abcdef
+          const sharedEventId = event.id.replace('shared_', '');
+          console.log('🔍 [Edit Modal] Shared event detected, extracting original event ID:', sharedEventId);
+          
+          // For shared events, we need to find the original event ID from the shared_events table
+          const { data: sharedEventData, error } = await supabase
+            .from('shared_events')
+            .select('original_event_id')
+            .eq('id', sharedEventId)
+            .eq('shared_by', user.id) // Use shared_by instead of shared_with since we're the owner
+            .single();
+          
+          if (!error && sharedEventData) {
+            eventIdToQuery = sharedEventData.original_event_id;
+            console.log('🔍 [Edit Modal] Found original event ID:', eventIdToQuery);
+          } else {
+            console.log('🔍 [Edit Modal] Could not find original event ID for shared event');
+            return;
+          }
+        }
+        
+        const sharedFriendIds = await fetchSharedFriendsForEvent(eventIdToQuery);
         console.log('🔍 [Edit Modal] Setting shared friends:', sharedFriendIds);
         setEditSelectedFriends(sharedFriendIds);
       } catch (error) {
@@ -2491,7 +2902,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw new Error('Event not found in database');
       }
 
-      // Step 2: Delete all matching events
+      // Step 2: Fetch existing shared friends BEFORE deleting the original event
+      const originalEventId = existingEvents[0].id;
+      const existingSharedFriends = await fetchSharedFriendsForEvent(originalEventId);
+      console.log('🔍 [Edit Event] Found existing shared friends:', existingSharedFriends);
+
+      // Step 3: Delete all matching events
       const eventIds = existingEvents.map(e => e.id);
       const { error: deleteError } = await supabase
         .from('events')
@@ -2502,7 +2918,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw new Error('Failed to delete original event');
       }
 
-      // Step 3: Verify deletion by trying to find the events again
+      // Step 4: Verify deletion by trying to find the events again
       const { data: verifyEvents, error: verifyError } = await supabase
         .from('events')
         .select('id')
@@ -2512,7 +2928,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw new Error('Events were not properly deleted');
       }
 
-      // Step 4: Remove from local state
+      // Step 5: Remove from local state
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
@@ -2524,7 +2940,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return updated;
       });
 
-      // Step 5: Create the new event data
+      // Step 6: Create the new event data
       const newEventData = {
         title: editedEventTitle,
         description: editedEventDescription || '',
@@ -2544,7 +2960,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         user_id: user?.id
       };
 
-      // Step 6: Insert the new event
+      // Step 7: Insert the new event
       const { data: insertedEvent, error: insertError } = await supabase
         .from('events')
         .insert([newEventData])
@@ -2555,7 +2971,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw new Error('Failed to save edited event');
       }
 
-      // Step 7: Update local state with new event
+      // Step 8: Update local state with new event
       const newEvent: CalendarEvent = {
         id: insertedEvent.id,
         title: insertedEvent.title,
@@ -2585,15 +3001,34 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return updated;
       });
 
-      // Step 8: Cancel old notifications and schedule new ones
+      // Step 9: Cancel old notifications and schedule new ones
       await cancelEventNotification(originalEvent.id);
       if (newEvent.reminderTime) {
         await scheduleEventNotification(newEvent);
       }
 
-      // Step 9: Share event with selected friends if any
-      if (editSelectedFriends.length > 0) {
-        await shareEventWithEditSelectedFriends(insertedEvent.id);
+      // Step 10: Re-share with existing friends and any newly selected friends
+      const allFriendsToShare = [...new Set([...existingSharedFriends, ...editSelectedFriends])];
+      if (allFriendsToShare.length > 0) {
+        console.log('🔍 [Edit Event] Sharing with friends:', allFriendsToShare);
+        
+        // Share with all friends (existing + newly selected)
+        const result = await shareEventWithFriends(insertedEvent.id, allFriendsToShare);
+        if (result.success) {
+          Toast.show({
+            type: 'success',
+            text1: 'Event shared successfully',
+            text2: 'Your friends will be notified',
+            position: 'bottom',
+          });
+        } else {
+          Toast.show({
+            type: 'error',
+            text1: 'Failed to share event',
+            text2: result.error || 'Please try again',
+            position: 'bottom',
+          });
+        }
         
         // Clear selected friends after sharing
         setEditSelectedFriends([]);
@@ -2601,7 +3036,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setEditIsSearchFocused(false);
       }
 
-      // Step 10: Close modal and show success message
+      // Step 11: Close modal and show success message
       setShowEditEventModal(false);
       setEditingEvent(null);
       setSelectedEvent(null);
@@ -2665,17 +3100,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     initNotifications();
   }, []);
 
-  // Add notification listeners
+  // Add notification listeners (only for logging, no toast messages)
   useEffect(() => {
     const notificationListener = Notifications.addNotificationReceivedListener(notification => {
       console.log('🔔 [Notifications] Notification received:', notification);
-      
-      Toast.show({
-        type: 'success',
-        text1: 'Event Reminder',
-        text2: notification.request.content.body || 'You have an upcoming event',
-        position: 'bottom',
-      });
+      // No toast message - let the system show the notification banner
     });
 
     const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
@@ -2809,40 +3238,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }, [])
   );
 
-  // Reschedule notifications when events are loaded
-  useEffect(() => {
-    const rescheduleNotifications = async () => {
-      try {
-        console.log('🔔 [Notifications] Rescheduling notifications for', Object.keys(events).length, 'months of events');
-        
-        // Cancel all existing notifications
-        await Notifications.cancelAllScheduledNotificationsAsync();
-        
-        // Get all events with reminders
-        const allEvents = Object.values(events).flat();
-        const eventsWithReminders = allEvents.filter(event => 
-          event.reminderTime && 
-          new Date(event.reminderTime) > new Date()
-        );
-        
-        console.log('🔔 [Notifications] Found', eventsWithReminders.length, 'events with future reminders');
-        
-        // Schedule notifications for each event
-        for (const event of eventsWithReminders) {
-          await scheduleEventNotification(event);
-        }
-        
-        console.log('🔔 [Notifications] Finished rescheduling notifications');
-      } catch (error) {
-        console.error('🔔 [Notifications] Error rescheduling notifications:', error);
-      }
-    };
-
-    // Only reschedule if we have events and notifications are initialized
-    if (Object.keys(events).length > 0) {
-      rescheduleNotifications();
-    }
-  }, [events]);
+  // Remove automatic rescheduling to prevent duplicate notifications
+  // Notifications are now only scheduled when events are created or edited
 
   // Add a function to check notification settings
   const checkNotificationSettings = async () => {
@@ -2863,15 +3260,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           id: notification.identifier,
           title: notification.content.title,
           body: notification.content.body,
-          trigger: notification.trigger
+          trigger: notification.trigger,
+          data: notification.content.data
         });
       });
-
-      // Show results in a toast
+      
+      // Get presented notifications
+      const presentedNotifications = await Notifications.getPresentedNotificationsAsync();
+      console.log('🔔 [Notifications] Presented notifications:', presentedNotifications.length);
+      
+      // Show summary in toast
       Toast.show({
         type: 'info',
         text1: 'Notification Status',
-        text2: `Permissions: ${status}, Scheduled: ${scheduledNotifications.length}`,
+        text2: `Permissions: ${status}, Scheduled: ${scheduledNotifications.length}, Presented: ${presentedNotifications.length}`,
         position: 'bottom',
       });
       
@@ -2879,8 +3281,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       console.error('🔔 [Notifications] Error checking settings:', error);
       Toast.show({
         type: 'error',
-        text1: 'Settings Check Error',
-        text2: error instanceof Error ? error.message : 'Unknown error',
+        text1: 'Error',
+        text2: 'Failed to check notification settings',
         position: 'bottom',
       });
     }
@@ -3008,18 +3410,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             return; // Don't proceed with sharing for unsaved events
           }
 
-          // Prompt for sharing only for saved events
+          // Show success message for saved events
           if (user?.id && eventId) {
-            // Set up the photo share data and show caption modal
-            setPendingPhotoShare({
-                photoUrl,
-                sourceType: 'event',
-                sourceId: eventIdForSharing,
-                sourceTitle: eventTitle,
-                userId: user.id
-            });
-            setPhotoCaption('');
-            setShowCaptionModal(true);
+                Toast.show({
+                  type: 'success',
+              text1: 'Photo added to event',
+              text2: 'Save the event to share the photo with friends',
+                  position: 'bottom',
+                });
           } else {
             Toast.show({
               type: 'success',
@@ -3242,6 +3640,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Add useEffect to scroll to correct photo when photo viewer opens
   useEffect(() => {
     if (showPhotoViewer && selectedPhotoForViewing && photoViewerFlatListRef.current) {
+      try {
       const photoIndex = selectedPhotoForViewing.event.photos?.indexOf(selectedPhotoForViewing.photoUrl) || 0;
       
       // Add a small delay to ensure the FlatList is fully rendered
@@ -3264,22 +3663,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           }
         }
       }, 100);
+      } catch (error) {
+        console.error('Error in photo viewer scroll effect:', error);
+      }
     }
   }, [showPhotoViewer, selectedPhotoForViewing]);
 
   // Add function to handle shared event interactions
-  const handleSharedEventPress = (event: CalendarEvent) => {
+  const handleSharedEventPress = async (event: CalendarEvent) => {
     if (event.isShared) {
-      Alert.alert(
-        'Shared Event',
-        `This event was shared with you by ${event.sharedByFullName || event.sharedByUsername || 'Unknown'}`,
-        [
-          { text: 'Accept', onPress: () => handleAcceptSharedEvent(event) },
-          { text: 'Decline', style: 'destructive', onPress: () => handleDeclineSharedEvent(event) },
-          { text: 'View Details', onPress: () => viewSharedEventDetails(event) },
-          { text: 'Cancel', style: 'cancel' }
-        ]
-      );
+      // For shared events, show a detailed modal with shared friends info
+      await displaySharedEventDetails(event);
     } else {
       // Handle regular event press
       const selectedEventData = { event, dateKey: event.date, index: 0 };
@@ -3288,8 +3682,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEditedEventTitle(event.title);
       setEditedEventDescription(event.description ?? '');
       setEditedEventLocation(event.location ?? '');
-      setEditedStartDateTime(new Date(event.startDateTime!));
-      setEditedEndDateTime(new Date(event.endDateTime!));
+      
+      // Handle start and end times properly for all-day events
+      if (event.startDateTime && event.endDateTime) {
+        setEditedStartDateTime(new Date(event.startDateTime));
+        setEditedEndDateTime(new Date(event.endDateTime));
+      } else {
+        // For all-day events (like Google Calendar holidays), set default times
+        const eventDate = new Date(event.date);
+        setEditedStartDateTime(new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 9, 0, 0));
+        setEditedEndDateTime(new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 10, 0, 0));
+      }
+      
       setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
       setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
       setEditedRepeatOption(event.repeatOption || 'None');
@@ -3341,6 +3745,70 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
+  const displaySharedEventDetails = async (event: CalendarEvent) => {
+    try {
+      // Fetch shared friends for this event
+      let eventIdToQuery = event.id;
+      if (event.id.startsWith('shared_')) {
+        const sharedEventId = event.id.replace('shared_', '');
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          // For recipients, we need to find the original event ID
+          const { data: sharedEventData, error } = await supabase
+            .from('shared_events')
+            .select('original_event_id')
+            .eq('id', sharedEventId)
+            .eq('shared_with', user.id)
+            .single();
+          
+          if (!error && sharedEventData) {
+            eventIdToQuery = sharedEventData.original_event_id;
+          }
+        }
+      }
+      
+      // Fetch shared friends (for recipients, we want to see all friends the event was shared with)
+      const sharedFriendIds = await fetchSharedFriendsForEvent(eventIdToQuery, true);
+      const sharedFriends = friends.filter(f => sharedFriendIds.includes(f.friend_id));
+      
+      // Create the details message
+      let detailsMessage = `Title: ${event.title}\n\n`;
+      detailsMessage += `Description: ${event.description || 'No description'}\n\n`;
+      detailsMessage += `Location: ${event.location || 'No location'}\n\n`;
+      detailsMessage += `Date: ${event.date}\n\n`;
+      detailsMessage += `Time: ${event.startDateTime ? event.startDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'All day'}\n\n`;
+      detailsMessage += `Shared by: ${event.sharedByFullName || event.sharedByUsername || 'Unknown'}\n\n`;
+      
+      if (sharedFriends.length > 0) {
+        detailsMessage += `Shared with: ${sharedFriends.map(f => f.friend_name).join(', ')}`;
+      } else {
+        detailsMessage += 'Shared with: No friends found';
+      }
+      
+      Alert.alert(
+        'Shared Event Details',
+        detailsMessage,
+        [
+          { text: 'Accept', onPress: () => handleAcceptSharedEvent(event) },
+          { text: 'Decline', style: 'destructive', onPress: () => handleDeclineSharedEvent(event) },
+          { text: 'Close', style: 'cancel' }
+        ]
+      );
+    } catch (error) {
+      console.error('Error showing shared event details:', error);
+      // Fallback to simple alert
+      Alert.alert(
+        'Shared Event',
+        `This event was shared with you by ${event.sharedByFullName || event.sharedByUsername || 'Unknown'}`,
+        [
+          { text: 'Accept', onPress: () => handleAcceptSharedEvent(event) },
+          { text: 'Decline', style: 'destructive', onPress: () => handleDeclineSharedEvent(event) },
+          { text: 'Close', style: 'cancel' }
+        ]
+      );
+    }
+  };
+
   const viewSharedEventDetails = (event: CalendarEvent) => {
     // Show event details in a modal
     Alert.alert(
@@ -3356,9 +3824,25 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   // Add function to update pending shared events
   const updatePendingSharedEvents = useCallback(() => {
-    const pending = Object.values(events)
-      .flat()
-      .filter(event => event.isShared && event.sharedStatus === 'pending');
+    const allEvents = Object.values(events).flat();
+    const pending = allEvents.filter(event => event.isShared && event.sharedStatus === 'pending');
+    
+    // Debug logging for pending shared events
+    console.log('🔍 [Pending Shared Events] All events count:', allEvents.length);
+    console.log('🔍 [Pending Shared Events] Shared events count:', allEvents.filter(e => e.isShared).length);
+    console.log('🔍 [Pending Shared Events] Pending events count:', pending.length);
+    
+    pending.forEach(event => {
+      console.log('🔍 [Pending Shared Events] Event details:', {
+        id: event.id,
+        title: event.title,
+        startDateTime: event.startDateTime,
+        endDateTime: event.endDateTime,
+        isAllDay: event.isAllDay,
+        sharedStatus: event.sharedStatus
+      });
+    });
+    
     setPendingSharedEvents(pending);
   }, [events]);
 
@@ -3367,61 +3851,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     updatePendingSharedEvents();
   }, [events, updatePendingSharedEvents]);
 
-  // Add state for photo sharing caption modal
-  const [showCaptionModal, setShowCaptionModal] = useState(false);
-  const [photoCaption, setPhotoCaption] = useState('');
-  const [pendingPhotoShare, setPendingPhotoShare] = useState<PhotoShareData | null>(null);
+
 
   // Add state for editedIsAllDay for the edit modal
 
-  // Add functions for caption modal
-  const handleShareWithCaption = async () => {
-    if (!pendingPhotoShare) return;
 
-    try {
-      const updatedPhotoData = {
-        ...pendingPhotoShare,
-        caption: photoCaption.trim() || undefined
-      };
-
-      const success = await sharePhotoWithFriends(updatedPhotoData);
-      
-      if (success) {
-        Toast.show({
-          type: 'success',
-          text1: 'Photo shared with friends!',
-          position: 'bottom',
-        });
-        
-        // Trigger a global event to refresh friends feed in profile
-        const lastPhotoShareTime = Date.now();
-        (global as any).lastPhotoShareTime = lastPhotoShareTime;
-      }
-    } catch (error) {
-      console.error('Error sharing photo with caption:', error);
-      Toast.show({
-        type: 'error',
-        text1: 'Failed to share photo',
-        position: 'bottom',
-      });
-    } finally {
-      setShowCaptionModal(false);
-      setPendingPhotoShare(null);
-      setPhotoCaption('');
-    }
-  };
-
-  const handleCancelCaption = () => {
-    setShowCaptionModal(false);
-    setPendingPhotoShare(null);
-    setPhotoCaption('');
-    
-    Toast.show({
-      type: 'success',
-      text1: 'Photo added successfully',
-      position: 'bottom',
-    });
-  };
 
   return (
     <>
@@ -3455,92 +3889,47 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         </TouchableOpacity>
 
         <View style={styles.modalRowGap}>
+          {pendingSharedEvents.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setShowSharedEventsModal(true)}
+              style={{
+                padding: 8,
+                marginHorizontal: 4,
+                position: 'relative',
+              }}
+            >
+              <Ionicons name="people-outline" size={20} color="#007AFF" />
+              <View style={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                backgroundColor: '#FF3B30',
+                borderRadius: 8,
+                minWidth: 16,
+                height: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <Text style={{
+                  color: 'white',
+                  fontSize: 10,
+                  fontWeight: '600',
+                  fontFamily: 'Onest',
+                }}>
+                  {pendingSharedEvents.length > 9 ? '9+' : pendingSharedEvents.length}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => setCalendarMode('week')}>
             <MaterialIcons name="calendar-view-week" size={24} color="#333" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => setShowGoogleSyncModal(true)}
-            style={{
-              padding: 8,
-              marginHorizontal: 4
-            }}
-          >
-            <Ionicons name="logo-google" size={20} color="#4285F4" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              resetEventForm();
-              setShowModal(true);
-            }}
-            onLongPress={() => {
-              resetEventForm();
-              // Set up for custom event
-              setCustomModalTitle('');
-              setCustomModalDescription('');
-              const currentDateStr = getLocalDateString(startDateTime);
-              setCustomSelectedDates([currentDateStr]);
-              setCustomDateTimes({
-                default: {
-                  start: startDateTime,
-                  end: endDateTime,
-                  reminder: reminderTime,
-                  repeat: 'None',
-                  dates: [currentDateStr]
-                }
-              });
-              setEditingEvent(null);
-              setIsEditingEvent(false);
-              setShowCustomDatesPicker(true);
-            }}
-          >
-            <MaterialIcons name="add" size={24} color="#3a3a3a" />
           </TouchableOpacity>
         </View>
       </View>
 
 
 
-      {/* Shared Event Notifications */}
-      {pendingSharedEvents.length > 0 && (
-        <View style={{
-          backgroundColor: '#007AFF',
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
-            <Ionicons name="people-outline" size={16} color="white" />
-            <Text style={{
-              color: 'white',
-              fontSize: 14,
-              fontWeight: '500',
-              fontFamily: 'Onest',
-            }}>
-              {pendingSharedEvents.length} shared event{pendingSharedEvents.length > 1 ? 's' : ''} pending
-            </Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => setShowSharedEventsModal(true)}
-            style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.2)',
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 16,
-            }}
-          >
-            <Text style={{
-              color: 'white',
-              fontSize: 12,
-              fontWeight: '600',
-              fontFamily: 'Onest',
-            }}>
-              Review
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
+
 
       {/* Calendar and Event List Container */}
       <View style={{ flex: 1, flexDirection: 'column' }}>
@@ -3562,6 +3951,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             })}
             showsHorizontalScrollIndicator={false}
             style={{ flex: 1 }}
+            scrollEnabled={true} // Keep horizontal scrolling enabled but make it less sensitive
             onScroll={(event) => {
               const newIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
               if (newIndex !== currentMonthIndex) {
@@ -3704,9 +4094,55 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               )}
                             </View>
                             <Text style={{ fontSize: 15, color: '#666', marginBottom: event.description ? 2 : 0 }}>
-                              {event.isAllDay
-                                ? 'All day'
-                                : `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'} – ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'}`}
+                              {(() => {
+                                console.log('🔍 [Calendar] Event list display check:', {
+                                  title: event.title,
+                                  isAllDay: event.isAllDay,
+                                  startDateTime: event.startDateTime,
+                                  endDateTime: event.endDateTime,
+                                  isShared: event.isShared
+                                });
+                                
+                                // Force check for valid times regardless of isAllDay flag
+                                if (event.startDateTime && event.endDateTime && 
+                                    event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime()) &&
+                                    event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime())) {
+                                  console.log('🔍 [Calendar] Event has valid times, showing times instead of all-day');
+                                  const formatTime = (date: Date | undefined) => {
+                                    console.log('🔍 [Calendar] Formatting time for event list:', {
+                                      date,
+                                      dateType: typeof date,
+                                      isDate: date instanceof Date,
+                                      isValid: date instanceof Date && !isNaN(date.getTime()),
+                                      eventTitle: event.title,
+                                      isShared: event.isShared
+                                    });
+                                    
+                                    if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+                                      console.warn('🔍 [Calendar] Invalid date for formatting in event list:', date);
+                                      return 'Invalid time';
+                                    }
+                                    try {
+                                      const formatted = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                      console.log('🔍 [Calendar] Successfully formatted time in event list:', formatted);
+                                      return formatted;
+                                    } catch (error) {
+                                      console.error('🔍 [Calendar] Error formatting time in event list:', error, date);
+                                      return 'Invalid time';
+                                    }
+                                  };
+                                  
+                                  const startTime = formatTime(event.startDateTime);
+                                  const endTime = formatTime(event.endDateTime);
+                                  
+                                                                    const result = `${startTime} – ${endTime}`;
+                                  console.log('🔍 [Calendar] Final time string for event list:', result);
+                                  return result;
+                                } else {
+                                  console.log('🔍 [Calendar] Event has no valid times, showing all-day');
+                                  return 'All day';
+                                }
+                              })()}
                             </Text>
                             {event.description ? (
                               <Text style={{ fontSize: 12, color: '#999' }} numberOfLines={2}>
@@ -3732,8 +4168,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   <TouchableOpacity
                                     key={photoIndex}
                                     onPress={() => {
+                                      try {
+                                        // Validate photo data before opening viewer
+                                        if (!event || !photoUrl || !event.photos || event.photos.length === 0) {
+                                          console.error('Invalid photo data:', { event, photoUrl });
+                                          Alert.alert('Error', 'Invalid photo data');
+                                          return;
+                                        }
+                                        
                                       setSelectedPhotoForViewing({ event, photoUrl });
                                       setShowPhotoViewer(true);
+                                      } catch (error) {
+                                        console.error('Error opening photo viewer:', error);
+                                        Alert.alert('Error', 'Failed to open photo viewer');
+                                      }
                                     }}
                                     onLongPress={() => {
                                       Alert.alert(
@@ -3844,36 +4292,40 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         </TouchableOpacity>
 
         <View style={styles.modalRowGap}>
+          {pendingSharedEvents.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setShowSharedEventsModal(true)}
+              style={{
+                padding: 8,
+                marginHorizontal: 4,
+                position: 'relative',
+              }}
+            >
+              <Ionicons name="people-outline" size={20} color="#007AFF" />
+              <View style={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                backgroundColor: '#FF3B30',
+                borderRadius: 8,
+                minWidth: 16,
+                height: 16,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <Text style={{
+                  color: 'white',
+                  fontSize: 10,
+                  fontWeight: '600',
+                  fontFamily: 'Onest',
+                }}>
+                  {pendingSharedEvents.length > 9 ? '9+' : pendingSharedEvents.length}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={() => setCalendarMode('month')}>
             <MaterialIcons name="calendar-view-month" size={24} color="#333" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => {
-              resetEventForm();
-              setShowModal(true);
-            }}
-            onLongPress={() => {
-              resetEventForm();
-              // Set up for custom event
-              setCustomModalTitle('');
-              setCustomModalDescription('');
-              const currentDateStr = getLocalDateString(startDateTime);
-              setCustomSelectedDates([currentDateStr]);
-              setCustomDateTimes({
-                default: {
-                  start: startDateTime,
-                  end: endDateTime,
-                  reminder: reminderTime,
-                  repeat: 'None',
-                  dates: [currentDateStr]
-                }
-              });
-              setEditingEvent(null);
-              setIsEditingEvent(false);
-              setShowCustomDatesPicker(true);
-            }}
-          >
-            <MaterialIcons name="add" size={24} color="#3a3a3a" />
           </TouchableOpacity>
         </View>
       </View>
@@ -3945,7 +4397,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setIsEditingEvent(false);
       setShowCustomDatesPicker(true);
     }}
-  />
+  >
+    <Ionicons name="add" size={22} color="white" />
+  </TouchableOpacity>
 </SafeAreaView>
 
 
@@ -4004,7 +4458,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 style={{ flex: 1 }}
                 contentContainerStyle={{ 
                   padding: 16, 
-                paddingBottom: 250, // Reduced bottom padding for less dramatic scroll
+                  paddingBottom: 380, // Increased bottom padding for better scrolling with keyboard
                   minHeight: '100%' // Ensures content is scrollable even when short
                 }}
                 keyboardShouldPersistTaps="handled"
@@ -4085,7 +4539,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         <View style={{ transform: [{ scale: 0.8 }] }}>
                           <Switch 
                             value={isAllDay} 
-                            onValueChange={setIsAllDay}
+                            onValueChange={(value) => {
+                              console.log('🔍 [Calendar] All-day switch toggled to:', value);
+                              setIsAllDay(value);
+                            }}
                             trackColor={{ false: 'white', true: '#007AFF' }}
                             thumbColor={isAllDay ? 'white' : '#f4f3f4'}
                           />
@@ -4267,7 +4724,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               onPress={() => setShowAddCategoryForm(true)}
                               style={styles.modalAddButton}
                             >
-                              <Ionicons name="add" size={12} color="#666" />
+                              <Ionicons name="add" size={10} color="#666" />
                             </TouchableOpacity>
                           </View>
                         )}
@@ -4299,7 +4756,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 ]}
                                 >
                                   {newCategoryColor === color && (
-                                    <Ionicons name="checkmark" size={12} color="white" />
+                                    <Ionicons name="checkmark" size={14} color="white" />
                                   )}
                                 </TouchableOpacity>
                               ))}
@@ -4589,25 +5046,25 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     <Text style={{ fontSize: 12, color: '#FF6B6B', fontFamily: 'Onest', fontWeight: '500' }}>Clear</Text>
                                   </TouchableOpacity>
                                 </View>
-                                <DateTimePicker
-                                  value={repeatEndDate || new Date()}
-                                  mode="date"
-                                  display="spinner"
-                                  onChange={(event, selectedDate) => {
-                                    if (selectedDate) {
-                                      setRepeatEndDate(selectedDate);
+                          <DateTimePicker
+                            value={repeatEndDate || new Date()}
+                            mode="date"
+                            display="spinner"
+                            onChange={(event, selectedDate) => {
+                              if (selectedDate) {
+                                setRepeatEndDate(selectedDate);
                                       setShowEditInlineEndDatePicker(false);
                                       setShowRepeatPicker(false);
-                                    }
-                                  }}
-                                  style={{ height: 100, width: '100%' }}
-                                  textColor="#333"
-                                />
-                              </View>
-                            )}
+                              }
+                            }}
+                            style={{ height: 100, width: '100%' }}
+                            textColor="#333"
+                          />
+                        </View>
+                      )}
                           </View>
                         )}
-                      </View>
+                        </View>
                       )}
                     </View>
                       </>
@@ -4734,7 +5191,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                           ]}
                                           >
                                             {newCategoryColor === color && (
-                                              <Ionicons name="checkmark" size={12} color="white" />
+                                              <Ionicons name="checkmark" size={14} color="white" />
                                             )}
                                           </TouchableOpacity>
                                         ))}
@@ -4895,9 +5352,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         onChangeText={setSearchFriend}
                         onFocus={() => {
                           setIsSearchFocused(true);
-                        // Scroll to friends section when keyboard appears
+                        // Automatic scroll to friends section
                         setTimeout(() => {
-                          eventModalScrollViewRef.current?.scrollToEnd({ 
+                          eventModalScrollViewRef.current?.scrollTo({ 
+                            y: 3000, // Very dramatic scroll up
                             animated: true 
                           });
                         }, 100);
@@ -4917,22 +5375,25 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         }}
                         placeholderTextColor="#999"
                       />
-                      {(searchFriend.trim() !== '' || isSearchFocused) && (
+                      {/* Always show friends list */}
+                      {true && (
                         <FlatList
-                          data={friends.filter(f =>
-                            f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
-                            f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
-                          )}
-                        keyExtractor={item => `${item.friend_id}-${item.friendship_id}`}
+                          data={getFilteredFriends().filter(friend => !selectedFriends.includes(friend.friend_id))}
+                          keyExtractor={item => `${item.friend_id}-${item.friendship_id}`}
                           horizontal
                           showsHorizontalScrollIndicator={false}
                           renderItem={({ item }) => (
                             <TouchableOpacity
                               style={{
-                                marginRight: 10,
+                                marginRight: 3,
                                 alignItems: 'center',
                                 opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
-                                paddingVertical: 2,
+                                paddingVertical: 3,
+                                paddingHorizontal: 6,
+                                borderRadius: 6,
+                                backgroundColor: 'transparent',
+                                borderWidth: selectedFriends.includes(item.friend_id) ? 1 : 0,
+                                borderColor: '#007AFF',
                               }}
                               onPress={() => {
                                 setSelectedFriends(prev =>
@@ -4940,29 +5401,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     ? prev.filter(id => id !== item.friend_id)
                                     : [...prev, item.friend_id]
                                 );
+                                // Clear search when a friend is selected
+                                setSearchFriend('');
                               }}
                             >
                               {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
                                 <Image 
                                   source={{ uri: item.friend_avatar }} 
-                                  style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                                  style={{ width: 32, height: 32, borderRadius: 16, marginBottom: 6 }} 
                                 />
                               ) : (
                                 <View 
                                   style={{ 
-                                    width: 36, 
-                                    height: 36, 
-                                    borderRadius: 18, 
-                                    marginBottom: 4,
+                                    width: 32, 
+                                    height: 32, 
+                                    borderRadius: 16, 
+                                    marginBottom: 6,
                                     backgroundColor: '#E9ECEF',
                                     justifyContent: 'center',
                                     alignItems: 'center'
                                   }}
                                 >
-                                  <Ionicons name="person" size={16} color="#6C757D" />
+                                  <Ionicons name="person" size={14} color="#6C757D" />
                                 </View>
                               )}
-                              <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                              <Text style={{ fontSize: 10, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
                             </TouchableOpacity>
                           )}
                           ListEmptyComponent={
@@ -5274,7 +5737,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           onPress={() => setShowAddCategoryForm(true)}
                           style={styles.modalAddButton}
                         >
-                          <Ionicons name="add" size={12} color="#666" />
+                          <Ionicons name="add" size={10} color="#666" />
                         </TouchableOpacity>
                       </View>
                     )}
@@ -5306,7 +5769,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               ]}
                             >
                               {newCategoryColor === color && (
-                                <Ionicons name="checkmark" size={12} color="white" />
+                                <Ionicons name="checkmark" size={14} color="white" />
                               )}
                             </TouchableOpacity>
                           ))}
@@ -5642,11 +6105,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     }}
                     placeholderTextColor="#999"
                   />
-                  {(editSearchFriend.trim() !== '' || editIsSearchFocused) && (
+                  {/* Always show friends list */}
+                  {true && (
                     <FlatList
                       data={friends.filter(f =>
-                        f.friend_name.toLowerCase().includes(editSearchFriend.toLowerCase()) ||
-                        f.friend_username.toLowerCase().includes(editSearchFriend.toLowerCase())
+                        (f.friend_name.toLowerCase().includes(editSearchFriend.toLowerCase()) ||
+                        f.friend_username.toLowerCase().includes(editSearchFriend.toLowerCase())) &&
+                        !editSelectedFriends.includes(f.friend_id)
                       )}
                       keyExtractor={item => `${item.friend_id}-${item.friendship_id}`}
                       horizontal
@@ -5654,10 +6119,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       renderItem={({ item }) => (
                         <TouchableOpacity
                           style={{
-                            marginRight: 10,
+                            marginRight: 3,
                             alignItems: 'center',
                             opacity: editSelectedFriends.includes(item.friend_id) ? 0.5 : 1,
-                            paddingVertical: 2,
+                            paddingVertical: 3,
+                            paddingHorizontal: 6,
+                            borderRadius: 6,
+                            backgroundColor: 'transparent',
+                            borderWidth: editSelectedFriends.includes(item.friend_id) ? 1 : 0,
+                            borderColor: '#007AFF',
                           }}
                           onPress={() => {
                             setEditSelectedFriends(prev =>
@@ -5665,29 +6135,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 ? prev.filter(id => id !== item.friend_id)
                                 : [...prev, item.friend_id]
                             );
+                            // Clear search when a friend is selected
+                            setEditSearchFriend('');
                           }}
                         >
                           {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
                             <Image 
                               source={{ uri: item.friend_avatar }} 
-                              style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                              style={{ width: 32, height: 32, borderRadius: 16, marginBottom: 6 }} 
                             />
                           ) : (
                             <View 
                               style={{ 
-                                width: 36, 
-                                height: 36, 
-                                borderRadius: 18, 
-                                marginBottom: 4,
+                                width: 32, 
+                                height: 32, 
+                                borderRadius: 16, 
+                                marginBottom: 6,
                                 backgroundColor: '#E9ECEF',
                                 justifyContent: 'center',
                                 alignItems: 'center'
                               }}
                             >
-                              <Ionicons name="person" size={16} color="#6C757D" />
+                              <Ionicons name="person" size={14} color="#6C757D" />
                             </View>
                           )}
-                          <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                          <Text style={{ fontSize: 10, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
                         </TouchableOpacity>
                       )}
                       ListEmptyComponent={
@@ -5710,25 +6182,25 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
                  {/* Delete Button and Save Button Row */}
                  <View style={styles.modalActionRow}>
-                   <TouchableOpacity
-                     onPress={async () => {
-                       if (selectedEvent?.event.id) {
-                         try {
-                           await handleDeleteEvent(selectedEvent.event.id);
-                           setShowEditEventModal(false);
-                           setSelectedEvent(null);
-                           setEditingEvent(null);
-                         } catch (error) {
-                           Alert.alert('Error', 'Failed to delete event. Please try again.');
-                         }
-                       }
-                     }}
-                     style={styles.modalDeleteButton}
-                   >
-                     <Text style={styles.modalDeleteButtonText}>
+                 <TouchableOpacity
+                  onPress={async () => {
+                    if (selectedEvent?.event.id) {
+                      try {
+                        await handleDeleteEvent(selectedEvent.event.id);
+                        setShowEditEventModal(false);
+                        setSelectedEvent(null);
+                        setEditingEvent(null);
+                      } catch (error) {
+                        Alert.alert('Error', 'Failed to delete event. Please try again.');
+                      }
+                    }
+                  }}
+                  style={styles.modalDeleteButton}
+                >
+                  <Text style={styles.modalDeleteButtonText}>
                        Delete
-                     </Text>
-                   </TouchableOpacity>
+                  </Text>
+                </TouchableOpacity>
                    <TouchableOpacity
                      onPress={() => handleEditEvent()}
                      disabled={!editedEventTitle.trim()}
@@ -5745,10 +6217,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
               {/* Photo Viewer Modal with Zoom/Pan */}
       <Modal
-        visible={showPhotoViewer}
+        visible={showPhotoViewer && selectedPhotoForViewing !== null}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => setShowPhotoViewer(false)}
+        onRequestClose={() => {
+          try {
+            setShowPhotoViewer(false);
+            setSelectedPhotoForViewing(null);
+          } catch (error) {
+            console.error('Error closing photo viewer:', error);
+          }
+        }}
       >
         <View style={{
           flex: 1,
@@ -5790,7 +6269,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 justifyContent: 'center',
                 alignItems: 'center',
               }}
-              onPress={() => setShowPhotoViewer(false)}
+              onPress={() => {
+                try {
+                  setShowPhotoViewer(false);
+                  setSelectedPhotoForViewing(null);
+                } catch (error) {
+                  console.error('Error closing photo viewer:', error);
+                }
+              }}
             >
               <Ionicons name="close" size={24} color="#333" />
             </TouchableOpacity>
@@ -5861,14 +6347,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               keyExtractor={(item, idx) => item + idx}
               getItemLayout={(_, index) => ({ length: Dimensions.get('window').width, offset: Dimensions.get('window').width * index, index })}
               onMomentumScrollEnd={e => {
+                try {
                 const width = e.nativeEvent.layoutMeasurement.width;
                 const index = Math.round(e.nativeEvent.contentOffset.x / width);
-                const photoUrl = selectedPhotoForViewing.event.photos?.[index];
-                if (photoUrl && photoUrl !== selectedPhotoForViewing.photoUrl) {
+                  const photoUrl = selectedPhotoForViewing?.event?.photos?.[index];
+                  if (photoUrl && photoUrl !== selectedPhotoForViewing?.photoUrl) {
                   setSelectedPhotoForViewing({
                     event: selectedPhotoForViewing.event,
                     photoUrl,
                   });
+                  }
+                } catch (error) {
+                  console.error('Error in onMomentumScrollEnd:', error);
                 }
               }}
               renderItem={({ item }) => (
@@ -5885,6 +6375,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       width: '100%',
                       height: '75%',
                       resizeMode: 'contain',
+                    }}
+                    onError={(error) => {
+                      console.error('Image loading error:', error);
                     }}
                   />
                 </View>
@@ -5921,6 +6414,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     <TouchableOpacity
                       key={index}
                       onPress={() => {
+                        try {
                         setSelectedPhotoForViewing({
                           event: selectedPhotoForViewing.event,
                           photoUrl: photoUrl
@@ -5930,6 +6424,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           index: index,
                           animated: true,
                         });
+                        } catch (error) {
+                          console.error('Error selecting thumbnail:', error);
+                        }
                       }}
                       style={{
                         width: 48,
@@ -5961,68 +6458,80 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       {/* Shared Events Modal */}
       <Modal
         animationType="slide"
-        transparent={true}
+        transparent={false}
         visible={showSharedEventsModal}
         onRequestClose={() => setShowSharedEventsModal(false)}
+        presentationStyle="pageSheet"
       >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.5)' }}>
-          <View style={{ flex: 1 }} />
-          <View style={{ 
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            backgroundColor: 'white',
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.25,
-            shadowRadius: 3.84,
-            elevation: 5,
-            maxHeight: '80%',
-          }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.light.background }}>
+          <View style={{ flex: 1 }}>
             {/* Header */}
             <View style={{ 
               flexDirection: 'row', 
               justifyContent: 'space-between', 
               alignItems: 'center', 
-              paddingHorizontal: 20,
-              paddingVertical: 16,
-              borderBottomWidth: 1,
-              borderBottomColor: '#f0f0f0',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              paddingTop: 40,
+              backgroundColor: Colors.light.background,
             }}>
-              <Text style={{ 
-                fontSize: 18, 
-                fontWeight: '600', 
-                color: '#333',
+              <TouchableOpacity 
+                onPress={() => setShowSharedEventsModal(false)}
+                style={{
+                  width: 28,
+                  height: 28,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  borderRadius: 14,
+                  backgroundColor: Colors.light.surface,
+                }}
+              >
+                <Ionicons name="close" size={16} color={Colors.light.icon} />
+              </TouchableOpacity>
+              
+              <Text style={{
+                fontSize: 15,
+                fontWeight: '600',
+                color: Colors.light.text,
                 fontFamily: 'Onest'
               }}>
                 Shared Events
               </Text>
-              <TouchableOpacity 
-                onPress={() => setShowSharedEventsModal(false)}
-                style={{
-                  padding: 4,
-                }}
-              >
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
+              
+              <View style={{ width: 28 }} />
             </View>
 
             {/* Content */}
-            <ScrollView style={{ flex: 1, padding: 20 }}>
+            <ScrollView style={{ flex: 1, padding: 12 }}>
               {pendingSharedEvents.length === 0 ? (
                 <View style={{ 
                   alignItems: 'center', 
                   justifyContent: 'center',
-                  paddingVertical: 40,
+                  paddingVertical: 30,
                 }}>
-                  <Ionicons name="checkmark-circle-outline" size={48} color="#4CAF50" />
+                  <View style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 20,
+                    backgroundColor: Colors.light.surfaceVariant,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginBottom: 8,
+                  }}>
+                    <Ionicons name="checkmark-circle-outline" size={20} color={Colors.light.accent} />
+                  </View>
                   <Text style={{ 
-                    fontSize: 16, 
-                    color: '#666', 
-                    marginTop: 12,
+                    fontSize: 14, 
+                    color: Colors.light.text, 
+                    marginBottom: 2,
+                    fontFamily: 'Onest',
+                    fontWeight: '600',
+                  }}>
+                    All caught up!
+                  </Text>
+                  <Text style={{ 
+                    fontSize: 12, 
+                    color: Colors.light.icon, 
                     fontFamily: 'Onest',
                     textAlign: 'center',
                   }}>
@@ -6030,70 +6539,131 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   </Text>
                 </View>
               ) : (
-                <View style={{ gap: 16 }}>
+                <View style={{ gap: 8 }}>
                   {pendingSharedEvents.map((event) => (
                     <View key={event.id} style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: 12,
-                      padding: 16,
+                      backgroundColor: Colors.light.surface,
+                      borderRadius: 10,
+                      padding: 12,
                       borderWidth: 1,
-                      borderColor: '#e9ecef',
+                      borderColor: Colors.light.border,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.04,
+                      shadowRadius: 8,
+                      elevation: 2,
                     }}>
                       {/* Event Info */}
-                      <View style={{ marginBottom: 12 }}>
+                      <View style={{ marginBottom: 8 }}>
                         <Text style={{
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: '600',
-                          color: '#333',
-                          marginBottom: 4,
+                          color: Colors.light.text,
+                          marginBottom: 3,
                           fontFamily: 'Onest',
                         }}>
                           {event.title}
                         </Text>
                         {event.description && (
                           <Text style={{
-                            fontSize: 14,
-                            color: '#666',
-                            marginBottom: 8,
+                            fontSize: 13,
+                            color: Colors.light.icon,
+                            marginBottom: 6,
                             fontFamily: 'Onest',
+                            lineHeight: 16,
                           }}>
                             {event.description}
                           </Text>
                         )}
-                        <Text style={{
-                          fontSize: 12,
-                          color: '#999',
-                          fontFamily: 'Onest',
+                        <View style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 4,
                         }}>
-                          {event.date} • {event.isAllDay ? 'All day' : 
-                            `${event.startDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'} - ${event.endDateTime?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) || 'Invalid time'}`
-                          }
-                        </Text>
+                          <View style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: 10,
+                            backgroundColor: Colors.light.surfaceVariant,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                          }}>
+                            <Ionicons name="calendar-outline" size={10} color={Colors.light.icon} />
+                          </View>
+                          <Text style={{
+                            fontSize: 12,
+                            color: Colors.light.icon,
+                            fontFamily: 'Onest',
+                          }}>
+                            {event.date} • {(() => {
+                              // Debug logging for shared events
+                              console.log('🔍 [Shared Events Modal] Event debug:', {
+                                id: event.id,
+                                title: event.title,
+                                startDateTime: event.startDateTime,
+                                endDateTime: event.endDateTime,
+                                isAllDay: event.isAllDay,
+                                startDateTimeType: typeof event.startDateTime,
+                                endDateTimeType: typeof event.endDateTime,
+                                startIsValid: event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime()),
+                                endIsValid: event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime())
+                              });
+                              
+                              // Force check for valid times regardless of isAllDay flag
+                              if (event.startDateTime && event.endDateTime && 
+                                  event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime()) &&
+                                  event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime())) {
+                                const formatTime = (date: Date | undefined) => {
+                                  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+                                    return 'Invalid time';
+                                  }
+                                  try {
+                                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                  } catch (error) {
+                                    return 'Invalid time';
+                                  }
+                                };
+                                
+                                const startTime = formatTime(event.startDateTime);
+                                const endTime = formatTime(event.endDateTime);
+                                
+                                return `${startTime} - ${endTime}`;
+                              } else {
+                                return 'All day';
+                              }
+                            })()}
+                          </Text>
+                        </View>
                       </View>
 
                       {/* Shared By Info */}
                       <View style={{
                         flexDirection: 'row',
                         alignItems: 'center',
-                        marginBottom: 16,
-                        gap: 8,
+                        marginBottom: 12,
+                        gap: 6,
+                        paddingVertical: 6,
+                        paddingHorizontal: 8,
+                        backgroundColor: Colors.light.surfaceVariant,
+                        borderRadius: 6,
                       }}>
                         <View 
                           style={{ 
-                            width: 24, 
-                            height: 24, 
-                            borderRadius: 12,
-                            backgroundColor: '#E9ECEF',
+                            width: 20, 
+                            height: 20, 
+                            borderRadius: 10,
+                            backgroundColor: Colors.light.accent,
                             justifyContent: 'center',
                             alignItems: 'center'
                           }}
                         >
-                          <Ionicons name="person" size={12} color="#6C757D" />
+                          <Ionicons name="person" size={10} color="#fff" />
                         </View>
                         <Text style={{
                           fontSize: 12,
-                          color: '#666',
+                          color: Colors.light.text,
                           fontFamily: 'Onest',
+                          fontWeight: '500',
                         }}>
                           Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
                         </Text>
@@ -6102,7 +6672,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       {/* Action Buttons */}
                       <View style={{
                         flexDirection: 'row',
-                        gap: 12,
+                        gap: 8,
                       }}>
                         <TouchableOpacity
                           onPress={async () => {
@@ -6114,16 +6684,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           }}
                           style={{
                             flex: 1,
-                            backgroundColor: '#4CAF50',
-                            paddingVertical: 10,
-                            paddingHorizontal: 16,
+                            backgroundColor: Colors.light.accent,
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
                             borderRadius: 8,
                             alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.1,
+                            shadowRadius: 4,
+                            elevation: 2,
                           }}
                         >
                           <Text style={{
-                            color: 'white',
-                            fontSize: 14,
+                            color: '#fff',
+                            fontSize: 13,
                             fontWeight: '600',
                             fontFamily: 'Onest',
                           }}>
@@ -6141,16 +6716,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           }}
                           style={{
                             flex: 1,
-                            backgroundColor: '#FF6B6B',
-                            paddingVertical: 10,
-                            paddingHorizontal: 16,
+                            backgroundColor: Colors.light.surface,
+                            paddingVertical: 8,
+                            paddingHorizontal: 12,
                             borderRadius: 8,
                             alignItems: 'center',
+                            borderWidth: 1,
+                            borderColor: Colors.light.border,
                           }}
                         >
                           <Text style={{
-                            color: 'white',
-                            fontSize: 14,
+                            color: Colors.light.text,
+                            fontSize: 13,
                             fontWeight: '600',
                             fontFamily: 'Onest',
                           }}>
@@ -6164,183 +6741,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               )}
             </ScrollView>
           </View>
-        </View>
-      </Modal>
-
-      {/* Photo Caption Modal */}
-      <Modal
-        visible={showCaptionModal}
-        animationType="slide"
-        transparent
-        onRequestClose={handleCancelCaption}
-      >
-        <KeyboardAvoidingView 
-          style={{ flex: 1 }} 
-          behavior="padding"
-          keyboardVerticalOffset={0}
-        >
-          <View style={{ flex: 1, justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.2)' }}>
-            <View style={{
-              maxHeight: '80%',
-              backgroundColor: '#fff',
-              borderRadius: 20,
-              marginHorizontal: 20,
-              overflow: 'hidden',
-            }}>
-              <SafeAreaView style={{ flex: 1 }}>
-                <View style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  paddingHorizontal: 20,
-                  paddingVertical: 16,
-                  borderBottomWidth: 1,
-                  borderBottomColor: '#f0f0f0',
-                }}>
-                  <TouchableOpacity onPress={handleCancelCaption}>
-                    <Text style={{ fontSize: 16, color: '#8E8E93', fontFamily: 'Onest' }}>
-                      Cancel
-                    </Text>
-                  </TouchableOpacity>
-                  <Text style={{ fontSize: 18, fontWeight: '600', color: '#000', fontFamily: 'Onest' }}>
-                    Add Caption
-                  </Text>
-                  <TouchableOpacity onPress={handleShareWithCaption}>
-                    <Text style={{ fontSize: 16, color: '#007AFF', fontWeight: '600', fontFamily: 'Onest' }}>
-                      Share
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20 }}>
-                  {/* Selected Photo */}
-                  {pendingPhotoShare && (
-                    <View style={{ marginBottom: 16 }}>
-                      <Image
-                        source={{ uri: pendingPhotoShare.photoUrl }}
-                        style={{
-                          width: '100%',
-                          aspectRatio: 1, // Square aspect ratio to maintain consistency
-                          borderRadius: 12,
-                          marginBottom: 12,
-                          backgroundColor: '#ffffff', // White background
-                        }}
-                        resizeMode="contain"
-                      />
-                    </View>
-                  )}
-                  
-                  <Text style={{ fontSize: 16, color: '#000', marginBottom: 12, fontFamily: 'Onest' }}>
-                    Add a caption to your photo (optional):
-                  </Text>
-                  
-                  <TextInput
-                    style={{
-                      borderWidth: 1,
-                      borderColor: '#E5E5E7',
-                      borderRadius: 12,
-                      padding: 16,
-                      fontSize: 16,
-                      color: '#000',
-                      fontFamily: 'Onest',
-                      minHeight: 100,
-                      textAlignVertical: 'top',
-                    }}
-                    placeholder="What's happening in this photo?"
-                    placeholderTextColor="#8E8E93"
-                    value={photoCaption}
-                    onChangeText={setPhotoCaption}
-                    multiline
-                    maxLength={200}
-                    autoFocus
-                  />
-                  
-                  <Text style={{ 
-                    fontSize: 12, 
-                    color: '#8E8E93', 
-                    textAlign: 'right', 
-                    marginTop: 8,
-                    fontFamily: 'Onest'
-                  }}>
-                    {photoCaption.length}/200
-                  </Text>
-                </ScrollView>
-              </SafeAreaView>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* Google Calendar Sync Modal */}
-      <Modal
-        visible={showGoogleSyncModal}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={() => setShowGoogleSyncModal(false)}
-        presentationStyle="pageSheet"
-      >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
-          <View style={{ flex: 1 }}>
-            {/* Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              backgroundColor: 'white',
-              borderBottomWidth: 1,
-              borderBottomColor: '#e0e0e0',
-            }}>
-              <TouchableOpacity 
-                onPress={() => setShowGoogleSyncModal(false)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-              
-              <Text style={{
-                fontSize: 18,
-                fontWeight: '600',
-                color: '#333',
-                fontFamily: 'Onest'
-              }}>
-                Google Calendar Sync
-              </Text>
-              
-              <View style={{ width: 32 }} />
-            </View>
-
-            {/* Content - Make it scrollable */}
-            <View style={{ flex: 1 }}>
-              <GoogleCalendarSync
-                userId={user?.id}
-                onEventsSynced={(syncedEvents) => {
-                  // Handle synced events here
-                  console.log('Synced events:', syncedEvents);
-                  
-                  // Close the modal and refresh events
-                  setShowGoogleSyncModal(false);
-                  refreshEvents();
-                }}
-                onCalendarUnsynced={() => {
-                  // Refresh events when a calendar is unsynced
-                  refreshEvents();
-                }}
-                onCalendarColorUpdated={() => {
-                  // Refresh events when a calendar color is updated
-                  refreshEvents();
-                }}
-              />
-            </View>
-          </View>
         </SafeAreaView>
       </Modal>
+
+
+
+
       </>
       
     );

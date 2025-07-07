@@ -27,7 +27,7 @@
           }
         ],
         "NSUserNotificationUsageDescription": "This app uses notifications to remind you about your calendar events.",
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": ["remote-notification", "background-processing", "background-fetch"]
       }
     },
     "android": {

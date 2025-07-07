@@ -378,7 +378,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         flexDirection: 'row', 
         backgroundColor: '#ffffff', 
         borderBottomWidth: 1, 
-        borderColor: '#dadce0', 
+        borderColor: '#f3f3f3', 
         minHeight: 36, 
         zIndex: 10, 
       }}>
@@ -387,7 +387,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
           width: TIME_COLUMN_WIDTH, 
           backgroundColor: '#ffffff',
           borderRightWidth: 1,
-          borderColor: '#dadce0',
+          borderColor: '#f3f3f3',
           justifyContent: 'center',
           alignItems: 'center',
         }}>
@@ -415,7 +415,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 justifyContent: 'flex-start',
                 minHeight: allDayEvents.length > 0 ? allDayEvents.length * 26 + 12 : 36,
                 borderRightWidth: 1,
-                borderColor: '#f1f3f4',
+                borderColor: '#f3f3f3',
                 backgroundColor: '#ffffff',
                 paddingVertical: 2,
                 paddingHorizontal: 0,

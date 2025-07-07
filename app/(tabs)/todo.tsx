@@ -1,10 +1,12 @@
 import React, { useCallback, useMemo, useRef } from 'react';
 import 'react-native-reanimated'; // 👈 must be FIRST import
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from 'react-native-reanimated';
 import { Menu } from 'react-native-paper';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
+import { checkAndMoveTasksIfNeeded } from '../../utils/taskUtils';
 import { Session } from '@supabase/supabase-js';
 import { useState, useEffect} from 'react';
 import {
@@ -27,7 +29,6 @@ import {
   SafeAreaView,
   Image,
   FlatList,
-  Animated,
   Dimensions,
   StatusBar,
 } from 'react-native';
@@ -35,6 +36,7 @@ import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { PanGestureHandler, GestureHandlerRootView, State, Swipeable } from 'react-native-gesture-handler';
 import styles from '../../styles/todo.styles';
+import habitStyles from '../../styles/habit.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
@@ -53,7 +55,10 @@ import Calendar from 'react-native-calendars';
 import * as FileSystem from 'expo-file-system';
 import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
 import { shareTaskWithFriend, shareHabitWithFriend } from '../../utils/sharing';
+import { arePushNotificationsEnabled } from '../../utils/notificationUtils';
+
 import Toast from 'react-native-toast-message';
+import { Colors } from '../../constants/Colors';
 
 
 
@@ -87,23 +92,14 @@ const WEEK_DAYS: { value: WeekDay; label: string; shortLabel: string }[] = [
 ];
 
 const THEMES = {
-  pastel: ['#FADADD', '#FFE5B4', '#FFFACD', '#D0F0C0', '#B0E0E6', '#D8BFD8', '#F0D9FF', '#C1E1C1']
-,
-  forest: ['#4B6B43', '#7A9D54', '#A7C957', '#DDE26A', '#B49F73', '#856D5D', '#5C4033', '#E4D6A7'],
-
-  dreamscape: ['#E0F7FA', '#E1F5FE', '#D1C4E9', '#F3E5F5', '#F0F4C3', '#D7CCC8', '#C5CAE9', '#E8EAF6'],
-  
-  coastal: ['#A7D7C5', '#CFE8E0', '#BFDCE5', '#8AC6D1', '#DCE2C8', '#F1F6F9', '#A2C4C9', '#F7F5E6']
-,
-
-  autumnglow: ['#FFB347', '#D2691E', '#FFD700', '#B22222', '#CD853F', '#FFA07A', '#8B4513', '#F4A460']
-,
-
-  cosmicjelly: ['#F15BB5', '#FEE440', '#00BBF9', '#00F5D4', '#FF99C8', '#FCF6BD', '#D0F4DE', '#E4C1F9'], 
-bloom: ['#FF69B4', '#FFD700', '#7FFF00', '#FF8C00', '#00CED1', '#BA55D3', '#FFA07A', '#40E0D0']
-,
-
-vintagepicnic: ['#F67280', '#C06C84', '#F8B195', '#355C7D', '#6C5B7B', '#FDCB82', '#99B898', '#FF847C']
+  modern: ['#0f172a', '#1e293b', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1', '#e2e8f0'],
+  blue: ['#1e40af', '#3b82f6', '#60a5fa', '#93c5fd', '#bfdbfe', '#dbeafe', '#eff6ff', '#f8fafc'],
+  green: ['#065f46', '#10b981', '#34d399', '#6ee7b7', '#a7f3d0', '#d1fae5', '#ecfdf5', '#f0fdf4'],
+  purple: ['#581c87', '#7c3aed', '#a855f7', '#c084fc', '#d8b4fe', '#e9d5ff', '#f3e8ff', '#faf5ff'],
+  orange: ['#9a3412', '#ea580c', '#f97316', '#fb923c', '#fdba74', '#fed7aa', '#ffedd5', '#fff7ed'],
+  pink: ['#831843', '#be185d', '#ec4899', '#f472b6', '#f9a8d4', '#fce7f3', '#fdf2f8', '#fef7ff'],
+  gray: ['#111827', '#374151', '#6b7280', '#9ca3af', '#d1d5db', '#e5e7eb', '#f3f4f6', '#f9fafb'],
+  slate: ['#0f172a', '#1e293b', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1', '#e2e8f0']
 };
 
 
@@ -144,6 +140,8 @@ interface Todo {
   repeatEndDate?: Date | null;
   reminderTime?: Date | null;
   photo?: string; // Add photo field
+  deletedInstances?: string[]; // Track deleted instances of repeated tasks
+  autoMove?: boolean; // Auto-move to next day if not completed
   sharedFriends?: Array<{
     friend_id: string;
     friend_name: string;
@@ -189,31 +187,37 @@ const getWeeklyProgressPercentage = (habit: Habit) => {
 const calculateCurrentStreak = (completedDays: string[]): number => {
   if (!completedDays || completedDays.length === 0) return 0;
   
-  // Sort completed days in descending order (most recent first)
-  const sortedDays = [...completedDays].sort((a, b) => moment(b).valueOf() - moment(a).valueOf());
+  // Extract unique dates from completedDays (handle both YYYY-MM-DD and YYYY-MM-DD-HH-MM-SS formats)
+  const uniqueDates = [...new Set(completedDays.map(date => {
+    // Extract YYYY-MM-DD part from timestamp format
+    return date.split('-').slice(0, 3).join('-');
+  }))];
+  
+  // Sort dates in descending order (most recent first)
+  const sortedDates = uniqueDates.sort((a, b) => moment(b).valueOf() - moment(a).valueOf());
   
   let streak = 0;
   const today = moment().format('YYYY-MM-DD');
   const yesterday = moment().subtract(1, 'day').format('YYYY-MM-DD');
   
   // Check if today is completed
-  if (sortedDays.includes(today)) {
+  if (sortedDates.includes(today)) {
     streak = 1;
     let currentDate = moment(yesterday);
     
     // Count consecutive days backwards from yesterday
-    while (sortedDays.includes(currentDate.format('YYYY-MM-DD'))) {
+    while (sortedDates.includes(currentDate.format('YYYY-MM-DD'))) {
       streak++;
       currentDate = currentDate.subtract(1, 'day');
     }
   } else {
     // Today is not completed, check if yesterday is completed
-    if (sortedDays.includes(yesterday)) {
+    if (sortedDates.includes(yesterday)) {
       streak = 1;
       let currentDate = moment().subtract(2, 'day');
       
       // Count consecutive days backwards from day before yesterday
-      while (sortedDays.includes(currentDate.format('YYYY-MM-DD'))) {
+      while (sortedDates.includes(currentDate.format('YYYY-MM-DD'))) {
         streak++;
         currentDate = currentDate.subtract(1, 'day');
       }
@@ -224,6 +228,114 @@ const calculateCurrentStreak = (completedDays: string[]): number => {
 };
 
 export default function TodoScreen() {
+  // Initialize notifications for todo screen
+  useEffect(() => {
+    const initializeNotifications = async () => {
+      try {
+        console.log('🔔 [Todo Notifications] Initializing notifications...');
+        
+        // Request permissions
+        const { status: existingStatus } = await Notifications.getPermissionsAsync();
+        let finalStatus = existingStatus;
+        
+        if (existingStatus !== 'granted') {
+          const { status } = await Notifications.requestPermissionsAsync();
+          finalStatus = status;
+        }
+        
+        if (finalStatus !== 'granted') {
+          console.log('🔔 [Todo Notifications] Permission not granted');
+          return;
+        }
+        
+        console.log('🔔 [Todo Notifications] Permission granted');
+        
+        // Set up notification handler
+        Notifications.setNotificationHandler({
+          handleNotification: async (notification) => {
+            console.log('🔔 [Todo Notifications] Notification handler called for:', notification.request.content.title);
+            console.log('🔔 [Todo Notifications] Notification data:', notification.request.content.data);
+            
+            // Always show alerts for todo notifications
+            return {
+              shouldShowAlert: true,
+              shouldPlaySound: true,
+              shouldSetBadge: false,
+            };
+          },
+        });
+        
+        console.log('🔔 [Todo Notifications] Notification handler set up');
+        
+        // Check current scheduled notifications
+        const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+        console.log('🔔 [Todo Notifications] Current scheduled notifications:', scheduledNotifications.length);
+        scheduledNotifications.forEach((notification, index) => {
+          console.log(`🔔 [Todo Notifications] Existing notification ${index + 1}:`, {
+            id: notification.identifier,
+            title: notification.content.title,
+            body: notification.content.body,
+            data: notification.content.data,
+          });
+        });
+        
+      } catch (error) {
+        console.error('🔔 [Todo Notifications] Error initializing notifications:', error);
+      }
+    };
+    
+    initializeNotifications();
+  }, []);
+
+  // Add notification listeners for todo screen
+  useEffect(() => {
+    const notificationListener = Notifications.addNotificationReceivedListener(notification => {
+      console.log('🔔 [Todo Notifications] Notification received:', notification);
+      console.log('🔔 [Todo Notifications] Notification title:', notification.request.content.title);
+      console.log('🔔 [Todo Notifications] Notification body:', notification.request.content.body);
+      console.log('🔔 [Todo Notifications] Notification data:', notification.request.content.data);
+    });
+
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('🔔 [Todo Notifications] Notification response received:', response);
+    });
+
+    return () => {
+      Notifications.removeNotificationSubscription(notificationListener);
+      Notifications.removeNotificationSubscription(responseListener);
+    };
+  }, []);
+
+  // Add focus effect to check notifications when screen is focused
+  useEffect(() => {
+    const checkNotifications = async () => {
+      try {
+        console.log('🔔 [Todo Notifications] Screen focused - checking notifications...');
+        const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+        console.log('🔔 [Todo Notifications] Scheduled notifications on focus:', scheduledNotifications.length);
+        
+        // Check if we have any todo reminders that should be active
+        const todoReminders = scheduledNotifications.filter(n => 
+          n.content.data?.type === 'todo_reminder'
+        );
+        console.log('🔔 [Todo Notifications] Todo reminders found:', todoReminders.length);
+        
+        todoReminders.forEach((notification, index) => {
+          console.log(`🔔 [Todo Notifications] Todo reminder ${index + 1}:`, {
+            id: notification.identifier,
+            title: notification.content.title,
+            body: notification.content.body,
+            trigger: notification.trigger,
+          });
+        });
+      } catch (error) {
+        console.error('🔔 [Todo Notifications] Error checking notifications on focus:', error);
+      }
+    };
+
+    checkNotifications();
+  }, []);
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
@@ -284,6 +396,7 @@ export default function TodoScreen() {
   const [taskPhoto, setTaskPhoto] = useState<string | null>(null);
   const [showReminderOptions, setShowReminderOptions] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [modalAutoMove, setModalAutoMove] = useState(false);
 
   // Add timeout refs for debouncing picker closes
   const timeoutRefs = {
@@ -326,6 +439,9 @@ export default function TodoScreen() {
   // Habit modal state
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
   const [newHabit, setNewHabit] = useState('');
+  const [quickAddText, setQuickAddText] = useState('');
+  const [isQuickAdding, setIsQuickAdding] = useState(false);
+  const quickAddInputRef = useRef<TextInput>(null);
   const [newHabitDescription, setNewHabitDescription] = useState('');
   const [newHabitColor, setNewHabitColor] = useState('');
   // Add new habit reminder and photo proof state
@@ -371,6 +487,20 @@ export default function TodoScreen() {
   // Add state for monthly progress chart modal
   const [isMonthlyProgressModalVisible, setIsMonthlyProgressModalVisible] = useState(false);
   const [selectedMonthForProgress, setSelectedMonthForProgress] = useState(moment().startOf('month'));
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isQuickAddFocused, setIsQuickAddFocused] = useState(false);
+  const [showQuickAddBox, setShowQuickAddBox] = useState(false);
+  const [quickAddAutoMove, setQuickAddAutoMove] = useState(false);
+  
+  // Habit quick add state
+  const [quickAddHabitText, setQuickAddHabitText] = useState('');
+  const [isQuickAddingHabit, setIsQuickAddingHabit] = useState(false);
+  const quickAddHabitInputRef = useRef<TextInput>(null);
+  const [isQuickAddHabitFocused, setIsQuickAddHabitFocused] = useState(false);
+  const [showQuickAddHabitBox, setShowQuickAddHabitBox] = useState(false);
+  const [quickAddWeeklyGoal, setQuickAddWeeklyGoal] = useState(7); // Default to 7 times per week
+  const [showWeeklyGoalPanel, setShowWeeklyGoalPanel] = useState(false);
+
   
   // Add state for detail modal to show notes and photos
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
@@ -500,28 +630,79 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
+    setModalAutoMove(false);
   };
 
   async function scheduleReminderNotification(taskTitle: string, reminderTime: Date) {
     try {
-      const secondsUntilReminder = Math.floor((reminderTime.getTime() - Date.now()) / 1000);
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('🔔 [Todo Notifications] No user logged in, skipping notification');
+        return;
+      }
+
+      // Check if push notifications are enabled for this user
+      const notificationsEnabled = await arePushNotificationsEnabled(user.id);
+      if (!notificationsEnabled) {
+        console.log('🔔 [Todo Notifications] Push notifications disabled for user, skipping notification');
+        return;
+      }
+
+      const now = new Date();
+      
+      console.log('🔔 [Todo Notifications] Scheduling reminder for task:', taskTitle);
+      console.log('🔔 [Todo Notifications] Reminder time:', reminderTime.toISOString());
+      console.log('🔔 [Todo Notifications] Current time:', now.toISOString());
+      
+      if (reminderTime <= now) {
+        console.log('🔔 [Todo Notifications] Reminder time has passed');
+        return;
+      }
   
-      await Notifications.scheduleNotificationAsync({
+      // Create a unique identifier for this notification
+      const notificationId = `todo_reminder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const scheduledNotification = await Notifications.scheduleNotificationAsync({
+        identifier: notificationId,
         content: {
-          title: "Reminder",
+          title: "Task Reminder",
           body: taskTitle,
-          sound: true,
+          sound: 'default',
+          data: { type: 'todo_reminder', taskTitle },
         },
         trigger: {
-          type: 'timeInterval',
-          seconds: secondsUntilReminder,
-          repeats: false,
-        } as Notifications.TimeIntervalTriggerInput,
+          type: 'date',
+          date: reminderTime,
+        } as Notifications.DateTriggerInput,
+      });
+      
+      console.log('🔔 [Todo Notifications] Scheduled notification with ID:', scheduledNotification);
+      
+      // Verify the notification was scheduled
+      const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+      const ourNotification = scheduledNotifications.find(n => n.identifier === scheduledNotification);
+      console.log('🔔 [Todo Notifications] Verification - found our notification:', !!ourNotification);
+      console.log('🔔 [Todo Notifications] Our notification details:', ourNotification);
+      console.log('🔔 [Todo Notifications] Total scheduled notifications:', scheduledNotifications.length);
+      
+      // Log all scheduled notifications for debugging
+      scheduledNotifications.forEach((notification, index) => {
+        console.log(`🔔 [Todo Notifications] Notification ${index + 1}:`, {
+          id: notification.identifier,
+          title: notification.content.title,
+          body: notification.content.body,
+          data: notification.content.data,
+          trigger: notification.trigger,
+        });
       });
   
     } catch (error) {
+      console.error('🔔 [Todo Notifications] Error scheduling notification:', error);
     }
   }
+
+
 
   const handleSave = async () => {
     if (!newTodo.trim()) return;
@@ -560,6 +741,7 @@ export default function TodoScreen() {
           ? customSelectedDates.map((str) => new Date(str))
           : undefined,
         reminderTime: reminderTime || null,
+        autoMove: modalAutoMove,
       };
       
       // Save task to Supabase
@@ -579,6 +761,7 @@ export default function TodoScreen() {
           custom_repeat_dates: selectedRepeat === 'custom'
             ? customSelectedDates
             : null,
+          auto_move: modalAutoMove,
         });
       
       if (taskError) {
@@ -592,14 +775,36 @@ export default function TodoScreen() {
       
       // Schedule reminder if set
       if (reminderTime) {
+        console.log('🔔 [Todo Notifications] Creating task with reminder:', newTodo.trim());
+        console.log('🔔 [Todo Notifications] Reminder time from state:', reminderTime);
+        console.log('🔔 [Todo Notifications] Reminder time type:', typeof reminderTime);
+        console.log('🔔 [Todo Notifications] Is reminder time a Date object:', reminderTime instanceof Date);
         await scheduleReminderNotification(newTodo.trim(), reminderTime);
+      } else {
+        console.log('🔔 [Todo Notifications] No reminder time set for task:', newTodo.trim());
       }
 
       // Share with selected friends BEFORE resetting the form
       if (selectedFriends.length > 0 && newTodoItem.id && user?.id) {
+        console.log('🔍 handleSave: Sharing task with friends:', selectedFriends);
+        console.log('🔍 handleSave: Task ID:', newTodoItem.id);
+        console.log('🔍 handleSave: User ID:', user.id);
+        
         for (const friendId of selectedFriends) {
-          await shareTaskWithFriend(newTodoItem.id, friendId, user.id);
+          try {
+            console.log('🔍 handleSave: Sharing with friend ID:', friendId);
+            await shareTaskWithFriend(newTodoItem.id, friendId, user.id);
+            console.log('🔍 handleSave: Successfully shared with friend:', friendId);
+          } catch (error) {
+            console.error('❌ handleSave: Error sharing with friend:', friendId, error);
+          }
         }
+      } else {
+        console.log('🔍 handleSave: No friends selected or missing data:', {
+          selectedFriendsLength: selectedFriends.length,
+          taskId: newTodoItem.id,
+          userId: user?.id
+        });
       }
 
       // Reset form and close modal
@@ -639,6 +844,7 @@ export default function TodoScreen() {
             ? customSelectedDates.map((str) => new Date(str))
             : undefined,
           reminderTime: reminderTime || null,
+          autoMove: modalAutoMove,
         };
     
         setTodos(prev =>
@@ -691,6 +897,7 @@ export default function TodoScreen() {
               custom_repeat_dates: selectedRepeat === 'custom'
                 ? customSelectedDates
                 : null,
+              auto_move: modalAutoMove,
             })
             .eq('id', updatedTodo.id)
             .eq('user_id', user.id);
@@ -703,18 +910,85 @@ export default function TodoScreen() {
           
           // Handle friend sharing updates
           if (editingTodo.id) {
-            // First, remove all existing shares for this task
-            await supabase
+            // Determine the correct task ID for sharing
+            let originalTaskId = editingTodo.id;
+            
+            // If this is a copied shared task (starts with 'shared-'), we need to find the original
+            if (editingTodo.id.startsWith('shared-')) {
+              console.log('🔍 [Edit Save] This is a copied shared task, finding original...');
+              
+              // Find the original task ID by looking for shared_tasks where this user is the recipient
+              const { data: sharedTaskData, error: findError } = await supabase
+                .from('shared_tasks')
+                .select('original_task_id')
+                .eq('shared_with', user.id)
+                .single();
+                
+              if (!findError && sharedTaskData) {
+                originalTaskId = sharedTaskData.original_task_id;
+                console.log('🔍 [Edit Save] Found original task ID:', originalTaskId);
+              } else {
+                console.log('🔍 [Edit Save] Could not find original task for copied task');
+                return;
+              }
+            }
+            
+            // Only allow sharing updates if the user is the original task owner
+            // Check if the user is the owner of the original task
+            const { data: taskOwner, error: ownerError } = await supabase
+              .from('todos')
+              .select('user_id')
+              .eq('id', originalTaskId)
+              .single();
+              
+            if (ownerError || !taskOwner || taskOwner.user_id !== user.id) {
+              console.log('🔍 [Edit Save] User is not the owner of this task, skipping sharing updates');
+              return;
+            }
+            
+            console.log('🔍 [Edit Save] User is the owner, updating sharing...');
+            
+            // Get current friends this task is shared with
+            const { data: existingShares, error: sharesError } = await supabase
               .from('shared_tasks')
-              .delete()
-              .eq('original_task_id', editingTodo.id)
+              .select('shared_with')
+              .eq('original_task_id', originalTaskId)
               .eq('shared_by', user.id);
             
-            // Then add new shares for selected friends
-            if (selectedFriends.length > 0) {
-              for (const friendId of selectedFriends) {
-                await shareTaskWithFriend(editingTodo.id, friendId, user.id);
+            if (sharesError) {
+              console.error('🔍 [Edit Save] Error fetching existing shares:', sharesError);
+            }
+            
+            const existingFriendIds = existingShares?.map(share => share.shared_with) || [];
+            console.log('🔍 [Edit Save] Existing friend IDs:', existingFriendIds);
+            console.log('🔍 [Edit Save] Selected friend IDs:', selectedFriends);
+            
+            // Remove shares for friends no longer selected
+            const friendsToRemove = existingFriendIds.filter(friendId => !selectedFriends.includes(friendId));
+            if (friendsToRemove.length > 0) {
+              console.log('🔍 [Edit Save] Removing shares for friends:', friendsToRemove);
+              await supabase
+                .from('shared_tasks')
+                .delete()
+                .eq('original_task_id', originalTaskId)
+                .eq('shared_by', user.id)
+                .in('shared_with', friendsToRemove);
+            }
+            
+            // Add shares for new friends only
+            const newFriends = selectedFriends.filter(friendId => !existingFriendIds.includes(friendId));
+            if (newFriends.length > 0) {
+              console.log('🔍 [Edit Save] Adding shares for new friends:', newFriends);
+              for (const friendId of newFriends) {
+                try {
+                  await shareTaskWithFriend(originalTaskId, friendId, user.id);
+                  console.log('🔍 [Edit Save] Successfully shared task with friend:', friendId);
+                } catch (shareError) {
+                  console.error('🔍 [Edit Save] Error sharing task with friend:', friendId, shareError);
+                }
               }
+            } else {
+              console.log('🔍 [Edit Save] No new friends to add');
             }
           }
         }
@@ -791,11 +1065,12 @@ export default function TodoScreen() {
       
       const isCompletedToday = habitToToggle.completedDays.some(date => date.startsWith(today));
 
-      // Remove the restriction - allow multiple completions per day
-      // if (isCompletedToday) {
-      //   // If already completed today, do nothing
-      //   return;
-      // }
+      if (isCompletedToday) {
+        // If already completed today, undo the completion
+        console.log('🔍 Habit already completed today, undoing completion');
+        await undoHabitCompletion(habitId, today);
+        return;
+      }
 
       if (habitToToggle.requirePhoto) {
         // Show photo prompt
@@ -820,13 +1095,15 @@ export default function TodoScreen() {
 
       const currentCompletedDays = habitToToggle.completedDays || [];
       
-      // For multiple completions per day, we need to make each completion unique
-      // We'll use a timestamp format: YYYY-MM-DD-HH-MM-SS
-      const now = moment();
-      const uniqueCompletionId = `${today}-${now.format('HH-mm-ss')}`;
+      // Check if already completed today (handle both old and new formats)
+      const isAlreadyCompleted = currentCompletedDays.some(date => date.startsWith(today));
+      if (isAlreadyCompleted) {
+        console.log('🔍 Habit already completed today, skipping');
+        return;
+      }
       
-      // Add the unique completion ID to the array
-      const newCompletedDays = [...currentCompletedDays, uniqueCompletionId];
+      // Add the date to the array (simple YYYY-MM-DD format)
+      const newCompletedDays = [...currentCompletedDays, today];
 
       // Update in Supabase
       const { error } = await supabase
@@ -858,10 +1135,67 @@ export default function TodoScreen() {
         return updatedHabits;
       });
 
+      // Force a re-render to ensure all UI elements update
+      setCurrentDate(new Date());
+
       // Show success feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
       console.error('Error completing habit:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    }
+  };
+
+  const undoHabitCompletion = async (habitId: string, today: string) => {
+    try {
+      const habitToToggle = habits.find(habit => habit.id === habitId);
+      if (!habitToToggle) {
+        console.error('Habit not found');
+        return;
+      }
+
+      const currentCompletedDays = habitToToggle.completedDays || [];
+      
+      // Remove all entries for today (handle both old and new formats)
+      const newCompletedDays = currentCompletedDays.filter(date => !date.startsWith(today));
+
+      // Update in Supabase
+      const { error } = await supabase
+        .from('habits')
+        .update({
+          completed_days: newCompletedDays,
+          streak: calculateCurrentStreak(newCompletedDays)
+        })
+        .eq('id', habitId);
+
+      if (error) {
+        console.error('Error undoing habit completion:', error);
+        Alert.alert('Error', 'Failed to undo habit completion. Please try again.');
+        return;
+      }
+
+      // Update local state
+      setHabits(prev => {
+        const updatedHabits = prev.map(habit =>
+          habit.id === habitId
+            ? {
+                ...habit,
+                completedDays: newCompletedDays,
+                streak: calculateCurrentStreak(newCompletedDays),
+                completedToday: false
+              }
+            : habit
+        );
+        return updatedHabits;
+      });
+
+      // Force a re-render to ensure all UI elements update
+      setCurrentDate(new Date());
+
+      // Show success feedback
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('Error undoing habit completion:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
@@ -937,6 +1271,41 @@ export default function TodoScreen() {
       };
 
       const currentCompletedDays = habitToToggle.completedDays || [];
+      
+      // Check if already completed today (handle both old and new formats)
+      const isAlreadyCompleted = currentCompletedDays.some(date => date.startsWith(today));
+      if (isAlreadyCompleted) {
+        console.log('🔍 Habit already completed today, skipping completion but adding photo');
+        // Still update the photo even if already completed
+        const { error } = await supabase
+          .from('habits')
+          .update({ 
+            photos: updatedPhotos
+          })
+          .eq('id', habitId)
+          .eq('user_id', user?.id);
+
+        if (error) {
+          console.error('Error updating habit photo in Supabase:', error);
+          Alert.alert('Error', 'Failed to update photo. Please try again.');
+          return;
+        }
+
+        // Update local state
+        setHabits(prev => prev.map(habit => 
+          habit.id === habitId 
+            ? { 
+                ...habit, 
+                photos: updatedPhotos
+              } 
+            : habit
+        ));
+
+        Alert.alert('Success', 'Photo added to habit!');
+        return;
+      }
+      
+      // Add the date to the array (simple YYYY-MM-DD format)
       const newCompletedDays = [...currentCompletedDays, today];
 
       // Update in Supabase
@@ -944,7 +1313,8 @@ export default function TodoScreen() {
         .from('habits')
         .update({ 
           completed_days: newCompletedDays,
-          photos: updatedPhotos
+          photos: updatedPhotos,
+          streak: calculateCurrentStreak(newCompletedDays)
         })
         .eq('id', habitId)
         .eq('user_id', user?.id);
@@ -967,6 +1337,9 @@ export default function TodoScreen() {
             } 
           : habit
       ));
+
+      // Force a re-render to ensure all UI elements update
+      setCurrentDate(new Date());
 
       // Prompt for photo sharing
       if (user?.id) {
@@ -1006,6 +1379,47 @@ export default function TodoScreen() {
       if (!habitToToggle) return;
 
       const currentCompletedDays = habitToToggle.completedDays || [];
+      
+      // Check if already completed today (handle both old and new formats)
+      const isAlreadyCompleted = currentCompletedDays.some(date => date.startsWith(today));
+      if (isAlreadyCompleted) {
+        console.log('🔍 Habit already completed today, skipping completion but adding note');
+        // Still update the note even if already completed
+        const currentNotes = habitToToggle.notes || {};
+        const updatedNotes = {
+          ...currentNotes,
+          [today]: noteText
+        };
+
+        const { error } = await supabase
+          .from('habits')
+          .update({ 
+            notes: updatedNotes
+          })
+          .eq('id', habitId)
+          .eq('user_id', user?.id);
+
+        if (error) {
+          console.error('Error updating habit note in Supabase:', error);
+          Alert.alert('Error', 'Failed to save note. Please try again.');
+          return;
+        }
+
+        // Update local state
+        setHabits(prev => prev.map(habit => 
+          habit.id === habitId 
+            ? { 
+                ...habit, 
+                notes: updatedNotes
+              } 
+            : habit
+        ));
+
+        Alert.alert('Success', 'Note added to habit!');
+        return;
+      }
+      
+      // Add the date to the array (simple YYYY-MM-DD format)
       const newCompletedDays = [...currentCompletedDays, today];
 
       // Update notes
@@ -1020,7 +1434,8 @@ export default function TodoScreen() {
         .from('habits')
         .update({ 
           completed_days: newCompletedDays,
-          notes: updatedNotes
+          notes: updatedNotes,
+          streak: calculateCurrentStreak(newCompletedDays)
         })
         .eq('id', habitId)
         .eq('user_id', user?.id);
@@ -1043,6 +1458,9 @@ export default function TodoScreen() {
             } 
           : habit
       ));
+
+      // Force a re-render to ensure all UI elements update
+      setCurrentDate(new Date());
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
@@ -1183,6 +1601,12 @@ export default function TodoScreen() {
     // Check if the date is after the end date (not including the end date)
     if (compareEndDate && compareDate > compareEndDate) return false;
   
+    // Check if this specific instance has been deleted
+    const dateString = date.toISOString().split('T')[0];
+    if (todo.deletedInstances?.includes(dateString)) {
+      return false;
+    }
+  
     if (isSameDay(taskDate, date)) return true; // normal case
   
     if (todo.repeat === 'daily') {
@@ -1212,10 +1636,130 @@ export default function TodoScreen() {
     }, 50);
   };
 
+  // Helper function to delete a single instance of a repeated task
+  const deleteSingleInstance = async (todo: Todo, currentDate: Date) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const dateString = currentDate.toISOString().split('T')[0];
+      const updatedDeletedInstances = [...(todo.deletedInstances || []), dateString];
+
+      // Update the task in the database
+      const { error } = await supabase
+        .from('todos')
+        .update({ deleted_instances: updatedDeletedInstances })
+        .eq('id', todo.id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error updating task:', error);
+        Alert.alert('Error', 'Failed to delete task instance. Please try again.');
+        return;
+      }
+
+      // Update local state
+      setTodos(prev => 
+        prev.map(t => 
+          t.id === todo.id 
+            ? { ...t, deletedInstances: updatedDeletedInstances }
+            : t
+        )
+      );
+
+      Toast.show({
+        type: 'success',
+        text1: 'Task instance deleted',
+        position: 'bottom',
+      });
+    } catch (error) {
+      console.error('Error in deleteSingleInstance:', error);
+      Alert.alert('Error', 'Failed to delete task instance.');
+    }
+  };
+
+  // Helper function to delete all future instances of a repeated task
+  const deleteAllFutureInstances = async (todo: Todo) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Set the repeat end date to today
+      const today = new Date();
+      today.setHours(23, 59, 59, 999); // End of today
+
+      // Update the task in the database
+      const { error } = await supabase
+        .from('todos')
+        .update({ repeat_end_date: today.toISOString() })
+        .eq('id', todo.id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error updating task:', error);
+        Alert.alert('Error', 'Failed to delete future instances. Please try again.');
+        return;
+      }
+
+      // Update local state
+      setTodos(prev => 
+        prev.map(t => 
+          t.id === todo.id 
+            ? { ...t, repeatEndDate: today }
+            : t
+        )
+      );
+
+      Toast.show({
+        type: 'success',
+        text1: 'Future instances deleted',
+        position: 'bottom',
+      });
+    } catch (error) {
+      console.error('Error in deleteAllFutureInstances:', error);
+      Alert.alert('Error', 'Failed to delete future instances.');
+    }
+  };
+
+  // Helper function to delete an entire task
+  const deleteEntireTask = async (todo: Todo) => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Delete from Supabase
+      const { error } = await supabase
+        .from('todos')
+        .delete()
+        .eq('id', todo.id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error deleting task:', error);
+        Alert.alert('Error', 'Failed to delete task. Please try again.');
+        return;
+      }
+
+      // Update local state
+      setTodos(prev => {
+        const newTodos = prev.filter(t => t.id !== todo.id);
+        return newTodos;
+      });
+
+      Toast.show({
+        type: 'success',
+        text1: 'Task deleted',
+        position: 'bottom',
+      });
+    } catch (error) {
+      console.error('Error in deleteEntireTask:', error);
+      Alert.alert('Error', 'Failed to delete task.');
+    }
+  };
+
   const renderTodoItem = (todo: Todo) => {
     const handleDelete = async () => {
       try {
-        
         // Get the current user
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
@@ -1224,25 +1768,14 @@ export default function TodoScreen() {
           return;
         }
 
-        // Delete from Supabase
-        const { data: deletedTask, error } = await supabase
-          .from('todos')
-          .delete()
-          .eq('id', todo.id)
-          .eq('user_id', user.id)
-          .select();
-
-        if (error) {
-          console.error('Error deleting task:', error);
-          Alert.alert('Error', 'Failed to delete task. Please try again.');
-          return;
+        // Check if this is a repeated task
+        if (todo.repeat && todo.repeat !== 'none') {
+          // For repeated tasks, delete just this instance by default
+          await deleteSingleInstance(todo, currentDate);
+        } else {
+          // For non-repeated tasks, delete normally
+          await deleteEntireTask(todo);
         }
-
-        // Update local state
-        setTodos(prev => {
-          const newTodos = prev.filter(t => t.id !== todo.id);
-          return newTodos;
-        });
 
         if (Platform.OS !== 'web') {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1276,7 +1809,7 @@ export default function TodoScreen() {
         <View style={[styles.leftAction, { backgroundColor: lightColor }]}>
           <TouchableOpacity 
             onPress={() => {
-              handlePhotoAttachment(todo.id);
+              moveTaskToTomorrow(todo.id);
             }} 
             style={[styles.photoIconContainer, { 
               backgroundColor: 'rgba(255, 255, 255, 0.3)',
@@ -1286,7 +1819,7 @@ export default function TodoScreen() {
             activeOpacity={0.5}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="camera" size={24} color={baseColor} />
+            <Ionicons name="arrow-forward" size={24} color={baseColor} />
           </TouchableOpacity>
         </View>
       );
@@ -1311,37 +1844,101 @@ export default function TodoScreen() {
         if (todo.repeat === 'custom' && todo.customRepeatDates) {
           setCustomSelectedDates(todo.customRepeatDates.map(date => date.toISOString().split('T')[0]));
         }
+        setModalAutoMove(todo.autoMove || false);
         
-        // Open the modal immediately
-        showModal();
-        
-        // Fetch existing shared friends for this task (non-blocking)
+        // Fetch existing shared friends for this task BEFORE opening the modal
         try {
           const { data: { user } } = await supabase.auth.getUser();
-          if (!user) return;
+          if (!user) {
+            showModal();
+            return;
+          }
 
-          const { data: sharedTasks, error } = await supabase
+          console.log('🔍 [Edit Task] Fetching shared friends for task:', todo.id);
+
+          // Get all shared tasks where the current user is involved (either as sender or recipient)
+          const { data: allSharedTasks, error: allError } = await supabase
             .from('shared_tasks')
-            .select('shared_with')
-            .eq('original_task_id', todo.id)
-            .eq('shared_by', user.id);
+            .select('original_task_id, shared_by, shared_with')
+            .or(`shared_by.eq.${user.id},shared_with.eq.${user.id}`);
 
-          if (error) {
-            console.error('Error fetching shared friends:', error);
+          if (allError) {
+            console.error('🔍 [Edit Task] Error fetching all shared tasks:', allError);
+            showModal();
             return;
           }
 
-          if (!sharedTasks || sharedTasks.length === 0) {
-            return;
+          console.log('🔍 [Edit Task] All shared tasks for user:', allSharedTasks);
+
+          // Find the specific shared task that matches this todo
+          let relevantSharedTask = null;
+          let originalTaskId = todo.id;
+
+          // If this is a copied task (starts with 'shared-'), find the original
+          if (todo.id.startsWith('shared-')) {
+            console.log('🔍 [Edit Task] This is a copied shared task, finding original...');
+            
+            // Look for a shared task where this user is the recipient
+            relevantSharedTask = allSharedTasks?.find(st => 
+              st.shared_with === user.id
+            );
+            
+            if (relevantSharedTask) {
+              originalTaskId = relevantSharedTask.original_task_id;
+              console.log('🔍 [Edit Task] Found original task ID:', originalTaskId);
+            }
+          } else {
+            // This is an original task, look for shared tasks where this user is the sender
+            relevantSharedTask = allSharedTasks?.find(st => 
+              st.original_task_id === todo.id && st.shared_by === user.id
+            );
           }
 
-          // Extract the friend IDs
-          const sharedFriendIds = sharedTasks.map((st: { shared_with: string }) => st.shared_with);
-          setSelectedFriends(sharedFriendIds);
+          if (relevantSharedTask) {
+            console.log('🔍 [Edit Task] Relevant shared task found:', relevantSharedTask);
+
+            // Determine if user is sender or recipient
+            const isRecipient = relevantSharedTask.shared_with === user.id;
+            const taskOwnerId = relevantSharedTask.shared_by;
+
+            console.log('🔍 [Edit Task] User role:', isRecipient ? 'recipient' : 'sender');
+            console.log('🔍 [Edit Task] Task owner ID:', taskOwnerId);
+
+            // Fetch all friends involved in this shared task
+            const { data: sharedTasks, error } = await supabase
+              .from('shared_tasks')
+              .select('shared_with')
+              .eq('original_task_id', originalTaskId)
+              .eq('shared_by', taskOwnerId);
+
+            if (error) {
+              console.error('🔍 [Edit Task] Error fetching shared friends:', error);
+            } else if (sharedTasks && sharedTasks.length > 0) {
+              console.log('🔍 [Edit Task] Shared tasks found:', sharedTasks);
+
+              // Extract the friend IDs and include the task owner
+              let sharedFriendIds = sharedTasks.map((st: { shared_with: string }) => st.shared_with);
+              
+              // Include the task owner in the list for both senders and recipients
+              if (!sharedFriendIds.includes(taskOwnerId)) {
+                sharedFriendIds = [...sharedFriendIds, taskOwnerId];
+              }
+              
+              console.log('🔍 [Edit Task] Final friend IDs:', sharedFriendIds);
+              setSelectedFriends(sharedFriendIds);
+            } else {
+              console.log('🔍 [Edit Task] No shared tasks found');
+            }
+          } else {
+            console.log('🔍 [Edit Task] No relevant shared task found');
+          }
         } catch (error) {
-          console.error('Error fetching shared friends, continuing without them:', error);
+          console.error('🔍 [Edit Task] Error fetching shared friends, continuing without them:', error);
           // Continue without shared friends if there's an error
         }
+        
+        // Open the modal AFTER fetching friends
+        showModal();
       } catch (error) {
         console.error('Error in handleEdit:', error);
         // Still try to open the modal even if there's an error
@@ -1364,7 +1961,7 @@ export default function TodoScreen() {
           style={{ marginRight: 12, justifyContent: 'center', alignItems: 'center', marginLeft: 2 }}
         >
           {todo.completed ? (
-            <Ionicons name="checkmark" size={17} color="#3A3A3A"/>
+            <Ionicons name="checkmark" size={17} color={Colors.light.text}/>
           ) : (
             <View
               style={{
@@ -1375,20 +1972,29 @@ export default function TodoScreen() {
                 marginLeft: 4,
                 borderColor: categories.find(c => c.id === todo.categoryId)
                   ? darkenColor(categories.find(c => c.id === todo.categoryId)!.color)
-                  : '#999',
+                  : Colors.light.icon,
               }}
             />
           )}
         </View>
     
-        <View style={styles.todoContent}>
+        <View style={[styles.todoContent, { flex: 1 }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Text style={[
             styles.todoText,
             todo.completed && styles.completedText,
-            { color: '#3A3A3A', fontFamily: 'Onest' }
+              { color: Colors.light.text, fontFamily: 'Onest', flex: 1 }
           ]}>
             {todo.text}
           </Text>
+            {todo.autoMove && (
+              <Ionicons 
+                name="bookmark-outline" 
+                size={14} 
+                color={Colors.light.accent} 
+              />
+            )}
+          </View>
           {todo.description && (
             <Text style={[
               styles.todoDescription,
@@ -1421,131 +2027,77 @@ export default function TodoScreen() {
               </TouchableOpacity>
             </View>
           )}
-          
-          {/* Shared By Section - Show who shared this task with the current user */}
-          {taskSharedBy[todo.id] && (
+        </View>
+
+        {/* Shared Task Information - Right side */}
+        {taskSharedFriends[todo.id] && taskSharedFriends[todo.id].length > 0 && (
+          <View style={{
+            marginLeft: 8,
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            minWidth: 80,
+          }}>
             <View style={{
-              paddingTop: 4,
+              alignItems: 'flex-end',
+              gap: 2,
             }}>
               <View style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 6,
+                gap: 2,
               }}>
-                <Ionicons name="share-outline" size={12} color="#007AFF" />
-                <Text style={{ 
-                  fontSize: 10, 
-                  color: '#007AFF', 
-                  fontFamily: 'Onest',
-                  fontWeight: '600'
-                }}>
-                  Shared by
-                </Text>
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 4,
-                }}>
-                  {taskSharedBy[todo.id].friend_avatar && taskSharedBy[todo.id].friend_avatar.trim() !== '' ? (
-                    <Image 
-                      source={{ uri: taskSharedBy[todo.id].friend_avatar }} 
-                      style={{ width: 16, height: 16, borderRadius: 8 }} 
-                    />
-                  ) : (
-                    <View 
-                      style={{ 
-                        width: 13, 
-                        height: 13, 
-                        borderRadius: 7,
-                        backgroundColor: '#E9ECEF',
-                        justifyContent: 'center',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <Ionicons name="person" size={8} color="#6C757D" />
-                    </View>
-                  )}
+                {taskSharedFriends[todo.id].slice(0, 2).map((friend, index) => (
+                  <View key={friend.friend_id} style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 2,
+                  }}>
+                    {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
+                      <Image 
+                        source={{ uri: friend.friend_avatar }} 
+                        style={{ width: 14, height: 14, borderRadius: 7 }} 
+                      />
+                    ) : (
+                      <View 
+                        style={{ 
+                          width: 14, 
+                          height: 14, 
+                          borderRadius: 7,
+                          backgroundColor: Colors.light.surfaceVariant,
+                          justifyContent: 'center',
+                          alignItems: 'center'
+                        }}
+                      >
+                        <Ionicons name="person" size={7} color={Colors.light.icon} />
+                      </View>
+                    )}
+                    <Text style={{ 
+                      fontSize: 9, 
+                      color: Colors.light.accent, 
+                      fontFamily: 'Onest',
+                      fontWeight: '600'
+                    }}>
+                      {friend.friend_name}
+                    </Text>
+                    {index < Math.min(taskSharedFriends[todo.id].length - 1, 1) && (
+                      <Text style={{ fontSize: 9, color: Colors.light.accent }}>,</Text>
+                    )}
+                  </View>
+                ))}
+                {taskSharedFriends[todo.id].length > 2 && (
                   <Text style={{ 
-                    fontSize: 10, 
-                    color: '#007AFF', 
+                    fontSize: 9, 
+                    color: Colors.light.accent, 
                     fontFamily: 'Onest',
                     fontWeight: '600'
                   }}>
-                    {taskSharedBy[todo.id].friend_name}
+                    +{taskSharedFriends[todo.id].length - 2}
                   </Text>
-                </View>
+                )}
               </View>
             </View>
-          )}
-          
-          {/* Shared Friends Section */}
-          {taskSharedFriends[todo.id] && taskSharedFriends[todo.id].length > 0 && (
-            <View style={{
-              paddingTop: 4,
-            }}>
-              <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-              }}>
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 4,
-                }}>
-                  {taskSharedFriends[todo.id].slice(0, 3).map((friend, index) => (
-                    <View key={friend.friend_id} style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 2,
-                    }}>
-                      {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
-                        <Image 
-                          source={{ uri: friend.friend_avatar }} 
-                          style={{ width: 16, height: 16, borderRadius: 8 }} 
-                        />
-                      ) : (
-                        <View 
-                          style={{ 
-                            width: 13, 
-                            height: 13, 
-                            borderRadius: 7,
-                            backgroundColor: '#E9ECEF',
-                            justifyContent: 'center',
-                            alignItems: 'center'
-                          }}
-                        >
-                          <Ionicons name="person" size={8} color="#6C757D" />
-                        </View>
-                      )}
-                      <Text style={{ 
-                        fontSize: 10, 
-                        color: '#666', 
-                        fontFamily: 'Onest',
-                        fontWeight: '500'
-                      }}>
-                        {friend.friend_name}
-                      </Text>
-                      {index < Math.min(taskSharedFriends[todo.id].length - 1, 2) && (
-                        <Text style={{ fontSize: 10, color: '#999' }}>,</Text>
-                      )}
-                    </View>
-                  ))}
-                  {taskSharedFriends[todo.id].length > 3 && (
-                    <Text style={{ 
-                      fontSize: 10, 
-                      color: '#999', 
-                      fontFamily: 'Onest',
-                      fontWeight: '500'
-                    }}>
-                      +{taskSharedFriends[todo.id].length - 3} more
-                    </Text>
-                  )}
-                </View>
-              </View>
-            </View>
-          )}
-        </View>
+          </View>
+        )}
       </TouchableOpacity>
     );
     
@@ -1562,7 +2114,7 @@ export default function TodoScreen() {
           });
         }}        
         onSwipeableRightOpen={handleDelete}
-        onSwipeableLeftOpen={() => handlePhotoAttachment(todo.id)}
+        onSwipeableLeftOpen={() => moveTaskToTomorrow(todo.id)}
         friction={1.5}
         overshootRight={false}
         overshootLeft={false}
@@ -1727,8 +2279,10 @@ export default function TodoScreen() {
             repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
             reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
             customRepeatDates: task.custom_repeat_dates ? task.custom_repeat_dates.map((date: string) => new Date(date)) : [],
+            deletedInstances: task.deleted_instances || [],
             categoryId: task.category_id,
-            photo: task.photo
+            photo: task.photo,
+            autoMove: task.auto_move || false
           }));
           setTodos(mappedTasks);
           
@@ -1738,6 +2292,12 @@ export default function TodoScreen() {
           await fetchSharedFriendsForTasks(taskIds, userToUse);
         }
       };
+
+  // Check and move auto-move tasks if needed
+  if (userToUse) {
+    console.log('🔄 Checking for auto-move tasks...');
+    await checkAndMoveTasksIfNeeded(userToUse.id);
+  }
 
       const fetchHabits = async () => {
         const result = await retryRequest(async () => {
@@ -1752,21 +2312,28 @@ export default function TodoScreen() {
         });
 
         if (result) {
-          const sortedHabits = result.map((habit: any) => ({
-            ...habit,
-            completedDays: habit.completed_days || [],
-            notes: habit.notes || {},
-            photos: habit.photos || {},
-            targetPerWeek: habit.target_per_week || 7,
-            requirePhoto: habit.require_photo || false,
-            reminderTime: habit.reminder_time || null,
-            category_id: habit.category_id
-          }));
+          const sortedHabits = result.map((habit: any) => {
+            const completedDays = habit.completed_days || [];
+            const calculatedStreak = calculateCurrentStreak(completedDays);
+            
+            return {
+              ...habit,
+              completedDays: completedDays,
+              notes: habit.notes || {},
+              photos: habit.photos || {},
+              targetPerWeek: habit.target_per_week || 7,
+              requirePhoto: habit.require_photo || false,
+              reminderTime: habit.reminder_time || null,
+              category_id: habit.category_id,
+              streak: calculatedStreak, // Use calculated streak instead of stored streak
+            };
+          });
           setHabits(sortedHabits);
         }
       };
 
       const fetchFriends = async () => {
+        console.log('🔍 fetchFriends: Starting to fetch friends for user:', userToUse.id);
         const result = await retryRequest(async () => {
           const { data: friendships, error: friendshipsError } = await supabase
             .from('friendships')
@@ -1780,9 +2347,16 @@ export default function TodoScreen() {
             .or(`user_id.eq.${userToUse.id},friend_id.eq.${userToUse.id}`)
             .eq('status', 'accepted');
 
-          if (friendshipsError) throw friendshipsError;
+          if (friendshipsError) {
+            console.error('❌ fetchFriends: Error fetching friendships:', friendshipsError);
+            throw friendshipsError;
+          }
+
+          console.log('🔍 fetchFriends: Found friendships:', friendships?.length || 0);
+          console.log('🔍 fetchFriends: Friendships data:', friendships);
 
           if (!friendships || friendships.length === 0) {
+            console.log('🔍 fetchFriends: No friendships found');
             return [];
           }
 
@@ -1790,29 +2364,47 @@ export default function TodoScreen() {
             friendships.map(async (friendship) => {
               const friendUserId = friendship.user_id === userToUse.id ? friendship.friend_id : friendship.user_id;
               
-              const { data: profileData } = await supabase
+              const { data: profileData, error: profileError } = await supabase
                 .from('profiles')
                 .select('id, full_name, avatar_url, username')
                 .eq('id', friendUserId)
-                .single();
+                .maybeSingle(); // Use maybeSingle instead of single to handle missing profiles
+              
+              if (profileError) {
+                console.error('❌ fetchFriends: Error fetching profile for friend:', friendUserId, profileError);
+                return null; // Return null for friends with profile errors
+              }
+              
+              // Only include friends that have valid profiles
+              if (!profileData) {
+                console.log('🔍 fetchFriends: Skipping friend without profile:', friendUserId);
+                return null;
+              }
               
               return {
                 friendship_id: friendship.id,
                 friend_id: friendUserId,
-                friend_name: profileData?.full_name || 'Unknown',
-                friend_avatar: profileData?.avatar_url || '',
-                friend_username: profileData?.username || '',
+                friend_name: profileData.full_name || 'Unknown',
+                friend_avatar: profileData.avatar_url || '',
+                friend_username: profileData.username || '',
                 status: friendship.status,
                 created_at: friendship.created_at,
               };
             })
           );
 
-          return friendsWithProfiles;
+          // Filter out null values (friends without profiles)
+          const validFriends = friendsWithProfiles.filter(friend => friend !== null);
+
+          console.log('🔍 fetchFriends: Final friends with profiles:', validFriends);
+          return validFriends;
         });
 
         if (result) {
+          console.log('🔍 fetchFriends: Setting friends state with:', result.length, 'friends');
           setFriends(result);
+        } else {
+          console.log('🔍 fetchFriends: No result from retryRequest');
         }
       };
 
@@ -1870,7 +2462,7 @@ export default function TodoScreen() {
             <Ionicons
               name={isCollapsed ? 'chevron-up' : 'chevron-down'}
               size={15}
-              color="#3A3A3A"
+              color={Colors.light.text}
               style={{ marginRight: 8}}
             />
           </View>
@@ -1898,7 +2490,7 @@ export default function TodoScreen() {
           onPress={() => toggleCategoryCollapse('uncategorized')}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-            <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>Tasks</Text>
+            <Text style={[styles.categoryTitle, { flex: 1, fontFamily: 'Onest' }]}>Todo</Text>
             <Ionicons
               name={isCollapsed ? 'chevron-up' : 'chevron-down'}
               size={15}
@@ -1909,7 +2501,7 @@ export default function TodoScreen() {
         </TouchableOpacity>
 
         {!isCollapsed && (
-          <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
+          <View style={[styles.categoryContent, { backgroundColor: Colors.light.surfaceVariant }]}>
             {uncategorizedTasks.map(renderTodoItem)}
           </View>
         )}
@@ -1942,7 +2534,7 @@ export default function TodoScreen() {
         </TouchableOpacity>
 
         {!isCollapsed && (
-          <View style={[styles.categoryContent, { backgroundColor: '#F5F5F5' }]}>
+          <View style={[styles.categoryContent, { backgroundColor: Colors.light.surfaceVariant }]}>
             {completedTasks.map(renderTodoItem)}
           </View>
         )}
@@ -1966,6 +2558,32 @@ export default function TodoScreen() {
       calendarStripRef.current?.scrollToIndex({ index: 30, animated: false }); // <- Center on today
     }, 100); // Delay until strip is rendered
   }, []);
+
+  // Simple keyboard height tracking
+  useEffect(() => {
+    const keyboardWillShowListener = Keyboard.addListener('keyboardWillShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    
+    const keyboardWillHideListener = Keyboard.addListener('keyboardWillHide', () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      keyboardWillShowListener?.remove();
+      keyboardWillHideListener?.remove();
+    };
+  }, []);
+
+
+
+  // Create animated style that directly responds to keyboard height
+  const animatedStyle = useAnimatedStyle(() => {
+    const targetBottom = keyboardHeight > 0 ? keyboardHeight + 20 : 100;
+    return {
+      bottom: targetBottom,
+    };
+  }, [keyboardHeight]);
 
   const handleCloseNewTaskModal = useCallback(() => {
     hideModal();
@@ -2036,8 +2654,11 @@ export default function TodoScreen() {
 
   // Update the handleAddButtonPress function
   const handleAddButtonPress = () => {
+    // Pre-populate with quick add content if available
+    const quickAddContent = quickAddText.trim();
+    
     // Don't reset the form completely, just clear the task-specific fields
-    setNewTodo('');
+    setNewTodo(quickAddContent); // Pre-populate with quick add content
     setNewDescription('');
     setSelectedCategoryId('');
     setShowNewCategoryInput(false);
@@ -2055,7 +2676,186 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
+    
+    // Clear the quick add input since we're moving to the modal
+    setQuickAddText('');
+    
     showModal();
+  };
+
+  const handleQuickAdd = async () => {
+    if (!quickAddText.trim() || !user) return;
+    
+    setIsQuickAdding(true);
+    try {
+      const newTodoItem: Todo = {
+        id: uuidv4(),
+        text: quickAddText.trim(),
+        description: '',
+        completed: false,
+        categoryId: null,
+        date: currentDate,
+        repeat: 'none',
+        customRepeatDates: [],
+        repeatEndDate: null,
+        reminderTime: null,
+        photo: undefined,
+        deletedInstances: [],
+        autoMove: quickAddAutoMove,
+        sharedFriends: [],
+      };
+
+      // Save to Supabase
+      const { error } = await supabase
+        .from('todos')
+        .insert({
+          id: newTodoItem.id,
+          text: newTodoItem.text,
+          description: newTodoItem.description,
+          completed: newTodoItem.completed,
+          category_id: newTodoItem.categoryId,
+          date: newTodoItem.date.toISOString(),
+          repeat: newTodoItem.repeat,
+          custom_repeat_dates: newTodoItem.customRepeatDates?.map(date => date.toISOString()) || [],
+          repeat_end_date: newTodoItem.repeatEndDate?.toISOString() || null,
+          reminder_time: newTodoItem.reminderTime?.toISOString() || null,
+          photo: newTodoItem.photo || undefined,
+          deleted_instances: newTodoItem.deletedInstances || [],
+          auto_move: newTodoItem.autoMove || false,
+          user_id: user.id,
+        });
+
+      if (error) {
+        console.error('Error saving quick add todo:', error);
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: 'Failed to add task. Please try again.',
+        });
+        return;
+      }
+
+      // Add to local state
+      setTodos(prev => [newTodoItem, ...prev]);
+      
+      // Clear input and show success
+      setQuickAddText('');
+      // Keep auto-move setting for next task
+      // setQuickAddAutoMove(false); // Don't reset auto-move toggle
+      
+      // Refocus the input for the next task
+      setTimeout(() => {
+        quickAddInputRef.current?.focus();
+      }, 100);
+      
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      
+      Toast.show({
+        type: 'success',
+        text1: 'Task Added',
+        text2: 'Task added successfully!',
+      });
+      
+    } catch (error) {
+      console.error('Error in quick add:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to add task. Please try again.',
+      });
+    } finally {
+      setIsQuickAdding(false);
+    }
+  };
+
+  const handleQuickAddHabit = async () => {
+    if (!quickAddHabitText.trim() || !user) return;
+    
+    setIsQuickAddingHabit(true);
+    try {
+      const newHabitItem: Habit = {
+        id: uuidv4(),
+        text: quickAddHabitText.trim(),
+        streak: 0,
+        description: '',
+        completedToday: false,
+        completedDays: [],
+        color: '#667eea', // Default color
+        requirePhoto: false,
+        targetPerWeek: quickAddWeeklyGoal,
+        reminderTime: null,
+        user_id: user.id,
+        repeat_type: 'daily',
+        repeat_end_date: null,
+        notes: {},
+        photos: {},
+        category_id: null,
+      };
+
+      // Save to Supabase
+      const { error } = await supabase
+        .from('habits')
+        .insert({
+          id: newHabitItem.id,
+          text: newHabitItem.text,
+          description: newHabitItem.description,
+          color: newHabitItem.color,
+          require_photo: newHabitItem.requirePhoto,
+          target_per_week: newHabitItem.targetPerWeek,
+          reminder_time: newHabitItem.reminderTime,
+          repeat_type: newHabitItem.repeat_type,
+          repeat_end_date: newHabitItem.repeat_end_date,
+          notes: newHabitItem.notes,
+          photos: newHabitItem.photos,
+          category_id: newHabitItem.category_id,
+          user_id: user.id,
+        });
+
+      if (error) {
+        console.error('Error saving quick add habit:', error);
+        Toast.show({
+          type: 'error',
+          text1: 'Error',
+          text2: 'Failed to add habit. Please try again.',
+        });
+        return;
+      }
+
+      // Add to local state
+      setHabits(prev => [newHabitItem, ...prev]);
+      
+      // Clear input
+      setQuickAddHabitText('');
+      
+      // Refocus the input for the next habit
+      setTimeout(() => {
+        quickAddHabitInputRef.current?.focus();
+      }, 100);
+      
+      // Provide haptic feedback
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      
+      Toast.show({
+        type: 'success',
+        text1: 'Habit Added',
+        text2: 'Habit added successfully!',
+      });
+      
+    } catch (error) {
+      console.error('Error in quick add habit:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error',
+        text2: 'Failed to add habit. Please try again.',
+      });
+    } finally {
+      setIsQuickAddingHabit(false);
+    }
   };
 
   useEffect(() => {
@@ -2119,6 +2919,26 @@ export default function TodoScreen() {
     };
   }, []);
 
+  // Quick add is always available when tasks tab is active
+  useEffect(() => {
+    // Auto-focus the quick add input when switching to tasks tab
+    if (activeTab === 'tasks') {
+      setTimeout(() => {
+        quickAddInputRef.current?.focus();
+      }, 300);
+    }
+  }, [activeTab]);
+
+  // Quick add is always available when habits tab is active
+  useEffect(() => {
+    // Auto-focus the quick add habit input when switching to habits tab
+    if (activeTab === 'habits') {
+      setTimeout(() => {
+        quickAddHabitInputRef.current?.focus();
+      }, 300);
+    }
+  }, [activeTab]);
+
   // Add useEffect to fetch data when user changes
   useEffect(() => {
     if (user) {
@@ -2126,6 +2946,8 @@ export default function TodoScreen() {
       fetchData(user);
     }
   }, [user]);
+
+
   
   const handleHabitSave = async () => {
     if (!newHabit.trim()) return;
@@ -2338,12 +3160,16 @@ export default function TodoScreen() {
       // Check if this habit requires photo proof
       const requiresPhotoProof = habitToToggle.requirePhoto;
       
-      // If habit requires photo proof, also mark it as completed
-      let updatedCompletedDays = habitToToggle.completedDays || [];
+      // Check if already completed today (handle both old and new formats)
+      const currentCompletedDays = habitToToggle.completedDays || [];
+      const isAlreadyCompleted = currentCompletedDays.some(date => date.startsWith(today));
+      
+      // If habit requires photo proof and not already completed, mark it as completed
+      let updatedCompletedDays = currentCompletedDays;
       let shouldCompleteHabit = false;
       
-      if (requiresPhotoProof && !updatedCompletedDays.includes(today)) {
-        updatedCompletedDays = [...updatedCompletedDays, today];
+      if (requiresPhotoProof && !isAlreadyCompleted) {
+        updatedCompletedDays = [...currentCompletedDays, today];
         shouldCompleteHabit = true;
       }
 
@@ -2392,6 +3218,8 @@ export default function TodoScreen() {
       // Show appropriate success message
       if (shouldCompleteHabit) {
         Alert.alert('Success', 'Photo added and habit completed!');
+      } else if (isAlreadyCompleted) {
+        Alert.alert('Success', 'Photo added to habit!');
       } else {
         Alert.alert('Success', 'Photo added successfully!');
       }
@@ -2722,6 +3550,52 @@ export default function TodoScreen() {
     setSelectedTaskForPhotoViewing(task);
     setIsTaskPhotoViewerVisible(true);
   };
+
+  // Add function to move task to tomorrow
+  const moveTaskToTomorrow = async (taskId: string) => {
+    try {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      const { error } = await supabase
+        .from('todos')
+        .update({ date: tomorrow.toISOString() })
+        .eq('id', taskId);
+
+      if (error) {
+        console.error('Error moving task to tomorrow:', error);
+        Toast.show({
+          type: 'error',
+          text1: 'Failed to move task to tomorrow',
+          position: 'bottom',
+        });
+        return;
+      }
+
+      // Update local state
+      setTodos(prevTodos => 
+        prevTodos.map(todo => 
+          todo.id === taskId 
+            ? { ...todo, date: tomorrow }
+            : todo
+        )
+      );
+
+      Toast.show({
+        type: 'success',
+        text1: 'Task moved to tomorrow',
+        position: 'bottom',
+      });
+    } catch (error) {
+      console.error('Error moving task to tomorrow:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to move task to tomorrow',
+        position: 'bottom',
+      });
+    }
+  };
   
   // Add function to calculate detailed progress statistics
   const calculateHabitProgress = (habit: Habit, mode: 'weekly' | 'monthly') => {
@@ -2939,6 +3813,7 @@ export default function TodoScreen() {
     console.log('🔍 Task IDs:', taskIds);
 
     try {
+      // First, get all shared tasks where you are involved (either as sender or recipient)
       const { data: sharedTasks, error } = await supabase
         .from('shared_tasks')
         .select(`
@@ -2947,7 +3822,6 @@ export default function TodoScreen() {
           shared_with,
           status
         `)
-        .in('original_task_id', taskIds)
         .or(`shared_by.eq.${userToUse.id},shared_with.eq.${userToUse.id}`);
 
       if (error) {
@@ -2955,17 +3829,65 @@ export default function TodoScreen() {
         return;
       }
 
-      console.log('🔍 Shared tasks found:', sharedTasks?.length || 0);
-      console.log('🔍 Shared tasks data:', sharedTasks);
+      console.log('🔍 All shared tasks for user:', sharedTasks?.length || 0);
+      console.log('🔍 All shared tasks data:', sharedTasks);
 
-      if (!sharedTasks || sharedTasks.length === 0) {
-        console.log('🔍 No shared tasks found');
+      // For tasks you received, we need to find the actual copied task IDs
+      // Let's query the todos table to get the mapping between original_task_id and copied task IDs
+      const { data: copiedTasks, error: copiedTasksError } = await supabase
+        .from('todos')
+        .select('id, text')
+        .eq('user_id', userToUse.id)
+        .in('id', taskIds)
+        .like('id', 'shared-%');
+
+      if (copiedTasksError) {
+        console.error('❌ Error fetching copied tasks:', copiedTasksError);
+        return;
+      }
+
+      console.log('🔍 Copied tasks found:', copiedTasks?.length || 0);
+      console.log('🔍 Copied tasks:', copiedTasks);
+
+      // Filter to only include tasks that are in the current user's task list
+      const relevantSharedTasks = sharedTasks?.filter(sharedTask => {
+        // If you're the sender, check if the original task is in your current task list
+        if (sharedTask.shared_by === userToUse.id) {
+          return taskIds.includes(sharedTask.original_task_id);
+        }
+        // If you're the recipient, we'll include all shared tasks where you're the recipient
+        // We'll handle the mapping later
+        if (sharedTask.shared_with === userToUse.id) {
+          return true;
+        }
+        return false;
+      }) || [];
+
+      console.log('🔍 Relevant shared tasks after filtering:', relevantSharedTasks.length);
+      console.log('🔍 Relevant shared tasks:', relevantSharedTasks);
+
+      if (error) {
+        console.error('❌ Error fetching shared tasks:', error);
+        return;
+      }
+
+      console.log('🔍 Current user ID:', userToUse.id);
+      console.log('🔍 Relevant shared tasks breakdown:', relevantSharedTasks?.map(st => ({
+        original_task_id: st.original_task_id,
+        shared_by: st.shared_by,
+        shared_with: st.shared_with,
+        is_sender: st.shared_by === userToUse.id,
+        is_recipient: st.shared_with === userToUse.id
+      })));
+
+      if (!relevantSharedTasks || relevantSharedTasks.length === 0) {
+        console.log('🔍 No relevant shared tasks found');
         return;
       }
 
       // Get all unique friend IDs involved in these tasks
       const friendIds = new Set<string>();
-      sharedTasks.forEach(sharedTask => {
+      relevantSharedTasks.forEach(sharedTask => {
         if (sharedTask.shared_by !== userToUse.id) {
           friendIds.add(sharedTask.shared_by);
         }
@@ -3000,7 +3922,45 @@ export default function TodoScreen() {
         });
       });
 
-      // Group shared friends by task
+      // Group all participants by task (both senders and recipients)
+      const taskParticipantsMap: Record<string, Array<{
+        friend_id: string;
+        friend_name: string;
+        friend_avatar: string;
+        friend_username: string;
+        role: 'sender' | 'recipient';
+      }>> = {};
+
+      relevantSharedTasks.forEach(sharedTask => {
+        const taskId = sharedTask.original_task_id;
+        if (!taskParticipantsMap[taskId]) {
+          taskParticipantsMap[taskId] = [];
+        }
+
+        // If you're the recipient, show the sender
+        if (sharedTask.shared_with === userToUse.id && sharedTask.shared_by !== userToUse.id) {
+          const senderProfile = friendProfilesMap.get(sharedTask.shared_by);
+          if (senderProfile && !taskParticipantsMap[taskId].some(p => p.friend_id === senderProfile.friend_id)) {
+            taskParticipantsMap[taskId].push({
+              ...senderProfile,
+              role: 'sender'
+            });
+          }
+        }
+
+        // If you're the sender, show the recipients
+        if (sharedTask.shared_by === userToUse.id && sharedTask.shared_with !== userToUse.id) {
+          const recipientProfile = friendProfilesMap.get(sharedTask.shared_with);
+          if (recipientProfile && !taskParticipantsMap[taskId].some(p => p.friend_id === recipientProfile.friend_id)) {
+            taskParticipantsMap[taskId].push({
+              ...recipientProfile,
+              role: 'recipient'
+            });
+          }
+        }
+      });
+
+      // Convert to the format expected by the UI
       const taskFriendsMap: Record<string, Array<{
         friend_id: string;
         friend_name: string;
@@ -3008,7 +3968,39 @@ export default function TodoScreen() {
         friend_username: string;
       }>> = {};
 
-      // Track who shared each task with the current user
+      // For tasks you sent: use original_task_id as key
+      // For tasks you received: map to the actual copied task IDs
+      relevantSharedTasks.forEach(sharedTask => {
+        const originalTaskId = sharedTask.original_task_id;
+        
+        if (sharedTask.shared_by === userToUse.id) {
+          // You're the sender - use original task ID as key
+          if (taskParticipantsMap[originalTaskId]) {
+            taskFriendsMap[originalTaskId] = taskParticipantsMap[originalTaskId].map(participant => ({
+              friend_id: participant.friend_id,
+              friend_name: participant.friend_name,
+              friend_avatar: participant.friend_avatar,
+              friend_username: participant.friend_username,
+            }));
+          }
+        } else if (sharedTask.shared_with === userToUse.id) {
+          // You're the recipient - map to all copied tasks
+          // Since we can't directly map original_task_id to specific copied_task_id,
+          // we'll show the sender info for all shared tasks you have
+          copiedTasks?.forEach(copiedTask => {
+            if (taskParticipantsMap[originalTaskId]) {
+              taskFriendsMap[copiedTask.id] = taskParticipantsMap[originalTaskId].map(participant => ({
+                friend_id: participant.friend_id,
+                friend_name: participant.friend_name,
+                friend_avatar: participant.friend_avatar,
+                friend_username: participant.friend_username,
+              }));
+            }
+          });
+        }
+      });
+
+      // Keep the original shared by logic for backward compatibility
       const taskSharedByMap: Record<string, {
         friend_id: string;
         friend_name: string;
@@ -3016,28 +4008,8 @@ export default function TodoScreen() {
         friend_username: string;
       }> = {};
 
-      sharedTasks.forEach(sharedTask => {
+      relevantSharedTasks.forEach(sharedTask => {
         const taskId = sharedTask.original_task_id;
-        if (!taskFriendsMap[taskId]) {
-          taskFriendsMap[taskId] = [];
-        }
-
-        // Add shared_by friend
-        if (sharedTask.shared_by !== userToUse.id) {
-          const friendProfile = friendProfilesMap.get(sharedTask.shared_by);
-          if (friendProfile && !taskFriendsMap[taskId].some(f => f.friend_id === friendProfile.friend_id)) {
-            taskFriendsMap[taskId].push(friendProfile);
-          }
-        }
-
-        // Add shared_with friend
-        if (sharedTask.shared_with !== userToUse.id) {
-          const friendProfile = friendProfilesMap.get(sharedTask.shared_with);
-          if (friendProfile && !taskFriendsMap[taskId].some(f => f.friend_id === friendProfile.friend_id)) {
-            taskFriendsMap[taskId].push(friendProfile);
-          }
-        }
-
         // Track who shared this task with the current user
         if (sharedTask.shared_with === userToUse.id && sharedTask.shared_by !== userToUse.id) {
           const sharedByProfile = friendProfilesMap.get(sharedTask.shared_by);
@@ -3049,6 +4021,7 @@ export default function TodoScreen() {
 
       console.log('🔍 Final task friends map:', taskFriendsMap);
       console.log('🔍 Task shared by map:', taskSharedByMap);
+      console.log('🔍 Task participants map:', taskParticipantsMap);
       setTaskSharedFriends(taskFriendsMap);
       setTaskSharedBy(taskSharedByMap);
     } catch (error) {
@@ -3168,7 +4141,7 @@ export default function TodoScreen() {
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
-              gap: 8,
+              gap: 3,
           }}>
             <TouchableOpacity
                 onPress={goToToday}
@@ -3180,7 +4153,7 @@ export default function TodoScreen() {
               <Text style={{
                 fontSize: 25,
                 fontWeight: '700',
-                color: '#333',
+                color: Colors.light.text,
                 fontFamily: 'Onest',
               }}>
                 {moment(currentDate).format('MMMM D')}
@@ -3192,7 +4165,7 @@ export default function TodoScreen() {
                   padding: 4,
                 }}
               >
-              <Ionicons name="chevron-down" size={16} color="#666" style={{ marginLeft: 1 }} />
+              <Ionicons name="chevron-down" size={16} color={Colors.light.icon} style={{ marginLeft: 1 }} />
             </TouchableOpacity>
             </View>
 
@@ -3210,10 +4183,16 @@ export default function TodoScreen() {
                   alignSelf: 'center',
                 }}
               >
-                <Ionicons name="bar-chart-outline" size={18} color="#666" />
+                <Ionicons name="bar-chart-outline" size={16} color={Colors.light.icon} />
               </TouchableOpacity>
             )}
+
+
+
+
           </View>
+
+
 
           {/* Date Picker Modal */}
           {showDatePicker && (
@@ -3242,7 +4221,7 @@ export default function TodoScreen() {
                 position: 'absolute',
                 top: 110,
                   left: 22,
-                backgroundColor: 'white',
+                  backgroundColor: Colors.light.background,
                   borderRadius: 16,
                   width: 320,
                 shadowColor: '#000',
@@ -3270,7 +4249,7 @@ export default function TodoScreen() {
                         height: 70,
                     width: '100%',
                   }}
-                  textColor="#333"
+                  textColor={Colors.light.text}
                       themeVariant="light"
                 />
               </View>
@@ -3285,7 +4264,7 @@ export default function TodoScreen() {
             marginHorizontal: 22,
             marginBottom: 20,
             borderBottomWidth: 1,
-            borderBottomColor: '#f0f0f0',
+            borderBottomColor: Colors.light.surfaceVariant,
           }}>
             <TouchableOpacity
               onPress={() => setActiveTab('tasks')}
@@ -3294,13 +4273,13 @@ export default function TodoScreen() {
                 paddingVertical: 12,
                 alignItems: 'center',
                 borderBottomWidth: 2,
-                borderBottomColor: activeTab === 'tasks' ? '#667eea' : 'transparent',
+                borderBottomColor: activeTab === 'tasks' ? '#3b82f6' : 'transparent',
               }}
             >
               <Text style={{
                 fontSize: 16,
                 fontWeight: activeTab === 'tasks' ? '600' : '400',
-                color: activeTab === 'tasks' ? '#667eea' : '#999',
+                color: activeTab === 'tasks' ? '#3b82f6' : '#64748b',
                 fontFamily: 'Onest',
               }}>
                 Tasks
@@ -3314,13 +4293,13 @@ export default function TodoScreen() {
                 paddingVertical: 12,
                 alignItems: 'center',
                 borderBottomWidth: 2,
-                borderBottomColor: activeTab === 'habits' ? '#667eea' : 'transparent',
+                borderBottomColor: activeTab === 'habits' ? '#3b82f6' : 'transparent',
               }}
             >
               <Text style={{
                 fontSize: 16,
                 fontWeight: activeTab === 'habits' ? '600' : '400',
-                color: activeTab === 'habits' ? '#667eea' : '#999',
+                color: activeTab === 'habits' ? '#3b82f6' : '#64748b',
                 fontFamily: 'Onest',
               }}>
                 Habits
@@ -3412,6 +4391,10 @@ export default function TodoScreen() {
                               if (Platform.OS !== 'web') {
                                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                               }
+                              // Close the swipeable immediately
+                              if (swipeableRefs.current[habit.id]) {
+                                swipeableRefs.current[habit.id].close();
+                              }
                               deleteHabit(habit.id);
                             }}
                           >
@@ -3421,15 +4404,63 @@ export default function TodoScreen() {
                           </TouchableOpacity>
                         </View>
                       )}
-                      renderLeftActions={undefined}
+                      renderLeftActions={() => (
+                        <View style={[habitStyles.leftAction, {
+                          backgroundColor: `${habit.color}90`,
+                        }]}>
+                          <TouchableOpacity
+                            onPress={() => {
+                              if (Platform.OS !== 'web') {
+                                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              }
+                              // Close the swipeable immediately
+                              if (swipeableRefs.current[habit.id]) {
+                                swipeableRefs.current[habit.id].close();
+                              }
+                              setSelectedHabitForLog(habit);
+                              setLogDate(moment().format('YYYY-MM-DD'));
+                              // Pre-fill with existing note for today if it exists
+                              const today = moment().format('YYYY-MM-DD');
+                              const existingNote = habit.notes?.[today] || '';
+                              setLogNoteText(existingNote);
+                              setIsHabitLogModalVisible(true);
+                            }}
+                          >
+                            <View style={habitStyles.noteIconContainer}>
+                              <Ionicons name="create-outline" size={24} color="#FFF8E8" />
+                            </View>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                       onSwipeableRightOpen={() => {
                         if (Platform.OS !== 'web') {
                           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                         }
+                        // Close the swipeable after a short delay
+                        setTimeout(() => {
+                          if (swipeableRefs.current[habit.id]) {
+                            swipeableRefs.current[habit.id].close();
+                          }
+                        }, 100);
                         deleteHabit(habit.id);
                       }}
                       onSwipeableLeftOpen={() => {
-                        // This will be handled by individual button presses
+                        if (Platform.OS !== 'web') {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        }
+                        // Close the swipeable after a short delay
+                        setTimeout(() => {
+                          if (swipeableRefs.current[habit.id]) {
+                            swipeableRefs.current[habit.id].close();
+                          }
+                        }, 100);
+                        setSelectedHabitForLog(habit);
+                        setLogDate(moment().format('YYYY-MM-DD'));
+                        // Pre-fill with existing note for today if it exists
+                        const today = moment().format('YYYY-MM-DD');
+                        const existingNote = habit.notes?.[today] || '';
+                        setLogNoteText(existingNote);
+                        setIsHabitLogModalVisible(true);
                       }}
                       friction={1.5}
                       overshootRight={false}
@@ -3512,7 +4543,8 @@ export default function TodoScreen() {
                           {/* Progress Section */}
                           <View style={{
                             marginBottom: 5,
-                            paddingRight: 30, // Increased padding to prevent overlap
+                            marginTop: 3, // Added top margin to move weekdays and progress bar down
+                            paddingRight: 0, // Reduced padding to make progress bar longer
                           }}>
                             <View style={{
                               flexDirection: 'row',
@@ -3532,7 +4564,8 @@ export default function TodoScreen() {
                                   return weekDays.map((day, index) => {
                                     const dayDate = moment(weekStart).add(index, 'days');
                                     const dateStr = dayDate.format('YYYY-MM-DD');
-                                    const isCompleted = completedDays.includes(dateStr);
+                                    // Handle both old format (YYYY-MM-DD) and new format (YYYY-MM-DD-HH-MM-SS)
+                                    const isCompleted = completedDays.some(date => date.startsWith(dateStr));
                                     const isToday = dayDate.isSame(moment(), 'day');
                                     
                                     return (
@@ -3580,7 +4613,9 @@ export default function TodoScreen() {
                               }}>
                                 {(() => {
                                   const completedThisWeek = (habit.completedDays || []).filter(date => {
-                                    const habitDate = moment(date, 'YYYY-MM-DD');
+                                    // Handle both old format (YYYY-MM-DD) and new format (YYYY-MM-DD-HH-MM-SS)
+                                    const dateOnly = date.split('-').slice(0, 3).join('-'); // Extract YYYY-MM-DD part
+                                    const habitDate = moment(dateOnly, 'YYYY-MM-DD');
                                     const weekStart = moment().startOf('isoWeek');
                                     const weekEnd = moment().endOf('isoWeek');
                                     return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
@@ -3621,27 +4656,7 @@ export default function TodoScreen() {
                               </View>
                             </View>
                             
-                            {/* Notes/Photo Modal Button */}
-                            <TouchableOpacity
-                              onPress={() => {
-                                setSelectedHabitForLog(habit);
-                                setLogDate(moment().format('YYYY-MM-DD'));
-                                // Pre-fill with existing note for today if it exists
-                                const today = moment().format('YYYY-MM-DD');
-                                const existingNote = habit.notes?.[today] || '';
-                                setLogNoteText(existingNote);
-                                setIsHabitLogModalVisible(true);
-                              }}
-                              style={{
-                                padding: 4,
-                              }}
-                            >
-                              <Ionicons 
-                                name="create-outline" 
-                                size={16} 
-                                color="#666"
-                              />
-                            </TouchableOpacity>
+
                           </View>
                           
                           {/* Reminder Info */}
@@ -3675,32 +4690,386 @@ export default function TodoScreen() {
             )}
           </ScrollView>
 
-          {/* ADD TASK BUTTON */}
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={() => {
-              if (activeTab === 'tasks') {
-                handleAddButtonPress();
-              } else {
-                // Clear habit form fields when opening new habit modal
-                setNewHabit('');
-                setNewHabitDescription('');
-                setNewHabitColor('');
-                setHabitReminderTime(null);
-                setHabitRequirePhoto(false);
-                setHabitTargetPerWeek(0);
-                setEditingHabit(null);
-                setShowHabitReminderPicker(false);
+          {/* Quick Add Input - Always visible when tasks tab is active */}
+          {activeTab === 'tasks' && (
+            <Animated.View style={[{
+                    position: 'absolute',
+                    bottom: 100,
+                    left: 20,
+                    right: 20,
+              backgroundColor: Colors.light.surface,
+                borderRadius: 16,
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 8,
+              elevation: 4,
+                borderWidth: 1,
+              borderColor: Colors.light.border,
+              zIndex: 1000,
+            }, animatedStyle]}>
+              <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+              }}>
+                <TextInput
+                  ref={quickAddInputRef}
+                  style={{
+                    flex: 1,
+                    fontSize: 16,
+                    color: Colors.light.text,
+                    fontFamily: 'Onest',
+                    paddingVertical: 4,
+                  }}
+                  placeholder="Create a task..."
+                  placeholderTextColor={Colors.light.icon}
+                  value={quickAddText}
+                  onChangeText={setQuickAddText}
+                  onSubmitEditing={handleQuickAdd}
+                  returnKeyType="done"
+                  blurOnSubmit={false}
+                  onFocus={() => {
+                    setIsQuickAddFocused(true);
+                  }}
+                  onBlur={() => {
+                    setIsQuickAddFocused(false);
+                  }}
+                />
                 
-                // Small delay to ensure state is cleared before opening modal
-                setTimeout(() => {
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {/* Priority toggle - task must get done regardless of date */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setQuickAddAutoMove(!quickAddAutoMove);
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                    }}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      backgroundColor: quickAddAutoMove ? Colors.light.primary : 'transparent',
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: quickAddAutoMove ? Colors.light.primary : Colors.light.border,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons 
+                      name="bookmark-outline" 
+                      size={16} 
+                      color={quickAddAutoMove ? 'white' : Colors.light.icon} 
+                    />
+                  </TouchableOpacity>
+                  
+                  {/* More options button */}
+                <TouchableOpacity
+                    onPress={() => {
+                      handleAddButtonPress();
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                    }}
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 6,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: Colors.light.border,
+                  }}
+                    activeOpacity={0.7}
+                >
+                    <Ionicons name="ellipsis-horizontal" size={16} color={Colors.light.icon} />
+                </TouchableOpacity>
+                  
+                  {/* Submit button */}
+                {quickAddText.trim() && (
+                  <TouchableOpacity
+                    onPress={handleQuickAdd}
+                    disabled={isQuickAdding}
+                    style={{
+                        width: 28,
+                        height: 28,
+                        backgroundColor: Colors.light.accent,
+                        borderRadius: 14,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      opacity: isQuickAdding ? 0.6 : 1,
+                    }}
+                      activeOpacity={0.7}
+                  >
+                    {isQuickAdding ? (
+                        <ActivityIndicator size="small" color="white" />
+                    ) : (
+                        <Ionicons name="arrow-up" size={14} color="white" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                </View>
+              </View>
+            </Animated.View>
+          )}
+          
+          {/* Quick Add Input for Habits - Always visible when habits tab is active */}
+          {activeTab === 'habits' && (
+            <Animated.View style={[{
+              position: 'absolute',
+              bottom: 100,
+              left: 20,
+              right: 20,
+              backgroundColor: Colors.light.surface,
+              borderRadius: 16,
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.1,
+              shadowRadius: 8,
+              elevation: 4,
+              borderWidth: 1,
+              borderColor: Colors.light.border,
+              zIndex: 1000,
+            }, animatedStyle]}>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}>
+                <TextInput
+                  ref={quickAddHabitInputRef}
+                  style={{
+                    flex: 1,
+                    fontSize: 16,
+                    color: Colors.light.text,
+                    fontFamily: 'Onest',
+                    paddingVertical: 4,
+                  }}
+                  placeholder="Create a habit..."
+                  placeholderTextColor={Colors.light.icon}
+                  value={quickAddHabitText}
+                  onChangeText={setQuickAddHabitText}
+                  onSubmitEditing={handleQuickAddHabit}
+                  returnKeyType="done"
+                  blurOnSubmit={false}
+                  onFocus={() => {
+                    setIsQuickAddHabitFocused(true);
+                  }}
+                  onBlur={() => {
+                    setIsQuickAddHabitFocused(false);
+                  }}
+                />
+                
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {/* Weekly goal selector */}
+                  <View style={{ position: 'relative' }}>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowWeeklyGoalPanel(!showWeeklyGoalPanel);
+                        if (Platform.OS !== 'web') {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }
+                      }}
+                      style={{
+                        paddingHorizontal: 8,
+                        paddingVertical: 6,
+                        backgroundColor: Colors.light.primary,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: Colors.light.primary,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{
+                        fontSize: 12,
+                        fontWeight: '600',
+                        color: 'white',
+                        fontFamily: 'Onest',
+                      }}>
+                        {quickAddWeeklyGoal}
+                      </Text>
+                      <Ionicons 
+                        name={showWeeklyGoalPanel ? "chevron-up" : "chevron-down"} 
+                        size={12} 
+                        color="white" 
+                      />
+                    </TouchableOpacity>
+                    
+                                        {/* Weekly goal panel */}
+                    {showWeeklyGoalPanel && (
+                      <View style={{
+                        position: 'absolute',
+                        bottom: '160%',
+                        left: -48, // Move panel a bit to the right
+                        backgroundColor: Colors.light.surface,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: Colors.light.border,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 4,
+                        elevation: 4,
+                        marginBottom: 4,
+                        zIndex: 1001,
+                        width: 140, // Reduced width to eliminate empty space
+                      }}>
+                        <View style={{
+                          padding: 6,
+                          gap: 4,
+                        }}>
+                          {/* First row: 1 2 3 4 */}
+                          <View style={{
+                            flexDirection: 'row',
+                            gap: 3,
+                            justifyContent: 'center',
+                          }}>
+                            {[1, 2, 3, 4].map((goal) => (
+                              <TouchableOpacity
+                                key={goal}
+                                onPress={() => {
+                                  setQuickAddWeeklyGoal(goal);
+                                  setShowWeeklyGoalPanel(false);
+                                  if (Platform.OS !== 'web') {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  }
+                                }}
+                                style={{
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  backgroundColor: quickAddWeeklyGoal === goal ? Colors.light.primary : 'transparent',
+                                  borderRadius: 4,
+                                  borderWidth: 1,
+                                  borderColor: quickAddWeeklyGoal === goal ? Colors.light.primary : Colors.light.border,
+                                  minWidth: 24,
+                                  alignItems: 'center',
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  color: quickAddWeeklyGoal === goal ? 'white' : Colors.light.text,
+                                  fontFamily: 'Onest',
+                                }}>
+                                  {goal}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                          
+                          {/* Second row: 5 6 7 */}
+                          <View style={{
+                            flexDirection: 'row',
+                            gap: 3,
+                            justifyContent: 'center',
+                          }}>
+                            {[5, 6, 7].map((goal) => (
+                              <TouchableOpacity
+                                key={goal}
+                                onPress={() => {
+                                  setQuickAddWeeklyGoal(goal);
+                                  setShowWeeklyGoalPanel(false);
+                                  if (Platform.OS !== 'web') {
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                                  }
+                                }}
+                                style={{
+                                  paddingHorizontal: 8,
+                                  paddingVertical: 4,
+                                  backgroundColor: quickAddWeeklyGoal === goal ? Colors.light.primary : 'transparent',
+                                  borderRadius: 4,
+                                  borderWidth: 1,
+                                  borderColor: quickAddWeeklyGoal === goal ? Colors.light.primary : Colors.light.border,
+                                  minWidth: 24,
+                                  alignItems: 'center',
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={{
+                                  fontSize: 11,
+                                  fontWeight: '600',
+                                  color: quickAddWeeklyGoal === goal ? 'white' : Colors.light.text,
+                                  fontFamily: 'Onest',
+                                }}>
+                                  {goal}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                  
+                  {/* More options button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      // Pre-populate the habit modal with quick add data
+                      setNewHabit(quickAddHabitText.trim());
+                      setHabitTargetPerWeek(quickAddWeeklyGoal);
+                      setIsNewHabitModalVisible(true);
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                    }}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: Colors.light.border,
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="ellipsis-horizontal" size={16} color={Colors.light.icon} />
+                  </TouchableOpacity>
+                  
+                  {/* Submit button */}
+                  {quickAddHabitText.trim() && (
+                    <TouchableOpacity
+                      onPress={handleQuickAddHabit}
+                      disabled={isQuickAddingHabit}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        backgroundColor: Colors.light.accent,
+                        borderRadius: 14,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        opacity: isQuickAddingHabit ? 0.6 : 1,
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      {isQuickAddingHabit ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <Ionicons name="arrow-up" size={14} color="white" />
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+            </Animated.View>
+          )}
+          
+          {/* Legacy Add button for habits tab - now hidden since we have quick add */}
+          {/* {activeTab === 'habits' && (
+            <TouchableOpacity
+              style={styles.addButton}
+              onPress={() => {
                   setIsNewHabitModalVisible(true);
-                }, 50);
-              }
-            }}
-          >
-            <Ionicons name="add" size={22} color="white" />
-          </TouchableOpacity>
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+              }}
+            >
+              <Ionicons name="add" size={22} color="white" />
+            </TouchableOpacity>
+          )} */}
         </View>
       </PanGestureHandler>
 
@@ -3712,7 +5081,7 @@ export default function TodoScreen() {
         onRequestClose={handleCloseNewTaskModal}
         presentationStyle="pageSheet"
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.light.surface }}>
           <KeyboardAvoidingView 
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -3733,14 +5102,14 @@ export default function TodoScreen() {
                       const category = categories.find(cat => cat.id === selectedCategoryId);
                       return category ? category.color + '60' : '#ffffff';
                     }
-                    return '#ffffff';
+                    return Colors.light.background;
                   } else {
                     // New task modal
                     if (selectedCategoryId && selectedCategoryId.trim() !== '') {
                       const category = categories.find(cat => cat.id === selectedCategoryId);
-                      return category ? category.color + '60' : '#ffffff';
+                      return category ? category.color + '60' : Colors.light.background;
                     }
-                    return '#ffffff';
+                    return Colors.light.background;
                   }
                 })(),
               }}>
@@ -3760,13 +5129,13 @@ export default function TodoScreen() {
                     alignItems: 'center',
                   }}
                 >
-                  <Ionicons name="close" size={16} color="#666" />
+                  <Ionicons name="close" size={16} color={Colors.light.icon} />
                 </TouchableOpacity>
                 
                 <Text style={{ 
                   fontSize: 16, 
                   fontWeight: '600', 
-                  color: '#333',
+                  color: Colors.light.text,
                   fontFamily: 'Onest'
                 }}>
                   {editingTodo ? 'Edit Task' : 'New Task'}
@@ -3779,7 +5148,7 @@ export default function TodoScreen() {
                     width: 32,
                     height: 32,
                     borderRadius: 16,
-                    backgroundColor: newTodo.trim() ? '#667eea' : '#ffffff',
+                    backgroundColor: newTodo.trim() ? Colors.light.accent : Colors.light.background,
                     justifyContent: 'center',
                     alignItems: 'center',
                   }}
@@ -3787,7 +5156,7 @@ export default function TodoScreen() {
                   <Ionicons 
                     name="checkmark" 
                     size={16} 
-                    color={newTodo.trim() ? 'white' : '#999'} 
+                    color={newTodo.trim() ? 'white' : Colors.light.icon} 
                   />
                 </TouchableOpacity>
               </View>
@@ -3810,7 +5179,7 @@ export default function TodoScreen() {
               >
                 {/* Task Title Card */}
                 <View style={{
-                  backgroundColor: 'white',
+                  backgroundColor: Colors.light.background,
                   borderRadius: 12,
                   padding: 16,
                   marginBottom: 18,
@@ -3829,7 +5198,7 @@ export default function TodoScreen() {
                       marginBottom: 5,
                     }}
                     placeholder="Task Title"
-                    placeholderTextColor="#888"
+                    placeholderTextColor={Colors.light.icon}
                     value={newTodo}
                     onChangeText={setNewTodo}
                   />
@@ -3838,7 +5207,7 @@ export default function TodoScreen() {
                     ref={newDescriptionInputRef}
                     style={{
                       fontSize: 13,
-                      color: '#666',
+                      color: Colors.light.icon,
                       fontFamily: 'Onest',
                       fontWeight: '400',
                       marginTop: 5,
@@ -3847,8 +5216,8 @@ export default function TodoScreen() {
                       textAlignVertical: 'top',
                       minHeight: 60,
                     }}
-                    placeholder="Description (optional)"
-                    placeholderTextColor="#999"
+                    placeholder="Description"
+                    placeholderTextColor={Colors.light.icon}
                     value={newDescription}
                     onChangeText={setNewDescription}
                     multiline
@@ -3858,7 +5227,7 @@ export default function TodoScreen() {
 
                 {/* Date Card */}
                 <View style={{
-                  backgroundColor: 'white',
+                  backgroundColor: Colors.light.background,
                   borderRadius: 12,
                   padding: 16,
                   marginBottom: 18,
@@ -3871,7 +5240,7 @@ export default function TodoScreen() {
                   <Text style={{
                     fontSize: 14,
                     fontWeight: '600',
-                    color: '#333',
+                    color: Colors.light.text,
                     marginBottom: 12,
                     fontFamily: 'Onest'
                   }}>
@@ -3883,18 +5252,18 @@ export default function TodoScreen() {
                       Keyboard.dismiss();
                     }}
                     style={{
-                      backgroundColor: '#f8f9fa',
+                      backgroundColor: Colors.light.surface,
                       borderRadius: 8,
                       paddingVertical: 10,
                       paddingHorizontal: 12,
                       borderWidth: 1,
-                      borderColor: showDatePicker ? '#667eea' : '#f0f0f0',
+                      borderColor: showDatePicker ? Colors.light.accent : Colors.light.border,
                     }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Text style={{
                         fontSize: 14,
-                        color: '#333',
+                        color: Colors.light.text,
                         fontFamily: 'Onest',
                         fontWeight: '500'
                       }}>
@@ -3939,27 +5308,27 @@ export default function TodoScreen() {
                         markedDates={{
                           [taskDate ? moment(taskDate).format('YYYY-MM-DD') : '']: {
                             selected: true,
-                            selectedColor: '#667eea',
+                            selectedColor: '#3b82f6',
                           },
                           [moment().format('YYYY-MM-DD')]: {
                             today: true,
-                            todayTextColor: '#667eea',
+                            todayTextColor: '#3b82f6',
                           }
                         }}
                         theme={{
                           backgroundColor: 'transparent',
                           calendarBackground: 'transparent',
                           textSectionTitleColor: '#333',
-                          selectedDayBackgroundColor: '#667eea',
+                          selectedDayBackgroundColor: '#3b82f6',
                           selectedDayTextColor: '#ffffff',
-                          todayTextColor: '#667eea',
+                          todayTextColor: '#3b82f6',
                           dayTextColor: '#333',
                           textDisabledColor: '#d9e1e8',
-                          dotColor: '#667eea',
+                          dotColor: '#3b82f6',
                           selectedDotColor: '#ffffff',
-                          arrowColor: '#667eea',
+                          arrowColor: '#3b82f6',
                           monthTextColor: '#333',
-                          indicatorColor: '#667eea',
+                          indicatorColor: '#3b82f6',
                           textDayFontFamily: 'Onest',
                           textMonthFontFamily: 'Onest',
                           textDayHeaderFontFamily: 'Onest',
@@ -3980,7 +5349,7 @@ export default function TodoScreen() {
 
                 {/* Category Card */}
                 <View style={{
-                  backgroundColor: 'white',
+                  backgroundColor: Colors.light.background,
                   borderRadius: 12,
                   padding: 16,
                   marginBottom: 18,
@@ -3993,7 +5362,7 @@ export default function TodoScreen() {
                   <Text style={{
                     fontSize: 14,
                     fontWeight: '600',
-                    color: '#333',
+                    color: Colors.light.text,
                     marginBottom: 12,
                     fontFamily: 'Onest'
                   }}>
@@ -4014,12 +5383,12 @@ export default function TodoScreen() {
                       Keyboard.dismiss();
                     }}
                     style={{
-                      backgroundColor: '#f8f9fa',
+                      backgroundColor: Colors.light.surface,
                       borderRadius: 8,
                       paddingVertical: 10,
                       paddingHorizontal: 12,
                       borderWidth: 1,
-                      borderColor: showCategoryBox ? '#667eea' : '#f0f0f0',
+                      borderColor: showCategoryBox ? Colors.light.accent : Colors.light.border,
                     }}
                   >
                     {!showCategoryBox ? (
@@ -4031,7 +5400,7 @@ export default function TodoScreen() {
                                 width: 8, 
                                 height: 8, 
                                 borderRadius: 4, 
-                                backgroundColor: categories.find(cat => cat.id === selectedCategoryId)?.color || '#666',
+                                backgroundColor: categories.find(cat => cat.id === selectedCategoryId)?.color || '#64748b',
                                 marginRight: 8
                               }} />
                               <Text style={{ 
@@ -4046,7 +5415,7 @@ export default function TodoScreen() {
                           ) : (
                             <Text style={{ 
                               fontSize: 14, 
-                              color: '#999',
+                              color: '#64748b',
                               fontFamily: 'Onest',
                               fontWeight: '500'
                             }}>
@@ -4086,7 +5455,7 @@ export default function TodoScreen() {
                             }}
                             delayLongPress={500}
                             style={({ pressed }) => ({
-                              backgroundColor: selectedCategoryId === cat.id ? cat.color + '20' : '#f8f9fa',
+                              backgroundColor: selectedCategoryId === cat.id ? cat.color + '20' : Colors.light.surface,
                               paddingVertical: 6,
                               paddingHorizontal: 10,
                               borderRadius: 16,
@@ -4119,7 +5488,7 @@ export default function TodoScreen() {
                             Keyboard.dismiss();
                           }}
                           style={{
-                            backgroundColor: '#f8f9fa',
+                            backgroundColor: Colors.light.surface,
                             paddingVertical: 6,
                             paddingHorizontal: 10,
                             borderRadius: 16,
@@ -4128,21 +5497,21 @@ export default function TodoScreen() {
                             gap: 4,
                           }}
                         >
-                          <Ionicons name="add" size={12} color="#666" />
+                          <Ionicons name="add" size={12} color="#64748b" />
                         </TouchableOpacity>
                       </View>
                     )}
 
                     {showNewCategoryInput && (
                       <View style={{
-                        backgroundColor: '#f8f9fa',
+                        backgroundColor: Colors.light.surface,
                         padding: 12,
                         borderRadius: 8,
                         marginTop: 8,
                       }}>
                         <Text style={{
                           fontSize: 14,
-                          color: '#333',
+                          color: Colors.light.text,
                           fontFamily: 'Onest',
                           fontWeight: '600',
                           marginBottom: 8,
@@ -4152,14 +5521,14 @@ export default function TodoScreen() {
                         <TextInput
                           ref={categoryInputRef}
                           style={{
-                            backgroundColor: 'white',
+                            backgroundColor: Colors.light.background,
                             padding: 8,
                             borderRadius: 6,
                             marginBottom: 8,
                             fontSize: 14,
                             fontFamily: 'Onest',
                             borderWidth: 1,
-                            borderColor: '#e0e0e0',
+                            borderColor: Colors.light.borderVariant,
                           }}
                           placeholder="Category name"
                           value={newCategoryName}
@@ -4169,7 +5538,7 @@ export default function TodoScreen() {
                         {/* Color Picker */}
                         <Text style={{
                           fontSize: 12,
-                          color: '#666',
+                          color: Colors.light.icon,
                           fontFamily: 'Onest',
                           fontWeight: '500',
                           marginBottom: 6,
@@ -4219,7 +5588,7 @@ export default function TodoScreen() {
                               alignItems: 'center',
                             }}
                           >
-                            <Ionicons name="close" size={16} color="#666" />
+                            <Ionicons name="close" size={16} color="#64748b" />
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={async () => {
@@ -4335,6 +5704,9 @@ export default function TodoScreen() {
                             display="spinner"
                             onChange={(event, selectedDate) => {
                               if (selectedDate) {
+                                console.log('🔔 [Todo Notifications] Reminder picker selected date:', selectedDate);
+                                console.log('🔔 [Todo Notifications] Selected date type:', typeof selectedDate);
+                                console.log('🔔 [Todo Notifications] Selected date is Date object:', selectedDate instanceof Date);
                                 setReminderTime(selectedDate);
                                 debouncePickerClose('reminder');
                               }
@@ -4373,7 +5745,7 @@ export default function TodoScreen() {
                             paddingVertical: 8,
                             paddingHorizontal: 12,
                             borderWidth: 1,
-                            borderColor: showRepeatPicker ? '#667eea' : '#f0f0f0',
+                            borderColor: showRepeatPicker ? '#3b82f6' : '#e2e8f0',
                           }}
                         >
                           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -4422,7 +5794,7 @@ export default function TodoScreen() {
                                   }
                                 }}
                                 style={{
-                                  backgroundColor: selectedRepeat === option.value ? '#f0f0f0' : 'transparent',
+                                  backgroundColor: selectedRepeat === option.value ? '#f1f5f9' : 'transparent',
                                   paddingVertical: 8,
                                   paddingHorizontal: 12,
                                   borderRadius: 6,
@@ -4441,7 +5813,7 @@ export default function TodoScreen() {
                                   {option.label}
                                 </Text>
                                 {selectedRepeat === option.value && (
-                                  <Ionicons name="checkmark" size={16} color="#007AFF" />
+                                  <Ionicons name="checkmark" size={16} color="#3b82f6" />
                                 )}
                               </TouchableOpacity>
                             ))}
@@ -4537,7 +5909,7 @@ export default function TodoScreen() {
                                       },
                                       [moment().format('YYYY-MM-DD')]: {
                                         today: true,
-                                        todayTextColor: '#007AFF',
+                                        todayTextColor: '#3b82f6',
                                       }
                                     }}
                                     minDate={moment().format('YYYY-MM-DD')}
@@ -4545,9 +5917,9 @@ export default function TodoScreen() {
                                       backgroundColor: 'transparent',
                                       calendarBackground: 'transparent',
                                       textSectionTitleColor: '#333',
-                                      selectedDayBackgroundColor: '#007AFF',
+                                      selectedDayBackgroundColor: '#3b82f6',
                                       selectedDayTextColor: '#ffffff',
-                                      todayTextColor: '#007AFF',
+                                      todayTextColor: '#3b82f6',
                                       dayTextColor: '#333',
                                       textDisabledColor: '#d9e1e8',
                                       dotColor: '#007AFF',
@@ -4575,6 +5947,54 @@ export default function TodoScreen() {
                           )}
                         </View>
                       )}
+                    </View>
+
+                    {/* Auto-move Toggle */}
+                    <View>
+                      <View style={{ 
+                        flexDirection: 'row', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        marginBottom: 4,
+                      }}>
+                        <Text style={{ 
+                          fontSize: 14, 
+                          color: '#333', 
+                          fontFamily: 'Onest',
+                          fontWeight: '500'
+                        }}>
+                          Move to tomorrow
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setModalAutoMove(prev => !prev);
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          }}
+                          style={{
+                            backgroundColor: modalAutoMove ? '#3b82f6' : '#e2e8f0',
+                            borderRadius: 20,
+                            width: 44,
+                            height: 24,
+                            paddingHorizontal: 2,
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderColor: modalAutoMove ? '#3b82f6' : '#cbd5e1',
+                          }}
+                        >
+                          <View style={{
+                            backgroundColor: 'white',
+                            borderRadius: 10,
+                            width: 20,
+                            height: 20,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 1 },
+                            shadowOpacity: 0.2,
+                            shadowRadius: 2,
+                            elevation: 2,
+                            transform: [{ translateX: modalAutoMove ? 20 : 0 }],
+                          }} />
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -4697,22 +6117,47 @@ export default function TodoScreen() {
                     }}
                     placeholderTextColor="#999"
                   />
-                  {(searchFriend.trim() !== '' || isSearchFocused) && (
+                  {/* Always show friends list */}
+                  {true && (
                     <FlatList
                       data={friends.filter(f =>
-                        f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
-                        f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())
+                        (f.friend_name.toLowerCase().includes(searchFriend.toLowerCase()) ||
+                        f.friend_username.toLowerCase().includes(searchFriend.toLowerCase())) &&
+                        !selectedFriends.includes(f.friend_id)
                       )}
                       keyExtractor={item => `${item.friend_id}-${item.friendship_id}`}
                       horizontal
                       showsHorizontalScrollIndicator={false}
+                      ListEmptyComponent={() => {
+                        console.log('🔍 Friends list: No friends to display. Total friends:', friends.length);
+                        console.log('🔍 Friends list: Search term:', searchFriend);
+                        console.log('🔍 Friends list: Selected friends:', selectedFriends);
+                        return (
+                          <View style={{ 
+                            alignItems: 'center', 
+                            justifyContent: 'center',
+                            paddingVertical: 16,
+                            minWidth: 180
+                          }}>
+                            <Ionicons name="people-outline" size={20} color="#CED4DA" />
+                            <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
+                              {friends.length === 0 ? 'No friends yet' : 'No friends match search'}
+                            </Text>
+                          </View>
+                        );
+                      }}
                       renderItem={({ item }) => (
                         <TouchableOpacity
                           style={{
-                            marginRight: 10,
+                            marginRight: 3,
                             alignItems: 'center',
                             opacity: selectedFriends.includes(item.friend_id) ? 0.5 : 1,
-                            paddingVertical: 2,
+                            paddingVertical: 3,
+                            paddingHorizontal: 6,
+                            borderRadius: 6,
+                            backgroundColor: 'transparent',
+                            borderWidth: selectedFriends.includes(item.friend_id) ? 1 : 0,
+                            borderColor: '#007AFF',
                           }}
                           onPress={() => {
                             setSelectedFriends(prev =>
@@ -4720,44 +6165,33 @@ export default function TodoScreen() {
                                 ? prev.filter(id => id !== item.friend_id)
                                 : [...prev, item.friend_id]
                             );
+                            // Clear search when a friend is selected
+                            setSearchFriend('');
                           }}
                         >
                           {item.friend_avatar && item.friend_avatar.trim() !== '' ? (
                             <Image 
                               source={{ uri: item.friend_avatar }} 
-                              style={{ width: 36, height: 36, borderRadius: 18, marginBottom: 4 }} 
+                              style={{ width: 32, height: 32, borderRadius: 16, marginBottom: 6 }} 
                             />
                           ) : (
                             <View 
                               style={{ 
-                                width: 36, 
-                                height: 36, 
-                                borderRadius: 18, 
-                                marginBottom: 4,
+                                width: 32, 
+                                height: 32, 
+                                borderRadius: 16, 
+                                marginBottom: 6,
                                 backgroundColor: '#E9ECEF',
                                 justifyContent: 'center',
                                 alignItems: 'center'
                               }}
                             >
-                              <Ionicons name="person" size={16} color="#6C757D" />
+                              <Ionicons name="person" size={14} color="#6C757D" />
                             </View>
                           )}
-                          <Text style={{ fontSize: 11, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
+                          <Text style={{ fontSize: 10, fontFamily: 'Onest', color: '#495057', fontWeight: '500' }}>{item.friend_name}</Text>
                         </TouchableOpacity>
                       )}
-                      ListEmptyComponent={
-                        <View style={{ 
-                          alignItems: 'center', 
-                          justifyContent: 'center',
-                          paddingVertical: 16,
-                          minWidth: 180
-                        }}>
-                          <Ionicons name="people-outline" size={20} color="#CED4DA" />
-                          <Text style={{ color: '#6C757D', fontSize: 11, marginTop: 4, fontFamily: 'Onest' }}>
-                            No friends found
-                          </Text>
-                        </View>
-                      }
                       style={{ minHeight: 90 }} // Increased height for better accessibility
                     />
                   )}
@@ -4940,7 +6374,7 @@ export default function TodoScreen() {
         }}
         presentationStyle="pageSheet"
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: Colors.light.surface }}>
           <View style={{ flex: 1 }}>
             {/* Minimal Header */}
             <View style={{ 
@@ -4950,7 +6384,7 @@ export default function TodoScreen() {
               paddingHorizontal: 16,
               paddingVertical: 12,
               paddingTop: 40,
-              backgroundColor: '#ffffff',
+              backgroundColor: Colors.light.background,
             }}>
               <TouchableOpacity 
                 onPress={() => {
@@ -4965,13 +6399,13 @@ export default function TodoScreen() {
                   alignItems: 'center',
                 }}
               >
-                <Ionicons name="close" size={16} color="#666" />
+                <Ionicons name="close" size={16} color={Colors.light.icon} />
               </TouchableOpacity>
               
               <Text style={{ 
                 fontSize: 16, 
                 fontWeight: '600', 
-                color: '#333',
+                color: Colors.light.text,
                 fontFamily: 'Onest'
               }}>
                 {editingHabit ? 'Edit Habit' : 'New Habit'}
@@ -4984,7 +6418,7 @@ export default function TodoScreen() {
                   width: 32,
                   height: 32,
                   borderRadius: 16,
-                  backgroundColor: newHabit.trim() ? '#667eea' : '#ffffff',
+                  backgroundColor: newHabit.trim() ? Colors.light.accent : Colors.light.background,
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}
@@ -4992,7 +6426,7 @@ export default function TodoScreen() {
                 <Ionicons 
                   name="checkmark" 
                   size={16} 
-                  color={newHabit.trim() ? 'white' : '#999'} 
+                  color={newHabit.trim() ? 'white' : Colors.light.icon} 
                 />
               </TouchableOpacity>
             </View>
@@ -5006,7 +6440,7 @@ export default function TodoScreen() {
             >
               {/* Habit Title Card */}
               <View style={{
-                backgroundColor: 'white',
+                backgroundColor: Colors.light.background,
                 borderRadius: 12,
                 padding: 16,
                 marginBottom: 18,
@@ -5025,7 +6459,7 @@ export default function TodoScreen() {
                     marginBottom: 5,
                   }}
                   placeholder="Habit Title"
-                  placeholderTextColor="#888"
+                  placeholderTextColor={Colors.light.icon}
                   value={newHabit}
                   onChangeText={setNewHabit}
                 />
@@ -5033,7 +6467,7 @@ export default function TodoScreen() {
                 <TextInput
                   style={{
                     fontSize: 13,
-                    color: '#666',
+                    color: Colors.light.icon,
                     fontFamily: 'Onest',
                     fontWeight: '400',
                     marginTop: 5,
@@ -5043,7 +6477,7 @@ export default function TodoScreen() {
                     minHeight: 60,
                   }}
                   placeholder="Description"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={Colors.light.icon}
                   value={newHabitDescription}
                   onChangeText={setNewHabitDescription}
                   multiline
@@ -5053,7 +6487,7 @@ export default function TodoScreen() {
 
               {/* Weekly Goal Card */}
               <View style={{
-                backgroundColor: 'white',
+                backgroundColor: Colors.light.background,
                 borderRadius: 12,
                 padding: 16,
                 marginBottom: 18,
@@ -5066,7 +6500,7 @@ export default function TodoScreen() {
                 <Text style={{
                   fontSize: 14,
                   fontWeight: '600',
-                  color: '#333',
+                  color: Colors.light.text,
                   marginBottom: 8,
                   fontFamily: 'Onest'
                 }}>
@@ -5074,7 +6508,7 @@ export default function TodoScreen() {
                 </Text>
                 <Text style={{ 
                   fontSize: 12, 
-                  color: '#666', 
+                  color: Colors.light.icon, 
                   fontFamily: 'Onest',
                   marginBottom: 12,
                 }}>
@@ -5093,16 +6527,16 @@ export default function TodoScreen() {
                         Keyboard.dismiss();
                       }}
                       style={{
-                        backgroundColor: habitTargetPerWeek === goal ? '#667eea' : '#f8f9fa',
+                        backgroundColor: habitTargetPerWeek === goal ? Colors.light.accent : Colors.light.surface,
                         paddingVertical: 8,
                         paddingHorizontal: 12,
                         borderRadius: 16,
                         borderWidth: 1,
-                        borderColor: habitTargetPerWeek === goal ? '#667eea' : '#e0e0e0',
+                        borderColor: habitTargetPerWeek === goal ? Colors.light.accent : Colors.light.borderVariant,
                       }}
                     >
                       <Text style={{
-                        color: habitTargetPerWeek === goal ? 'white' : '#333',
+                        color: habitTargetPerWeek === goal ? 'white' : Colors.light.text,
                         fontSize: 14,
                         fontFamily: 'Onest',
                         fontWeight: habitTargetPerWeek === goal ? '600' : '500',
@@ -5226,7 +6660,7 @@ export default function TodoScreen() {
                               fontFamily: 'Onest',
                               fontWeight: '500'
                             }}>
-                            {habitReminderTime ? moment(habitReminderTime).format('MMM D, h:mm A') : 'No reminder'}
+                            {habitReminderTime ? moment(habitReminderTime).format('h:mm A') : 'No reminder'}
                             </Text>
                     </View>
                       </TouchableOpacity>
@@ -5243,14 +6677,23 @@ export default function TodoScreen() {
                       }}>
                         <DateTimePicker
                           value={habitReminderTime instanceof Date ? habitReminderTime : new Date()}
-                          mode="datetime"
+                          mode="time"
                           display="spinner"
                           onChange={(event, selectedTime) => {
-                            if (selectedTime && selectedTime > new Date()) {
-                              setHabitReminderTime(selectedTime);
+                            if (selectedTime) {
+                              // Create a new date with today's date and the selected time
+                              const today = new Date();
+                              const timeOnly = new Date(selectedTime);
+                              const combinedDateTime = new Date(
+                                today.getFullYear(),
+                                today.getMonth(),
+                                today.getDate(),
+                                timeOnly.getHours(),
+                                timeOnly.getMinutes()
+                              );
+                              setHabitReminderTime(combinedDateTime);
                             }
                           }}
-                          minimumDate={new Date()}
                           style={{
                             height: 80,
                             width: '100%',
@@ -5662,7 +7105,6 @@ export default function TodoScreen() {
                 backgroundColor: 'rgba(255, 255, 255, 0.1)',
                             borderRadius: 12,
                 padding: 16,
-                backdropFilter: 'blur(10px)',
                           }}>
                               <Text style={{ 
                   color: 'white',
@@ -5836,10 +7278,10 @@ export default function TodoScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Unified Photo/Notes Modal */}
+      {/* Professional Habit Note Modal */}
       <Modal
-        animationType="fade"
-        transparent={true}
+        animationType="slide"
+        transparent={false}
         visible={isHabitLogModalVisible}
         onRequestClose={() => {
           setIsHabitLogModalVisible(false);
@@ -5847,232 +7289,306 @@ export default function TodoScreen() {
           setLogNoteText('');
           setLogDate(moment().format('YYYY-MM-DD'));
         }}
+        presentationStyle="pageSheet"
       >
-        <View style={{ 
-          flex: 1, 
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          justifyContent: 'center',
-          alignItems: 'center',
-          paddingHorizontal: 20,
-        }}>
-          <View style={{ 
-            backgroundColor: '#ffffff',
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.25,
-            shadowRadius: 12,
-            elevation: 8,
-            width: '100%',
-            maxWidth: 400,
-            maxHeight: '80%',
-          }}>
-            {/* Header */}
-            <View style={{ 
-              flexDirection: 'row', 
-              justifyContent: 'space-between', 
-              alignItems: 'center', 
-              paddingHorizontal: 20,
-              paddingVertical: 16,
-            }}>
-              <TouchableOpacity 
-                onPress={() => {
-                  setIsHabitLogModalVisible(false);
-                  setSelectedHabitForLog(null);
-                  setLogNoteText('');
-                  setLogDate(moment().format('YYYY-MM-DD'));
-                }}
-                style={{
-                  padding: 4,
-                }}
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
+          <KeyboardAvoidingView 
+            style={{ flex: 1 }}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+          >
+            <View style={{ flex: 1 }}>
+              {/* Professional Header */}
+              <View style={{ 
+                flexDirection: 'row', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                paddingHorizontal: 20,
+                paddingVertical: 16,
+                paddingTop: 40,
+                backgroundColor: '#ffffff',
+                borderBottomWidth: 1,
+                borderBottomColor: '#f0f0f0',
+              }}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    setIsHabitLogModalVisible(false);
+                    setSelectedHabitForLog(null);
+                    setLogNoteText('');
+                    setLogDate(moment().format('YYYY-MM-DD'));
+                  }}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: '#f8f9fa',
+                  }}
+                >
+                  <Ionicons name="close" size={16} color="#666" />
+                </TouchableOpacity>
+                
+                <View style={{ flex: 1, alignItems: 'center' }}>
+                  <Text style={{ 
+                    fontSize: 18, 
+                    fontWeight: '700', 
+                    color: '#1a1a1a',
+                    fontFamily: 'Onest',
+                    textAlign: 'center',
+                  }}>
+                    {selectedHabitForLog?.text}
+                  </Text>
+                  <Text style={{ 
+                    fontSize: 14, 
+                    color: '#666',
+                    fontFamily: 'Onest',
+                    marginTop: 2,
+                  }}>
+                    {moment(logDate).format('MMMM D, YYYY')}
+                  </Text>
+                </View>
+                
+                <TouchableOpacity
+                  onPress={() => {
+                    if (selectedHabitForLog && logNoteText.trim()) {
+                      if (selectedHabitForLog.notes && selectedHabitForLog.notes[logDate]) {
+                        updateExistingNote(selectedHabitForLog.id, logDate, logNoteText.trim());
+                      } else {
+                        addNoteToHabit(selectedHabitForLog.id, logDate, logNoteText.trim());
+                      }
+                      setIsHabitLogModalVisible(false);
+                      setSelectedHabitForLog(null);
+                      setLogNoteText('');
+                      setLogDate(moment().format('YYYY-MM-DD'));
+                    }
+                  }}
+                  disabled={!logNoteText.trim()}
+                  style={{
+                    backgroundColor: logNoteText.trim() ? '#007AFF' : '#f0f0f0',
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    minWidth: 60,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ 
+                    color: logNoteText.trim() ? '#ffffff' : '#999', 
+                    fontSize: 16, 
+                    fontWeight: '600', 
+                    fontFamily: 'Onest' 
+                  }}>
+                    Save
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Content */}
+              <ScrollView 
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
+                showsVerticalScrollIndicator={false}
               >
-                <Ionicons name="close" size={20} color="#666" />
-              </TouchableOpacity>
-               
-               <Text style={{ 
-                 fontSize: 16, 
-                 fontWeight: '600', 
-                 color: '#333',
-                 fontFamily: 'Onest'
-               }}>
-                 {selectedHabitForLog?.text} - {moment(logDate).format('MMM D, YYYY')}
-               </Text>
-               
-               <TouchableOpacity
-                 onPress={() => {
-                   if (selectedHabitForLog && logNoteText.trim()) {
-                     if (selectedHabitForLog.notes && selectedHabitForLog.notes[logDate]) {
-                       updateExistingNote(selectedHabitForLog.id, logDate, logNoteText.trim());
-                     } else {
-                       addNoteToHabit(selectedHabitForLog.id, logDate, logNoteText.trim());
-                     }
-                     setIsHabitLogModalVisible(false);
-                     setSelectedHabitForLog(null);
-                     setLogNoteText('');
-                     setLogDate(moment().format('YYYY-MM-DD'));
-                   }
-                 }}
-                 disabled={!logNoteText.trim()}
-                 style={{
-                   padding: 4,
-                 }}
-               >
-                 <Text style={{ 
-                   color: logNoteText.trim() ? '#007AFF' : '#ccc', 
-                   fontSize: 16, 
-                   fontWeight: '600', 
-                   fontFamily: 'Onest' 
-                 }}>
-                   Save
-                 </Text>
-               </TouchableOpacity>
-             </View>
+                {/* Photo Display Section */}
+                {selectedHabitForLog?.photos?.[logDate] && (
+                  <View style={{ 
+                    marginBottom: 24,
+                    backgroundColor: '#ffffff',
+                    borderRadius: 16,
+                    padding: 16,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 8,
+                    elevation: 4,
+                  }}>
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      marginBottom: 12,
+                    }}>
+                      <Ionicons name="camera" size={16} color="#666" />
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        marginLeft: 6,
+                      }}>
+                        Photo
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        if (selectedHabitForLog?.photos?.[logDate]) {
+                          setAllPhotosForViewing([{
+                            habit: selectedHabitForLog,
+                            photoUrl: selectedHabitForLog.photos[logDate],
+                            date: logDate,
+                            formattedDate: moment(logDate).format('MMMM D, YYYY'),
+                          }]);
+                          setCurrentPhotoIndex(0);
+                          setIsHabitLogModalVisible(false);
+                          setIsPhotoViewerVisible(true);
+                        }
+                      }}
+                    >
+                      <Image
+                        source={{ uri: selectedHabitForLog.photos[logDate] }}
+                        style={{
+                          width: '100%',
+                          height: 200,
+                          borderRadius: 12,
+                          backgroundColor: '#f8f9fa',
+                        }}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                )}
 
-             {/* Content */}
-             <View style={{ paddingHorizontal: 20, paddingBottom: 20 }}>
-               <ScrollView 
-                 showsVerticalScrollIndicator={false}
-                 contentContainerStyle={{ paddingBottom: 10 }}
-               >
-                 {/* Note Input */}
-                 <View style={{ marginBottom: 24, marginTop: 20 }}>
-                   <TextInput
-                     style={{
-                       fontSize: 16,
-                       color: '#333',
-                       padding: 16,
-                       backgroundColor: '#f8f9fa',
-                       borderRadius: 12,
-                       fontFamily: 'Onest',
-                       minHeight: 120,
-                       textAlignVertical: 'top',
-                     }}
-                     value={logNoteText}
-                     onChangeText={setLogNoteText}
-                     placeholder="Add a note about your progress..."
-                     placeholderTextColor="#999"
-                     multiline
-                     numberOfLines={5}
-                     autoFocus
-                   />
-                 </View>
+                {/* Note Input Section */}
+                <View style={{ 
+                  marginBottom: 24,
+                  backgroundColor: '#ffffff',
+                  borderRadius: 16,
+                  padding: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 8,
+                  elevation: 4,
+                }}>
+                  <TextInput
+                    style={{
+                      fontSize: 14,
+                      color: '#333',
+                      padding: 0,
+                      borderRadius: 12,
+                      fontFamily: 'Onest',
+                      minHeight: 120,
+                      textAlignVertical: 'top',
+                    }}
+                    value={logNoteText}
+                    onChangeText={setLogNoteText}
+                    placeholder="Share your thoughts, progress, or insights for this day..."
+                    placeholderTextColor="#999"
+                    multiline
+                    numberOfLines={6}
+                    autoFocus
+                  />
+                </View>
 
-                 {/* Photo Display */}
-                 {selectedHabitForLog?.photos?.[logDate] && (
-                   <View style={{ marginBottom: 24 }}>
-                     <Image
-                       source={{ uri: selectedHabitForLog.photos[logDate] }}
-                       style={{
-                         width: '100%',
-                         height: 200,
-                         borderRadius: 12,
-                         backgroundColor: '#f0f0f0',
-                       }}
-                       resizeMode="cover"
-                     />
-                   </View>
-                 )}
+                {/* Photo Actions Section */}
+                <View style={{
+                  backgroundColor: '#ffffff',
+                  borderRadius: 16,
+                  padding: 20,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 8,
+                  elevation: 4,
+                }}>
+                  
+                  <View style={{
+                    flexDirection: 'row',
+                    gap: 12,
+                  }}>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        try {
+                          const { status } = await ImagePicker.requestCameraPermissionsAsync();
+                          if (status !== 'granted') {
+                            Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
+                            return;
+                          }
 
-                 {/* Photo Actions */}
-                 <View style={{
-                   flexDirection: 'row',
-                   gap: 12,
-                   marginBottom: 10,
-                 }}>
-                   <TouchableOpacity
-                     onPress={async () => {
-                       try {
-                         const { status } = await ImagePicker.requestCameraPermissionsAsync();
-                         if (status !== 'granted') {
-                           Alert.alert('Permission Required', 'Camera permission is required to take a photo.');
-                           return;
-                         }
+                          const result = await ImagePicker.launchCameraAsync({
+                            allowsEditing: true,
+                            aspect: [4, 3],
+                            quality: 0.8,
+                          });
 
-                         const result = await ImagePicker.launchCameraAsync({
-                           allowsEditing: true,
-                           aspect: [4, 3],
-                           quality: 0.8,
-                         });
+                          if (!result.canceled && result.assets[0] && selectedHabitForLog) {
+                            await addPhotoToHabit(selectedHabitForLog.id, logDate, result.assets[0].uri);
+                            Alert.alert('Success', 'Photo added successfully!');
+                          }
+                        } catch (error) {
+                          console.error('Error taking photo:', error);
+                          Alert.alert('Error', 'Failed to take photo. Please try again.');
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: 16,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="camera" size={24} color="#007AFF" />
+                      <Text style={{
+                        fontSize: 14,
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        marginTop: 8,
+                        fontWeight: '500',
+                      }}>
+                        Camera
+                      </Text>
+                    </TouchableOpacity>
 
-                         if (!result.canceled && result.assets[0] && selectedHabitForLog) {
-                           await addPhotoToHabit(selectedHabitForLog.id, logDate, result.assets[0].uri);
-                           Alert.alert('Success', 'Photo added successfully!');
-                         }
-                       } catch (error) {
-                         console.error('Error taking photo:', error);
-                         Alert.alert('Error', 'Failed to take photo. Please try again.');
-                       }
-                     }}
-                     style={{
-                       flex: 1,
-                       backgroundColor: '#f8f9fa',
-                       padding: 16,
-                       borderRadius: 12,
-                       alignItems: 'center',
-                     }}
-                   >
-                     <Ionicons name="camera" size={20} color="#666" />
-                     <Text style={{
-                       fontSize: 13,
-                       color: '#666',
-                       fontFamily: 'Onest',
-                       marginTop: 6,
-                       fontWeight: '500',
-                     }}>
-                       Camera
-                     </Text>
-                   </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        try {
+                          const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                          if (status !== 'granted') {
+                            Alert.alert('Permission Required', 'Media library permission is required to select an image.');
+                            return;
+                          }
 
-                   <TouchableOpacity
-                     onPress={async () => {
-                       try {
-                         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                         if (status !== 'granted') {
-                           Alert.alert('Permission Required', 'Media library permission is required to select an image.');
-                           return;
-                         }
+                          const result = await ImagePicker.launchImageLibraryAsync({
+                            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                            allowsEditing: true,
+                            aspect: [4, 3],
+                            quality: 0.8,
+                          });
 
-                         const result = await ImagePicker.launchImageLibraryAsync({
-                           mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                           allowsEditing: true,
-                           aspect: [4, 3],
-                           quality: 0.8,
-                         });
-
-                         if (!result.canceled && result.assets[0] && selectedHabitForLog) {
-                           await addPhotoToHabit(selectedHabitForLog.id, logDate, result.assets[0].uri);
-                           Alert.alert('Success', 'Photo added successfully!');
-                         }
-                       } catch (error) {
-                         console.error('Error selecting image:', error);
-                         Alert.alert('Error', 'Failed to select image. Please try again.');
-                       }
-                     }}
-                     style={{
-                       flex: 1,
-                       backgroundColor: '#f8f9fa',
-                       padding: 16,
-                       borderRadius: 12,
-                       alignItems: 'center',
-                     }}
-                   >
-                     <Ionicons name="images" size={20} color="#666" />
-                     <Text style={{
-                       fontSize: 13,
-                       color: '#666',
-                       fontFamily: 'Onest',
-                       marginTop: 6,
-                       fontWeight: '500',
-                     }}>
-                       Gallery
-                     </Text>
-                   </TouchableOpacity>
-                 </View>
-               </ScrollView>
-             </View>
-           </View>
-         </View>
-       </Modal>
+                          if (!result.canceled && result.assets[0] && selectedHabitForLog) {
+                            await addPhotoToHabit(selectedHabitForLog.id, logDate, result.assets[0].uri);
+                            Alert.alert('Success', 'Photo added successfully!');
+                          }
+                        } catch (error) {
+                          console.error('Error selecting image:', error);
+                          Alert.alert('Error', 'Failed to select image. Please try again.');
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: 16,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="images" size={24} color="#007AFF" />
+                      <Text style={{
+                        fontSize: 14,
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        marginTop: 8,
+                        fontWeight: '500',
+                      }}>
+                        Gallery
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
 
       {/* Monthly Progress Chart Modal */}
       <Modal
@@ -6082,340 +7598,383 @@ export default function TodoScreen() {
         onRequestClose={() => setIsMonthlyProgressModalVisible(false)}
         presentationStyle="pageSheet"
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
           <View style={{ flex: 1 }}>
-            {/* Header */}
+            {/* Enhanced Header */}
             <View style={{ 
               flexDirection: 'row', 
               justifyContent: 'space-between', 
               alignItems: 'center', 
-              paddingHorizontal: 16,
-              paddingVertical: 12,
-              paddingTop: 40,
+              paddingHorizontal: 20,
+              paddingVertical: 16,
+              paddingTop: 44,
               backgroundColor: '#ffffff',
+              borderBottomWidth: 1,
+              borderBottomColor: '#f1f5f9',
             }}>
               <TouchableOpacity 
-                onPress={() => setIsMonthlyProgressModalVisible(false)}
+                onPress={() => {
+                  setIsMonthlyProgressModalVisible(false);
+                  setSelectedMonthForProgress(moment().startOf('month'));
+                }}
                 style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
                   justifyContent: 'center',
                   alignItems: 'center',
+                  backgroundColor: '#f8fafc',
                 }}
               >
-                <Ionicons name="close" size={16} color="#666" />
+                <Ionicons name="close" size={20} color="#64748b" />
               </TouchableOpacity>
               
-              {/* Centered Habit Name and Month Navigation */}
+              {/* Centered Title and Month Navigation */}
               <View style={{
                 flexDirection: 'column',
                 alignItems: 'center',
                 flex: 1,
                 justifyContent: 'center',
               }}>
-                {/* Habit Name */}
-                <Text style={{
-                  fontSize: 18,
-                  fontWeight: '600',
-                  color: '#333',
-                  fontFamily: 'Onest',
-                  marginBottom: 8,
-                  textAlign: 'center',
+                
+                {/* Minimalistic Month Navigation */}
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 16,
                 }}>
-                  Monthly Progress
-                </Text>
-                
-                {/* Month Navigation */}
-              <View style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 16,
-              }}>
-                <TouchableOpacity
-                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'))}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    backgroundColor: '#f8f9fa',
-                  }}
-                >
-                  <Ionicons name="chevron-back" size={16} color="#666" />
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  onPress={() => setSelectedMonthForProgress(moment().startOf('month'))}
-                  style={{
-                    minWidth: 120,
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 8,
-                  }}
-                >
+                  <TouchableOpacity
+                    onPress={() => setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'))}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Ionicons name="chevron-back" size={16} color="#64748b" />
+                  </TouchableOpacity>
+                  
                   <Text style={{ 
-                    fontSize: 16, 
+                    fontSize: 18, 
                     fontWeight: '600', 
-                    color: '#333',
+                    color: '#1e293b',
                     fontFamily: 'Onest',
                     textAlign: 'center',
+                    minWidth: 120,
                   }}>
                     {selectedMonthForProgress.format('MMMM YYYY')}
                   </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  onPress={() => setSelectedMonthForProgress(prev => prev.clone().add(1, 'month'))}
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 16,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    backgroundColor: '#f8f9fa',
-                  }}
-                >
-                  <Ionicons name="chevron-forward" size={16} color="#666" />
-                </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    onPress={() => {
+                      const nextMonth = selectedMonthForProgress.clone().add(1, 'month');
+                      if (nextMonth.isSameOrBefore(moment(), 'month')) {
+                        setSelectedMonthForProgress(nextMonth);
+                      }
+                    }}
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      opacity: selectedMonthForProgress.clone().add(1, 'month').isAfter(moment(), 'month') ? 0.5 : 1,
+                    }}
+                  >
+                    <Ionicons name="chevron-forward" size={16} color="#64748b" />
+                  </TouchableOpacity>
                 </View>
               </View>
               
               {/* Empty space to balance the close button */}
-              <View style={{ width: 32 }} />
+              <View style={{ width: 40 }} />
             </View>
 
-            {/* Content */}
+            {/* Enhanced Content */}
             <ScrollView 
+              key={`monthly-progress-${habits.length}-${habits.reduce((sum, h) => sum + h.completedDays.length, 0)}`}
               style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+              contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
               showsVerticalScrollIndicator={false}
             >
-              {habits.map((habit) => (
-                <View key={habit.id} style={{ marginBottom: 24 }}>
-                  {/* Habit Name and Progress */}
+              {habits.map((habit) => {
+                const monthProgress = calculateHabitProgressForMonth(habit, selectedMonthForProgress);
+                const monthStart = selectedMonthForProgress.clone().startOf('month');
+                const monthEnd = selectedMonthForProgress.clone().endOf('month');
+                const completedDays = habit.completedDays || [];
+                const notes = habit.notes || {};
+                const photos = habit.photos || {};
+                
+                // Get notes and photos for this month
+                const monthNotes = Object.entries(notes).filter(([date]) => {
+                  const noteDate = moment(date, 'YYYY-MM-DD');
+                  return noteDate.isBetween(monthStart, monthEnd, 'day', '[]');
+                });
+                
+                const monthPhotos = Object.entries(photos).filter(([date]) => {
+                  const photoDate = moment(date, 'YYYY-MM-DD');
+                  return photoDate.isBetween(monthStart, monthEnd, 'day', '[]');
+                });
+
+
+                
+                return (
+                <View key={habit.id} style={{ 
+                  marginBottom: 28,
+                  backgroundColor: '#ffffff',
+                  borderRadius: 20,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 12,
+                  elevation: 6,
+                  overflow: 'hidden',
+                }}>
+                  {/* Enhanced Header Section */}
                   <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    marginBottom: 16,
                   }}>
-                      <Text style={{
-                      fontSize: 16,
-                        fontWeight: '600',
-                        color: '#333',
-                        fontFamily: 'Onest',
-                      flex: 1,
-                      }}>
-                        {habit.text}
-                      </Text>
-                    
                     <View style={{
-                      backgroundColor: `${habit.color}20`,
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
-                      borderRadius: 12,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingTop: 16,
+                      paddingHorizontal: 16,
+                      marginBottom: 0,
                     }}>
-                      <Text style={{
-                        fontSize: 14,
-                        fontWeight: '600',
-                        color: habit.color,
-                        fontFamily: 'Onest',
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          fontSize: 20,
+                          fontWeight: '700',
+                          color: '#1e293b',
+                          fontFamily: 'Onest',
+                          marginBottom: 4,
+                        }}>
+                          {habit.text}
+                        </Text>
+                        {habit.description && (
+                          <Text style={{
+                            fontSize: 14,
+                            color: '#64748b',
+                            fontFamily: 'Onest',
+                            lineHeight: 20,
+                          }}>
+                            {habit.description}
+                          </Text>
+                        )}
+                      </View>
+                      
+                      <View style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 10,
                       }}>
-                        {calculateHabitProgressForMonth(habit, selectedMonthForProgress).percentage.toFixed(1)}%
-                      </Text>
+                        <Text style={{
+                          fontSize: 16,
+                          fontWeight: '700',
+                          color: habit.color,
+                          fontFamily: 'Onest',
+                        }}>
+                          {monthProgress.percentage.toFixed(0)}%
+                        </Text>
+                      </View>
                     </View>
+
+
+
+
                   </View>
 
-                  {/* Monthly Progress Visualization */}
+                  {/* Enhanced Stats Section */}
                   <View style={{
-                    backgroundColor: '#ffffff',
-                    borderRadius: 16,
-                    padding: 20,
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.08,
-                    shadowRadius: 8,
-                    elevation: 4,
+                    padding: 24,
+                    paddingTop: 8,
                   }}>
-                    {/* Heatmap Calendar */}
+
+                    {/* Enhanced Calendar */}
                     <View>
-                      <View style={{
-                        flexDirection: 'row',
-                        flexWrap: 'wrap',
-                        gap: 3,
-                      }}>
-                        {(() => {
-                          const monthStart = selectedMonthForProgress.clone().startOf('month');
-                          const daysInMonth = selectedMonthForProgress.daysInMonth();
-                          const completedDays = habit.completedDays || [];
-                          const days = [];
-                          
-                          // Add days of the month
-                          for (let i = 0; i < daysInMonth; i++) {
-                            const currentDate = monthStart.clone().add(i, 'days');
-                            const dateStr = currentDate.format('YYYY-MM-DD');
-                            const isCompleted = completedDays.includes(dateStr);
-                            const isToday = currentDate.isSame(moment(), 'day');
-                            const isFuture = currentDate.isAfter(moment(), 'day');
-                            const hasNote = habit.notes?.[dateStr];
-                            const hasPhoto = habit.photos?.[dateStr];
+                                             {/* Calendar Grid */}
+                       <View style={{
+                         borderRadius: 16,
+                       }}>
+                         <View style={{
+                           flexDirection: 'row',
+                           flexWrap: 'wrap',
+                           gap: 2,
+                           justifyContent: 'flex-start',
+                         }}>
+                          {(() => {
+                            const monthStart = selectedMonthForProgress.clone().startOf('month');
+                            const daysInMonth = selectedMonthForProgress.daysInMonth();
+                            const completedDays = habit.completedDays || [];
+                            const days = [];
                             
-                            let backgroundColor = '#f1f3f4';
-                            if (isCompleted) {
-                              backgroundColor = habit.color;
-                            } else if (isFuture) {
-                              backgroundColor = '#f8f9fa';
-                            }
                             
-                            days.push(
-                              <TouchableOpacity
-                                key={dateStr}
-                                onPress={() => {
-                                  console.log('Date pressed:', dateStr);
-                                  console.log('Setting modal data:', {
-                                    habit: habit.text,
-                                    date: dateStr,
-                                    formattedDate: currentDate.format('MMMM D, YYYY'),
-                                    note: hasNote || undefined,
-                                    photo: hasPhoto || undefined,
-                                    isCompleted
-                                  });
-                                  
-                                  // Always show detail modal for any date
-                                  setSelectedDateData({
-                                    habit,
-                                    date: dateStr,
-                                    formattedDate: currentDate.format('MMMM D, YYYY'),
-                                    note: hasNote || undefined,
-                                    photo: hasPhoto || undefined,
-                                    isCompleted
-                                  });
-                                  setIsDetailModalVisible(true);
-                                  console.log('Modal should now be visible');
-                                }}
-                                onLongPress={() => {
-                                  // Allow completing habits for any date in the selected month
-                                  if (!isCompleted && !isFuture) {
-                                    Alert.alert(
-                                      'Complete Habit',
-                                      `Mark "${habit.text}" as completed for ${currentDate.format('MMMM D, YYYY')}?`,
-                                      [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        { 
-                                          text: 'Complete', 
-                                          onPress: () => completeHabit(habit.id, dateStr, false)
-                                        }
-                                      ]
-                                    );
-                                  } else if (isCompleted) {
-                                    Alert.alert(
-                                      'Remove Completion',
-                                      `Remove completion for "${habit.text}" on ${currentDate.format('MMMM D, YYYY')}?`,
-                                      [
-                                        { text: 'Cancel', style: 'cancel' },
-                                        { 
-                                          text: 'Remove', 
-                                          style: 'destructive',
-                                          onPress: () => {
-                                            const updatedCompletedDays = completedDays.filter(d => d !== dateStr);
-                                            supabase
-                                              .from('habits')
-                                              .update({
-                                                completed_days: updatedCompletedDays,
-                                                streak: calculateCurrentStreak(updatedCompletedDays)
-                                              })
-                                              .eq('id', habit.id)
-                                              .then(() => {
-                                                setHabits(prev => prev.map(h => 
-                                                  h.id === habit.id 
-                                                    ? { ...h, completedDays: updatedCompletedDays, streak: calculateCurrentStreak(updatedCompletedDays) }
-                                                    : h
-                                                ));
-                                              });
+                            // Add days of the month
+                            for (let i = 0; i < daysInMonth; i++) {
+                              const currentDate = monthStart.clone().add(i, 'days');
+                              const dateStr = currentDate.format('YYYY-MM-DD');
+                              const hasNote = habit.notes?.[dateStr];
+                              const hasPhoto = habit.photos?.[dateStr];
+                              const isCompleted = completedDays.includes(dateStr) || !!hasNote;
+                              const isToday = currentDate.isSame(moment(), 'day');
+                              const isFuture = currentDate.isAfter(moment(), 'day');
+                              
+                              let backgroundColor = '#f1f5f9';
+                              let borderColor = '#e2e8f0';
+                              
+                              if (isCompleted) {
+                                backgroundColor = `${habit.color}40`;
+                                borderColor = habit.color;
+                              }
+                              
+                              days.push(
+                                <TouchableOpacity
+                                  key={dateStr}
+                                  onPress={() => {
+                                    setSelectedDateData({
+                                      habit,
+                                      date: dateStr,
+                                      formattedDate: currentDate.format('MMMM D, YYYY'),
+                                      note: hasNote || undefined,
+                                      photo: hasPhoto || undefined,
+                                      isCompleted
+                                    });
+                                    setIsMonthlyProgressModalVisible(false);
+                                    setIsDetailModalVisible(true);
+                                  }}
+                                  onLongPress={() => {
+                                    if (!isCompleted && !isFuture) {
+                                      Alert.alert(
+                                        'Complete Habit',
+                                        `Mark "${habit.text}" as completed for ${currentDate.format('MMMM D, YYYY')}?`,
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          { 
+                                            text: 'Complete', 
+                                            onPress: () => completeHabit(habit.id, dateStr, false)
                                           }
-                                        }
-                                      ]
-                                    );
-                                  }
-                                }}
-                                style={{
-                                  width: 36,
-                                  height: 36,
-                                  borderRadius: 6,
-                                  backgroundColor,
-                                  borderWidth: isToday ? 2 : 0,
-                                  borderColor: isToday ? '#007AFF' : 'transparent',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  position: 'relative',
-                                }}
-                              >
-                                <Text style={{
-                                  fontSize: 12,
-                                  fontWeight: '600',
-                                  color: isCompleted ? '#ffffff' : (isFuture ? '#ccc' : '#666'),
-                                  fontFamily: 'Onest',
-                                }}>
-                                  {currentDate.format('D')}
-                                </Text>
-                                
-                                {/* Note text overlay */}
-                                {hasNote && (
-                                  <View style={{
-                                    position: 'absolute',
-                                    top: -3,
-                                    left: -3,
-                                    right: -3,
-                                    bottom: -3,
-                                    backgroundColor: isCompleted ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.8)',
+                                        ]
+                                      );
+                                    } else if (isCompleted) {
+                                      Alert.alert(
+                                        'Remove Completion',
+                                        `Remove completion for "${habit.text}" on ${currentDate.format('MMMM D, YYYY')}?`,
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          { 
+                                            text: 'Remove', 
+                                            style: 'destructive',
+                                            onPress: () => {
+                                              const updatedCompletedDays = completedDays.filter(d => d !== dateStr);
+                                              supabase
+                                                .from('habits')
+                                                .update({
+                                                  completed_days: updatedCompletedDays,
+                                                  streak: calculateCurrentStreak(updatedCompletedDays)
+                                                })
+                                                .eq('id', habit.id)
+                                                .then(() => {
+                                                  setHabits(prev => prev.map(h => 
+                                                    h.id === habit.id 
+                                                      ? { ...h, completedDays: updatedCompletedDays, streak: calculateCurrentStreak(updatedCompletedDays) }
+                                                      : h
+                                                  ));
+                                                });
+                                            }
+                                          }
+                                        ]
+                                      );
+                                    }
+                                  }}
+                                  style={{
+                                    width: 36,
+                                    height: 36,
                                     borderRadius: 8,
-                                    padding: 3,
+                                    backgroundColor,
+                                    borderWidth: isToday ? 1 : 0,
+                                    borderColor: isToday ? '#3b82f6' : 'transparent',
                                     justifyContent: 'center',
                                     alignItems: 'center',
+                                    position: 'relative',
+                                    shadowColor: 'transparent',
+                                    shadowOffset: { width: 0, height: 0 },
+                                    shadowOpacity: 0,
+                                    shadowRadius: 0,
+                                    elevation: 0,
                                   }}
-                                  pointerEvents="none"
-                                  >
-                                    <Text style={{
-                                      fontSize: 10,
-                                      color: isCompleted ? '#333' : '#ffffff',
-                                      fontFamily: 'Onest',
-                                      textAlign: 'center',
-                                      lineHeight: 12,
-                                    }}>
-                                      {hasNote.length > 25 ? hasNote.substring(0, 25) + '...' : hasNote}
-                                    </Text>
-                                  </View>
-                                )}
-                                
-                                {/* Photo indicator */}
-                                {hasPhoto && !hasNote && (
-                                  <View style={{
-                                    position: 'absolute',
-                                    bottom: 2,
-                                    right: 2,
-                                    width: 6,
-                                    height: 6,
-                                    borderRadius: 3,
-                                    backgroundColor: isCompleted ? '#ffffff' : '#FF6B6B',
-                                    borderWidth: 0.5,
-                                    borderColor: isCompleted ? '#ffffff' : '#FF6B6B',
-                                  }}
-                                  pointerEvents="none"
-                                  />
-                                )}
-                              </TouchableOpacity>
-                            );
-                          }
-                          
-                          return days;
-                        })()}
+                                >
+                                                                     <View style={{
+                                     flexDirection: 'column',
+                                     alignItems: 'center',
+                                     justifyContent: 'center',
+                                     width: '100%',
+                                     height: '100%',
+                                   }}>
+                                     {hasNote ? (
+                                       /* Show note content when there's a note */
+                                       <Text style={{
+                                         fontSize: 9,
+                                         color: isCompleted ? '#000000' : '#10b981',
+                                         fontFamily: 'Onest',
+                                         textAlign: 'center',
+                                         lineHeight: 11,
+                                         paddingHorizontal: 2,
+                                         maxWidth: 28,
+                                       }}
+                                       numberOfLines={3}
+                                       ellipsizeMode="tail"
+                                       >
+                                         {hasNote}
+                                       </Text>
+                                     ) : (
+                                       /* Show date number when there's no note */
+                                       <Text style={{
+                                         fontSize: 13,
+                                         fontWeight: '600',
+                                         color: isCompleted ? '#000000' : (isFuture ? '#cbd5e1' : '#475569'),
+                                         fontFamily: 'Onest',
+                                       }}>
+                                         {currentDate.format('D')}
+                                       </Text>
+                                     )}
+                                   </View>
+                                  
+                                  {/* Photo indicator */}
+                                  {hasPhoto && (
+                                    <View style={{
+                                      position: 'absolute',
+                                      bottom: -2,
+                                      right: -2,
+                                      width: 14,
+                                      height: 14,
+                                      borderRadius: 7,
+                                      backgroundColor: '#f59e0b',
+                                      borderWidth: 1.5,
+                                      borderColor: '#ffffff',
+                                      justifyContent: 'center',
+                                      alignItems: 'center',
+                                    }}
+                                    pointerEvents="none"
+                                    >
+                                      <Ionicons name="camera" size={8} color="#ffffff" />
+                                    </View>
+                                  )}
+                                </TouchableOpacity>
+                              );
+                            }
+                            
+                            return days;
+                          })()}
+                        </View>
                       </View>
                     </View>
                   </View>
                 </View>
-              ))}
+              );
+            })}
             </ScrollView>
           </View>
         </SafeAreaView>
@@ -6430,22 +7989,23 @@ export default function TodoScreen() {
       >
         <View style={{
           flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
           justifyContent: 'center',
           alignItems: 'center',
         }}>
           <View style={{
             backgroundColor: '#ffffff',
-            borderRadius: 16,
-            padding: 24,
+            borderRadius: 20,
+            padding: 0,
             margin: 20,
-            maxWidth: '90%',
-            maxHeight: '80%',
+            width: '90%',
+            maxHeight: '85%',
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.25,
-            shadowRadius: 12,
-            elevation: 8,
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.15,
+            shadowRadius: 20,
+            elevation: 10,
+            overflow: 'hidden',
           }}>
             {selectedDateData && (
               <>
@@ -6454,156 +8014,123 @@ export default function TodoScreen() {
                   flexDirection: 'row',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  marginBottom: 20,
+                  paddingHorizontal: 24,
+                  paddingTop: 24,
+                  paddingBottom: 20,
                 }}>
                   <View style={{ flex: 1 }}>
                     <Text style={{
-                      fontSize: 18,
-                      fontWeight: '600',
-                      color: '#333',
+                      fontSize: 20,
+                      fontWeight: '700',
+                      color: '#1e293b',
                       fontFamily: 'Onest',
-                      marginBottom: 4,
+                      marginBottom: 6,
                     }}>
                       {selectedDateData.habit.text}
                     </Text>
                     <Text style={{
-                      fontSize: 14,
-                      color: '#666',
+                      fontSize: 15,
+                      color: '#64748b',
                       fontFamily: 'Onest',
+                      fontWeight: '500',
                     }}>
                       {selectedDateData.formattedDate}
                     </Text>
                   </View>
                   
                   <TouchableOpacity
-                    onPress={() => setIsDetailModalVisible(false)}
+                    onPress={() => {
+                      setIsDetailModalVisible(false);
+                      setIsMonthlyProgressModalVisible(true);
+                    }}
                     style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
                       justifyContent: 'center',
                       alignItems: 'center',
-                      backgroundColor: '#f8f9fa',
+                      marginTop: -8,
                     }}
                   >
-                    <Ionicons name="close" size={16} color="#666" />
+                    <Ionicons name="close" size={18} color="#64748b" />
                   </TouchableOpacity>
                 </View>
                 
-                {/* Completion Status */}
-                {selectedDateData.isCompleted && (
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    marginBottom: 16,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    backgroundColor: `${selectedDateData.habit.color}20`,
-                    borderRadius: 8,
-                  }}>
-                    <View style={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: 4,
-                      backgroundColor: selectedDateData.habit.color,
-                      marginRight: 8,
-                    }} />
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: selectedDateData.habit.color,
-                      fontFamily: 'Onest',
-                    }}>
-                      Completed
-                    </Text>
-                  </View>
-                )}
+                {/* Content Container */}
+                <View style={{ paddingHorizontal: 24, paddingVertical: 20 }}>
+
                 
-                {/* Photo */}
-                {selectedDateData.photo && (
-                  <View style={{ marginBottom: 16 }}>
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: '#333',
-                      fontFamily: 'Onest',
-                      marginBottom: 8,
-                    }}>
-                      Photo
-                    </Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        // Show photo in full screen
-                        if (selectedDateData.photo) {
-                          setAllPhotosForViewing([{
-                            habit: selectedDateData.habit,
-                            photoUrl: selectedDateData.photo,
-                            date: selectedDateData.date,
-                            formattedDate: selectedDateData.formattedDate,
-                          }]);
-                          setCurrentPhotoIndex(0);
-                          setIsDetailModalVisible(false);
-                        }
-                      }}
-                    >
-                      <Image
-                        source={{ uri: selectedDateData.photo }}
-                        style={{
-                          width: '100%',
-                          height: 200,
-                          borderRadius: 12,
-                          backgroundColor: '#f8f9fa',
+                  {/* Photo */}
+                  {selectedDateData.photo && (
+                    <View style={{ marginBottom: 16 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          // Show photo in full screen
+                          if (selectedDateData.photo) {
+                            setAllPhotosForViewing([{
+                              habit: selectedDateData.habit,
+                              photoUrl: selectedDateData.photo,
+                              date: selectedDateData.date,
+                              formattedDate: selectedDateData.formattedDate,
+                            }]);
+                            setCurrentPhotoIndex(0);
+                            setIsDetailModalVisible(false);
+                            setIsPhotoViewerVisible(true);
+                          }
                         }}
-                        resizeMode="cover"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                )}
+                        style={{
+                          borderRadius: 16,
+                          overflow: 'hidden',
+                          backgroundColor: '#f8fafc',
+                        }}
+                      >
+                        <Image
+                          source={{ uri: selectedDateData.photo }}
+                          style={{
+                            width: '100%',
+                            height: 220,
+                            borderRadius: 16,
+                          }}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 
-                {/* Note */}
-                {selectedDateData.note && (
-                  <View>
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: '#333',
-                      fontFamily: 'Onest',
-                      marginBottom: 8,
-                    }}>
-                      Note
-                    </Text>
-                    <View style={{
-                      backgroundColor: '#f8f9fa',
-                      padding: 16,
-                      borderRadius: 12,
-                      borderLeftWidth: 4,
-                      borderLeftColor: selectedDateData.habit.color,
-                    }}>
-                      <Text style={{
-                        fontSize: 14,
-                        color: '#333',
-                        fontFamily: 'Onest',
-                        lineHeight: 20,
+                  {/* Note */}
+                  {selectedDateData.note && (
+                    <View style={{ marginBottom: 30 }}>
+                      <View style={{
+                        borderRadius: 16,
+                        paddingLeft: 5,
                       }}>
-                        {selectedDateData.note}
+                        <Text style={{
+                          fontSize: 15,
+                          color: '#334155',
+                          fontFamily: 'Onest',
+                          lineHeight: 20,
+                        }}>
+                          {selectedDateData.note}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* If no data, show a message */}
+                  {!selectedDateData.isCompleted && !selectedDateData.note && !selectedDateData.photo && (
+                    <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                      <Text style={{
+                        fontSize: 16,
+                        color: '#94a3b8',
+                        fontFamily: 'Onest',
+                        textAlign: 'center',
+                        fontWeight: '500',
+                      }}>
+                        No activity, note, or photo for this date.
                       </Text>
                     </View>
-                  </View>
-                )}
-
-                {/* If no data, show a message */}
-                {!selectedDateData.isCompleted && !selectedDateData.note && !selectedDateData.photo && (
-                  <View style={{ alignItems: 'center', marginTop: 24 }}>
-                    <Text style={{
-                      fontSize: 15,
-                      color: '#999',
-                      fontFamily: 'Onest',
-                      textAlign: 'center',
-                    }}>
-                      No activity, note, or photo for this date.
-                    </Text>
-                  </View>
-                )}
+                  )}
+                </View>
               </>
             )}
           </View>

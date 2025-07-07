@@ -3,7 +3,7 @@ import { StyleSheet, Platform } from 'react-native';
 const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: '#fff',
+      backgroundColor: '#ffffff',
       paddingTop: 15,
     },
     header: {
@@ -29,12 +29,12 @@ const styles = StyleSheet.create({
     emptyStateTitle: {
       fontSize: 20,
       fontWeight: '700',
-      color: '#3A3A3A',
+      color: '#0f172a',
       textAlign: 'center',
     },
     emptyStateSubtitle: {
       fontSize: 18,
-      color: '#666',
+      color: '#64748b',
       textAlign: 'center',
     },
     categoryContainer: {
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
     categoryTitle: {
       fontSize: 13,
       fontWeight: '600',
-      color: '#3a3a3a',
+      color: '#0f172a',
       textTransform: 'uppercase',
       letterSpacing: 0.3,
       marginHorizontal: 10,
@@ -78,27 +78,27 @@ const styles = StyleSheet.create({
     },
     completedTodo: {
       opacity: 0.6,
-      backgroundColor: '#F5F5F5',
+      backgroundColor: '#f8fafc',
     },
     todoText: {
       fontSize: 15,
-      color: '#1a1a1a',
+      color: '#0f172a',
       fontFamily: 'Onest',
     },
     todoDescription: {
       fontSize: 12,
-      color: '#666',
+      color: '#64748b',
       marginTop: 4,
       fontFamily: 'Onest',
     },
     completedText: {
       textDecorationLine: 'line-through',
-      color: '#666',
+      color: '#64748b',
       fontFamily: 'Onest',
     },
     completedDescription: {
       textDecorationLine: 'line-through',
-      color: '#666',
+      color: '#64748b',
       fontFamily: 'Onest',
     },
     completedSection: {
@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
       width: 50,
       height: 50,
       borderRadius: 25,
-      backgroundColor: '#667eea',
+      backgroundColor: '#0f172a',
       alignItems: 'center',
       justifyContent: 'center',
       elevation: 4,
@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
     },
     
     modalContent: {
-      backgroundColor: 'white',
+      backgroundColor: '#ffffff',
       borderTopLeftRadius: 20,
       borderTopRightRadius: 20,
       maxHeight: '90%',
@@ -147,11 +147,11 @@ const styles = StyleSheet.create({
     modalTitle: {
       fontSize: 24,
       fontWeight: 'bold',
-      color: '#1a1a1a',
+      color: '#0f172a',
     },
    
     rightAction: {
-      backgroundColor: '#FF3B30',
+      backgroundColor: '#ef4444',
       justifyContent: 'center',
       alignItems: 'center',
       width: 64,
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
     },
     
     leftAction: {
-      backgroundColor: '#667eea',
+      backgroundColor: '#3b82f6',
       justifyContent: 'center',
       alignItems: 'center',
       width: 64,
@@ -187,12 +187,12 @@ const styles = StyleSheet.create({
       right: 0,
       paddingHorizontal: 20,
       paddingTop: 0,
-      backgroundColor: 'white',
-      borderTopColor: '#eee',
+      backgroundColor: '#ffffff',
+      borderTopColor: '#e2e8f0',
     },
     doneButton: {
       marginBottom: 35,
-      backgroundColor: '#FFB6B9',
+      backgroundColor: '#3b82f6',
       paddingVertical: 14,
       borderRadius: 8,
       alignItems: 'center',
@@ -212,39 +212,39 @@ const styles = StyleSheet.create({
     },
     modalLabel: {
       fontSize: 14,
-      color: '#333',
+      color: '#0f172a',
       fontFamily: 'Onest',
       fontWeight: '500',
     },
     modalTimeButton: {
-      backgroundColor: '#f8f9fa',
+      backgroundColor: '#f8fafc',
       borderRadius: 8,
       paddingVertical: 8,
       paddingHorizontal: 12,
       borderWidth: 1,
-      borderColor: '#f0f0f0',
+      borderColor: '#e2e8f0',
     },
     modalTimeButtonFocused: {
-      backgroundColor: '#f8f9fa',
+      backgroundColor: '#f8fafc',
       borderRadius: 8,
       paddingVertical: 8,
       paddingHorizontal: 12,
       borderWidth: 1,
-      borderColor: '#667eea',
+      borderColor: '#3b82f6',
     },
     modalTimeText: {
       fontSize: 14,
-      color: '#333',
+      color: '#0f172a',
       fontFamily: 'Onest',
       fontWeight: '500',
     },
     modalPickerContainer: {
-      backgroundColor: '#f8f9fa',
+      backgroundColor: '#f8fafc',
       borderRadius: 8,
       padding: 8,
       marginTop: 4,
       borderWidth: 1,
-      borderColor: '#e0e0e0',
+      borderColor: '#e2e8f0',
     },
   });
 

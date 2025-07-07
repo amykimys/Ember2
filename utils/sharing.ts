@@ -68,6 +68,11 @@ export interface SharedEvent {
 
 // Share task with friend
 export const shareTaskWithFriend = async (taskId: string, friendId: string, userId: string) => {
+  console.log('🔍 shareTaskWithFriend: Starting to share task');
+  console.log('🔍 shareTaskWithFriend: Task ID:', taskId);
+  console.log('🔍 shareTaskWithFriend: Friend ID:', friendId);
+  console.log('🔍 shareTaskWithFriend: User ID:', userId);
+  
   try {
     const { error } = await supabase.rpc('share_task_with_friend', {
       task_id: taskId,
@@ -76,13 +81,13 @@ export const shareTaskWithFriend = async (taskId: string, friendId: string, user
     });
 
     if (error) {
-      console.error('Error sharing task:', error);
+      console.error('❌ shareTaskWithFriend: Error sharing task:', error);
       throw error;
     }
 
-    console.log('Task shared successfully');
+    console.log('✅ shareTaskWithFriend: Task shared successfully');
   } catch (error) {
-    console.error('Error in shareTaskWithFriend:', error);
+    console.error('❌ shareTaskWithFriend: Error in shareTaskWithFriend:', error);
     throw error;
   }
 };
@@ -402,6 +407,7 @@ export const acceptSharedEvent = async (
     }
 
     // Create a new event in the user's events table
+    // Note: We do NOT copy photos to keep them with the original event owner
     const { error: insertError } = await supabase
       .from('events')
       .insert({
@@ -415,7 +421,7 @@ export const acceptSharedEvent = async (
         category_name: sharedEvent.events.category_name,
         category_color: sharedEvent.events.category_color,
         is_all_day: sharedEvent.events.is_all_day,
-        photos: sharedEvent.events.photos,
+        photos: [], // Don't copy photos - keep them with original event owner
         user_id: user.id,
         created_at: new Date().toISOString()
       });

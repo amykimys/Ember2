@@ -3,18 +3,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '../supabase';
 
-// Configure Google Sign-In with calendar scopes
-GoogleSignin.configure({
-  webClientId: '407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds.apps.googleusercontent.com',
-  iosClientId: '407418160129-8u96bsrh8j1madb0r7trr0k6ci327gds.apps.googleusercontent.com',
-  offlineAccess: true,
-  scopes: [
-    'https://www.googleapis.com/auth/calendar',
-    'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/userinfo.email',
-    'https://www.googleapis.com/auth/userinfo.profile'
-  ]
-});
+// Google Sign-In is configured in supabase.ts with calendar scopes
 
 export interface GoogleCalendarEvent {
   id: string;
@@ -56,9 +45,10 @@ class GoogleCalendarService {
     try {
       await GoogleSignin.hasPlayServices();
       
-      // Sign out first to ensure fresh authentication
+      // Sign out first to ensure fresh authentication with proper scopes
       await GoogleSignin.signOut();
       
+      console.log('Starting Google Sign-In with calendar scopes...');
       const userInfo = await GoogleSignin.signIn();
       console.log('Google Sign-In successful');
       
@@ -66,9 +56,51 @@ class GoogleCalendarService {
       this.accessToken = tokens.accessToken;
       console.log('Access token obtained, length:', this.accessToken?.length);
       
+      // Test if the token has calendar permissions
+      const hasCalendarAccess = await this.testCalendarAccess();
+      if (!hasCalendarAccess) {
+        console.warn('Token obtained but calendar access not confirmed. User may need to grant calendar permissions.');
+      }
+      
       return true;
     } catch (error) {
       console.error('Google Sign-In Error:', error);
+      
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('SIGN_IN_CANCELLED')) {
+          throw new Error('Sign-in was cancelled by the user');
+        } else if (error.message.includes('SIGN_IN_REQUIRED')) {
+          throw new Error('Sign-in is required. Please try again.');
+        } else if (error.message.includes('NETWORK_ERROR')) {
+          throw new Error('Network error. Please check your internet connection and try again.');
+        }
+      }
+      
+      return false;
+    }
+  }
+
+  // Test if the current token has calendar access
+  private async testCalendarAccess(): Promise<boolean> {
+    try {
+      if (!this.accessToken) {
+        return false;
+      }
+
+      const response = await fetch(
+        'https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1',
+        {
+          headers: {
+            Authorization: `Bearer ${this.accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      return response.ok;
+    } catch (error) {
+      console.error('Calendar access test failed:', error);
       return false;
     }
   }
@@ -113,11 +145,96 @@ class GoogleCalendarService {
   // Force re-authentication with proper scopes
   async reAuthenticate(): Promise<boolean> {
     try {
-      console.log('Forcing re-authentication to get proper scopes...');
+      console.log('Forcing complete re-authentication to get proper scopes...');
+      
+      // Clear the current access token
+      this.accessToken = null;
+      
+      // Sign out completely to clear any cached tokens
       await GoogleSignin.signOut();
-      return await this.signIn();
+      
+      // Wait a moment to ensure sign-out is complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Force a new sign-in which should prompt for calendar permissions
+      console.log('Starting fresh sign-in with calendar scopes...');
+      const userInfo = await GoogleSignin.signIn();
+      console.log('Re-authentication successful');
+      
+      const tokens = await GoogleSignin.getTokens();
+      this.accessToken = tokens.accessToken;
+      console.log('New access token obtained, length:', this.accessToken?.length);
+      
+      // Test calendar access with the new token
+      const hasCalendarAccess = await this.testCalendarAccess();
+      if (hasCalendarAccess) {
+        console.log('Calendar access confirmed with new token');
+        return true;
+      } else {
+        console.warn('Calendar access still not available after re-authentication');
+        return false;
+      }
     } catch (error) {
       console.error('Re-authentication Error:', error);
+      return false;
+    }
+  }
+
+  // Force complete OAuth reset by revoking tokens
+  async forceOAuthReset(): Promise<boolean> {
+    try {
+      console.log('Forcing complete OAuth reset...');
+      
+      // Get current tokens before signing out
+      let currentTokens = null;
+      try {
+        currentTokens = await GoogleSignin.getTokens();
+      } catch (e) {
+        console.log('No current tokens to revoke');
+      }
+      
+      // Revoke tokens if we have them
+      if (currentTokens?.accessToken) {
+        try {
+          console.log('Revoking current access token...');
+          await fetch(`https://oauth2.googleapis.com/revoke?token=${currentTokens.accessToken}`, {
+            method: 'POST',
+          });
+          console.log('Access token revoked successfully');
+        } catch (revokeError) {
+          console.warn('Failed to revoke token:', revokeError);
+        }
+      }
+      
+      // Clear the current access token
+      this.accessToken = null;
+      
+      // Sign out completely to clear any cached tokens
+      await GoogleSignin.signOut();
+      
+      // Wait a moment to ensure sign-out is complete
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Force a completely fresh sign-in
+      console.log('Starting completely fresh sign-in with calendar scopes...');
+      const userInfo = await GoogleSignin.signIn();
+      console.log('Fresh sign-in successful');
+      
+      const tokens = await GoogleSignin.getTokens();
+      this.accessToken = tokens.accessToken;
+      console.log('New access token obtained, length:', this.accessToken?.length);
+      
+      // Test calendar access with the new token
+      const hasCalendarAccess = await this.testCalendarAccess();
+      if (hasCalendarAccess) {
+        console.log('Calendar access confirmed with fresh token');
+        return true;
+      } else {
+        console.warn('Calendar access still not available after OAuth reset');
+        return false;
+      }
+    } catch (error) {
+      console.error('OAuth Reset Error:', error);
       return false;
     }
   }
@@ -185,7 +302,6 @@ class GoogleCalendarService {
       );
 
       console.log('Calendar API response status:', response.status);
-      console.log('Calendar API response headers:', response.headers);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -194,15 +310,24 @@ class GoogleCalendarService {
         if (response.status === 403) {
           // Check if it's a scope issue
           if (errorText.includes('insufficientPermissions') || errorText.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT')) {
-            throw new Error('403: Insufficient permissions - calendar scopes not granted. Please re-authenticate.');
+            console.log('Calendar scopes not granted. Attempting re-authentication...');
+            
+            // Try to re-authenticate automatically
+            const reAuthSuccess = await this.reAuthenticate();
+            if (reAuthSuccess) {
+              // Retry the request with the new token
+              return await this.getCalendars();
+            } else {
+              throw new Error('403: Insufficient permissions - calendar scopes not granted. Please sign out and sign in again to grant calendar permissions.');
+            }
           }
         }
         
-        throw new Error(`HTTP error! status: ${response.status}, body: ${errorText}`);
+        throw new Error(`Calendar API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      console.log('Calendars fetched successfully, count:', data.items?.length || 0);
+      console.log('Calendars fetched successfully:', data.items?.length || 0, 'calendars');
       return data.items || [];
     } catch (error) {
       console.error('Get Calendars Error:', error);
@@ -378,10 +503,11 @@ class GoogleCalendarService {
         if (isAllDay) {
           // For all-day events, use the date string directly to avoid timezone issues
           eventDate = event.start.date!; // This is already in YYYY-MM-DD format
-          // Create dates using local timezone to avoid UTC conversion issues
-          const [year, month, day] = eventDate.split('-').map(Number);
-          startDate = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
-          endDate = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+          
+          // For all-day events, we don't need to create Date objects for start/end times
+          // since they should be treated as all-day events in the app
+          startDate = undefined;
+          endDate = undefined;
         } else {
           // For timed events, parse the datetime normally
           startDate = new Date(event.start.dateTime!);
@@ -458,8 +584,8 @@ class GoogleCalendarService {
             description: event.description,
             location: event.location,
             date: event.date,
-            start_datetime: event.startDateTime?.toISOString(),
-            end_datetime: event.endDateTime?.toISOString(),
+            start_datetime: event.startDateTime ? event.startDateTime.toISOString() : null,
+            end_datetime: event.endDateTime ? event.endDateTime.toISOString() : null,
             is_all_day: event.isAllDay,
             category_name: event.categoryName,
             category_color: event.categoryColor,

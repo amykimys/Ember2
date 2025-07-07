@@ -10,8 +10,7 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { googleCalendarService, GoogleCalendar } from '../utils/googleCalendar';
-import { supabase } from '../supabase';
+import { googleCalendarService, GoogleCalendar, SyncedCalendar } from '../utils/googleCalendarNew';
 
 interface GoogleCalendarSyncProps {
   onEventsSynced?: (events: any[]) => void;
@@ -20,7 +19,7 @@ interface GoogleCalendarSyncProps {
   userId?: string;
 }
 
-export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
+export const GoogleCalendarSyncNew: React.FC<GoogleCalendarSyncProps> = ({
   onEventsSynced,
   onCalendarUnsynced,
   onCalendarColorUpdated,
@@ -30,7 +29,7 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
   const [selectedCalendars, setSelectedCalendars] = useState<string[]>([]);
-  const [syncedCalendars, setSyncedCalendars] = useState<any[]>([]);
+  const [syncedCalendars, setSyncedCalendars] = useState<SyncedCalendar[]>([]);
   const [calendarColors, setCalendarColors] = useState<{ [calendarId: string]: string }>({});
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [selectedCalendarForColor, setSelectedCalendarForColor] = useState<GoogleCalendar | null>(null);
@@ -67,24 +66,7 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
       }
     } catch (error) {
       console.error('Connection error:', error);
-      
-      // Provide specific error messages
-      if (error instanceof Error) {
-        if (error.message.includes('SIGN_IN_CANCELLED')) {
-          Alert.alert('Sign-in Cancelled', 'You cancelled the Google sign-in. Please try again to connect your calendar.');
-        } else if (error.message.includes('NETWORK_ERROR')) {
-          Alert.alert('Network Error', 'Please check your internet connection and try again.');
-        } else if (error.message.includes('insufficientPermissions') || error.message.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT')) {
-          Alert.alert(
-            'Calendar Permissions Required',
-            'To connect your Google Calendar, you need to grant calendar access permissions. Please try again and make sure to approve calendar access when prompted. If you\'re already signed in, you may need to sign out and sign back in to grant new permissions.'
-          );
-        } else {
-          Alert.alert('Connection Error', 'Failed to connect to Google Calendar. Please try again.');
-        }
-      } else {
-        Alert.alert('Connection Error', 'Failed to connect to Google Calendar. Please try again.');
-      }
+      Alert.alert('Connection Error', 'Failed to connect to Google Calendar. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -103,64 +85,7 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
     }
   };
 
-  const handleForceReAuth = async () => {
-    Alert.alert(
-      'Complete OAuth Reset Required',
-      'To fix the calendar permissions issue, we need to completely reset your Google OAuth connection. This will revoke all current permissions and force a fresh sign-in with calendar access.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Reset OAuth & Sign Out',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsLoading(true);
-              
-              // Force complete OAuth reset
-              console.log('User requested complete OAuth reset...');
-              const success = await googleCalendarService.forceOAuthReset();
-              
-              if (success) {
-                setIsConnected(true);
-                console.log('OAuth reset successful, loading calendars...');
-                await loadCalendars();
-                setHasPermissionError(false);
-                Alert.alert('Success', 'OAuth reset successful! Calendar permissions have been granted.');
-              } else {
-                // If OAuth reset failed, fall back to app sign-out
-                console.log('OAuth reset failed, falling back to app sign-out...');
-                await googleCalendarService.signOut();
-                setIsConnected(false);
-                setCalendars([]);
-                setSelectedCalendars([]);
-                
-                // Sign out of Supabase (this will redirect to login)
-                const { error } = await supabase.auth.signOut();
-                if (error) {
-                  console.error('Error signing out of app:', error);
-                }
-                
-                Alert.alert(
-                  'Signed Out',
-                  'Please sign back in and try connecting your Google Calendar again. Make sure to approve calendar access permissions when prompted.'
-                );
-              }
-            } catch (error) {
-              console.error('Error during force re-auth:', error);
-              Alert.alert('Error', 'Failed to reset OAuth. Please try signing out of the app completely and signing back in.');
-            } finally {
-              setIsLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-    const loadCalendars = async () => {
+  const loadCalendars = async () => {
     try {
       const userCalendars = await googleCalendarService.getCalendars();
       setCalendars(userCalendars);
@@ -172,45 +97,46 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
       }
     } catch (error) {
       console.error('Error loading calendars:', error);
-    
-      // Check if it's a scope-related error
-      if (error instanceof Error && (error.message.includes('403') || error.message.includes('insufficientPermissions') || error.message.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT'))) {
+      
+      // Check if it's a calendar permissions error
+      if (error instanceof Error && (
+        error.message.includes('Calendar permissions not granted') ||
+        error.message.includes('insufficient authentication scopes') ||
+        error.message.includes('insufficientPermissions')
+      )) {
         setHasPermissionError(true);
         Alert.alert(
           'Calendar Permissions Required',
-          'To sync your Google Calendar, you need to grant calendar access permissions. Since you\'re already signed in, you\'ll need to sign out and sign back in to grant the new permissions.',
+          'To sync your Google Calendar, you need to grant calendar access permissions. Please sign out and sign back in to grant the necessary permissions.',
           [
+            { text: 'Cancel', style: 'cancel' },
             {
-              text: 'Cancel',
-              style: 'cancel',
-            },
-            {
-              text: 'Reset OAuth & Try Again',
+              text: 'Sign Out & Re-authenticate',
               onPress: async () => {
-                setIsLoading(true);
                 try {
-                  console.log('User requested OAuth reset for calendar permissions...');
+                  setIsLoading(true);
                   
-                  // Force complete OAuth reset
-                  const success = await googleCalendarService.forceOAuthReset();
+                  // Sign out completely
+                  await googleCalendarService.signOut();
+                  setIsConnected(false);
+                  setCalendars([]);
+                  setSelectedCalendars([]);
+                  
+                  // Wait a moment
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  
+                  // Try to sign in again
+                  const success = await googleCalendarService.signIn();
                   if (success) {
                     setIsConnected(true);
-                    console.log('OAuth reset successful, loading calendars...');
                     await loadCalendars();
-                    setHasPermissionError(false);
-                    Alert.alert('Success', 'OAuth reset successful! Calendar permissions have been granted.');
+                    Alert.alert('Success', 'Please try accessing your calendars now.');
                   } else {
-                    Alert.alert(
-                      'Permission Denied', 
-                      'Calendar permissions were not granted. Please try the "Fix Permissions" button below or sign out of the app completely and sign back in.'
-                    );
+                    Alert.alert('Authentication Failed', 'Please try signing out of the app completely and signing back in.');
                   }
                 } catch (reauthError) {
-                  console.error('OAuth reset error:', reauthError);
-                  Alert.alert(
-                    'Authentication Failed', 
-                    'Failed to reset OAuth. Please try the "Fix Permissions" button below or sign out of the app completely and sign back in.'
-                  );
+                  console.error('Re-authentication error:', reauthError);
+                  Alert.alert('Error', 'Failed to re-authenticate. Please try signing out of the app completely and signing back in.');
                 } finally {
                   setIsLoading(false);
                 }
@@ -239,22 +165,15 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
       'Unsync Calendar',
       `Do you want to unsync "${calendarName}"?`,
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Keep Events',
-          onPress: async () => {
-            await unsyncCalendar(calendarId, false);
-          },
+          onPress: async () => await unsyncCalendar(calendarId, false),
         },
         {
           text: 'Remove Events',
           style: 'destructive',
-          onPress: async () => {
-            await unsyncCalendar(calendarId, true);
-          },
+          onPress: async () => await unsyncCalendar(calendarId, true),
         },
       ]
     );
@@ -284,7 +203,6 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
           {
             text: 'OK',
             onPress: () => {
-              // Call the callback to refresh events if provided
               if (onCalendarUnsynced) {
                 onCalendarUnsynced();
               }
@@ -306,17 +224,18 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
       return;
     }
 
+    if (!userId) {
+      Alert.alert('Error', 'User not authenticated');
+      return;
+    }
+
     const currentYear = new Date().getFullYear();
 
-    // Show confirmation dialog before syncing
     Alert.alert(
       'Sync Calendar',
       `Do you want to sync ${selectedCalendars.length} calendar${selectedCalendars.length !== 1 ? 's' : ''}? This will import events from ${currentYear - 1} to 2028.`,
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Sync',
           onPress: async () => {
@@ -325,7 +244,6 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
               const allEvents: any[] = [];
               
               // Get date range for 5 years from January of previous year to December 2028
-              const currentYear = new Date().getFullYear();
               const startDate = new Date(currentYear - 1, 0, 1); // January 1st of previous year
               const endDate = new Date(2028, 11, 31); // December 31st, 2028
               
@@ -334,12 +252,26 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
 
               for (const calendarId of selectedCalendars) {
                 try {
+                  const calendar = calendars.find(c => c.id === calendarId);
+                  const color = calendarColors[calendarId] || '#4285F4';
+                  
+                  // Track the calendar first
+                  await googleCalendarService.trackSyncedCalendar(
+                    userId,
+                    calendarId,
+                    calendar?.summary || 'Unknown Calendar',
+                    calendar?.description,
+                    calendar?.primary || false,
+                    color
+                  );
+
+                  // Sync events
                   const events = await googleCalendarService.syncEventsToApp(
                     calendarId,
                     timeMin,
                     timeMax,
                     userId,
-                    calendarColors[calendarId] // Pass the selected color
+                    color
                   );
                   allEvents.push(...events);
                 } catch (error) {
@@ -347,9 +279,18 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
                 }
               }
 
+              // Refresh synced calendars list
+              const synced = await googleCalendarService.getSyncedCalendars(userId);
+              setSyncedCalendars(synced);
+              
+              // Clear selected calendars
+              setSelectedCalendars([]);
+
               if (onEventsSynced) {
                 onEventsSynced(allEvents);
               }
+
+              Alert.alert('Success', `Successfully synced ${allEvents.length} events!`);
             } catch (error) {
               console.error('Sync error:', error);
               Alert.alert('Error', 'Failed to sync events');
@@ -367,51 +308,44 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
     setShowColorPicker(true);
   };
 
-  const openColorPickerForSynced = (syncedCalendar: any) => {
-    // Create a mock GoogleCalendar object for the synced calendar
-    const mockCalendar: GoogleCalendar = {
+  const openColorPickerForSynced = (syncedCalendar: SyncedCalendar) => {
+    const calendar: GoogleCalendar = {
       id: syncedCalendar.google_calendar_id,
       summary: syncedCalendar.calendar_name,
       description: syncedCalendar.calendar_description,
       primary: syncedCalendar.is_primary,
+      accessRole: 'reader',
       backgroundColor: syncedCalendar.background_color,
       foregroundColor: syncedCalendar.foreground_color,
-      accessRole: 'reader', // Default access role for synced calendars
     };
-    setSelectedCalendarForColor(mockCalendar);
+    setSelectedCalendarForColor(calendar);
     setShowColorPicker(true);
   };
 
   const selectColor = async (color: string) => {
-    if (selectedCalendarForColor) {
+    if (!selectedCalendarForColor) return;
+
+    try {
       // Check if this is a synced calendar
-      const syncedCalendar = syncedCalendars.find(synced => synced.google_calendar_id === selectedCalendarForColor.id);
-      
+      const syncedCalendar = syncedCalendars.find(
+        synced => synced.google_calendar_id === selectedCalendarForColor.id
+      );
+
       if (syncedCalendar) {
-        // Update the synced calendar's color in the database
-        try {
-          await googleCalendarService.updateSyncedCalendarColor(
-            syncedCalendar.id,
-            color
-          );
-          
-          // Update local state
-          setSyncedCalendars(prev => prev.map(cal => 
-            cal.id === syncedCalendar.id 
-              ? { ...cal, background_color: color }
-              : cal
-          ));
-          
-          // Trigger a refresh of the calendar display
-          if (onCalendarColorUpdated) {
-            onCalendarColorUpdated();
-          }
-          
-          Alert.alert('Success', 'Calendar color updated successfully!');
-        } catch (error) {
-          console.error('Error updating calendar color:', error);
-          Alert.alert('Error', 'Failed to update calendar color');
+        // Update the synced calendar color in database
+        await googleCalendarService.updateSyncedCalendarColor(syncedCalendar.id, color);
+        
+        // Refresh synced calendars list
+        if (userId) {
+          const synced = await googleCalendarService.getSyncedCalendars(userId);
+          setSyncedCalendars(synced);
         }
+
+        if (onCalendarColorUpdated) {
+          onCalendarColorUpdated();
+        }
+
+        Alert.alert('Success', 'Calendar color updated successfully');
       } else {
         // This is a new calendar, just update local state
         setCalendarColors(prev => ({
@@ -419,7 +353,11 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
           [selectedCalendarForColor.id]: color
         }));
       }
+    } catch (error) {
+      console.error('Error updating calendar color:', error);
+      Alert.alert('Error', 'Failed to update calendar color');
     }
+    
     setShowColorPicker(false);
     setSelectedCalendarForColor(null);
   };
@@ -431,7 +369,7 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
       return syncedCalendar.background_color || '#4285F4';
     }
     // Otherwise check the calendarColors state (for new calendars)
-    return calendarColors[calendarId] || '#4285F4'; // Default to Google blue
+    return calendarColors[calendarId] || '#4285F4';
   };
 
   return (
@@ -458,7 +396,25 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
           {hasPermissionError && (
             <TouchableOpacity
               style={[styles.connectButton, styles.fixPermissionsButton]}
-              onPress={handleForceReAuth}
+              onPress={async () => {
+                try {
+                  setIsLoading(true);
+                  const success = await googleCalendarService.forceOAuthReset();
+                  if (success) {
+                    setIsConnected(true);
+                    setHasPermissionError(false);
+                    await loadCalendars();
+                    Alert.alert('Success', 'OAuth reset successful! Calendar permissions have been granted.');
+                  } else {
+                    Alert.alert('Reset Failed', 'Please try signing out of the app completely and signing back in.');
+                  }
+                } catch (error) {
+                  console.error('OAuth reset error:', error);
+                  Alert.alert('Error', 'Failed to reset OAuth. Please try signing out of the app completely and signing back in.');
+                } finally {
+                  setIsLoading(false);
+                }
+              }}
               disabled={isLoading}
             >
               <Text style={styles.connectButtonText}>Fix Permissions</Text>
@@ -469,7 +425,7 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
         <View style={styles.syncSection}>
           {syncedCalendars.length > 0 && (
             <View style={styles.syncedSection}>
-              <Text style={styles.sectionTitle}>Synced</Text>
+              <Text style={styles.sectionTitle}>Synced Calendars</Text>
               <View style={styles.syncedCalendarsList}>
                 {syncedCalendars.map(syncedCalendar => (
                   <View key={syncedCalendar.id} style={styles.syncedCalendarItem}>
@@ -582,6 +538,14 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
               </Text>
             )}
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.disconnectButton}
+            onPress={handleDisconnect}
+            disabled={isLoading}
+          >
+            <Text style={styles.disconnectButtonText}>Disconnect</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -622,7 +586,7 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
                 </TouchableOpacity>
               ))}
             </View>
-            
+
             <TouchableOpacity
               style={styles.cancelButton}
               onPress={() => setShowColorPicker(false)}
@@ -639,7 +603,12 @@ export const GoogleCalendarSync: React.FC<GoogleCalendarSyncProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'white',
+    backgroundColor: '#f8f9ff',
+  },
+  connectSection: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     padding: 20,
   },
   title: {
@@ -647,33 +616,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 16,
     marginBottom: 8,
-    color: '#1a73e8',
+    color: '#333',
     fontFamily: 'Onest',
     textAlign: 'center',
-  },
-  connectSection: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    backgroundColor: '#f8f9ff',
-    borderRadius: 20,
-    margin: 20,
   },
   description: {
-    textAlign: 'center',
-    color: '#5f6368',
-    marginBottom: 32,
-    lineHeight: 20,
-    fontFamily: 'Onest',
     fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 32,
+    fontFamily: 'Onest',
+    lineHeight: 22,
   },
   connectButton: {
     backgroundColor: '#4285F4',
-    paddingHorizontal: 32,
     paddingVertical: 16,
+    paddingHorizontal: 32,
     borderRadius: 12,
-    minWidth: 120,
+    alignItems: 'center',
     shadowColor: '#4285F4',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -685,57 +645,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'Onest',
     fontSize: 16,
-    textAlign: 'center',
   },
   syncSection: {
     flex: 1,
-  },
-  connectionStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-    padding: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-  },
-  connectedText: {
-    flex: 1,
-    marginLeft: 8,
-    color: '#4CAF50',
-    fontWeight: '500',
-    fontFamily: 'Onest',
-  },
-  connectionButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  disconnectButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  disconnectButtonText: {
-    color: '#FF6B6B',
-    fontSize: 12,
-    fontWeight: '500',
-    fontFamily: 'Onest',
-  },
-  reauthButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  reauthButtonText: {
-    color: '#667eea',
-    fontSize: 12,
-    fontWeight: '500',
-    fontFamily: 'Onest',
+    padding: 20,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
+    color: '#333',
     marginBottom: 16,
-    marginTop: 24,
-    color: '#1a73e8',
+    fontFamily: 'Onest',
+  },
+  calendarCount: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '400',
     fontFamily: 'Onest',
   },
   calendarList: {
@@ -747,33 +672,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#e8f0fe',
     borderRadius: 12,
     marginBottom: 8,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'white',
   },
   selectedCalendar: {
     borderColor: '#4285F4',
-    backgroundColor: '#f0f4ff',
-    shadowColor: '#4285F4',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  colorPickerButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  syncedCalendar: {
-    borderColor: '#4CAF50',
-    backgroundColor: '#f0fff4',
+    backgroundColor: '#f0f8ff',
   },
   calendarInfo: {
     flex: 1,
@@ -783,42 +689,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  calendarBadges: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-  },
-  syncedBadge: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#4CAF50',
-    backgroundColor: '#e8f5e8',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    overflow: 'hidden',
-    fontFamily: 'Onest',
-  },
-  syncedBadgeContainer: {
-    flexDirection: 'column',
-    gap: 2,
-  },
-  unsyncHint: {
-    fontSize: 8,
-    color: '#666',
-    fontFamily: 'Onest',
-    fontStyle: 'italic',
-  },
   calendarName: {
     fontSize: 14,
     fontWeight: '500',
     color: '#333',
-    fontFamily: 'Onest',
-  },
-  calendarDescription: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
     fontFamily: 'Onest',
   },
   primaryBadge: {
@@ -843,6 +717,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+    marginBottom: 12,
   },
   syncButtonDisabled: {
     backgroundColor: '#b0b0b0',
@@ -854,6 +729,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'Onest',
     fontSize: 16,
+  },
+  disconnectButton: {
+    backgroundColor: '#f8f9fa',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  disconnectButtonText: {
+    color: '#666',
+    fontWeight: '500',
+    fontFamily: 'Onest',
   },
   noCalendarsContainer: {
     flex: 1,
@@ -869,11 +757,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#5f6368',
     marginBottom: 8,
-    fontFamily: 'Onest',
-  },
-  noCalendarsSubtext: {
-    color: '#666',
-    fontSize: 12,
     fontFamily: 'Onest',
   },
   syncedSection: {
@@ -914,11 +797,12 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
   },
-  calendarCount: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '400',
-    fontFamily: 'Onest',
+  colorPickerButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e9ecef',
   },
   modalOverlay: {
     flex: 1,

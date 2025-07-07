@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions, RefreshControl } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions, RefreshControl, Animated } from 'react-native';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
@@ -7,6 +7,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { useFocusEffect } from '@react-navigation/native';
+import { clearPreferencesCache } from '../../utils/notificationUtils';
+import { manuallyMoveUncompletedTasks, debugUserTasks } from '../../utils/taskUtils';
+import { GoogleCalendarSyncNew } from '../../components/GoogleCalendarSyncNew';
+import { Colors } from '../../constants/Colors';
 
 interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
@@ -14,6 +19,8 @@ interface UserPreferences {
   default_view: 'day' | 'week' | 'month';
   email_notifications: boolean;
   push_notifications: boolean;
+  default_screen: 'calendar' | 'todo' | 'notes' | 'profile';
+  auto_move_uncompleted_tasks: boolean;
 }
 
 interface UserProfile {
@@ -88,13 +95,20 @@ interface PhotoShare {
 export default function ProfileScreen() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
+  const dotAnimations = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0)
+  ]).current;
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [preferences, setPreferences] = useState<UserPreferences>({
     theme: 'system',
     notifications_enabled: true,
     default_view: 'day',
     email_notifications: true,
-    push_notifications: true
+    push_notifications: true,
+    default_screen: 'calendar',
+    auto_move_uncompleted_tasks: false
   });
   const [isLoading, setIsLoading] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -144,6 +158,10 @@ export default function ProfileScreen() {
 
   // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showDefaultScreenModal, setShowDefaultScreenModal] = useState(false);
+  
+  // Google Calendar sync state
+  const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
 
   // Configure Google Sign-In
   useEffect(() => {
@@ -199,6 +217,48 @@ export default function ProfileScreen() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // Add focus effect to reload memories when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        console.log('🔄 Profile screen focused, reloading memories...');
+        loadMemories(user.id);
+      }
+    }, [user?.id])
+  );
+
+  // Animate loading dots when signing in
+  useEffect(() => {
+    if (isLoading) {
+      const animateDots = () => {
+        const animations = dotAnimations.map((dot, index) =>
+          Animated.sequence([
+            Animated.delay(index * 200),
+            Animated.loop(
+              Animated.sequence([
+                Animated.timing(dot, {
+                  toValue: 1,
+                  duration: 600,
+                  useNativeDriver: true,
+                }),
+                Animated.timing(dot, {
+                  toValue: 0,
+                  duration: 600,
+                  useNativeDriver: true,
+                }),
+              ])
+            )
+          ])
+        );
+        Animated.parallel(animations).start();
+      };
+      animateDots();
+    } else {
+      // Reset animations when not loading
+      dotAnimations.forEach(dot => dot.setValue(0));
+    }
+  }, [isLoading]);
 
   // Add useEffect to listen for photo deletion events and refresh memories
   useEffect(() => {
@@ -306,16 +366,20 @@ export default function ProfileScreen() {
           notifications_enabled: data.notifications_enabled ?? true,
           default_view: data.default_view || 'day',
           email_notifications: data.email_notifications ?? true,
-          push_notifications: data.push_notifications ?? true
+          push_notifications: data.push_notifications ?? true,
+          default_screen: data.default_screen || 'calendar',
+          auto_move_uncompleted_tasks: data.auto_move_uncompleted_tasks ?? false
         });
       } else {
         // Create default preferences
           const defaultPreferences: UserPreferences = {
             theme: 'system',
             notifications_enabled: true,
-          default_view: 'day',
-          email_notifications: true,
-          push_notifications: true
+            default_view: 'day',
+            email_notifications: true,
+            push_notifications: true,
+            default_screen: 'calendar',
+            auto_move_uncompleted_tasks: false
           };
 
           const { error: insertError } = await supabase
@@ -771,18 +835,30 @@ export default function ProfileScreen() {
       console.log('📸 Total memories found:', allMemories.length);
       console.log('📸 All memories:', allMemories);
 
-      // Don't group by date - just use all memories as a flat array
-      const flatMemories: MemoryGroup[] = [{
-        date: 'all',
-        formattedDate: '',
-        memories: allMemories
-      }];
-
-      console.log('📸 Final flat memories:', flatMemories);
-      setMemories(flatMemories);
-      console.log('📸 Memories organized into flat array');
+      // Group memories by date
+      const groupedMemories: { [key: string]: MemoryItem[] } = {};
       
-      if (flatMemories[0].memories.length === 0) {
+      allMemories.forEach(memory => {
+        if (!groupedMemories[memory.date]) {
+          groupedMemories[memory.date] = [];
+        }
+        groupedMemories[memory.date].push(memory);
+      });
+
+      // Convert to MemoryGroup array and sort by date (newest first)
+      const memoryGroups: MemoryGroup[] = Object.keys(groupedMemories)
+        .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+        .map(date => ({
+          date: date,
+          formattedDate: formatMemoryDate(date),
+          memories: groupedMemories[date]
+        }));
+
+      console.log('📸 Final grouped memories:', memoryGroups);
+      setMemories(memoryGroups);
+      console.log('📸 Memories organized into groups by date');
+      
+      if (memoryGroups.length === 0 || memoryGroups.every(group => group.memories.length === 0)) {
         console.log('⚠️ No memories found - this might be normal if no photos have been saved yet');
       }
     } catch (error) {
@@ -1014,16 +1090,48 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await GoogleSignin.revokeAccess();
-              await GoogleSignin.signOut();
+              // Try to sign out from Google (this might fail if user wasn't signed in with Google)
+              try {
+                await GoogleSignin.revokeAccess();
+                await GoogleSignin.signOut();
+              } catch (googleError) {
+                console.log('Google sign out failed (user might not be signed in with Google):', googleError);
+                // Continue with Supabase sign out even if Google sign out fails
+              }
               
+              // Sign out from Supabase
               const { error } = await supabase.auth.signOut();
               if (error) {
                 throw error;
               }
               
+              // Clear all local state
               setUser(null);
               setProfile(null);
+              setPreferences({
+                theme: 'system',
+                notifications_enabled: true,
+                default_view: 'day',
+                email_notifications: true,
+                push_notifications: true,
+                default_screen: 'calendar',
+                auto_move_uncompleted_tasks: false
+              });
+              setFriends([]);
+              setFriendRequests([]);
+              setMemories([]);
+              setPhotoShares([]);
+              
+              // Close all modals
+              setShowSettingsModal(false);
+              setShowDefaultScreenModal(false);
+              setShowFriendsModal(false);
+              setShowSimpleFriendsModal(false);
+              setShowMemoriesModal(false);
+              setShowFriendsFeedModal(false);
+              setIsEditingProfile(false);
+              
+              console.log('✅ Successfully signed out');
             } catch (error) {
               console.error('Error in handleSignOut:', error);
               Alert.alert('Error', 'There was a problem signing out. Please try again.');
@@ -1034,8 +1142,24 @@ export default function ProfileScreen() {
     );
   };
 
+  const getDefaultScreenLabel = (screen: string) => {
+    switch (screen) {
+      case 'calendar': return 'Calendar';
+      case 'todo': return 'Todo';
+      case 'notes': return 'Notes';
+      case 'profile': return 'Profile';
+      default: return 'Calendar';
+    }
+  };
+
   const handlePreferenceChange = async (key: keyof UserPreferences, value: any) => {
     if (!user) return;
+
+    // Store the previous value in case we need to revert
+    const previousValue = preferences[key];
+    
+    // Optimistically update the UI immediately
+    setPreferences(prev => ({ ...prev, [key]: value }));
 
     try {
       const { error } = await supabase
@@ -1048,9 +1172,14 @@ export default function ProfileScreen() {
 
       if (error) throw error;
       
-      setPreferences(prev => ({ ...prev, [key]: value }));
+      // Clear the preferences cache so other screens get the updated setting
+      if (key === 'push_notifications' && user) {
+        clearPreferencesCache(user.id);
+      }
     } catch (error) {
       console.error('Error updating preference:', error);
+      // Revert to the previous value if the update failed
+      setPreferences(prev => ({ ...prev, [key]: previousValue }));
       Alert.alert('Error', 'Failed to update preference');
     }
   };
@@ -1349,18 +1478,18 @@ export default function ProfileScreen() {
           </View>
         )}
         {isUploadingImage && (
-          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 50 }}>
-            <ActivityIndicator size="small" color="#667eea" />
+          <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.8)', borderRadius: 50 }}>
+            <ActivityIndicator size="small" color={Colors.light.primary} />
           </View>
         )}
       </TouchableOpacity>
       <TouchableOpacity onPress={handleEditProfile} style={styles.profileNameContainer}>
-      <Text style={styles.profileName}>{profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}</Text>
+        <Text style={styles.profileName}>{profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}</Text>
         <Text style={styles.profileUsername}>@{profile?.username || user?.user_metadata?.username || 'username'}</Text>
       </TouchableOpacity>
       {profile?.bio && <Text style={styles.profileBio}>{profile.bio}</Text>}
       <TouchableOpacity style={styles.friendCountContainer} onPress={() => setShowSimpleFriendsModal(true)}>
-        <Ionicons name="people" size={16} color="#8E8E93" />
+        <Ionicons name="people" size={16} color={Colors.light.icon} />
         <Text style={styles.friendCountText}>{friends.length} friends</Text>
       </TouchableOpacity>
     </View>
@@ -1369,7 +1498,7 @@ export default function ProfileScreen() {
   const renderFeatureCard = (icon: string, title: string, subtitle: string, count?: number, onPress?: () => void) => (
     <TouchableOpacity style={styles.featureCard} onPress={onPress}>
       <View style={styles.featureIcon}>
-        <Ionicons name={icon as any} size={24} color="#007AFF" />
+        <Ionicons name={icon as any} size={24} color={Colors.light.accent} />
       </View>
       <View style={styles.featureContent}>
         <Text style={styles.featureTitle}>{title}</Text>
@@ -1380,31 +1509,37 @@ export default function ProfileScreen() {
           <Text style={styles.featureCountText}>{count}</Text>
         </View>
       )}
-      <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+      <Ionicons name="chevron-forward" size={16} color={Colors.light.icon} />
     </TouchableOpacity>
   );
 
   const renderSettingsItem = (icon: string, title: string, value?: string, onPress?: () => void, isSwitch?: boolean, switchValue?: boolean, onSwitchChange?: (value: boolean) => void) => (
     <View style={styles.settingsItem}>
-      <View style={styles.settingsItemLeft}>
+      <TouchableOpacity 
+        style={styles.settingsItemLeft} 
+        onPress={onPress}
+        disabled={!onPress}
+      >
         <View style={styles.settingsIcon}>
-          <Ionicons name={icon as any} size={20} color="#8E8E93" />
+          <Ionicons name={icon as any} size={20} color={Colors.light.icon} />
         </View>
         <Text style={styles.settingsLabel}>{title}</Text>
-      </View>
+      </TouchableOpacity>
       <View style={styles.settingsItemRight}>
         {isSwitch ? (
           <Switch
             value={switchValue}
             onValueChange={onSwitchChange}
-            trackColor={{ false: '#E5E5EA', true: '#007AFF' }}
+            trackColor={{ false: Colors.light.border, true: Colors.light.accent }}
             thumbColor="#fff"
+            ios_backgroundColor={Colors.light.border}
+            style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }}
           />
         ) : (
-          <>
+          <TouchableOpacity onPress={onPress} disabled={!onPress} style={styles.settingsItemRightContent}>
             {value && <Text style={styles.settingsValue}>{value}</Text>}
-            <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
-          </>
+            <Ionicons name="chevron-forward" size={16} color={Colors.light.icon} />
+          </TouchableOpacity>
         )}
       </View>
     </View>
@@ -1992,71 +2127,65 @@ export default function ProfileScreen() {
           </View>
         ) : (
           <FlatList
-            data={memories}
-            keyExtractor={(item) => item.date}
-            renderItem={({ item: memoryGroup }) => (
-              <View style={styles.memoryGroup}>
-                <View style={styles.memoryGrid}>
-                  {memoryGroup.memories.map((memory) => (
-                    <TouchableOpacity
-                      key={memory.id}
-                      style={styles.memoryItem}
-                      onPress={() => {
-                        if (isMultiSelectMode) {
-                          toggleMemorySelection(memory.id);
-                        } else {
-                          setSelectedMemory(memory);
-                          setShowMemoryDetailModal(true);
-                        }
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Image
-                        source={{ uri: memory.photoUri }}
-                        style={styles.memoryImage}
-                        resizeMode="cover"
-                        onError={(error) => {
-                          // Silently handle image loading failures
-                          setFailedImages(prev => new Set(prev).add(memory.id));
-                        }}
-                        onLoad={() => {
-                          setFailedImages(prev => {
-                            const newSet = new Set(prev);
-                            newSet.delete(memory.id);
-                            return newSet;
-                          });
-                        }}
-                      />
-                      {failedImages.has(memory.id) && (
-                        <View style={styles.memoryImagePlaceholder}>
-                          <Ionicons name="image-outline" size={32} color="#ccc" />
-                          <Text style={styles.memoryImagePlaceholderText}>Image unavailable</Text>
-                        </View>
+            data={memories.flatMap(group => group.memories)}
+            keyExtractor={(item) => item.id}
+            numColumns={4}
+            renderItem={({ item: memory }) => (
+              <TouchableOpacity
+                style={styles.memoryItem}
+                onPress={() => {
+                  if (isMultiSelectMode) {
+                    toggleMemorySelection(memory.id);
+                  } else {
+                    setSelectedMemory(memory);
+                    setShowMemoryDetailModal(true);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Image
+                  source={{ uri: memory.photoUri }}
+                  style={styles.memoryImage}
+                  resizeMode="cover"
+                  onError={(error) => {
+                    // Silently handle image loading failures
+                    setFailedImages(prev => new Set(prev).add(memory.id));
+                  }}
+                  onLoad={() => {
+                    setFailedImages(prev => {
+                      const newSet = new Set(prev);
+                      newSet.delete(memory.id);
+                      return newSet;
+                    });
+                  }}
+                />
+                {failedImages.has(memory.id) && (
+                  <View style={styles.memoryImagePlaceholder}>
+                    <Ionicons name="image-outline" size={32} color="#ccc" />
+                    <Text style={styles.memoryImagePlaceholderText}>Image unavailable</Text>
+                  </View>
+                )}
+                
+                {/* Selection indicator */}
+                {isMultiSelectMode && (
+                  <View style={[
+                    styles.memorySelectionIndicator,
+                    selectedMemories.has(memory.id) && styles.memorySelectionIndicatorSelected
+                  ]}>
+                    <View style={[
+                      styles.memoryCheckbox,
+                      selectedMemories.has(memory.id) && styles.memoryCheckboxSelected
+                    ]}>
+                      {selectedMemories.has(memory.id) && (
+                        <Ionicons name="checkmark" size={12} color="#fff" />
                       )}
-                      
-                      {/* Selection indicator */}
-                      {isMultiSelectMode && (
-                        <View style={[
-                          styles.memorySelectionIndicator,
-                          selectedMemories.has(memory.id) && styles.memorySelectionIndicatorSelected
-                        ]}>
-                          <View style={[
-                            styles.memoryCheckbox,
-                            selectedMemories.has(memory.id) && styles.memoryCheckboxSelected
-                          ]}>
-                            {selectedMemories.has(memory.id) && (
-                              <Ionicons name="checkmark" size={12} color="#fff" />
-                            )}
-                          </View>
-                        </View>
-                      )}
-                      
-                      <View style={styles.memoryOverlay}>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
+                    </View>
+                  </View>
+                )}
+                
+                <View style={styles.memoryOverlay}>
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
             refreshControl={
               <RefreshControl
@@ -2190,7 +2319,7 @@ export default function ProfileScreen() {
                   <Image
                     source={{ uri: item.photo_url }}
                     style={styles.photo}
-                    resizeMode="cover"
+                    resizeMode="contain"
                   />
                 </View>
 
@@ -2242,42 +2371,55 @@ export default function ProfileScreen() {
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={() => setShowSettingsModal(false)}
-        >
+    >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={() => setShowSettingsModal(false)}>
+          <TouchableOpacity 
+            onPress={() => setShowSettingsModal(false)}
+            style={styles.modalCloseButton}
+          >
             <Ionicons name="close" size={24} color="#000" />
-        </TouchableOpacity>
+          </TouchableOpacity>
           <Text style={styles.modalTitle}>Settings</Text>
           <View style={{ width: 24 }} />
-      </View>
+        </View>
 
         <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Preferences</Text>
+            <Text style={styles.sectionSubtitle}>Customize your app experience</Text>
             {renderSettingsItem('color-palette-outline', 'Theme', preferences.theme)}
             {renderSettingsItem('notifications-outline', 'Push Notifications', undefined, undefined, true, preferences.push_notifications, (value) => handlePreferenceChange('push_notifications', value))}
-            {renderSettingsItem('mail-outline', 'Email Notifications', undefined, undefined, true, preferences.email_notifications, (value) => handlePreferenceChange('email_notifications', value))}
-            {renderSettingsItem('calendar-outline', 'Default View', preferences.default_view)}
-        </View>
+            {renderSettingsItem('home-outline', 'Default Screen', getDefaultScreenLabel(preferences.default_screen), () => {
+              setShowSettingsModal(false);
+              setShowDefaultScreenModal(true);
+            })}
+            {renderSettingsItem('logo-google', 'Google Calendar Sync', undefined, () => {
+              setShowSettingsModal(false);
+              setShowGoogleSyncModal(true);
+            })}
+
+          </View>
 
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Account</Text>
+            <Text style={styles.sectionSubtitle}>Manage your account settings</Text>
             {renderSettingsItem('shield-outline', 'Privacy & Security')}
             {renderSettingsItem('cloud-download-outline', 'Export Data')}
             {renderSettingsItem('help-circle-outline', 'Help & Support')}
             {renderSettingsItem('information-circle-outline', 'About', 'v1.0.0')}
-      </View>
+          </View>
 
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Actions</Text>
+            <Text style={styles.sectionSubtitle}>Account management options</Text>
             <TouchableOpacity style={styles.dangerActionItem} onPress={handleSignOut}>
               <View style={styles.dangerActionLeft}>
                 <View style={styles.dangerActionIcon}>
                   <Ionicons name="log-out-outline" size={20} color="#FF3B30" />
-        </View>
+                </View>
                 <Text style={styles.dangerActionLabel}>Sign Out</Text>
-      </View>
+              </View>
               <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
             </TouchableOpacity>
 
@@ -2285,13 +2427,112 @@ export default function ProfileScreen() {
               <View style={styles.dangerActionLeft}>
                 <View style={styles.dangerActionIcon}>
                   <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-        </View>
+                </View>
                 <Text style={styles.dangerActionLabel}>Delete Account</Text>
-        </View>
+              </View>
               <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
-      </TouchableOpacity>
-    </View>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const renderDefaultScreenModal = () => (
+    <Modal
+      visible={showDefaultScreenModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowDefaultScreenModal(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowDefaultScreenModal(false)}>
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Choose Default Screen</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.settingsSection}>
+            <Text style={styles.sectionTitle}>Select the screen that appears when you open the app</Text>
+            
+            {[
+              { key: 'calendar', label: 'Calendar', icon: 'calendar-number-outline' },
+              { key: 'todo', label: 'Todo', icon: 'list' },
+              { key: 'notes', label: 'Notes', icon: 'document-text-outline' },
+              { key: 'profile', label: 'Profile', icon: 'person-outline' }
+            ].map((screen) => (
+              <TouchableOpacity
+                key={screen.key}
+                style={[
+                  styles.screenOption,
+                  preferences.default_screen === screen.key && styles.selectedScreenOption
+                ]}
+                onPress={() => {
+                  handlePreferenceChange('default_screen', screen.key);
+                  setShowDefaultScreenModal(false);
+                  // Reopen the settings modal after a brief delay
+                  setTimeout(() => {
+                    setShowSettingsModal(true);
+                  }, 300);
+                }}
+              >
+                <View style={styles.screenOptionLeft}>
+                  <Ionicons 
+                    name={screen.icon as any} 
+                    size={20} 
+                    color={preferences.default_screen === screen.key ? '#667eea' : '#666'} 
+                  />
+                  <Text style={[
+                    styles.screenOptionLabel,
+                    preferences.default_screen === screen.key && styles.selectedScreenOptionLabel
+                  ]}>
+                    {screen.label}
+                  </Text>
+                </View>
+                {preferences.default_screen === screen.key && (
+                  <Ionicons name="checkmark" size={20} color="#667eea" />
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+
+  const renderGoogleSyncModal = () => (
+    <Modal
+      visible={showGoogleSyncModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowGoogleSyncModal(false)}
+    >
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => setShowGoogleSyncModal(false)}>
+            <Ionicons name="close" size={24} color="#000" />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Google Calendar Sync</Text>
+          <View style={{ width: 24 }} />
+        </View>
+
+        <View style={styles.modalContent}>
+          <GoogleCalendarSyncNew
+            userId={user?.id}
+            onEventsSynced={() => {
+              // Handle events synced
+            }}
+            onCalendarUnsynced={() => {
+              // Handle calendar unsynced
+            }}
+            onCalendarColorUpdated={() => {
+              // Handle calendar color updated
+            }}
+          />
+        </View>
       </SafeAreaView>
     </Modal>
   );
@@ -3571,44 +3812,52 @@ export default function ProfileScreen() {
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {user && renderProfileHeader()}
-        
+
         {user && (
           <View style={styles.featuresSection}>
+            <View style={styles.featuresGrid}>
+
             {renderFeatureCard(
-              'images',
-              'Memories',
-              'Your photo moments',
-              memories.reduce((total, group) => total + group.memories.length, 0),
-              () => setShowMemoriesModal(true)
-            )}
+                'images-outline',
+                'Memories',
+                'View all your memories',
+                memories.flatMap(group => group.memories).length,
+                () => setShowMemoriesModal(true)
+              )}
+              {renderFeatureCard(
+                'people-outline',
+                'Friends Feed',
+                'See what your friends are up to',
+                unreadPhotoShares > 0 ? unreadPhotoShares : undefined,
+                () => setShowFriendsFeedModal(true)
+              )}
+            </View>
           </View>
         )}
 
         <View style={styles.accountSection}>
           {user ? null : (
-            <View style={styles.gradientSignInWrapper}>
-              <View style={styles.floatingCard}>
-                {/* Logo */}
-                <View style={styles.gradientLogo}>
-                  <Ionicons name="leaf" size={36} color="#fff" />
-              </View>
-                {/* Title */}
-                <Text style={styles.gradientTitle}>Jani</Text>
-                {/* Sign In Button */}
+            <View style={styles.signInContainer}>
+              {/* App Name - matching loading screen */}
+              <Text style={styles.signInAppName}>Jaani</Text>
+              
+              {/* Simple Loading Indicator when signing in */}
+              {isLoading ? (
+                <View style={styles.signInLoadingIndicator}>
+                  <Animated.View style={[styles.signInDot, { opacity: dotAnimations[0] }]} />
+                  <Animated.View style={[styles.signInDot, { opacity: dotAnimations[1] }]} />
+                  <Animated.View style={[styles.signInDot, { opacity: dotAnimations[2] }]} />
+                </View>
+              ) : (
+                /* Sign In Button */
                 <TouchableOpacity
-                  style={styles.gradientButton}
-                    onPress={handleSignIn}
-                    disabled={isLoading}
+                  style={styles.minimalSignInButton}
+                  onPress={handleSignIn}
+                  disabled={isLoading}
                 >
-                  <Ionicons name="logo-google" size={20} color="#fff" />
-                  <Text style={styles.gradientButtonText}>
-                    {isLoading ? 'Signing in...' : 'Get Started'}
-                  </Text>
-                  {isLoading && (
-                    <ActivityIndicator size="small" color="#fff" style={{ marginLeft: 12 }} />
-                  )}
+                  <Text style={styles.minimalSignInButtonText}>Get Started</Text>
                 </TouchableOpacity>
-              </View>
+              )}
             </View>
           )}
         </View>
@@ -3620,7 +3869,64 @@ export default function ProfileScreen() {
       {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
       {renderFriendsFeedModal()}
-      {renderSettingsModal()}
+              {renderSettingsModal()}
+        {renderDefaultScreenModal()}
+        {renderGoogleSyncModal()}
+      
+      {/* Memory detail modal for viewing individual photos */}
+      {showMemoryDetailModal && selectedMemory && (
+        <Modal
+          visible={showMemoryDetailModal}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => setShowMemoryDetailModal(false)}
+        >
+          <View style={styles.memoryDetailOverlay}>
+            {/* Full screen background image */}
+            <Image
+              source={{ uri: selectedMemory.photoUri }}
+              style={styles.memoryDetailBackgroundImage}
+              resizeMode="cover"
+            />
+            
+            {/* Dark overlay for better text readability */}
+            <View style={styles.memoryDetailDarkOverlay} />
+            
+            {/* Top bar with close button */}
+            <View style={styles.memoryDetailTopBar}>
+              <TouchableOpacity
+                style={styles.memoryDetailCloseButton}
+                onPress={() => setShowMemoryDetailModal(false)}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Bottom info panel */}
+            <View style={styles.memoryDetailBottomPanel}>
+              <View style={styles.memoryDetailInfo}>
+                <View style={[
+                  styles.memoryDetailTypeBadge,
+                  { backgroundColor: selectedMemory.categoryColor || '#007AFF' }
+                ]}>
+                  <Text style={styles.memoryDetailTypeText}>
+                    {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
+                  </Text>
+                </View>
+                <Text style={styles.memoryDetailTitle}>{selectedMemory.title}</Text>
+                {selectedMemory.description && (
+                  <Text style={styles.memoryDetailDescription}>
+                    {selectedMemory.description}
+                  </Text>
+                )}
+                <Text style={styles.memoryDetailDate}>
+                  {formatMemoryDate(selectedMemory.date)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -3628,16 +3934,17 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.background,
   },
   scrollView: {
     flex: 1,
+    backgroundColor: Colors.light.background,
   },
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.background,
   },
   headerSpacer: {
     flex: 1,
@@ -3645,30 +3952,30 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#000',
+    color: Colors.light.text,
     fontFamily: 'Onest',
   },
   profileHeader: {
     alignItems: 'center',
     paddingVertical: 32,
     paddingHorizontal: 20,
-    backgroundColor: '#fff',
-    marginBottom: 16,
+    backgroundColor: Colors.light.background,
+    marginBottom: 32,
   },
   avatarContainer: {
     position: 'relative',
     marginBottom: 12, // Reduced from 24 to bring name closer
   },
   avatar: {
-    width: 100, // Increased from 80 to 100
-    height: 100, // Increased from 80 to 100
-    borderRadius: 50, // Increased from 40 to 50
+    width: 80,
+    height: 80,
+    borderRadius: 40,
   },
   avatarPlaceholder: {
-    width: 100, // Increased from 80 to 100
-    height: 100, // Increased from 80 to 100
-    borderRadius: 50, // Increased from 40 to 50
-    backgroundColor: '#007AFF',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: Colors.light.accent,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -3676,44 +3983,46 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#007AFF',
-    width: 28, // Increased from 24 to 28
-    height: 28, // Increased from 24 to 28
-    borderRadius: 14, // Increased from 12 to 14
+    backgroundColor: Colors.light.accent,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   profileName: {
     fontSize: 24,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 2,
+    fontWeight: '600',
+    color: Colors.light.text,
+    marginBottom: 4,
     fontFamily: 'Onest',
   },
   profileUsername: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: Colors.light.icon,
     fontFamily: 'Onest',
     marginBottom: 4,
   },
   profileEmail: {
-    fontSize: 16,
-    color: '#8E8E93',
+    fontSize: 14,
+    color: Colors.light.icon,
     marginBottom: 8,
     fontFamily: 'Onest',
   },
   profileBio: {
     fontSize: 14,
-    color: '#666',
+    color: Colors.light.icon,
     textAlign: 'center',
-    marginBottom: 8, // Reduced from 16 to 8
+    marginBottom: 12,
     fontFamily: 'Onest',
+    lineHeight: 20,
+    maxWidth: 280,
   },
   editProfileButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: Colors.light.accent,
     paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
+    paddingVertical: 8,
+    borderRadius: 16,
   },
   editProfileText: {
     fontSize: 14,
@@ -3722,27 +4031,24 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   featuresSection: {
-    marginBottom: 16,
-    paddingHorizontal: 16,
+    marginBottom: 32,
+    paddingHorizontal: 20,
   },
   featureCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.surface,
     padding: 16,
     borderRadius: 12,
     marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
   },
   featureIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f4ff',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.light.surfaceVariant,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -3752,18 +4058,18 @@ const styles = StyleSheet.create({
   },
   featureTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: '500',
+    color: Colors.light.text,
     marginBottom: 2,
     fontFamily: 'Onest',
   },
   featureSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
+    color: Colors.light.icon,
     fontFamily: 'Onest',
   },
   featureCount: {
-    backgroundColor: '#667eea',
+    backgroundColor: Colors.light.accent,
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -3776,28 +4082,32 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   settingsSection: {
-    marginBottom: 24,
+    marginBottom: 32,
+    paddingHorizontal: 20,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.light.text,
+    marginBottom: 4,
+    fontFamily: 'Onest',
+  },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: Colors.light.icon,
+    marginBottom: 12,
     fontFamily: 'Onest',
   },
   settingsItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.light.surface,
     padding: 16,
     borderRadius: 12,
     marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: Colors.light.border,
   },
   settingsItemLeft: {
     flexDirection: 'row',
@@ -3808,29 +4118,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  settingsItemRightContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   settingsIcon: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: Colors.light.surfaceVariant,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   settingsLabel: {
-    fontSize: 16,
-    color: '#000',
+    fontSize: 15,
+    color: Colors.light.text,
     fontFamily: 'Onest',
   },
   settingsValue: {
-    fontSize: 14,
-    color: '#8E8E93',
+    fontSize: 13,
+    color: Colors.light.icon,
     marginRight: 8,
     fontFamily: 'Onest',
   },
   accountSection: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     paddingHorizontal: 16,
-    marginBottom: 32,
   },
   signOutButton: {
     backgroundColor: '#fff',
@@ -3868,17 +4184,14 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   signInContainer: {
-    backgroundColor: '#fff',
-    padding: 32,
-    borderRadius: 16,
+    flex: 1,
+    backgroundColor: '#ffffff',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-    marginTop: 32,
-    marginBottom: 32,
+    paddingHorizontal: 20,
+    width: '100%',
+    minHeight: 400,
+    paddingTop: '60%',
   },
   signInTitle: {
     fontSize: 24,
@@ -3909,6 +4222,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
+  modalCloseButton: {
+    padding: 8,
+    borderRadius: 8,
+  },
   modalCancelButton: {
     paddingVertical: 8,
     paddingHorizontal: 12,
@@ -3919,7 +4236,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
     color: '#000',
     fontFamily: 'Onest',
@@ -4089,10 +4406,11 @@ const styles = StyleSheet.create({
     gap: 1,
   },
   memoryItem: {
-    width: '33.15%',
+    width: '24.5%',
     aspectRatio: 1,
     position: 'relative',
-    marginBottom: 1,
+    marginBottom: 2,
+    marginHorizontal: 1,
   },
   memoryImage: {
     width: '100%',
@@ -4149,7 +4467,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    paddingTop: 20,
+    paddingTop: 60,
     paddingHorizontal: 20,
     paddingBottom: 20,
     flexDirection: 'row',
@@ -4210,7 +4528,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   memoriesList: {
-    padding: 1,
+    padding: 4,
   },
   friendItem: {
     flexDirection: 'row',
@@ -5022,12 +5340,12 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   signInAppName: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 6,
-    fontFamily: 'Onest',
-    letterSpacing: -0.5,
+    fontSize: 36,
+    fontWeight: '900',
+    color: '#0f172a',
+    fontFamily: 'Onest-Bold',
+    marginBottom: 40,
+    letterSpacing: -1,
   },
   signInWelcomeContainer: {
     alignItems: 'center',
@@ -5317,5 +5635,88 @@ const styles = StyleSheet.create({
   },
   editIcon: {
     marginLeft: 8,
+  },
+  // Photos section styles
+  photosSection: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#fff',
+  },
+  featuresGrid: {
+    gap: 12,
+  },
+  photosGrid: {
+    gap: 16,
+  },
+  // Default screen selection styles
+  screenOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  selectedScreenOption: {
+    backgroundColor: '#f0f4ff',
+    borderWidth: 1,
+    borderColor: '#667eea',
+  },
+  screenOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  screenOptionLabel: {
+    fontSize: 16,
+    color: '#000',
+    marginLeft: 12,
+    fontFamily: 'Onest',
+  },
+  selectedScreenOptionLabel: {
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  // Sign-in styles matching loading screen design
+  signInLoadingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signInDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#3b82f6',
+    marginHorizontal: 3,
+  },
+  minimalSignInButton: {
+    backgroundColor: '#0f172a',
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#0f172a',
+    minWidth: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  minimalSignInButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '500',
+    fontFamily: 'Onest',
+    letterSpacing: 0.5,
   },
 });

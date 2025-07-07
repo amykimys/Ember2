@@ -9,7 +9,7 @@ import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler'; 
 import { useColorScheme } from '@/hooks/useColorScheme';
 import * as Linking from 'expo-linking';
-import { supabase } from '../supabase';
+import { supabase, checkSessionStatus } from '../supabase';
 import { Session } from '@supabase/supabase-js';
 import 'react-native-reanimated';
 import * as Font from 'expo-font';
@@ -65,26 +65,62 @@ export default function RootLayout() {
   }, [loaded, fontsLoaded]);
 
   useEffect(() => {
-    // Initialize session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      console.log('🧩 Restoring session from getSession:', {
-        session: session?.user?.email,
-        error: error?.message,
-        hasSession: !!session,
-        userId: session?.user?.id
-      });
-      setSession(session);
-    });
+    // Initialize session with better error handling and retry logic
+    const initializeSession = async () => {
+      try {
+        console.log('🔄 Initializing session...');
+        
+        // First, try to get the current session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('❌ Error getting session:', error);
+        } else if (session) {
+                  console.log('✅ Session restored successfully:', {
+          email: session.user?.email,
+          userId: session.user?.id,
+          expiresAt: session.expires_at,
+          isExpired: session.expires_at ? new Date(session.expires_at * 1000) < new Date() : false
+        });
+        setSession(session);
+        
+        // Additional session validation
+        const sessionStatus = await checkSessionStatus();
+        console.log('🔍 Session validation result:', sessionStatus);
+        } else {
+          console.log('ℹ️ No existing session found');
+          setSession(null);
+        }
+      } catch (error) {
+        console.error('❌ Error initializing session:', error);
+        setSession(null);
+      }
+    };
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    initializeSession();
+
+    // Listen for auth changes with enhanced logging
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('📡 Auth state changed:', {
         event,
-        session: session?.user?.email,
+        email: session?.user?.email,
+        userId: session?.user?.id,
         hasSession: !!session,
-        userId: session?.user?.id
+        expiresAt: session?.expires_at
       });
+      
       setSession(session);
+      
+      // Handle specific auth events
+      if (event === 'SIGNED_IN') {
+        console.log('🎉 User signed in successfully');
+      } else if (event === 'SIGNED_OUT') {
+        console.log('👋 User signed out');
+      } else if (event === 'TOKEN_REFRESHED') {
+        console.log('🔄 Token refreshed successfully');
+      } else if (event === 'USER_UPDATED') {
+        console.log('👤 User profile updated');
+      }
     });
 
     return () => subscription.unsubscribe();
