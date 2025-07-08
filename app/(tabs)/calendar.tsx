@@ -31,7 +31,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
 import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles';
 import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
-import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends } from '../../utils/sharing';
+import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends, createAndShareEvent } from '../../utils/sharing';
 import type { SharedEvent } from '../../utils/sharing';
 import { Colors } from '../../constants/Colors';
 
@@ -336,6 +336,7 @@ interface CalendarEvent {
   googleEventId?: string;
   isGoogleEvent?: boolean;
   calendarColor?: string;
+  sharedByAvatarUrl?: string | null; // Add avatar URL
 }
 
 interface WeeklyCalendarViewProps {
@@ -596,6 +597,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Shared events notification modal state
   const [showSharedEventsModal, setShowSharedEventsModal] = useState(false);
   const [pendingSharedEvents, setPendingSharedEvents] = useState<CalendarEvent[]>([]);
+  const [sentSharedEvents, setSentSharedEvents] = useState<CalendarEvent[]>([]);
+  const [receivedSharedEvents, setReceivedSharedEvents] = useState<CalendarEvent[]>([]);
   
   // Shared event details modal state
   const [showSharedEventDetailsView, setShowSharedEventDetailsView] = useState(false);
@@ -779,7 +782,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     try {
       console.log('🔍 [Calendar] Fetching shared events for user:', userId);
       
-      // First, fetch shared events where current user is the recipient
+      // Fetch shared events where current user is either the recipient or sender
       const { data: sharedEventsData, error } = await supabase
         .from('shared_events')
         .select(`
@@ -790,8 +793,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           status,
           created_at
         `)
-        .eq('shared_with', userId)
-        .eq('status', 'pending');
+        .or(`shared_with.eq.${userId},shared_by.eq.${userId}`)
+        .in('status', ['pending', 'accepted']);
 
       if (error) {
         console.error('🔍 [Calendar] Error fetching shared events:', error);
@@ -852,21 +855,32 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         });
       }
 
-      // Get unique sharer IDs to fetch their profiles
-      const sharerIds = [...new Set(sharedEventsData.map((se: any) => se.shared_by))];
-      console.log('🔍 [Calendar] Sharer IDs:', sharerIds);
+      // Get unique user IDs involved in shared events (both senders and recipients)
+      const allUserIds = new Set<string>();
+      sharedEventsData.forEach((se: any) => {
+        allUserIds.add(se.shared_by);
+        allUserIds.add(se.shared_with);
+      });
+      console.log('🔍 [Calendar] All user IDs:', Array.from(allUserIds));
       
-      // Fetch profiles for all sharers
+      // Fetch profiles for all users involved
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, username, full_name')
-        .in('id', sharerIds);
+        .select('id, username, full_name, avatar_url')
+        .in('id', Array.from(allUserIds));
 
       if (profilesError) {
         console.error('🔍 [Calendar] Error fetching profiles:', profilesError);
       }
 
       console.log('🔍 [Calendar] Profiles data:', profilesData);
+      console.log('🔍 [Calendar] Profiles with avatars:', profilesData?.map(p => ({
+        id: p.id,
+        username: p.username,
+        full_name: p.full_name,
+        avatar_url: p.avatar_url,
+        has_avatar: !!p.avatar_url
+      })));
 
       // Create a map of user ID to profile data
       const profilesMap = new Map();
@@ -895,7 +909,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         })
         .map((sharedEvent: any) => {
           const event = eventsMap.get(sharedEvent.original_event_id);
-          const sharerProfile = profilesMap.get(sharedEvent.shared_by);
+          
+          // Determine if current user is the sender or recipient
+          const isCurrentUserSender = sharedEvent.shared_by === userId;
+          const isCurrentUserRecipient = sharedEvent.shared_with === userId;
+          
+          // For sent events, show the recipient's profile
+          // For received events, show the sender's profile
+          const profileToShowId = isCurrentUserSender ? sharedEvent.shared_with : sharedEvent.shared_by;
+          const profileToShow = profilesMap.get(profileToShowId);
           
           console.log('🔍 [Calendar] Processing shared event:', {
             sharedEventId: sharedEvent.id,
@@ -940,22 +962,26 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           const parsedStart = event.start_datetime ? parseDate(event.start_datetime) : null;
           const parsedEnd = event.end_datetime ? parseDate(event.end_datetime) : null;
           
-          // Check if we have valid start and end times
-          const hasValidTimes = parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && 
-                               parsedEnd instanceof Date && !isNaN(parsedEnd.getTime());
+          // Check if we have valid start time (this indicates it's a timed event, not all-day)
+          const hasValidStartTime = parsedStart instanceof Date && !isNaN(parsedStart.getTime());
+          const hasValidEndTime = parsedEnd instanceof Date && !isNaN(parsedEnd.getTime());
+          const hasValidTimes = hasValidStartTime;
           
           console.log('🔍 [Calendar] Time parsing results:', {
             start_datetime: event.start_datetime,
             end_datetime: event.end_datetime,
             parsed_start: parsedStart,
             parsed_end: parsedEnd,
+            has_valid_start_time: hasValidStartTime,
+            has_valid_end_time: hasValidEndTime,
             has_valid_times: hasValidTimes,
             original_is_all_day: event.is_all_day
           });
           
           // Determine if this should be an all-day event
           // Priority: valid times override the is_all_day flag
-          let isAllDay = !hasValidTimes && !!event.is_all_day;
+          // If we have valid times, it's not all day, regardless of the flag
+          let isAllDay = !hasValidTimes;
           
           if (isAllDay) {
             // For all-day events, create dates from the date string directly
@@ -967,6 +993,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             // For regular events, use the parsed datetime values
             startDateTime = parsedStart || undefined;
             endDateTime = parsedEnd || undefined;
+            
+            // If we have a start time but no end time, create a default end time (1 hour later)
+            if (startDateTime && !endDateTime) {
+              endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000); // 1 hour later
+            }
             
             console.log('🔍 [Calendar] Regular event times:', { 
               startDateTime,
@@ -991,9 +1022,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             // Shared event properties
             isShared: true,
             sharedBy: sharedEvent.shared_by,
-            sharedByUsername: sharerProfile?.username || 'Unknown',
-            sharedByFullName: sharerProfile?.full_name || 'Unknown User',
-            sharedStatus: sharedEvent.status
+            sharedByUsername: profileToShow?.username || 'Unknown',
+            sharedByFullName: profileToShow?.full_name || 'Unknown User',
+            sharedStatus: sharedEvent.status,
+            sharedByAvatarUrl: profileToShow?.avatar_url || null,
           };
 
           console.log('🔍 [Calendar] Transformed shared event with times:', {
@@ -1012,7 +1044,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             title: transformedEvent.title,
             date: transformedEvent.date,
             isShared: transformedEvent.isShared,
-            sharedBy: transformedEvent.sharedBy
+            sharedBy: transformedEvent.sharedBy,
+            sharedByAvatarUrl: transformedEvent.sharedByAvatarUrl,
+            hasAvatar: !!transformedEvent.sharedByAvatarUrl
           });
 
           return transformedEvent;
@@ -1070,10 +1104,42 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return;
         }
 
-        // Combine regular events and shared events
-        const allEvents = [...(eventsData || []), ...sharedEvents];
+        // Debug: Log what we have
+        console.log('🔍 [Calendar] Regular events from database:', eventsData?.map(e => ({ id: e.id, title: e.title })));
+        console.log('🔍 [Calendar] Shared events from fetchSharedEvents:', sharedEvents.map(e => ({ id: e.id, title: e.title, isShared: e.isShared })));
+        
+        // Get the original event IDs that are part of shared events
+        const sharedOriginalEventIds = new Set();
+        
+        // Fetch the original event IDs from shared events
+        const { data: sharedEventsData, error: sharedError } = await supabase
+          .from('shared_events')
+          .select('original_event_id')
+          .or(`shared_with.eq.${user.id},shared_by.eq.${user.id}`)
+          .in('status', ['pending', 'accepted']);
+          
+        if (!sharedError && sharedEventsData) {
+          sharedEventsData.forEach(se => {
+            sharedOriginalEventIds.add(se.original_event_id);
+          });
+        }
+        
+        console.log('🔍 [Calendar] Shared original event IDs from database:', Array.from(sharedOriginalEventIds));
+
+        // Filter out regular events that are part of shared events
+        const filteredRegularEvents = (eventsData || []).filter(event => {
+          const shouldExclude = sharedOriginalEventIds.has(event.id);
+          if (shouldExclude) {
+            console.log('🔍 [Calendar] Excluding regular event:', { id: event.id, title: event.title });
+          }
+          return !shouldExclude;
+        });
+        console.log('🔍 [Calendar] Filtered regular events count:', filteredRegularEvents.length);
+
+        // Combine filtered regular events and shared events
+        const allEvents = [...filteredRegularEvents, ...sharedEvents];
         console.log('🔍 [Calendar] Combined events count:', allEvents.length);
-        console.log('🔍 [Calendar] Regular events count:', eventsData?.length || 0);
+        console.log('🔍 [Calendar] Regular events count:', filteredRegularEvents.length);
         console.log('🔍 [Calendar] Shared events count:', sharedEvents.length);
 
         if (allEvents.length === 0) {
@@ -1117,27 +1183,27 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             isAllDay = event.isAllDay;
           } else {
             // For regular events, use the standard logic
-            // Force isAllDay to true for Google Calendar all-day events or if explicitly marked as all-day
+          // Force isAllDay to true for Google Calendar all-day events or if explicitly marked as all-day
             isAllDay = !!event.is_all_day || isGoogleAllDay;
-            
-            // Only override isAllDay if we have valid start and end times AND it's not a Google Calendar all-day event
-            if (event.start_datetime && event.end_datetime && !isGoogleAllDay) {
-              const parsedStart = parseDate(event.start_datetime);
-              const parsedEnd = parseDate(event.end_datetime);
-              if (parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && parsedEnd instanceof Date && !isNaN(parsedEnd.getTime())) {
-                isAllDay = false;
-              }
+          
+          // Only override isAllDay if we have valid start and end times AND it's not a Google Calendar all-day event
+          if (event.start_datetime && event.end_datetime && !isGoogleAllDay) {
+            const parsedStart = parseDate(event.start_datetime);
+            const parsedEnd = parseDate(event.end_datetime);
+            if (parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && parsedEnd instanceof Date && !isNaN(parsedEnd.getTime())) {
+              isAllDay = false;
             }
-            
-            if (isAllDay) {
-              // For all-day events, don't create Date objects for start/end times
-              // This prevents timezone conversion issues
-              startDateTime = undefined;
-              endDateTime = undefined;
-            } else {
-              // For regular events, parse the datetime strings
-              startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
-              endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
+          }
+          
+          if (isAllDay) {
+            // For all-day events, don't create Date objects for start/end times
+            // This prevents timezone conversion issues
+            startDateTime = undefined;
+            endDateTime = undefined;
+          } else {
+            // For regular events, parse the datetime strings
+            startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
+            endDateTime = event.end_datetime ? parseDate(event.end_datetime) : undefined;
             }
           }
           
@@ -1274,8 +1340,37 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       console.log('📅 [Calendar] Fetched events from database:', eventsData?.length || 0);
       console.log('📅 [Calendar] Fetched shared events:', sharedEvents.length);
       
-      // Combine regular events and shared events
-      const allEvents = [...(eventsData || []), ...sharedEvents];
+      // Get the original event IDs that are part of shared events
+      const sharedOriginalEventIds = new Set();
+      
+      // Fetch the original event IDs from shared events
+      const { data: sharedEventsData, error: sharedError } = await supabase
+        .from('shared_events')
+        .select('original_event_id')
+        .or(`shared_with.eq.${user.id},shared_by.eq.${user.id}`)
+        .in('status', ['pending', 'accepted']);
+        
+      if (!sharedError && sharedEventsData) {
+        sharedEventsData.forEach(se => {
+          sharedOriginalEventIds.add(se.original_event_id);
+        });
+      }
+      
+      console.log('📅 [Calendar] Shared original event IDs from database:', Array.from(sharedOriginalEventIds));
+
+      // Filter out regular events that are part of shared events
+      const filteredRegularEvents = (eventsData || []).filter(event => {
+        const shouldExclude = sharedOriginalEventIds.has(event.id);
+        if (shouldExclude) {
+          console.log('📅 [Calendar] Excluding regular event in refresh:', { id: event.id, title: event.title });
+        }
+        return !shouldExclude;
+      });
+      
+      console.log('📅 [Calendar] Filtered regular events count:', filteredRegularEvents.length);
+      
+      // Combine filtered regular events and shared events
+      const allEvents = [...filteredRegularEvents, ...sharedEvents];
       
       if (allEvents.length === 0) {
         setEvents({});
@@ -1294,32 +1389,54 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         };
 
         // Handle all-day events differently to avoid timezone issues
-        let startDateTime, endDateTime;
+        let startDateTime, endDateTime, isAllDay;
         
-        // Check if this is a Google Calendar event that should be all-day
-        const isGoogleAllDay = event.is_google_event && (!event.start_datetime || !event.end_datetime);
-        
-        // Force isAllDay to true for Google Calendar all-day events or if explicitly marked as all-day
-        let isAllDay = !!event.is_all_day || isGoogleAllDay;
-        
-        // Only override isAllDay if we have valid start and end times AND it's not a Google Calendar all-day event
-        if (event.start_datetime && event.end_datetime && !isGoogleAllDay) {
-          const parsedStart = parseDate(event.start_datetime);
-          const parsedEnd = parseDate(event.end_datetime);
-          if (parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && parsedEnd instanceof Date && !isNaN(parsedEnd.getTime())) {
-            isAllDay = false;
-          }
-        }
-        
-        if (isAllDay) {
-          // For all-day events, don't create Date objects for start/end times
-          // This prevents timezone conversion issues
-          startDateTime = undefined;
-          endDateTime = undefined;
+        // For shared events, they should already have the correct startDateTime, endDateTime, and isAllDay
+        // from the fetchSharedEvents transformation
+        if (event.isShared) {
+          // Shared events should already have the correct properties
+          startDateTime = event.startDateTime;
+          endDateTime = event.endDateTime;
+          isAllDay = event.isAllDay;
         } else {
-          // For regular events, parse the datetime strings
-          startDateTime = parseDate(event.start_datetime) || undefined;
-          endDateTime = parseDate(event.end_datetime) || undefined;
+          // For regular events, use the standard logic
+          // Check if this is a Google Calendar event that should be all-day
+          const isGoogleAllDay = event.is_google_event && (!event.start_datetime || !event.end_datetime);
+          
+          // First, try to parse the start and end times
+          const parsedStart = event.start_datetime ? parseDate(event.start_datetime) : null;
+          const parsedEnd = event.end_datetime ? parseDate(event.end_datetime) : null;
+          
+          // Check if we have valid start time (this indicates it's a timed event, not all-day)
+          const hasValidStartTime = parsedStart instanceof Date && !isNaN(parsedStart.getTime());
+          const hasValidEndTime = parsedEnd instanceof Date && !isNaN(parsedEnd.getTime());
+          const hasValidTimes = hasValidStartTime;
+          
+          // Determine if this should be an all-day event
+          // Priority: valid times override the is_all_day flag
+          // If we have valid times, it's not all day, regardless of the flag
+          isAllDay = !hasValidTimes;
+          
+          // Force isAllDay to true for Google Calendar all-day events
+          if (isGoogleAllDay) {
+            isAllDay = true;
+          }
+          
+          if (isAllDay) {
+            // For all-day events, don't create Date objects for start/end times
+            // This prevents timezone conversion issues
+            startDateTime = undefined;
+            endDateTime = undefined;
+          } else {
+            // For regular events, use the parsed datetime values
+            startDateTime = parsedStart || undefined;
+            endDateTime = parsedEnd || undefined;
+            
+            // If we have a start time but no end time, create a default end time (1 hour later)
+            if (startDateTime && !endDateTime) {
+              endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000); // 1 hour later
+            }
+          }
         }
 
         const calendarEvent: CalendarEvent = {
@@ -1590,11 +1707,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     );
   };
 
-  const shareEventWithSelectedFriends = async (eventId: string) => {
-    if (selectedFriends.length === 0) return;
+  const shareEventWithSelectedFriends = async (eventId: string): Promise<boolean> => {
+    if (selectedFriends.length === 0) return false;
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
 
     const result = await shareEventWithFriends(eventId, selectedFriends);
     if (result.success) {
@@ -1604,6 +1721,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         text2: 'Your friends will be notified',
         position: 'bottom',
       });
+      return true;
     } else {
       Toast.show({
         type: 'error',
@@ -1611,14 +1729,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         text2: result.error || 'Please try again',
         position: 'bottom',
       });
+      return false;
     }
   };
 
-  const shareEventWithEditSelectedFriends = async (eventId: string) => {
-    if (editSelectedFriends.length === 0) return;
+  const shareEventWithEditSelectedFriends = async (eventId: string): Promise<boolean> => {
+    if (editSelectedFriends.length === 0) return false;
 
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return false;
 
     const result = await shareEventWithFriends(eventId, editSelectedFriends);
     if (result.success) {
@@ -1628,6 +1747,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         text2: 'Your friends will be notified',
         position: 'bottom',
       });
+      return true;
     } else {
       Toast.show({
         type: 'error',
@@ -1635,6 +1755,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         text2: result.error || 'Please try again',
         position: 'bottom',
       });
+      return false;
     }
   };
 
@@ -2276,7 +2397,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .insert(dbEvents);
 
         dbError = insertError;
-      } else {
+      } else if (selectedFriends.length === 0) {
+        // Only insert events to database if not creating a shared event
         // Insert all new events
         console.log('🔍 [Calendar] About to insert new events into database:', dbEvents.map(e => ({
           id: e.id,
@@ -2291,6 +2413,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .insert(dbEvents);
 
         dbError = insertError;
+      } else {
+        // For shared events, we'll handle the database insertion in the sharing function
+        console.log('🔍 [Calendar] Skipping database insertion for shared event - will be handled by createAndShareEvent');
+        dbError = null;
       }
 
       if (dbError) {
@@ -2314,50 +2440,107 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return;
       }
 
-      // Update local state with all events
-      setEvents(prev => {
-        const updated = { ...prev };
-        console.log('🔄 [Repeat] Updating local state with', allEvents.length, 'events');
-        
-        allEvents.forEach(event => {
-          if (event.customDates && event.customDates.length > 0) {
-            event.customDates.forEach(date => {
-              if (!updated[date]) {
-                updated[date] = [];
+      // Update local state with all events (but skip for shared events since they'll be refreshed)
+      if (selectedFriends.length === 0) {
+        setEvents(prev => {
+          const updated = { ...prev };
+          console.log('🔄 [Repeat] Updating local state with', allEvents.length, 'events');
+          
+          allEvents.forEach(event => {
+            if (event.customDates && event.customDates.length > 0) {
+              event.customDates.forEach(date => {
+                if (!updated[date]) {
+                  updated[date] = [];
+                }
+                updated[date] = updated[date].filter(e => e.id !== event.id);
+                updated[date].push(event);
+              });
+            } else {
+              const dateKey = event.date;
+              if (!updated[dateKey]) {
+                updated[dateKey] = [];
               }
-              updated[date] = updated[date].filter(e => e.id !== event.id);
-              updated[date].push(event);
-            });
-          } else {
-            const dateKey = event.date;
-            if (!updated[dateKey]) {
-              updated[dateKey] = [];
+              updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
+              updated[dateKey].push(event);
+              console.log('🔄 [Repeat] Added event to date', dateKey, ':', event.title);
             }
-            updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
-            updated[dateKey].push(event);
-            console.log('🔄 [Repeat] Added event to date', dateKey, ':', event.title);
-          }
+          });
+          
+          console.log('🔄 [Repeat] Final state has events on dates:', Object.keys(updated));
+          return updated;
         });
-        
-        console.log('🔄 [Repeat] Final state has events on dates:', Object.keys(updated));
-        return updated;
-      });
 
-      // Schedule notifications for all events with reminders
-      for (const event of allEvents) {
-        if (event.reminderTime) {
-          await scheduleEventNotification(event);
+        // Schedule notifications for all events with reminders
+        for (const event of allEvents) {
+          if (event.reminderTime) {
+            await scheduleEventNotification(event);
+          }
         }
+      } else {
+        console.log('🔍 [Calendar] Skipping local state update for shared event - will be refreshed after sharing');
       }
 
-      // Share event with selected friends if any
+      // Handle shared event creation differently
       if (selectedFriends.length > 0 && allEvents.length > 0) {
-        // Use the first event's ID for sharing (they all have the same base ID)
-        const eventIdToShare = allEvents[0].id;
-        await shareEventWithSelectedFriends(eventIdToShare);
+        // For shared events, create them directly as shared events
+        const eventToShare = allEvents[0];
+        
+        // Format the event data for sharing
+        const formatDateToUTC = (date: Date): string => {
+          const year = date.getUTCFullYear();
+          const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+          const day = String(date.getUTCDate()).padStart(2, '0');
+          const hours = String(date.getUTCHours()).padStart(2, '0');
+          const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+          const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+          return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
+        };
+
+        const eventData = {
+          id: eventToShare.id,
+          title: eventToShare.title,
+          description: eventToShare.description,
+          location: eventToShare.location,
+          date: eventToShare.date,
+          startDateTime: eventToShare.isAllDay ? undefined : (eventToShare.startDateTime ? formatDateToUTC(eventToShare.startDateTime) : undefined),
+          endDateTime: eventToShare.isAllDay ? undefined : (eventToShare.endDateTime ? formatDateToUTC(eventToShare.endDateTime) : undefined),
+          categoryName: eventToShare.categoryName,
+          categoryColor: eventToShare.categoryColor,
+          isAllDay: eventToShare.isAllDay || false,
+          photos: eventToShare.photos || []
+        };
+
+        // Create and share the event in one step
+        const result = await createAndShareEvent(eventData, selectedFriends);
         
         // Clear selected friends after sharing
         setSelectedFriends([]);
+        
+        if (result.success) {
+          Toast.show({
+            type: 'success',
+            text1: 'Event shared successfully',
+            text2: 'Your friends will be notified',
+            position: 'bottom',
+          });
+          
+          // Refresh events to show the shared event
+          await refreshEvents();
+        } else {
+          Toast.show({
+            type: 'error',
+            text1: 'Failed to share event',
+            text2: result.error || 'Please try again',
+            position: 'bottom',
+          });
+        }
+        
+        // Reset form and close modal for shared events
+        resetEventForm();
+        setShowModal(false);
+        setShowCustomDatesPicker(false);
+        setEditingEvent(null);
+        return; // Exit early for shared events
       }
 
       // Reset form and close modal
@@ -2534,14 +2717,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     ]}
                                   />
                                 ) : event.isShared ? (
-                                  // Show dot for shared events (pending or accepted)
+                                  // Show dot for shared events with different styles based on status
                                   <View
                                     style={[
                                       styles.eventDot,
                                       { 
-                                        backgroundColor: '#007AFF20',
-                                        borderWidth: 1,
-                                        borderColor: '#007AFF'
+                                        backgroundColor: event.sharedStatus === 'pending' ? '#007AFF20' : '#007AFF',
+                                        borderWidth: event.sharedStatus === 'pending' ? 1 : 0,
+                                        borderColor: event.sharedStatus === 'pending' ? '#007AFF' : 'transparent'
                                       }
                                     ]}
                                   />
@@ -2599,10 +2782,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     backgroundColor: event.isGoogleEvent 
                                       ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
                                       : event.isShared 
-                                        ? '#007AFF20' // Light iOS blue background for shared events
+                                        ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${event.categoryColor || '#6366F1'}30`) // Blue for pending, normal for accepted
                                         : `${event.categoryColor || '#6366F1'}30`, // Lighter background color
-                                    borderWidth: event.isShared ? 1 : (event.isGoogleEvent ? 1 : 0),
-                                    borderColor: event.isShared ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent')
+                                    borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
+                                    borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent')
                                   }
                                 ]}
                               >
@@ -2612,8 +2795,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   style={[
                                     styles.eventText,
                                     { 
-                                      color: event.isShared ? '#007AFF' : '#333',
-                                      fontWeight: event.isShared ? '600' : 'normal'
+                                      color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#333',
+                                      fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : 'normal'
                                     }
                                   ]}
                                 >
@@ -3012,25 +3195,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (allFriendsToShare.length > 0) {
         console.log('🔍 [Edit Event] Sharing with friends:', allFriendsToShare);
         
+        // Temporarily set the selected friends to the ones we want to share with
+        const originalSelectedFriends = [...selectedFriends];
+        setSelectedFriends(allFriendsToShare);
+        
         // Share with all friends (existing + newly selected)
-        const result = await shareEventWithFriends(insertedEvent.id, allFriendsToShare);
-        if (result.success) {
-          Toast.show({
-            type: 'success',
-            text1: 'Event shared successfully',
-            text2: 'Your friends will be notified',
-            position: 'bottom',
-          });
-        } else {
-          Toast.show({
-            type: 'error',
-            text1: 'Failed to share event',
-            text2: result.error || 'Please try again',
-            position: 'bottom',
-          });
+        const shareResult = await shareEventWithSelectedFriends(insertedEvent.id);
+        
+        // Restore original selected friends
+        setSelectedFriends(originalSelectedFriends);
+        
+        // If sharing was successful, refresh events to show the shared event
+        if (shareResult) {
+          await refreshEvents();
         }
         
-        // Clear selected friends after sharing
+        // Clear edit selected friends after sharing
         setEditSelectedFriends([]);
         setEditSearchFriend('');
         setEditIsSearchFocused(false);
@@ -3822,18 +4002,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     );
   };
 
-  // Add function to update pending shared events
+  // Add function to update shared events for the modal
   const updatePendingSharedEvents = useCallback(() => {
     const allEvents = Object.values(events).flat();
-    const pending = allEvents.filter(event => event.isShared && event.sharedStatus === 'pending');
+    const sharedEvents = allEvents.filter(event => event.isShared && (event.sharedStatus === 'pending' || event.sharedStatus === 'accepted'));
     
-    // Debug logging for pending shared events
-    console.log('🔍 [Pending Shared Events] All events count:', allEvents.length);
-    console.log('🔍 [Pending Shared Events] Shared events count:', allEvents.filter(e => e.isShared).length);
-    console.log('🔍 [Pending Shared Events] Pending events count:', pending.length);
+    // Debug logging for shared events
+    console.log('🔍 [Shared Events] All events count:', allEvents.length);
+    console.log('🔍 [Shared Events] Shared events count:', allEvents.filter(e => e.isShared).length);
+    console.log('🔍 [Shared Events] Shared events count:', sharedEvents.length);
     
-    pending.forEach(event => {
-      console.log('🔍 [Pending Shared Events] Event details:', {
+    sharedEvents.forEach(event => {
+      console.log('🔍 [Shared Events] Event details:', {
         id: event.id,
         title: event.title,
         startDateTime: event.startDateTime,
@@ -3843,8 +4023,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       });
     });
     
-    setPendingSharedEvents(pending);
-  }, [events]);
+    // Separate sent and received events
+    const sentEvents = sharedEvents.filter(event => event.sharedBy === user?.id);
+    const receivedEvents = sharedEvents.filter(event => event.sharedBy !== user?.id);
+    
+    console.log('🔍 [Shared Events] Sent events count:', sentEvents.length);
+    console.log('🔍 [Shared Events] Received events count:', receivedEvents.length);
+    
+    setPendingSharedEvents(sharedEvents);
+    setSentSharedEvents(sentEvents);
+    setReceivedSharedEvents(receivedEvents);
+  }, [events, user?.id]);
 
   // Update pending events when events change
   useEffect(() => {
@@ -3888,17 +4077,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </Text>
         </TouchableOpacity>
 
-        <View style={styles.modalRowGap}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity onPress={() => setCalendarMode('week')}>
+            <MaterialIcons name="calendar-view-week" size={24} color="#333" />
+          </TouchableOpacity>
           {pendingSharedEvents.length > 0 && (
             <TouchableOpacity
               onPress={() => setShowSharedEventsModal(true)}
               style={{
                 padding: 8,
-                marginHorizontal: 4,
+                marginLeft: 12,
                 position: 'relative',
               }}
             >
-              <Ionicons name="people-outline" size={20} color="#007AFF" />
+              <Ionicons name="notifications-outline" size={20} color="#333" />
               <View style={{
                 position: 'absolute',
                 top: 4,
@@ -3921,9 +4113,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               </View>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => setCalendarMode('week')}>
-            <MaterialIcons name="calendar-view-week" size={24} color="#333" />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -4046,8 +4235,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             borderRadius: 12,
                             paddingVertical: 8,
                             paddingHorizontal: 16,
-                            borderWidth: event.isShared ? 2 : (event.isGoogleEvent ? 1 : 0),
-                            borderColor: event.isShared ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
+                            borderWidth: event.isShared && event.sharedStatus === 'pending' ? 2 : (event.isGoogleEvent ? 1 : 0),
+                            borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
                             borderStyle: 'solid',
                           }}
                           onPress={() => handleSharedEventPress(event)}
@@ -4059,7 +4248,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               width: 5.5,
                               height: 46,
                               borderRadius: 3,
-                              backgroundColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : (event.isShared ? '#007AFF' : (event.categoryColor || '#6366F1')),
+                              backgroundColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : (event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.categoryColor || '#6366F1')),
                               marginRight: 14,
                             }}
                           />
@@ -4069,7 +4258,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               <Text style={{ 
                                 fontSize: 17, 
                                 fontWeight: 'bold', 
-                                color: event.isShared ? '#007AFF' : '#222', 
+                                color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#222', 
                                 marginBottom: 0 
                               }}>
                                 {event.title}
@@ -4291,17 +4480,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </Text>
         </TouchableOpacity>
 
-        <View style={styles.modalRowGap}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity onPress={() => setCalendarMode('month')}>
+            <MaterialIcons name="calendar-view-month" size={24} color="#333" />
+          </TouchableOpacity>
           {pendingSharedEvents.length > 0 && (
-            <TouchableOpacity
+          <TouchableOpacity
               onPress={() => setShowSharedEventsModal(true)}
               style={{
                 padding: 8,
-                marginHorizontal: 4,
+                marginLeft: 12,
                 position: 'relative',
               }}
             >
-              <Ionicons name="people-outline" size={20} color="#007AFF" />
+              <Ionicons name="notifications-outline" size={20} color="#333" />
               <View style={{
                 position: 'absolute',
                 top: 4,
@@ -4324,9 +4516,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               </View>
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => setCalendarMode('month')}>
-            <MaterialIcons name="calendar-view-month" size={24} color="#333" />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -6503,7 +6692,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
             {/* Content */}
             <ScrollView style={{ flex: 1, padding: 12 }}>
-              {pendingSharedEvents.length === 0 ? (
+              {sentSharedEvents.length === 0 && receivedSharedEvents.length === 0 ? (
                 <View style={{ 
                   alignItems: 'center', 
                   justifyContent: 'center',
@@ -6517,7 +6706,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     justifyContent: 'center',
                     alignItems: 'center',
                     marginBottom: 8,
-                  }}>
+                }}>
                     <Ionicons name="checkmark-circle-outline" size={20} color={Colors.light.accent} />
                   </View>
                   <Text style={{ 
@@ -6535,208 +6724,357 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     fontFamily: 'Onest',
                     textAlign: 'center',
                   }}>
-                    No pending shared events
+                    No shared events
                   </Text>
                 </View>
               ) : (
-                <View style={{ gap: 8 }}>
-                  {pendingSharedEvents.map((event) => (
-                    <View key={event.id} style={{
-                      backgroundColor: Colors.light.surface,
-                      borderRadius: 10,
-                      padding: 12,
-                      borderWidth: 1,
-                      borderColor: Colors.light.border,
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.04,
-                      shadowRadius: 8,
-                      elevation: 2,
-                    }}>
-                      {/* Event Info */}
-                      <View style={{ marginBottom: 8 }}>
-                        <Text style={{
-                          fontSize: 15,
-                          fontWeight: '600',
-                          color: Colors.light.text,
-                          marginBottom: 3,
-                          fontFamily: 'Onest',
-                        }}>
-                          {event.title}
-                        </Text>
-                        {event.description && (
-                          <Text style={{
-                            fontSize: 13,
-                            color: Colors.light.icon,
-                            marginBottom: 6,
-                            fontFamily: 'Onest',
-                            lineHeight: 16,
-                          }}>
-                            {event.description}
-                          </Text>
-                        )}
-                        <View style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}>
-                          <View style={{
-                            width: 20,
-                            height: 20,
-                            borderRadius: 10,
-                            backgroundColor: Colors.light.surfaceVariant,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                          }}>
-                            <Ionicons name="calendar-outline" size={10} color={Colors.light.icon} />
-                          </View>
-                          <Text style={{
-                            fontSize: 12,
-                            color: Colors.light.icon,
-                            fontFamily: 'Onest',
-                          }}>
-                            {event.date} • {(() => {
-                              // Debug logging for shared events
-                              console.log('🔍 [Shared Events Modal] Event debug:', {
-                                id: event.id,
-                                title: event.title,
-                                startDateTime: event.startDateTime,
-                                endDateTime: event.endDateTime,
-                                isAllDay: event.isAllDay,
-                                startDateTimeType: typeof event.startDateTime,
-                                endDateTimeType: typeof event.endDateTime,
-                                startIsValid: event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime()),
-                                endIsValid: event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime())
-                              });
-                              
-                              // Force check for valid times regardless of isAllDay flag
-                              if (event.startDateTime && event.endDateTime && 
-                                  event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime()) &&
-                                  event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime())) {
-                                const formatTime = (date: Date | undefined) => {
-                                  if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
-                                    return 'Invalid time';
-                                  }
-                                  try {
-                                    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                  } catch (error) {
-                                    return 'Invalid time';
-                                  }
-                                };
-                                
-                                const startTime = formatTime(event.startDateTime);
-                                const endTime = formatTime(event.endDateTime);
-                                
-                                return `${startTime} - ${endTime}`;
-                              } else {
-                                return 'All day';
-                              }
-                            })()}
-                          </Text>
-                        </View>
-                      </View>
-
-                      {/* Shared By Info */}
-                      <View style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        marginBottom: 12,
-                        gap: 6,
-                        paddingVertical: 6,
-                        paddingHorizontal: 8,
-                        backgroundColor: Colors.light.surfaceVariant,
-                        borderRadius: 6,
+                <View style={{ gap: 16 }}>
+                  {/* Received Events Section */}
+                  {receivedSharedEvents.length > 0 && (
+                    <View>
+                      <Text style={{
+                        fontSize: 16,
+                        fontWeight: '700',
+                        color: Colors.light.text,
+                        marginBottom: 8,
+                        fontFamily: 'Onest',
                       }}>
-                        <View 
-                          style={{ 
-                            width: 20, 
-                            height: 20, 
-                            borderRadius: 10,
-                            backgroundColor: Colors.light.accent,
-                            justifyContent: 'center',
-                            alignItems: 'center'
-                          }}
-                        >
-                          <Ionicons name="person" size={10} color="#fff" />
-                        </View>
-                        <Text style={{
-                          fontSize: 12,
-                          color: Colors.light.text,
-                          fontFamily: 'Onest',
-                          fontWeight: '500',
-                        }}>
-                          Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
-                        </Text>
-                      </View>
-
-                      {/* Action Buttons */}
-                      <View style={{
-                        flexDirection: 'row',
-                        gap: 8,
-                      }}>
-                        <TouchableOpacity
-                          onPress={async () => {
-                            await handleAcceptSharedEvent(event);
-                            updatePendingSharedEvents();
-                            if (pendingSharedEvents.length === 1) {
-                              setShowSharedEventsModal(false);
-                            }
-                          }}
-                          style={{
-                            flex: 1,
-                            backgroundColor: Colors.light.accent,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
-                            alignItems: 'center',
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.1,
-                            shadowRadius: 4,
-                            elevation: 2,
-                          }}
-                        >
-                          <Text style={{
-                            color: '#fff',
-                            fontSize: 13,
-                            fontWeight: '600',
-                            fontFamily: 'Onest',
-                          }}>
-                            Accept
-                          </Text>
-                        </TouchableOpacity>
-                        
-                        <TouchableOpacity
-                          onPress={async () => {
-                            await handleDeclineSharedEvent(event);
-                            updatePendingSharedEvents();
-                            if (pendingSharedEvents.length === 1) {
-                              setShowSharedEventsModal(false);
-                            }
-                          }}
-                          style={{
-                            flex: 1,
+                        Received ({receivedSharedEvents.length})
+                      </Text>
+                      <View style={{ gap: 8 }}>
+                        {receivedSharedEvents.map((event) => (
+                          <View key={event.id} style={{
                             backgroundColor: Colors.light.surface,
-                            paddingVertical: 8,
-                            paddingHorizontal: 12,
-                            borderRadius: 8,
-                            alignItems: 'center',
+                            borderRadius: 10,
+                            padding: 12,
                             borderWidth: 1,
                             borderColor: Colors.light.border,
-                          }}
-                        >
-                          <Text style={{
-                            color: Colors.light.text,
-                            fontSize: 13,
-                            fontWeight: '600',
-                            fontFamily: 'Onest',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.04,
+                            shadowRadius: 8,
+                            elevation: 2,
                           }}>
-                            Decline
-                          </Text>
-                        </TouchableOpacity>
+                            {/* Event Info */}
+                            <View style={{ marginBottom: 8 }}>
+                              <Text style={{
+                                fontSize: 15,
+                                fontWeight: '600',
+                                color: Colors.light.text,
+                                marginBottom: 3,
+                                fontFamily: 'Onest',
+                              }}>
+                                {event.title}
+                              </Text>
+                              {event.description && (
+                                <Text style={{
+                                  fontSize: 13,
+                                  color: Colors.light.icon,
+                                  marginBottom: 6,
+                                  fontFamily: 'Onest',
+                                  lineHeight: 16,
+                                }}>
+                                  {event.description}
+                                </Text>
+                              )}
+                              <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}>
+                                <Text style={{
+                                  fontSize: 12,
+                                  color: Colors.light.icon,
+                                  fontFamily: 'Onest',
+                                }}>
+                                  {event.date} • {(() => {
+                                    // Check for valid start time (this indicates it's a timed event, not all-day)
+                                    const hasValidStartTime = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
+                                    const hasValidEndTime = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
+                                    
+                                    if (hasValidStartTime) {
+                                      const formatTime = (date: Date | undefined) => {
+                                        if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+                                          return 'Invalid time';
+                                        }
+                                        try {
+                                          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                        } catch (error) {
+                                          return 'Invalid time';
+                                        }
+                                      };
+                                      
+                                      const startTime = formatTime(event.startDateTime);
+                                      const endTime = hasValidEndTime ? formatTime(event.endDateTime) : 'No end time';
+                                      
+                                      return `${startTime} - ${endTime}`;
+                                    } else {
+                                      return 'All day';
+                                    }
+                                  })()}
+                                </Text>
+                              </View>
+                            </View>
+
+                            {/* Shared By Info */}
+                            <View style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              marginBottom: 12,
+                              gap: 6,
+                              paddingVertical: 6,
+                              paddingHorizontal: 8,
+                              backgroundColor: Colors.light.surfaceVariant,
+                              borderRadius: 6,
+                            }}>
+                              {event.sharedByAvatarUrl ? (
+                                <Image
+                                  source={{ uri: event.sharedByAvatarUrl }}
+                                  style={{
+                                    width: 20,
+                                    height: 20,
+                                    borderRadius: 10,
+                                    backgroundColor: Colors.light.accent,
+                                  }}
+                                />
+                              ) : (
+                                <View 
+                                  style={{ 
+                                    width: 20, 
+                                    height: 20, 
+                                    borderRadius: 10,
+                                    backgroundColor: Colors.light.accent,
+                                    justifyContent: 'center',
+                                    alignItems: 'center'
+                                  }}
+                                >
+                                  <Ionicons name="person" size={10} color="#fff" />
+                                </View>
+                              )}
+                              <Text style={{
+                                fontSize: 12,
+                                color: Colors.light.text,
+                                fontFamily: 'Onest',
+                                fontWeight: '500',
+                              }}>
+                                Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
+                              </Text>
+                            </View>
+
+                            {/* Action Buttons - Only show for received events */}
+                            <View style={{
+                              flexDirection: 'row',
+                              gap: 8,
+                            }}>
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  await handleAcceptSharedEvent(event);
+                                  updatePendingSharedEvents();
+                                  if (pendingSharedEvents.length === 1) {
+                                    setShowSharedEventsModal(false);
+                                  }
+                                }}
+                                style={{
+                                  flex: 1,
+                                  backgroundColor: Colors.light.accent,
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 8,
+                                  alignItems: 'center',
+                                  shadowColor: '#000',
+                                  shadowOffset: { width: 0, height: 2 },
+                                  shadowOpacity: 0.1,
+                                  shadowRadius: 4,
+                                  elevation: 2,
+                                }}
+                              >
+                                <Text style={{
+                                  color: '#fff',
+                                  fontSize: 13,
+                                  fontWeight: '600',
+                                  fontFamily: 'Onest',
+                                }}>
+                                  Accept
+                                </Text>
+                              </TouchableOpacity>
+                              
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  await handleDeclineSharedEvent(event);
+                                  updatePendingSharedEvents();
+                                  if (pendingSharedEvents.length === 1) {
+                                    setShowSharedEventsModal(false);
+                                  }
+                                }}
+                                style={{
+                                  flex: 1,
+                                  backgroundColor: Colors.light.surface,
+                                  paddingVertical: 8,
+                                  paddingHorizontal: 12,
+                                  borderRadius: 8,
+                                  alignItems: 'center',
+                                  borderWidth: 1,
+                                  borderColor: Colors.light.border,
+                                }}
+                              >
+                                <Text style={{
+                                  color: Colors.light.text,
+                                  fontSize: 13,
+                                  fontWeight: '600',
+                                  fontFamily: 'Onest',
+                                }}>
+                                  Decline
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        ))}
                       </View>
                     </View>
-                  ))}
+                  )}
+                  
+                  {/* Sent Events Section */}
+                  {sentSharedEvents.length > 0 && (
+                    <View>
+                      <Text style={{
+                        fontSize: 16,
+                        fontWeight: '700',
+                        color: Colors.light.text,
+                        marginBottom: 8,
+                        fontFamily: 'Onest',
+                      }}>
+                        Sent ({sentSharedEvents.length})
+                      </Text>
+                      <View style={{ gap: 8 }}>
+                        {sentSharedEvents.map((event) => (
+                          <View key={event.id} style={{
+                            backgroundColor: Colors.light.surface,
+                            borderRadius: 10,
+                            padding: 12,
+                            borderWidth: 1,
+                            borderColor: Colors.light.border,
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.04,
+                            shadowRadius: 8,
+                            elevation: 2,
+                          }}>
+                            {/* Event Info */}
+                            <View style={{ marginBottom: 8 }}>
+                              <Text style={{
+                                fontSize: 15,
+                                fontWeight: '600',
+                                color: Colors.light.text,
+                                marginBottom: 3,
+                                fontFamily: 'Onest',
+                              }}>
+                                {event.title}
+                              </Text>
+                              {event.description && (
+                                <Text style={{
+                                  fontSize: 13,
+                                  color: Colors.light.icon,
+                                  marginBottom: 6,
+                                  fontFamily: 'Onest',
+                                  lineHeight: 16,
+                                }}>
+                                  {event.description}
+                                </Text>
+                              )}
+                              <View style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}>
+                                <Text style={{
+                                  fontSize: 12,
+                                  color: Colors.light.icon,
+                                  fontFamily: 'Onest',
+                                }}>
+                                  {event.date} • {(() => {
+                                    // Check for valid start time (this indicates it's a timed event, not all-day)
+                                    const hasValidStartTime = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
+                                    const hasValidEndTime = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
+                                    
+                                    if (hasValidStartTime) {
+                                      const formatTime = (date: Date | undefined) => {
+                                        if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
+                                          return 'Invalid time';
+                                        }
+                                        try {
+                                          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                        } catch (error) {
+                                          return 'Invalid time';
+                                        }
+                                      };
+                                      
+                                      const startTime = formatTime(event.startDateTime);
+                                      const endTime = hasValidEndTime ? formatTime(event.endDateTime) : 'No end time';
+                                      
+                                      return `${startTime} - ${endTime}`;
+                                    } else {
+                                      return 'All day';
+                                    }
+                                  })()}
+                                </Text>
+                              </View>
+                            </View>
+
+                            {/* Shared With Info */}
+                            <View style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              marginBottom: 12,
+                              gap: 6,
+                              paddingVertical: 6,
+                              paddingHorizontal: 8,
+                              backgroundColor: Colors.light.surfaceVariant,
+                              borderRadius: 6,
+                            }}>
+                              <View 
+                                style={{ 
+                                  width: 20, 
+                                  height: 20, 
+                                  borderRadius: 10,
+                                  backgroundColor: Colors.light.accent,
+                                  justifyContent: 'center',
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <Ionicons name="people" size={10} color="#fff" />
+                              </View>
+                              <Text style={{
+                                fontSize: 12,
+                                color: Colors.light.text,
+                                fontFamily: 'Onest',
+                                fontWeight: '500',
+                              }}>
+                                Shared with {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
+                              </Text>
+                            </View>
+
+                            {/* Status indicator for sent events */}
+                            <View style={{
+                              paddingVertical: 8,
+                              paddingHorizontal: 12,
+                              backgroundColor: Colors.light.surfaceVariant,
+                              borderRadius: 8,
+                              alignItems: 'center',
+                            }}>
+                              <Text style={{
+                                color: Colors.light.accent,
+                                fontSize: 12,
+                                fontWeight: '600',
+                                fontFamily: 'Onest',
+                              }}>
+                                {event.sharedStatus === 'pending' ? 'Pending' : 'Accepted'}
+                              </Text>
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
             </ScrollView>

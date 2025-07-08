@@ -1173,9 +1173,7 @@ export default function ProfileScreen() {
       if (error) throw error;
       
       // Clear the preferences cache so other screens get the updated setting
-      if (key === 'push_notifications' && user) {
-        clearPreferencesCache(user.id);
-      }
+      clearPreferencesCache(user.id);
     } catch (error) {
       console.error('Error updating preference:', error);
       // Revert to the previous value if the update failed
@@ -1484,7 +1482,7 @@ export default function ProfileScreen() {
         )}
       </TouchableOpacity>
       <TouchableOpacity onPress={handleEditProfile} style={styles.profileNameContainer}>
-        <Text style={styles.profileName}>{profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}</Text>
+      <Text style={styles.profileName}>{profile?.full_name || user?.user_metadata?.full_name || 'Your Name'}</Text>
         <Text style={styles.profileUsername}>@{profile?.username || user?.user_metadata?.username || 'username'}</Text>
       </TouchableOpacity>
       {profile?.bio && <Text style={styles.profileBio}>{profile.bio}</Text>}
@@ -3869,8 +3867,8 @@ export default function ProfileScreen() {
       {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
       {renderFriendsFeedModal()}
-              {renderSettingsModal()}
-        {renderDefaultScreenModal()}
+      {renderSettingsModal()}
+      {renderDefaultScreenModal()}
         {renderGoogleSyncModal()}
       
       {/* Memory detail modal for viewing individual photos */}
@@ -5643,7 +5641,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   featuresGrid: {
-    gap: 12,
+    gap: 3,
   },
   photosGrid: {
     gap: 16,

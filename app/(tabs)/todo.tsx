@@ -790,6 +790,31 @@ export default function TodoScreen() {
         console.log('🔍 handleSave: Task ID:', newTodoItem.id);
         console.log('🔍 handleSave: User ID:', user.id);
         
+        // Fetch friend profiles to immediately update the UI
+        const { data: friendProfiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, username')
+          .in('id', selectedFriends);
+
+        if (profilesError) {
+          console.error('❌ handleSave: Error fetching friend profiles:', profilesError);
+        }
+
+        // Create friend data for immediate UI update
+        const friendData = friendProfiles?.map(profile => ({
+          friend_id: profile.id,
+          friend_name: profile.full_name || 'Unknown',
+          friend_avatar: profile.avatar_url || '',
+          friend_username: profile.username || '',
+        })) || [];
+
+        // Immediately update the local state to show friend information
+        setTaskSharedFriends(prev => ({
+          ...prev,
+          [newTodoItem.id]: friendData
+        }));
+
+        // Share with each friend
         for (const friendId of selectedFriends) {
           try {
             console.log('🔍 handleSave: Sharing with friend ID:', friendId);
@@ -4136,7 +4161,8 @@ export default function TodoScreen() {
             justifyContent: 'space-between',
             alignItems: 'center',
             marginHorizontal: 22,
-            marginBottom: 20,
+            marginTop: 15,
+            marginBottom: 10,
           }}>
             <View style={{
               flexDirection: 'row',
@@ -4761,7 +4787,7 @@ export default function TodoScreen() {
                       name="bookmark-outline" 
                       size={16} 
                       color={quickAddAutoMove ? 'white' : Colors.light.icon} 
-                    />
+                />
                   </TouchableOpacity>
                   
                   {/* More options button */}

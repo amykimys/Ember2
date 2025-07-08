@@ -454,16 +454,21 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                     {
                       backgroundColor: event.isGoogleEvent 
                         ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
-                        : `${getEventColor(event.categoryColor, event.categoryName)}30`, // Lighter background like monthly calendar
-                      borderWidth: event.isGoogleEvent ? 1 : 0,
-                      borderColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent',
+                        : event.isShared 
+                          ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${getEventColor(event.categoryColor, event.categoryName)}30`) // Blue for pending, normal for accepted
+                          : `${getEventColor(event.categoryColor, event.categoryName)}30`, // Lighter background like monthly calendar
+                      borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
+                      borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
                       width: '100%', // Full width to fit snugly
                     }
                   ]}
                 >
                   <Text style={[
                     styles.allDayEventText,
-                    { color: '#3A3A3A' } // Dark text like monthly calendar
+                    { 
+                      color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#3A3A3A',
+                      fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : '400'
+                    }
                   ]} numberOfLines={1}>{event.title}</Text>
                 </TouchableOpacity>
               ))}
@@ -617,24 +622,26 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                       return (
                         <TouchableOpacity
                           key={`${event.id}-${eventIndex}`}
-                                                      style={[
-                              styles.eventBox,
-                              {
-                                top: position.top,
-                                height: position.height,
-                                backgroundColor: event.isGoogleEvent 
-                                  ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
-                                  : `${event.categoryColor || '#6366F1'}30`, // Lighter background like monthly calendar
-                                position: 'absolute',
-                                left: leftPosition,
-                                width: columnWidth,
-                                marginHorizontal: 0,
-                                paddingVertical: 2,
-                                paddingHorizontal: 0,
-                                borderWidth: event.isGoogleEvent ? 1 : 0,
-                                borderColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent',
-                              },
-                            ]}
+                                                                                    style={[
+                                styles.eventBox,
+                                {
+                                  top: position.top,
+                                  height: position.height,
+                                  backgroundColor: event.isGoogleEvent 
+                                    ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
+                                    : event.isShared 
+                                      ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${event.categoryColor || '#6366F1'}30`) // Blue for pending, normal for accepted
+                                      : `${event.categoryColor || '#6366F1'}30`, // Lighter background like monthly calendar
+                                  position: 'absolute',
+                                  left: leftPosition,
+                                  width: columnWidth,
+                                  marginHorizontal: 0,
+                                  paddingVertical: 2,
+                                  paddingHorizontal: 0,
+                                  borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
+                                  borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
+                                },
+                              ]}
                           onPress={() => {
                             // Set all the event data at once to minimize re-renders
                             const eventData = {
@@ -668,8 +675,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                             <Text style={[
                               styles.eventText,
                               { 
-                                color: '#3A3A3A', // Same color as regular events
-                                fontWeight: '400' // Same weight as regular events
+                                color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#3A3A3A',
+                                fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : '400'
                               }
                             ]} numberOfLines={2}>
                               {event.title}

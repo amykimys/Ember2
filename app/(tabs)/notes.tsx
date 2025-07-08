@@ -63,7 +63,7 @@ export default function NotesScreen() {
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const lastFetchRef = useRef<number>(0);
-  
+
   // Comprehensive loading state management
   const [loadingStates, setLoadingStates] = useState({
     notes: true,
@@ -1044,14 +1044,6 @@ export default function NotesScreen() {
         {/* Minimal Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Notes</Text>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity
-              onPress={handleNewNote}
-              style={styles.addButton}
-            >
-              <Ionicons name="add" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
         </View>
 
         {/* Notes List - Using FlatList for better performance */}
@@ -1543,6 +1535,13 @@ export default function NotesScreen() {
           </SafeAreaView>
         </Modal>
 
+        {/* Floating Add Button */}
+        <TouchableOpacity
+          style={styles.addButton}
+          onPress={handleNewNote}
+        >
+          <Ionicons name="add" size={22} color="white" />
+        </TouchableOpacity>
 
       </SafeAreaView>
     </>
@@ -1597,10 +1596,20 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   addButton: {
-    width: 32,
-    height: 32,
+    position: 'absolute',
+    right: 24,
+    bottom: 100,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#0f172a',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
   notesList: {
     flex: 1,

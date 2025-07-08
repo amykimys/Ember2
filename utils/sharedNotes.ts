@@ -10,7 +10,7 @@ export interface SharedNote {
   shared_by_name: string;
   shared_at: string;
   can_edit: boolean;
-  shared_with: string[];
+  shared_with: string; // Changed from string[] to string
 }
 
 export interface NoteCollaborator {
@@ -46,7 +46,7 @@ export const shareNote = async (
       return { success: false, error: 'Note not found' };
     }
 
-    // Create shared note entries
+    // Create shared note entries - one for each friend
     const sharedNoteData = friendIds.map(friendId => ({
       original_note_id: noteId,
       note_title: note.title,
@@ -55,7 +55,7 @@ export const shareNote = async (
       shared_by_name: user.user_metadata?.full_name || user.email || 'Unknown',
       shared_at: new Date().toISOString(),
       can_edit: canEdit,
-      shared_with: [friendId]
+      shared_with: friendId // Single UUID, not array
     }));
 
     const { error: insertError } = await supabase
@@ -87,7 +87,7 @@ export const getSharedNotes = async (): Promise<{ success: boolean; data?: Share
     const { data, error } = await supabase
       .from('shared_notes')
       .select('*')
-      .contains('shared_with', [user.id]);
+      .eq('shared_with', user.id); // Use eq instead of contains
 
     if (error) {
       console.error('Error fetching shared notes:', error);
@@ -111,7 +111,7 @@ export const getSharedNoteIds = async (): Promise<Set<string>> => {
     const { data, error } = await supabase
       .from('shared_notes')
       .select('original_note_id')
-      .contains('shared_with', [user.id]);
+      .eq('shared_with', user.id); // Use eq instead of contains
 
     if (error) {
       console.error('Error fetching shared note IDs:', error);
@@ -182,7 +182,7 @@ export const updateSharedNote = async (
       .from('shared_notes')
       .select('*')
       .eq('original_note_id', noteId)
-      .contains('shared_with', [user.id])
+      .eq('shared_with', user.id) // Use eq instead of contains
       .eq('can_edit', true)
       .single();
 
@@ -200,7 +200,7 @@ export const updateSharedNote = async (
       .from('shared_notes')
       .update(updateData)
       .eq('original_note_id', noteId)
-      .contains('shared_with', [user.id]);
+      .eq('shared_with', user.id); // Use eq instead of contains
 
     if (updateError) {
       console.error('Error updating shared note:', updateError);
@@ -227,30 +227,16 @@ export const removeNoteCollaboration = async (
       return { success: false, error: 'User not authenticated' };
     }
 
-    // Get current shared_with array and remove the user
-    const { data: currentNote, error: fetchError } = await supabase
+    // Delete the shared note record for this specific user
+    const { error: deleteError } = await supabase
       .from('shared_notes')
-      .select('shared_with')
+      .delete()
       .eq('original_note_id', noteId)
       .eq('shared_by', user.id)
-      .single();
+      .eq('shared_with', userId);
 
-    if (fetchError || !currentNote) {
-      return { success: false, error: 'Note not found' };
-    }
-
-    const updatedSharedWith = currentNote.shared_with.filter((id: string) => id !== userId);
-
-    const { error: updateError } = await supabase
-      .from('shared_notes')
-      .update({
-        shared_with: updatedSharedWith
-      })
-      .eq('original_note_id', noteId)
-      .eq('shared_by', user.id);
-
-    if (updateError) {
-      console.error('Error removing collaboration:', updateError);
+    if (deleteError) {
+      console.error('Error removing collaboration:', deleteError);
       return { success: false, error: 'Failed to remove collaboration' };
     }
 
@@ -272,7 +258,7 @@ export const canUserEditNote = async (noteId: string): Promise<boolean> => {
       .from('shared_notes')
       .select('can_edit')
       .eq('original_note_id', noteId)
-      .contains('shared_with', [user.id])
+      .eq('shared_with', user.id) // Use eq instead of contains
       .single();
 
     if (error || !data) {

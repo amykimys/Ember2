@@ -45,6 +45,9 @@ export interface SharedEvent {
   message?: string;
   createdAt: string;
   updatedAt: string;
+  // Flags to indicate the current user's role
+  isCurrentUserSender: boolean;
+  isCurrentUserRecipient: boolean;
   event: {
     id: string;
     title: string;
@@ -75,9 +78,9 @@ export const shareTaskWithFriend = async (taskId: string, friendId: string, user
   
   try {
     const { error } = await supabase.rpc('share_task_with_friend', {
-      task_id: taskId,
-      friend_id: friendId,
-      user_id: userId
+      p_task_id: taskId,
+      p_user_id: userId,
+      p_friend_id: friendId
     });
 
     if (error) {
@@ -144,6 +147,83 @@ export const shareEventWithFriends = async (
   }
 };
 
+/**
+ * Create and share an event with friends in one step
+ * This creates the event and shares it without creating a separate original event
+ */
+export const createAndShareEvent = async (
+  eventData: {
+    id: string;
+    title: string;
+    description?: string;
+    location?: string;
+    date: string;
+    startDateTime?: string;
+    endDateTime?: string;
+    categoryName?: string;
+    categoryColor?: string;
+    isAllDay: boolean;
+    photos?: string[];
+  },
+  friendIds: string[],
+  message?: string
+): Promise<{ success: boolean; error?: string; eventId?: string }> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    // First, create the event in the events table
+    const { error: eventError } = await supabase
+      .from('events')
+      .insert({
+        id: eventData.id,
+        title: eventData.title,
+        description: eventData.description,
+        location: eventData.location,
+        date: eventData.date,
+        start_datetime: eventData.startDateTime,
+        end_datetime: eventData.endDateTime,
+        category_name: eventData.categoryName,
+        category_color: eventData.categoryColor,
+        is_all_day: eventData.isAllDay,
+        photos: eventData.photos || [],
+        user_id: user.id
+      });
+
+    if (eventError) {
+      console.error('Error creating event:', eventError);
+      return { success: false, error: eventError.message };
+    }
+
+    // Then create shared event records
+    const sharedEvents = friendIds.map(friendId => ({
+      original_event_id: eventData.id,
+      shared_by: user.id,
+      shared_with: friendId,
+      status: 'pending',
+      message: message || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }));
+
+    const { error: shareError } = await supabase
+      .from('shared_events')
+      .insert(sharedEvents);
+
+    if (shareError) {
+      console.error('Error sharing event:', shareError);
+      return { success: false, error: shareError.message };
+    }
+
+    return { success: true, eventId: eventData.id };
+  } catch (error) {
+    console.error('Error in createAndShareEvent:', error);
+    return { success: false, error: 'Failed to create and share event' };
+  }
+};
+
 // Get shared tasks for current user
 export const getSharedTasks = async (userId: string): Promise<SharedTask[]> => {
   try {
@@ -197,6 +277,7 @@ export const fetchSharedEvents = async (): Promise<{
     }
 
     // Fetch shared events with event details and sharer profiles
+    // Include both events shared WITH the user (received) and BY the user (sent)
     const { data: sharedEventsData, error } = await supabase
       .from('shared_events')
       .select(`
@@ -222,7 +303,7 @@ export const fetchSharedEvents = async (): Promise<{
           photos
         )
       `)
-      .eq('shared_with', user.id)
+      .or(`shared_with.eq.${user.id},shared_by.eq.${user.id}`)
       .in('status', ['pending', 'accepted'])
       .order('created_at', { ascending: false });
 
@@ -235,13 +316,17 @@ export const fetchSharedEvents = async (): Promise<{
       return { success: true, data: [] };
     }
 
-    // Get unique sharer IDs to fetch their profiles
-    const sharerIds = [...new Set(sharedEventsData.map(se => se.shared_by))];
+    // Get unique user IDs involved in shared events (both sharers and recipients)
+    const allUserIds = new Set<string>();
+    sharedEventsData.forEach(se => {
+      allUserIds.add(se.shared_by);
+      allUserIds.add(se.shared_with);
+    });
     
     const { data: profilesData, error: profilesError } = await supabase
       .from('profiles')
       .select('id, username, full_name, avatar_url')
-      .in('id', sharerIds);
+      .in('id', Array.from(allUserIds));
 
     if (profilesError) {
       console.error('Error fetching profiles:', profilesError);
@@ -260,7 +345,15 @@ export const fetchSharedEvents = async (): Promise<{
       .filter(sharedEvent => sharedEvent.events) // Filter out events that don't exist
       .map(sharedEvent => {
         const event = sharedEvent.events as any; // Type assertion for the joined event data
-        const sharerProfile = profilesMap.get(sharedEvent.shared_by);
+        
+        // Determine if current user is the sender or recipient
+        const isCurrentUserSender = sharedEvent.shared_by === user.id;
+        const isCurrentUserRecipient = sharedEvent.shared_with === user.id;
+        
+        // For sent events, show the recipient's profile
+        // For received events, show the sender's profile
+        const profileToShowId = isCurrentUserSender ? sharedEvent.shared_with : sharedEvent.shared_by;
+        const profileToShow = profilesMap.get(profileToShowId);
 
         return {
           id: sharedEvent.id,
@@ -271,6 +364,9 @@ export const fetchSharedEvents = async (): Promise<{
           message: sharedEvent.message,
           createdAt: sharedEvent.created_at,
           updatedAt: sharedEvent.updated_at,
+          // Add flags to indicate the user's role
+          isCurrentUserSender,
+          isCurrentUserRecipient,
           event: {
             id: event.id,
             title: event.title,
@@ -284,11 +380,11 @@ export const fetchSharedEvents = async (): Promise<{
             isAllDay: event.is_all_day,
             photos: event.photos || []
           },
-          sharerProfile: sharerProfile ? {
-            id: sharerProfile.id,
-            username: sharerProfile.username,
-            fullName: sharerProfile.full_name,
-            avatarUrl: sharerProfile.avatar_url
+          sharerProfile: profileToShow ? {
+            id: profileToShow.id,
+            username: profileToShow.username,
+            fullName: profileToShow.full_name,
+            avatarUrl: profileToShow.avatar_url
           } : undefined
         };
       });
