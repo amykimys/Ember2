@@ -2412,7 +2412,10 @@ export default function ProfileScreen() {
       onRequestClose={() => setShowFriendsFeedModal(false)}
       onShow={() => {
         if (user?.id) {
-          loadPhotoShares(true);
+          // Only load if we don't have data yet
+          if (photoShares.length === 0) {
+            loadPhotoShares(true);
+          }
           markPhotoSharesAsRead();
         }
       }}
@@ -2423,7 +2426,14 @@ export default function ProfileScreen() {
             <Ionicons name="close" size={24} color="#000" />
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Friends Feed</Text>
-          <TouchableOpacity onPress={handlePhotoSharesRefresh}>
+          <TouchableOpacity onPress={() => {
+            loadPhotoShares(true);
+            Toast.show({
+              type: 'info',
+              text1: 'Refreshing feed...',
+              position: 'bottom',
+            });
+          }}>
             <Ionicons name="refresh" size={24} color="#000" />
           </TouchableOpacity>
         </View>
@@ -2465,6 +2475,11 @@ export default function ProfileScreen() {
                     {item.user_id === user?.id && (
                       <TouchableOpacity
                         onPress={() => {
+                          console.log('🗑️ Delete button pressed for post:', {
+                            update_id: item.update_id,
+                            user_id: item.user_id,
+                            current_user: user?.id
+                          });
                           Alert.alert(
                             'Delete Post',
                             'Are you sure you want to delete this post?',
@@ -3883,6 +3898,16 @@ export default function ProfileScreen() {
       }
 
       console.log('✅ Photo shares loaded:', data?.length || 0);
+      
+      // Log the first few posts to see their structure
+      if (data && data.length > 0) {
+        console.log('📋 Sample posts:', data.slice(0, 3).map((post: any) => ({
+          update_id: post.update_id,
+          user_id: post.user_id,
+          user_username: post.user_username,
+          photo_url: post.photo_url?.substring(0, 50) + '...'
+        })));
+      }
 
       if (refresh) {
         setPhotoShares(data || []);
@@ -4239,21 +4264,97 @@ export default function ProfileScreen() {
   // Add this handler near other handlers
   const handleDeletePhotoShare = async (updateId: string) => {
     try {
-      const { error } = await supabase
-        .from('social_updates')
-        .delete()
-        .eq('id', updateId);
-      if (error) {
-        Alert.alert('Error', 'Failed to delete post.');
+      console.log('🗑️ Attempting to delete post with ID:', updateId);
+      console.log('🗑️ Current user ID:', user?.id);
+      
+      if (!user?.id) {
+        console.error('❌ No user ID available');
+        Alert.alert('Error', 'User not authenticated');
         return;
       }
-      setPhotoShares(prev => prev.filter(item => item.update_id !== updateId));
-      Toast.show({
-        type: 'success',
-        text1: 'Post deleted',
-        position: 'bottom',
-      });
+      
+      // First, let's check if the post exists and we can see it
+      const { data: checkData, error: checkError } = await supabase
+        .from('social_updates')
+        .select('id, user_id, type, photo_url, created_at, source_type, source_id')
+        .eq('id', updateId);
+      
+      console.log('🔍 Post check result:', { checkData, checkError });
+      
+      if (checkError) {
+        console.error('❌ Error checking post:', checkError);
+        Alert.alert('Error', `Cannot find post: ${checkError.message}`);
+        return;
+      }
+      
+      if (!checkData || checkData.length === 0) {
+        console.log('⚠️ Post not found in database');
+        Alert.alert('Error', 'Post not found in database');
+        return;
+      }
+      
+      const postToDelete = checkData[0];
+      console.log('✅ Found post to delete:', postToDelete);
+      
+      // Check if the user owns this post
+      if (postToDelete.user_id !== user.id) {
+        console.error('❌ User does not own this post');
+        Alert.alert('Error', 'You can only delete your own posts');
+        return;
+      }
+      
+      // Let's also check what posts the user can see
+      const { data: allPosts, error: listError } = await supabase
+        .from('social_updates')
+        .select('id, user_id, type, photo_url')
+        .eq('type', 'photo_share')
+        .eq('user_id', user?.id)
+        .limit(5);
+      
+      console.log('📋 User\'s posts:', { allPosts, listError });
+      
+      // Also check if the specific update_id exists in the user's posts
+      const foundInUserPosts = allPosts?.find(post => post.id === updateId);
+      console.log('🔍 Is update_id in user\'s posts?', foundInUserPosts);
+      
+      // Now try to delete it
+      const { data, error } = await supabase
+        .from('social_updates')
+        .delete()
+        .eq('id', updateId)
+        .eq('user_id', user.id) // Add user_id check for extra security
+        .select(); // Add select() to see what was deleted
+      
+      console.log('🗑️ Delete result:', { data, error });
+      
+      if (error) {
+        console.error('❌ Delete error:', error);
+        
+        // Provide more specific error messages
+        if (error.code === '42501') {
+          Alert.alert('Error', 'Permission denied. You can only delete your own posts.');
+        } else if (error.code === '23503') {
+          Alert.alert('Error', 'Cannot delete post due to database constraints.');
+        } else {
+          Alert.alert('Error', `Failed to delete post: ${error.message}`);
+        }
+        return;
+      }
+      
+      if (data && data.length > 0) {
+        console.log('✅ Successfully deleted post:', data[0]);
+        setPhotoShares(prev => prev.filter(item => item.update_id !== updateId));
+        Toast.show({
+          type: 'success',
+          text1: 'Post deleted',
+          position: 'bottom',
+        });
+      } else {
+        console.log('⚠️ No rows were deleted');
+        Alert.alert('Error', 'Post not found or already deleted');
+      }
     } catch (err) {
+      console.error('❌ Exception in delete:', err);
       Alert.alert('Error', 'Failed to delete post.');
     }
   };
