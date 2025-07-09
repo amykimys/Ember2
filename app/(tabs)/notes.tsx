@@ -33,6 +33,7 @@ import {
   canUserEditNote,
   subscribeToNoteCollaborators,
   subscribeToSharedNotes,
+  ensureSharedNotesTable,
   type SharedNote,
   type NoteCollaborator
 } from '../../utils/sharedNotes';
@@ -106,30 +107,74 @@ export default function NotesScreen() {
   // Shared notes tracking
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
   const [sharedNoteDetails, setSharedNoteDetails] = useState<Map<string, string[]>>(new Map());
+  
+
 
   // Combine regular notes and shared notes
-  const combineNotes = useCallback(() => {
+  const combineNotes = useCallback(async () => {
+    console.log('🔄 [CombineNotes] Starting to combine notes...');
+    console.log('🔄 [CombineNotes] Regular notes count:', notes.length);
+    console.log('🔄 [CombineNotes] Shared notes count:', sharedNotes.length);
+    
     const combined: Note[] = [...notes];
     
-    // Add shared notes to the combined list
-    sharedNotes.forEach(sharedNote => {
-      const sharedNoteItem: Note = {
-        id: sharedNote.original_note_id,
-        title: sharedNote.note_title,
-        content: sharedNote.note_content,
-        user_id: sharedNote.shared_by_name, // This will show who shared it
-        created_at: sharedNote.shared_at,
-        updated_at: sharedNote.shared_at,
-        isShared: true,
-        sharedBy: sharedNote.shared_by_name,
-        canEdit: sharedNote.can_edit,
-      };
-      combined.push(sharedNoteItem);
-    });
+    // Add shared notes to the combined list with actual content
+    for (const sharedNote of sharedNotes) {
+      try {
+        console.log('🔍 [CombineNotes] Processing shared note:', sharedNote.original_note_id);
+        
+        // Fetch the actual note content for each shared note
+        const { data: noteData, error } = await supabase
+          .from('notes')
+          .select('title, content, created_at, updated_at')
+          .eq('id', sharedNote.original_note_id)
+          .single();
+
+        if (error) {
+          console.error('❌ [CombineNotes] Error fetching shared note content:', error);
+          // Add with placeholder if fetch fails
+          const sharedNoteItem: Note = {
+            id: sharedNote.original_note_id,
+            title: `Shared Note from ${sharedNote.shared_by}`,
+            content: 'Unable to load content',
+            user_id: sharedNote.shared_by,
+            created_at: sharedNote.created_at,
+            updated_at: sharedNote.updated_at,
+            isShared: true,
+            sharedBy: sharedNote.shared_by,
+            canEdit: sharedNote.can_edit,
+          };
+          combined.push(sharedNoteItem);
+        } else {
+          console.log('✅ [CombineNotes] Successfully fetched note content:', {
+            id: sharedNote.original_note_id,
+            title: noteData.title,
+            contentLength: noteData.content?.length || 0
+          });
+          
+          // Add with actual content
+          const sharedNoteItem: Note = {
+            id: sharedNote.original_note_id,
+            title: noteData.title || `Shared Note from ${sharedNote.shared_by}`,
+            content: noteData.content || '',
+            user_id: sharedNote.shared_by,
+            created_at: noteData.created_at || sharedNote.created_at,
+            updated_at: noteData.updated_at || sharedNote.updated_at,
+            isShared: true,
+            sharedBy: sharedNote.shared_by,
+            canEdit: sharedNote.can_edit,
+          };
+          combined.push(sharedNoteItem);
+        }
+      } catch (error) {
+        console.error('❌ [CombineNotes] Error processing shared note:', error);
+      }
+    }
     
     // Sort by updated_at (most recent first)
     combined.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     
+    console.log('✅ [CombineNotes] Final combined notes count:', combined.length);
     setCombinedNotes(combined);
   }, [notes, sharedNotes]);
 
@@ -549,8 +594,31 @@ export default function NotesScreen() {
     setIsEditing(true);
   }, []);
 
+  // Shared notes functions
+  const loadSharedNotes = useCallback(async () => {
+    try {
+      console.log('🔄 Loading shared notes...');
+      setLoadingStates(prev => ({ ...prev, sharedNotes: true }));
+      
+      const result = await getSharedNotes();
+      if (result.success && result.data) {
+        setSharedNotes(result.data);
+        console.log('✅ Loaded shared notes:', result.data.length);
+      }
+    } catch (error) {
+      console.error('Error loading shared notes:', error);
+    } finally {
+      setLoadingStates(prev => ({ ...prev, sharedNotes: false }));
+    }
+  }, []);
+
+
+
+
+
   // Memoized note item renderer for better performance
   const renderNoteItem = useCallback(({ item: note }: { item: Note }) => {
+
     const renderRightActions = () => {
       return (
         <View style={styles.rightActions}>
@@ -660,37 +728,22 @@ export default function NotesScreen() {
         </TouchableOpacity>
       </Swipeable>
     );
-  }, [handleDeleteNote, handleOpenNote]);
-
-  // Shared notes functions
-  const loadSharedNotes = useCallback(async () => {
-    try {
-      console.log('🔄 Loading shared notes...');
-      setLoadingStates(prev => ({ ...prev, sharedNotes: true }));
-      
-      const result = await getSharedNotes();
-      if (result.success && result.data) {
-        setSharedNotes(result.data);
-        console.log('✅ Loaded shared notes:', result.data.length);
-      }
-    } catch (error) {
-      console.error('Error loading shared notes:', error);
-    } finally {
-      setLoadingStates(prev => ({ ...prev, sharedNotes: false }));
-    }
-  }, []);
+  }, [handleDeleteNote, handleOpenNote, sharedNoteIds, sharedNoteDetails]);
 
   // Load shared note IDs and friend names for current user's notes
   const loadSharedNoteIds = useCallback(async () => {
     try {
-      console.log('🔄 Loading shared note IDs...');
+      console.log('🔄 [LoadSharedNoteIds] Loading shared note IDs...');
       setLoadingStates(prev => ({ ...prev, sharedNoteIds: true }));
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
+        console.log('❌ [LoadSharedNoteIds] User not authenticated');
         setLoadingStates(prev => ({ ...prev, sharedNoteIds: false }));
         return;
       }
+
+      console.log('🔍 [LoadSharedNoteIds] Current user:', user.id);
 
       // Use a direct query to get shared notes with friend names
       const { data, error } = await supabase
@@ -699,19 +752,21 @@ export default function NotesScreen() {
           original_note_id,
           shared_with
         `)
-        .eq('shared_by', user.id)
-        .eq('status', 'accepted');
+        .eq('shared_by', user.id);
 
       if (error) {
-        console.error('Error loading shared note IDs:', error);
+        console.error('❌ [LoadSharedNoteIds] Error loading shared note IDs:', error);
         return;
       }
+
+      console.log('🔍 [LoadSharedNoteIds] Raw shared notes data:', data);
 
       const sharedIds = new Set<string>();
       const sharedDetails = new Map<string, string[]>();
 
       // Get unique friend IDs to fetch their names
       const friendIds = Array.from(new Set(data?.map(item => item.shared_with) || []));
+      console.log('🔍 [LoadSharedNoteIds] Friend IDs to fetch names for:', friendIds);
       
       if (friendIds.length > 0) {
         // Fetch friend names in a separate query
@@ -721,8 +776,10 @@ export default function NotesScreen() {
           .in('id', friendIds);
 
         if (friendError) {
-          console.error('Error loading friend names:', friendError);
+          console.error('❌ [LoadSharedNoteIds] Error loading friend names:', friendError);
         } else {
+          console.log('🔍 [LoadSharedNoteIds] Friend data:', friendData);
+          
           // Create a map of friend ID to name
           const friendNameMap = new Map(
             friendData?.map(friend => [friend.id, friend.full_name]) || []
@@ -746,9 +803,10 @@ export default function NotesScreen() {
 
       setSharedNoteIds(sharedIds);
       setSharedNoteDetails(sharedDetails);
-      console.log('✅ Loaded shared note IDs:', sharedIds.size);
+      console.log('✅ [LoadSharedNoteIds] Loaded shared note IDs:', sharedIds.size);
+      console.log('🔍 [LoadSharedNoteIds] Shared note details:', Array.from(sharedDetails.entries()));
     } catch (error) {
-      console.error('Error in loadSharedNoteIds:', error);
+      console.error('❌ [LoadSharedNoteIds] Unexpected error:', error);
     } finally {
       setLoadingStates(prev => ({ ...prev, sharedNoteIds: false }));
     }
@@ -823,27 +881,43 @@ export default function NotesScreen() {
   }, []);
 
   const handleShareNoteWithFriends = useCallback(async () => {
-    if (!selectedNoteForSharing || selectedFriends.size === 0) return;
+    console.log('🔍 [HandleShareNote] Starting share process...');
+    console.log('🔍 [HandleShareNote] Selected note:', selectedNoteForSharing);
+    console.log('🔍 [HandleShareNote] Selected friends:', selectedFriends);
+    console.log('🔍 [HandleShareNote] Selected friends array:', Array.from(selectedFriends));
+    
+    if (!selectedNoteForSharing || selectedFriends.size === 0) {
+      console.log('❌ [HandleShareNote] Missing note or no friends selected');
+      return;
+    }
 
     try {
+      console.log('🔍 [HandleShareNote] Calling shareNoteWithFriends...');
       const result = await shareNoteWithFriends(
         selectedNoteForSharing.id,
         Array.from(selectedFriends),
         true // canEdit
       );
 
+      console.log('🔍 [HandleShareNote] Share result:', result);
+
       if (result.success) {
+        console.log('✅ [HandleShareNote] Share successful, updating UI...');
         setShowShareModal(false);
         setSelectedNoteForSharing(null);
         setSelectedFriends(new Set());
+        // Refresh shared note IDs to show "Shared with" information
+        await loadSharedNoteIds();
+        Alert.alert('Success', 'Note shared successfully!');
       } else {
+        console.error('❌ [HandleShareNote] Share failed:', result.error);
         Alert.alert('Error', result.error || 'Failed to share note');
       }
     } catch (error) {
-      console.error('Error sharing note:', error);
+      console.error('❌ [HandleShareNote] Unexpected error:', error);
       Alert.alert('Error', 'Failed to share note');
     }
-  }, [selectedNoteForSharing, selectedFriends]);
+  }, [selectedNoteForSharing, selectedFriends, loadSharedNoteIds]);
 
   // Add friends functions
   const searchUsers = useCallback(async (searchTerm: string) => {
@@ -980,6 +1054,15 @@ export default function NotesScreen() {
       user: true
     });
     
+    // Ensure shared_notes table exists first
+    ensureSharedNotesTable().then(result => {
+      if (result.success) {
+        console.log('✅ Shared notes table is ready');
+      } else {
+        console.error('❌ Failed to ensure shared notes table:', result.error);
+      }
+    });
+    
     // Load all data in parallel
     fetchNotes(true);
     loadSharedNotes();
@@ -1034,7 +1117,9 @@ export default function NotesScreen() {
 
   // Update combined notes whenever notes or shared notes change
   useEffect(() => {
-    combineNotes();
+    combineNotes().catch(error => {
+      console.error('Error combining notes:', error);
+    });
   }, [combineNotes]);
 
   return (
@@ -1155,14 +1240,7 @@ export default function NotesScreen() {
                   >
                     <Ionicons name="person-add-outline" size={20} color="#007AFF" />
                   </TouchableOpacity>
-                  {currentNote && (
-                    <TouchableOpacity
-                      onPress={() => handleShareNote(currentNote)}
-                      style={styles.modalShareButton}
-                    >
-                      <Ionicons name="share-outline" size={20} color="#007AFF" />
-                    </TouchableOpacity>
-                  )}
+
                   <TouchableOpacity
                     onPress={handleCloseNote}
                     style={styles.modalCloseButton}
@@ -1595,6 +1673,28 @@ const styles = StyleSheet.create({
     color: '#000',
     fontFamily: 'Onest',
   },
+
+  pendingNoteItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  pendingNoteContent: {
+    marginBottom: 12,
+  },
+  pendingNoteTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 4,
+    fontFamily: 'Onest',
+  },
+  pendingNoteDate: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'Onest',
+  },
+
   addButton: {
     position: 'absolute',
     right: 24,
@@ -1664,6 +1764,9 @@ const styles = StyleSheet.create({
   sharedIndicator: {
     marginLeft: 8,
   },
+  pendingIndicator: {
+    marginLeft: 8,
+  },
   sharedWithContainer: {
     marginBottom: 4,
   },
@@ -1727,10 +1830,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f8ff',
     borderRadius: 6,
   },
-  modalShareButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
+
   modalCloseButton: {
     paddingVertical: 8,
     paddingHorizontal: 4,

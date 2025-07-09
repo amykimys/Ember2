@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,7 +15,8 @@ import {
   PanResponder,
   Image,
   ActivityIndicator,
-  KeyboardAvoidingView
+  KeyboardAvoidingView,
+  Animated
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -30,10 +31,11 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as FileSystem from 'expo-file-system';
 import * as Notifications from 'expo-notifications';
 import { calendarStyles, CALENDAR_CONSTANTS } from '../../styles/calendar.styles';
-import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
+import { promptPhotoSharing, PhotoShareData, removePhotoFromFriendsFeed } from '../../utils/photoSharing';
 import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as acceptSharedEventUtil, declineSharedEvent as declineSharedEventUtil, shareEventWithFriends, createAndShareEvent } from '../../utils/sharing';
 import type { SharedEvent } from '../../utils/sharing';
 import { Colors } from '../../constants/Colors';
+import PhotoCaptionModal from '../../components/PhotoCaptionModal';
 
 import { arePushNotificationsEnabled } from '../../utils/notificationUtils';
 
@@ -325,6 +327,7 @@ interface CalendarEvent {
   isContinued?: boolean;
   isAllDay?: boolean;
   photos?: string[];
+  private_photos?: string[];
   // Add shared event properties
   isShared?: boolean;
   sharedBy?: string;
@@ -554,10 +557,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Photo-related state variables
   const [eventPhotos, setEventPhotos] = useState<string[]>([]);
   const [editedEventPhotos, setEditedEventPhotos] = useState<string[]>([]);
+  const [photoPrivacyMap, setPhotoPrivacyMap] = useState<{ [photoUrl: string]: boolean }>({});
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [showPhotoViewer, setShowPhotoViewer] = useState(false);
   const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ event: CalendarEvent; photoUrl: string } | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  
+  // Custom photo attachment modal state
+  const [showCustomPhotoModal, setShowCustomPhotoModal] = useState(false);
+  const [selectedEventForPhoto, setSelectedEventForPhoto] = useState<string | undefined>(undefined);
+  const [isPhotoPrivate, setIsPhotoPrivate] = useState(false);
+  
+  // Photo caption modal state
+  const [showCaptionModal, setShowCaptionModal] = useState(false);
+  const [photoForCaption, setPhotoForCaption] = useState<{ url: string; eventId: string; eventTitle: string } | null>(null);
+  const [isSharingPhoto, setIsSharingPhoto] = useState(false);
   
   // Add ref for photo viewer FlatList
   const photoViewerFlatListRef = useRef<FlatList>(null);
@@ -599,6 +613,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [pendingSharedEvents, setPendingSharedEvents] = useState<CalendarEvent[]>([]);
   const [sentSharedEvents, setSentSharedEvents] = useState<CalendarEvent[]>([]);
   const [receivedSharedEvents, setReceivedSharedEvents] = useState<CalendarEvent[]>([]);
+  const [activeSharedEventsTab, setActiveSharedEventsTab] = useState<'received' | 'sent'>('received');
+  const swipeAnimation = useRef(new Animated.Value(0)).current;
   
   // Shared event details modal state
   const [showSharedEventDetailsView, setShowSharedEventDetailsView] = useState(false);
@@ -1091,7 +1107,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         const [regularEventsResult, sharedEvents] = await Promise.all([
           supabase
             .from('events')
-            .select('*')
+            .select('*, photos, private_photos')
             .eq('user_id', user.id)
             .order('date', { ascending: true }),
           fetchSharedEvents(user.id)
@@ -1244,7 +1260,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             customDates: event.custom_dates || [],
             customTimes,
             isAllDay: isAllDay,
-            photos: event.photos || [],
+            photos: [...(event.photos || []), ...(event.private_photos || [])],
             // Shared event properties (for shared events)
             isShared: event.isShared || false,
             sharedBy: event.sharedBy,
@@ -1265,29 +1281,79 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             customDates: transformedEvent.customDates
           });
 
-          // For custom events, add to all custom dates
-          if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
-            transformedEvent.customDates.forEach((date: string) => {
-              if (!acc[date]) {
-                acc[date] = [];
+          // Handle multi-day events by creating display segments for each day
+          if (isMultiDayEvent(transformedEvent)) {
+            console.log('🔍 [MultiDay] Processing multi-day event:', transformedEvent.title);
+            const startDate = new Date(transformedEvent.startDateTime!);
+            const endDate = new Date(transformedEvent.endDateTime!);
+            
+            // Reset times to compare only dates
+            startDate.setHours(0, 0, 0, 0);
+            endDate.setHours(0, 0, 0, 0);
+            
+            console.log('🔍 [MultiDay] Date range:', startDate.toDateString(), 'to', endDate.toDateString());
+            
+            // Create display segments for each day in the range
+            const currentDate = new Date(startDate);
+            let dayCount = 0;
+            while (currentDate <= endDate) {
+              const dateKey = getLocalDateString(currentDate);
+              
+              if (!acc[dateKey]) {
+                acc[dateKey] = [];
               }
-              acc[date].push(transformedEvent);
-              console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
-            });
-          } else {
-            // For regular events, add to the primary date
-            if (!acc[transformedEvent.date]) {
-              acc[transformedEvent.date] = [];
+              
+              // Create a display segment for this specific date (same event, different display properties)
+              const eventSegment = {
+                ...transformedEvent,
+                id: transformedEvent.id, // Keep the same ID for all segments
+                date: dateKey,
+                // Keep the original start/end times for the event
+              };
+              
+              acc[dateKey].push(eventSegment);
+              dayCount++;
+              console.log('🔍 [MultiDay] Added segment to date:', dateKey, 'Day', dayCount);
+              
+              // Move to next day
+              currentDate.setDate(currentDate.getDate() + 1);
             }
-            acc[transformedEvent.date].push(transformedEvent);
-            console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
+            console.log('🔍 [MultiDay] Total segments created:', dayCount);
+          } else {
+            // For custom events, add to all custom dates
+            if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
+              transformedEvent.customDates.forEach((date: string) => {
+                if (!acc[date]) {
+                  acc[date] = [];
+                }
+                acc[date].push(transformedEvent);
+                console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
+              });
+            } else {
+              // For regular events, add to the primary date
+              if (!acc[transformedEvent.date]) {
+                acc[transformedEvent.date] = [];
+              }
+              acc[transformedEvent.date].push(transformedEvent);
+              console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
+            }
           }
 
           return acc;
         }, {} as { [date: string]: CalendarEvent[] });
 
         console.log('🔍 [Calendar] Final transformed events by date:', Object.keys(transformedEvents));
-        console.log('🔍 [Calendar] Events for 2025-01-15:', transformedEvents['2025-01-15']?.map((e: CalendarEvent) => ({ title: e.title, isShared: e.isShared })) || 'No events');
+        console.log('🔍 [Calendar] Events for 2025-01-15:', transformedEvents['2025-01-15']?.map((e: CalendarEvent) => ({ title: e.title, isShared: e.isShared, id: e.id })) || 'No events');
+        
+        // Debug: Check for multi-day events in the final result
+        Object.keys(transformedEvents).forEach(dateKey => {
+          const eventsForDate = transformedEvents[dateKey];
+          eventsForDate.forEach((event: CalendarEvent) => {
+            if (isMultiDayEvent(event)) {
+              console.log('🔍 [MultiDay] Found multi-day event in final result:', event.title, 'on', dateKey, 'ID:', event.id);
+            }
+          });
+        });
         
         // Add detailed debugging for shared events
         console.log('🔍 [Calendar] All shared events before transformation:', sharedEvents.map(e => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
@@ -1324,7 +1390,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       const [regularEventsResult, sharedEvents] = await Promise.all([
         supabase
           .from('events')
-          .select('*')
+          .select('*, photos, private_photos')
           .eq('user_id', user.id)
           .order('date', { ascending: true }),
         fetchSharedEvents(user.id)
@@ -1456,7 +1522,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           customTimes: event.custom_times || {},
           isContinued: event.is_continued || false,
           isAllDay: isAllDay,
-          photos: event.photos || [],
+          photos: [...(event.photos || []), ...(event.private_photos || [])],
           // Shared event properties (for shared events)
           isShared: event.isShared || false,
           sharedBy: event.sharedBy,
@@ -1470,10 +1536,51 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           calendarColor: event.calendar_color,
         };
 
-        if (!parsedEvents[event.date]) {
-          parsedEvents[event.date] = [];
+        // Handle multi-day events by creating display segments for each day
+        if (isMultiDayEvent(calendarEvent)) {
+          console.log('🔍 [MultiDay] Processing multi-day event in refresh:', calendarEvent.title);
+          const startDate = new Date(calendarEvent.startDateTime!);
+          const endDate = new Date(calendarEvent.endDateTime!);
+          
+          // Reset times to compare only dates
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(0, 0, 0, 0);
+          
+          console.log('🔍 [MultiDay] Date range in refresh:', startDate.toDateString(), 'to', endDate.toDateString());
+          
+          // Create display segments for each day in the range
+          const currentDate = new Date(startDate);
+          let dayCount = 0;
+          while (currentDate <= endDate) {
+            const dateKey = getLocalDateString(currentDate);
+            
+            if (!parsedEvents[dateKey]) {
+              parsedEvents[dateKey] = [];
+            }
+            
+            // Create a display segment for this specific date (same event, different display properties)
+            const eventSegment = {
+              ...calendarEvent,
+              id: calendarEvent.id, // Keep the same ID for all segments
+              date: dateKey,
+              // Keep the original start/end times for the event
+            };
+            
+            parsedEvents[dateKey].push(eventSegment);
+            dayCount++;
+            console.log('🔍 [MultiDay] Added segment to date in refresh:', dateKey, 'Day', dayCount);
+            
+            // Move to next day
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+          console.log('🔍 [MultiDay] Total segments created in refresh:', dayCount);
+        } else {
+          // Single day event
+          if (!parsedEvents[event.date]) {
+            parsedEvents[event.date] = [];
+          }
+          parsedEvents[event.date].push(calendarEvent);
         }
-        parsedEvents[event.date].push(calendarEvent);
       });
 
       console.log('🗓️ [Calendar] Parsed events by date:', Object.keys(parsedEvents));
@@ -1991,9 +2098,57 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const isSelected = (date: Date | null) =>
     date?.toDateString() === selectedDate.toDateString();
 
+  // Function to check if an event spans multiple days
+  const isMultiDayEvent = (event: CalendarEvent): boolean => {
+    if (!event.startDateTime || !event.endDateTime) {
+      console.log('🔍 [MultiDay] Event missing start/end times:', event.title, 'startDateTime:', event.startDateTime, 'endDateTime:', event.endDateTime);
+      return false;
+    }
+    
+    const startDate = new Date(event.startDateTime);
+    const endDate = new Date(event.endDateTime);
+    
+    // Reset time to compare only dates
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+    
+    const isMultiDay = startDate.getTime() !== endDate.getTime();
+    console.log('🔍 [MultiDay] Event check:', event.title, 'startDate:', startDate.toDateString(), 'endDate:', endDate.toDateString(), 'isMultiDay:', isMultiDay);
+    
+    return isMultiDay;
+  };
+
+  // Function to get the position of an event within a multi-day span
+  const getMultiDayEventPosition = (event: CalendarEvent, currentDate: Date): 'start' | 'middle' | 'end' | 'single' => {
+    if (!isMultiDayEvent(event)) return 'single';
+    
+    const startDate = new Date(event.startDateTime!);
+    const endDate = new Date(event.endDateTime!);
+    const currentDateOnly = new Date(currentDate);
+    
+    // Reset times to compare only dates
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+    currentDateOnly.setHours(0, 0, 0, 0);
+    
+    if (currentDateOnly.getTime() === startDate.getTime()) return 'start';
+    if (currentDateOnly.getTime() === endDate.getTime()) return 'end';
+    return 'middle';
+  };
+
+  // Function to get the original event from a multi-day event segment
+  const getOriginalMultiDayEvent = (event: CalendarEvent): CalendarEvent => {
+    // Since multi-day events now use the same ID for all segments, we can return the event as-is
+    // The event already contains the complete start/end date information
+    console.log('🔍 [MultiDay] Returning event as original (unified approach):', event.title);
+    return event;
+  };
+
   
   const handleDeleteEvent = async (eventId: string) => {
     try {
+      console.log('🗑️ [Delete] Starting delete for event ID:', eventId);
+      
       // Cancel any scheduled notifications for this event
       await cancelEventNotification(eventId);
 
@@ -2004,21 +2159,30 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .eq('id', eventId);
 
       if (error) {
+        console.error('🗑️ [Delete] Database delete error:', error);
         throw error;
       }
 
-      // Update local state
+      console.log('🗑️ [Delete] Database delete successful');
+
+      // Update local state - remove all segments of the multi-day event
       setEvents(prevEvents => {
         const newEvents = { ...prevEvents };
+        let removedCount = 0;
         
-        // Remove the event from all dates where it exists
+        // Remove the event from all dates where it exists (handles multi-day events)
         Object.keys(newEvents).forEach(dateKey => {
+          const beforeCount = newEvents[dateKey].length;
           newEvents[dateKey] = newEvents[dateKey].filter(event => event.id !== eventId);
+          const afterCount = newEvents[dateKey].length;
+          removedCount += (beforeCount - afterCount);
+          
           if (newEvents[dateKey].length === 0) {
             delete newEvents[dateKey];
           }
         });
 
+        console.log('🗑️ [Delete] Removed', removedCount, 'segments from local state');
         return newEvents;
       });
 
@@ -2030,11 +2194,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         visibilityTime: 2000,
       });
 
-      // Refresh events to ensure consistency
-      setTimeout(() => {
-        refreshEvents();
-      }, 500);
+      // Don't refresh immediately to avoid race conditions
+      // The local state update should be sufficient
+      console.log('🗑️ [Delete] Delete completed successfully');
     } catch (error) {
+      console.error('🗑️ [Delete] Error in handleDeleteEvent:', error);
       Alert.alert('Error', 'Failed to delete event. Please try again.');
     }
   };
@@ -2067,6 +2231,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     setIsAllDay(false);
     setEventPhotos([]);
     setEditedEventPhotos([]);
+    setPhotoPrivacyMap({});
     setSelectedFriends([]);
     setSearchFriend('');
     setIsSearchFocused(false);
@@ -2137,7 +2302,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return acc;
         }, {} as { [date: string]: { start: Date; end: Date; reminder: Date | null; repeat: RepeatOption } }),
         isAllDay: isAllDay,
-        photos: eventPhotos
+        photos: eventPhotos.filter(photo => !photoPrivacyMap[photo]), // Only regular photos
+        private_photos: eventPhotos.filter(photo => photoPrivacyMap[photo]) // Only private photos
       };
 
       console.log('🔍 [Calendar] Event to save details:', {
@@ -2298,6 +2464,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }), {}) : null,
           is_all_day: event.isAllDay,
           photos: event.photos || [],
+          private_photos: event.private_photos || [],
           user_id: currentUser.id // Use the verified current user ID
         };
         
@@ -2555,6 +2722,53 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         text1: editingEvent ? 'Event updated successfully' : 'Event created successfully',
         position: 'bottom',
       });
+
+      // If the event has photos and is not private, share them to friends feed
+      if (eventToSave.photos && eventToSave.photos.length > 0 && user?.id) {
+        try {
+          // Share each non-private photo
+          for (const photoUrl of eventToSave.photos) {
+            // Check if this photo is not in private_photos
+            if (!eventToSave.private_photos?.includes(photoUrl)) {
+              // Create social update for this photo
+              const { error: socialError } = await supabase
+                .from('social_updates')
+                .insert({
+                  user_id: user.id,
+                  type: 'photo_share',
+                  photo_url: photoUrl,
+                  caption: '', // Let the friends feed fetch the actual event title
+                  source_type: 'event',
+                  source_id: eventToSave.id,
+                  is_public: true,
+                  content: {
+                    title: eventToSave.title,
+                    photo_url: photoUrl
+                  }
+                });
+
+              if (socialError) {
+                console.error('Error creating social update for photo:', socialError);
+              }
+            }
+          }
+          
+          // Show additional success message if photos were shared
+          const publicPhotoCount = eventToSave.photos.filter(photo => 
+            !eventToSave.private_photos?.includes(photo)
+          ).length;
+          
+          if (publicPhotoCount > 0) {
+            Toast.show({
+              type: 'success',
+              text1: `${publicPhotoCount} photo${publicPhotoCount > 1 ? 's' : ''} shared with friends!`,
+              position: 'bottom',
+            });
+          }
+        } catch (error) {
+          console.error('Error sharing photos to friends feed:', error);
+        }
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to save event. Please try again.');
     }
@@ -2688,6 +2902,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 key={index}
                                 onPress={() => {
                                   const selectedEventData = { event, dateKey: event.date, index };
+                                  const hasValidStart = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
+                                  const hasValidEnd = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
                                   setSelectedEvent(selectedEventData);
                                   setEditingEvent(event);
                                   setEditedEventTitle(event.title);
@@ -2700,8 +2916,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   setEditedRepeatOption(event.repeatOption || 'None');
                                   setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                                   setCustomSelectedDates(event.customDates || []);
-                                  setIsEditedAllDay(event.isAllDay || false);
-                                  setEditedEventPhotos(event.photos || []);
+                                  setIsEditedAllDay(!(hasValidStart && hasValidEnd));                                  setEditedEventPhotos([...(event.photos || []), ...(event.private_photos || [])]);
                                   setShowEditEventModal(true);
                                 }}
                                 onLongPress={() => handleLongPress(event)}
@@ -2747,7 +2962,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         </View>
                       ) : (
                         // Expanded view: show event containers with titles
-                        <View style={styles.eventBox}>
+                        <View style={calendarStyles.eventBox}>
                           {dayEvents
                             .sort((a, b) => {
                               // Sort by start time, all-day events first
@@ -2756,55 +2971,63 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               if (!a.startDateTime || !b.startDateTime) return 0;
                               return a.startDateTime.getTime() - b.startDateTime.getTime();
                             })
-                            .map((event, eventIndex) => (
-                              <TouchableOpacity
-                                key={`${event.id}-${eventIndex}`}
-                                onPress={() => {
-                                  const selectedEventData = { event, dateKey: event.date, index: eventIndex };
-                                  setSelectedEvent(selectedEventData);
-                                  setEditingEvent(event);
-                                  setEditedEventTitle(event.title);
-                                  setEditedEventDescription(event.description ?? '');
-                                  setEditedEventLocation(event.location ?? '');
-                                  setEditedStartDateTime(new Date(event.startDateTime!));
-                                  setEditedEndDateTime(new Date(event.endDateTime!));
-                                  setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                                  setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                                  setEditedRepeatOption(event.repeatOption || 'None');
-                                  setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                                  setCustomSelectedDates(event.customDates || []);
-                                  setShowEditEventModal(true);
-                                }}
-                                onLongPress={() => handleLongPress(event)}
-                                style={[
-                                  styles.eventBoxText,
-                                  {
-                                    backgroundColor: event.isGoogleEvent 
-                                      ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
-                                      : event.isShared 
-                                        ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${event.categoryColor || '#6366F1'}30`) // Blue for pending, normal for accepted
-                                        : `${event.categoryColor || '#6366F1'}30`, // Lighter background color
-                                    borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
-                                    borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent')
-                                  }
-                                ]}
-                              >
-
-                                <Text
-                                  numberOfLines={1}
+                            .map((event, eventIndex) => {
+                              const isMultiDay = isMultiDayEvent(event);
+                              const eventPosition = getMultiDayEventPosition(event, date);
+                              
+                              return (
+                                <TouchableOpacity
+                                  key={`${event.id}-${eventIndex}`}
+                                  onPress={() => {
+                                    // Since multi-day events are now unified, use the event directly
+                                    const selectedEventData = { event, dateKey: event.date, index: eventIndex };
+                                    setSelectedEvent(selectedEventData);
+                                    setEditingEvent(event);
+                                    setEditedEventTitle(event.title);
+                                    setEditedEventDescription(event.description ?? '');
+                                    setEditedEventLocation(event.location ?? '');
+                                    setEditedStartDateTime(new Date(event.startDateTime!));
+                                    setEditedEndDateTime(new Date(event.endDateTime!));
+                                    setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
+                                    setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
+                                    setEditedRepeatOption(event.repeatOption || 'None');
+                                    setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
+                                    setCustomSelectedDates(event.customDates || []);
+                                    setShowEditEventModal(true);
+                                  }}
+                                  onLongPress={() => handleLongPress(event)}
                                   style={[
-                                    styles.eventText,
-                                    { 
-                                      color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#333',
-                                      fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : 'normal'
+                                    calendarStyles.eventBoxText,
+                                    isMultiDay && calendarStyles.multiDayEvent,
+                                    eventPosition === 'start' && calendarStyles.multiDayEventStart,
+                                    eventPosition === 'middle' && calendarStyles.multiDayEventMiddle,
+                                    eventPosition === 'end' && calendarStyles.multiDayEventEnd,
+                                    {
+                                      backgroundColor: event.isGoogleEvent 
+                                        ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
+                                        : event.isShared 
+                                          ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${event.categoryColor || '#6366F1'}30`) // Blue for pending, normal for accepted
+                                          : `${event.categoryColor || '#6366F1'}30`, // Lighter background color
+                                      borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
+                                      borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent')
                                     }
                                   ]}
                                 >
-                                  {event.title}
-                                </Text>
-                
-                              </TouchableOpacity>
-                            ))}
+                                  <Text
+                                    numberOfLines={1}
+                                    style={[
+                                      calendarStyles.eventText,
+                                      { 
+                                        color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#333',
+                                        fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : 'normal'
+                                      }
+                                    ]}
+                                  >
+                                    {eventPosition === 'start' || eventPosition === 'single' ? event.title : ''}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
                         </View>
                       )
                     )}
@@ -2822,6 +3045,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     try {
       console.log('🔍 [Edit Modal] Opening edit modal for event:', event.id);
       
+      // Since multi-day events are now unified, use the event directly
+      
       // Check if this is a shared event and if the current user is the owner
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -2832,6 +3057,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       // For shared events, check if the current user is the owner
       const isOwner = event.isShared && event.sharedBy === user.id;
       const isRecipient = event.isShared && event.sharedBy !== user.id;
+      const hasValidStart = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
+      const hasValidEnd = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
       
       if (isRecipient) {
         console.log('🔍 [Edit Modal] User is recipient of shared event, showing view-only modal');
@@ -2853,7 +3080,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEditedRepeatOption(event.repeatOption || 'None');
       setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
       setCustomSelectedDates(event.customDates || []);
-      setIsEditedAllDay(event.isAllDay || false);
+      setIsEditedAllDay(!(hasValidStart && hasValidEnd));
       setEditedEventPhotos(event.photos || []);
       
       // Reset edit modal friends state first
@@ -3469,7 +3696,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   };
 
   // Photo-related functions
-  const uploadEventPhoto = async (photoUri: string, eventId: string): Promise<string> => {
+  const uploadEventPhoto = async (photoUri: string, eventId: string, isPrivate: boolean = false): Promise<{ url: string; isPrivate: boolean }> => {
     try {
       // First, let's check if the file exists and get its info
       const fileInfo = await FileSystem.getInfoAsync(photoUri);
@@ -3517,7 +3744,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .from('memories')
         .getPublicUrl(fileName);
 
-      return publicUrl;
+      return { url: publicUrl, isPrivate };
     } catch (error) {
       throw error;
     }
@@ -3562,7 +3789,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (!result.canceled && result.assets[0]) {
         setIsUploadingPhoto(true);
         try {
-          const photoUrl = await uploadEventPhoto(result.assets[0].uri, eventId || 'temp');
+          const photoData = await uploadEventPhoto(result.assets[0].uri, eventId || 'temp', isPhotoPrivate);
           
           // Get event details for sharing
           let eventTitle = 'Event';
@@ -3574,12 +3801,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             if (event) {
               eventTitle = event.title;
             }
-            await updateEventPhoto(eventId, photoUrl);
+            await updateEventPhoto(eventId, photoData.url, photoData.isPrivate);
           } else {
             // For new events, we need to save the event first to get a proper ID
             // For now, we'll skip sharing for new events until they're saved
             eventIdForSharing = 'temp_' + Date.now();
-            setEventPhotos(prev => [...prev, photoUrl]);
+            setEventPhotos(prev => [...prev, photoData.url]);
+            setPhotoPrivacyMap(prev => ({ ...prev, [photoData.url]: photoData.isPrivate }));
             
             Toast.show({
               type: 'info',
@@ -3592,12 +3820,29 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
           // Show success message for saved events
           if (user?.id && eventId) {
-                Toast.show({
-                  type: 'success',
-              text1: 'Photo added to event',
-              text2: 'Save the event to share the photo with friends',
-                  position: 'bottom',
-                });
+            const privacyText = photoData.isPrivate ? ' (Private)' : '';
+            
+            // If the photo is not private, show caption modal for sharing
+            if (!photoData.isPrivate) {
+              // Get event details for sharing
+              const event = Object.values(events).flat().find(e => e.id === eventId);
+              const eventTitle = event?.title || 'Event';
+              
+              // Set up photo for caption modal
+              setPhotoForCaption({
+                url: photoData.url,
+                eventId: eventId,
+                eventTitle: eventTitle
+              });
+              setShowCaptionModal(true);
+            } else {
+              Toast.show({
+                type: 'success',
+                text1: `Photo added to event${privacyText}`,
+                text2: 'This photo is private and only visible to you',
+                position: 'bottom',
+              });
+            }
           } else {
             Toast.show({
               type: 'success',
@@ -3624,12 +3869,72 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
-  const updateEventPhoto = async (eventId: string, photoUrl: string) => {
+  const handleCaptionSave = async (caption: string) => {
+    if (!photoForCaption || !user?.id) return;
+    
+    setIsSharingPhoto(true);
     try {
-      // Get the current event to see existing photos
+      // Create social update with caption
+      const { error: socialError } = await supabase
+        .from('social_updates')
+        .insert({
+          user_id: user.id,
+          type: 'photo_share',
+          photo_url: photoForCaption.url,
+          caption: caption,
+          source_type: 'event',
+          source_id: photoForCaption.eventId,
+          is_public: true,
+          content: {
+            title: photoForCaption.eventTitle,
+            photo_url: photoForCaption.url
+          }
+        });
+
+      if (socialError) {
+        console.error('Error creating social update:', socialError);
+        throw socialError;
+      }
+      
+      Toast.show({
+        type: 'success',
+        text1: 'Photo shared with friends!',
+        text2: caption ? `"${caption}"` : '',
+        position: 'bottom',
+      });
+      
+      setShowCaptionModal(false);
+      setPhotoForCaption(null);
+    } catch (error) {
+      console.error('Error sharing photo:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to share photo',
+        text2: 'Please try again',
+        position: 'bottom',
+      });
+    } finally {
+      setIsSharingPhoto(false);
+    }
+  };
+
+  const handleCaptionCancel = () => {
+    setShowCaptionModal(false);
+    setPhotoForCaption(null);
+    Toast.show({
+      type: 'info',
+      text1: 'Photo added to event',
+      text2: 'You can share it later from the event details',
+      position: 'bottom',
+    });
+  };
+
+  const updateEventPhoto = async (eventId: string, photoUrl: string, isPrivate: boolean = false) => {
+    try {
+      // Get the current event to see existing photos and private photos
       const { data: currentEvent, error: fetchError } = await supabase
         .from('events')
-        .select('photos')
+        .select('photos, private_photos')
         .eq('id', eventId)
         .single();
 
@@ -3639,23 +3944,40 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       // Append the new photo to existing photos
       const currentPhotos = currentEvent?.photos || [];
-      const updatedPhotos = [...currentPhotos, photoUrl];
+      const currentPrivatePhotos = currentEvent?.private_photos || [];
+      
+      let updatedPhotos = [...currentPhotos];
+      let updatedPrivatePhotos = [...currentPrivatePhotos];
+
+      if (isPrivate) {
+        // Add to private photos and remove from regular photos if it exists
+        updatedPrivatePhotos = [...updatedPrivatePhotos, photoUrl];
+        updatedPhotos = updatedPhotos.filter(photo => photo !== photoUrl);
+      } else {
+        // Add to regular photos and remove from private photos if it exists
+        updatedPhotos = [...updatedPhotos, photoUrl];
+        updatedPrivatePhotos = updatedPrivatePhotos.filter(photo => photo !== photoUrl);
+      }
 
       const { error } = await supabase
         .from('events')
-        .update({ photos: updatedPhotos })
+        .update({ 
+          photos: updatedPhotos,
+          private_photos: updatedPrivatePhotos
+        })
         .eq('id', eventId);
 
       if (error) {
         throw error;
       }
 
-      // Update local state
+      // Update local state - combine both arrays for display
+      const allPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
           updated[date] = updated[date].map(event => 
-            event.id === eventId ? { ...event, photos: updatedPhotos } : event
+            event.id === eventId ? { ...event, photos: allPhotos } : event
           );
         });
         return updated;
@@ -3678,23 +4000,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   };
 
   const showEventPhotoOptions = (eventId?: string) => {
-    Alert.alert(
-      'Add Photo to Event',
-      'Choose how you want to add a photo',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Take Photo', onPress: () => handleEventPhotoPicker('camera', eventId) },
-        { text: 'Choose from Gallery', onPress: () => handleEventPhotoPicker('library', eventId) },
-      ]
-    );
+    setSelectedEventForPhoto(eventId);
+    setIsPhotoPrivate(false);
+    setShowCustomPhotoModal(true);
   };
 
   const removeEventPhoto = async (eventId: string, photoUrlToRemove: string) => {
     try {
-      // Get the current event to see existing photos
+      // Get the current event to see existing photos and private photos
       const { data: currentEvent, error: fetchError } = await supabase
         .from('events')
-        .select('photos')
+        .select('photos, private_photos')
         .eq('id', eventId)
         .single();
 
@@ -3702,25 +4018,37 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw fetchError;
       }
 
-      // Remove the specific photo from the array
+      // Remove the specific photo from both arrays
       const currentPhotos = currentEvent?.photos || [];
+      const currentPrivatePhotos = currentEvent?.private_photos || [];
+      
       const updatedPhotos = currentPhotos.filter((photo: string) => photo !== photoUrlToRemove);
+      const updatedPrivatePhotos = currentPrivatePhotos.filter((photo: string) => photo !== photoUrlToRemove);
 
       const { error } = await supabase
         .from('events')
-        .update({ photos: updatedPhotos })
+        .update({ 
+          photos: updatedPhotos,
+          private_photos: updatedPrivatePhotos
+        })
         .eq('id', eventId);
 
       if (error) {
         throw error;
       }
 
-      // Update local state
+      // Remove the photo from friends feed (social_updates table)
+      if (user?.id) {
+        await removePhotoFromFriendsFeed(user.id, 'event', eventId, photoUrlToRemove);
+      }
+
+      // Update local state - combine both arrays for display
+      const allUpdatedPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
           updated[date] = updated[date].map(event => 
-            event.id === eventId ? { ...event, photos: updatedPhotos } : event
+            event.id === eventId ? { ...event, photos: allUpdatedPhotos } : event
           );
         });
         return updated;
@@ -3739,10 +4067,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Custom delete function for photo viewer modal
   const handlePhotoViewerDelete = async (eventId: string, photoUrlToRemove: string) => {
     try {
-      // Get the current event to see existing photos
+      // Get the current event to see existing photos and private photos
       const { data: currentEvent, error: fetchError } = await supabase
         .from('events')
-        .select('photos')
+        .select('photos, private_photos')
         .eq('id', eventId)
         .single();
 
@@ -3750,25 +4078,37 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         throw fetchError;
       }
 
-      // Remove the specific photo from the array
+      // Remove the specific photo from both arrays
       const currentPhotos = currentEvent?.photos || [];
+      const currentPrivatePhotos = currentEvent?.private_photos || [];
+      
       const updatedPhotos = currentPhotos.filter((photo: string) => photo !== photoUrlToRemove);
+      const updatedPrivatePhotos = currentPrivatePhotos.filter((photo: string) => photo !== photoUrlToRemove);
 
       const { error } = await supabase
         .from('events')
-        .update({ photos: updatedPhotos })
+        .update({ 
+          photos: updatedPhotos,
+          private_photos: updatedPrivatePhotos
+        })
         .eq('id', eventId);
 
       if (error) {
         throw error;
       }
 
-      // Update local state
+      // Remove the photo from friends feed (social_updates table)
+      if (user?.id) {
+        await removePhotoFromFriendsFeed(user.id, 'event', eventId, photoUrlToRemove);
+      }
+
+      // Update local state - combine both arrays for display
+      const allUpdatedPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
           updated[date] = updated[date].map(event => 
-            event.id === eventId ? { ...event, photos: updatedPhotos } : event
+            event.id === eventId ? { ...event, photos: allUpdatedPhotos } : event
           );
         });
         return updated;
@@ -3776,22 +4116,22 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       // Update the selected photo for viewing
       if (selectedPhotoForViewing) {
-        const currentIndex = currentPhotos.indexOf(photoUrlToRemove);
+        const currentIndex = allUpdatedPhotos.indexOf(photoUrlToRemove);
 
-        if (updatedPhotos.length > 0) {
+        if (allUpdatedPhotos.length > 0) {
           // If there are remaining photos, select the next one
           let newPhotoUrl: string;
-          if (currentIndex >= updatedPhotos.length) {
+          if (currentIndex >= allUpdatedPhotos.length) {
             // If we deleted the last photo, select the new last photo
-            newPhotoUrl = updatedPhotos[updatedPhotos.length - 1];
+            newPhotoUrl = allUpdatedPhotos[allUpdatedPhotos.length - 1];
           } else {
             // Select the photo at the same index (or the last one if index is out of bounds)
-            newPhotoUrl = updatedPhotos[Math.min(currentIndex, updatedPhotos.length - 1)];
+            newPhotoUrl = allUpdatedPhotos[Math.min(currentIndex, allUpdatedPhotos.length - 1)];
           }
 
           // Update the selected photo
           setSelectedPhotoForViewing({
-            event: { ...selectedPhotoForViewing.event, photos: updatedPhotos },
+            event: { ...selectedPhotoForViewing.event, photos: allUpdatedPhotos },
             photoUrl: newPhotoUrl
           });
         } else {
@@ -3874,12 +4214,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setEditedEndDateTime(new Date(eventDate.getFullYear(), eventDate.getMonth(), eventDate.getDate(), 10, 0, 0));
       }
       
+      const hasValidStart = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
+      const hasValidEnd = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
       setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
       setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
       setEditedRepeatOption(event.repeatOption || 'None');
       setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
       setCustomSelectedDates(event.customDates || []);
-      setIsEditedAllDay(event.isAllDay || false);
+      setIsEditedAllDay(!(hasValidStart && hasValidEnd));
       setEditedEventPhotos(event.photos || []);
       setShowEditEventModal(true);
     }
@@ -4039,6 +4381,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   useEffect(() => {
     updatePendingSharedEvents();
   }, [events, updatePendingSharedEvents]);
+
+  // Initialize swipe animation value
+  useEffect(() => {
+    swipeAnimation.setValue(activeSharedEventsTab === 'sent' ? -1 : 0);
+  }, []);
 
 
 
@@ -6690,58 +7037,214 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               <View style={{ width: 28 }} />
             </View>
 
-            {/* Content */}
-            <ScrollView style={{ flex: 1, padding: 12 }}>
-              {sentSharedEvents.length === 0 && receivedSharedEvents.length === 0 ? (
-                <View style={{ 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  paddingVertical: 30,
+            {/* Tab Navigation */}
+            <View style={{
+              flexDirection: 'row',
+              marginHorizontal: 16,
+              marginBottom: 20,
+              borderBottomWidth: 1,
+              borderBottomColor: Colors.light.surfaceVariant,
+            }}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (activeSharedEventsTab !== 'received') {
+                    // Stop any ongoing animations
+                    swipeAnimation.stopAnimation();
+                    setActiveSharedEventsTab('received');
+                    
+                    Animated.spring(swipeAnimation, {
+                      toValue: 0,
+                      useNativeDriver: true,
+                      tension: 100,
+                      friction: 8,
+                    }).start(() => {
+                      swipeAnimation.setValue(0);
+                    });
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  alignItems: 'center',
+                  borderBottomWidth: 2,
+                  borderBottomColor: activeSharedEventsTab === 'received' ? '#3b82f6' : 'transparent',
+                }}
+              >
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: activeSharedEventsTab === 'received' ? '600' : '400',
+                  color: activeSharedEventsTab === 'received' ? '#3b82f6' : '#64748b',
+                  fontFamily: 'Onest',
                 }}>
-                  <View style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 20,
-                    backgroundColor: Colors.light.surfaceVariant,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    marginBottom: 8,
+                  Received ({receivedSharedEvents.length})
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                onPress={() => {
+                  if (activeSharedEventsTab !== 'sent') {
+                    // Stop any ongoing animations
+                    swipeAnimation.stopAnimation();
+                    setActiveSharedEventsTab('sent');
+                    
+                    Animated.spring(swipeAnimation, {
+                      toValue: -1,
+                      useNativeDriver: true,
+                      tension: 100,
+                      friction: 8,
+                    }).start(() => {
+                      swipeAnimation.setValue(-1);
+                    });
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  paddingVertical: 12,
+                  alignItems: 'center',
+                  borderBottomWidth: 2,
+                  borderBottomColor: activeSharedEventsTab === 'sent' ? '#3b82f6' : 'transparent',
+                }}
+              >
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: activeSharedEventsTab === 'sent' ? '600' : '400',
+                  color: activeSharedEventsTab === 'sent' ? '#3b82f6' : '#64748b',
+                  fontFamily: 'Onest',
                 }}>
-                    <Ionicons name="checkmark-circle-outline" size={20} color={Colors.light.accent} />
-                  </View>
-                  <Text style={{ 
-                    fontSize: 14, 
-                    color: Colors.light.text, 
-                    marginBottom: 2,
-                    fontFamily: 'Onest',
-                    fontWeight: '600',
-                  }}>
-                    All caught up!
-                  </Text>
-                  <Text style={{ 
-                    fontSize: 12, 
-                    color: Colors.light.icon, 
-                    fontFamily: 'Onest',
-                    textAlign: 'center',
-                  }}>
-                    No shared events
-                  </Text>
-                </View>
-              ) : (
-                <View style={{ gap: 16 }}>
-                  {/* Received Events Section */}
-                  {receivedSharedEvents.length > 0 && (
-                    <View>
-                      <Text style={{
-                        fontSize: 16,
-                        fontWeight: '700',
-                        color: Colors.light.text,
-                        marginBottom: 8,
-                        fontFamily: 'Onest',
+                  Sent ({sentSharedEvents.length})
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Horizontal Pager Content */}
+            <View style={{ flex: 1, overflow: 'hidden' }}>
+              <Animated.View
+                style={{
+                  flexDirection: 'row',
+                  width: SCREEN_WIDTH * 2,
+                  flex: 1,
+                  transform: [{
+                    translateX: swipeAnimation.interpolate({
+                      inputRange: [-1, 0],
+                      outputRange: [-SCREEN_WIDTH, 0],
+                    })
+                  }],
+                }}
+              >
+                {/* Gesture Handler Overlay */}
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    zIndex: 1,
+                  }}
+                  {...PanResponder.create({
+                    onStartShouldSetPanResponder: () => true,
+                    onMoveShouldSetPanResponder: (evt, gestureState) => {
+                      const { dx, dy } = gestureState;
+                      // Only respond to horizontal gestures
+                      const shouldRespond = Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10;
+                      console.log('🔄 [Shared Events] Gesture detected:', { dx, dy, shouldRespond });
+                      return shouldRespond;
+                    },
+                    onPanResponderGrant: () => {
+                      console.log('🔄 [Shared Events] Gesture started');
+                      swipeAnimation.stopAnimation();
+                    },
+                    onPanResponderMove: (evt, gestureState) => {
+                      const { dx } = gestureState;
+                      const base = activeSharedEventsTab === 'sent' ? -SCREEN_WIDTH : 0;
+                      let newTranslate = base + dx;
+                      
+                      // Clamp the translation
+                      newTranslate = Math.max(-SCREEN_WIDTH, Math.min(0, newTranslate));
+                      
+                      // Apply resistance at boundaries
+                      if (newTranslate < -SCREEN_WIDTH) {
+                        newTranslate = -SCREEN_WIDTH + (newTranslate + SCREEN_WIDTH) * 0.3;
+                      } else if (newTranslate > 0) {
+                        newTranslate = newTranslate * 0.3;
+                      }
+                      
+                      console.log('🔄 [Shared Events] Moving:', { dx, newTranslate });
+                      swipeAnimation.setValue(newTranslate / SCREEN_WIDTH);
+                    },
+                    onPanResponderRelease: (evt, gestureState) => {
+                      const { dx, vx } = gestureState;
+                      let toTab = activeSharedEventsTab;
+                      
+                      console.log('🔄 [Shared Events] Gesture released:', { dx, vx, currentTab: activeSharedEventsTab });
+                      
+                      // Determine which tab to switch to
+                      if (activeSharedEventsTab === 'received' && (dx < -SCREEN_WIDTH / 3 || vx < -0.5)) {
+                        toTab = 'sent';
+                      } else if (activeSharedEventsTab === 'sent' && (dx > SCREEN_WIDTH / 3 || vx > 0.5)) {
+                        toTab = 'received';
+                      }
+                      
+                      console.log('🔄 [Shared Events] Switching to tab:', toTab);
+                      setActiveSharedEventsTab(toTab);
+                      
+                      Animated.spring(swipeAnimation, {
+                        toValue: toTab === 'sent' ? -1 : 0,
+                        useNativeDriver: true,
+                        tension: 100,
+                        friction: 8,
+                      }).start(() => {
+                        swipeAnimation.setValue(toTab === 'sent' ? -1 : 0);
+                      });
+                    },
+                  }).panHandlers}
+                />
+                {/* Received Tab */}
+                <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
+                  <ScrollView 
+                    style={{ flex: 1, padding: 12 }}
+                    scrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled={true}
+                  >
+                    {receivedSharedEvents.length === 0 ? (
+                      <View style={{ 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        paddingVertical: 30,
                       }}>
-                        Received ({receivedSharedEvents.length})
-                      </Text>
-                      <View style={{ gap: 8 }}>
+                        <View style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor: Colors.light.surfaceVariant,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginBottom: 8,
+                        }}>
+                          <Ionicons name="checkmark-circle-outline" size={20} color={Colors.light.accent} />
+                        </View>
+                        <Text style={{ 
+                          fontSize: 14, 
+                          color: Colors.light.text, 
+                          marginBottom: 2,
+                          fontFamily: 'Onest',
+                          fontWeight: '600',
+                        }}>
+                          All caught up!
+                        </Text>
+                        <Text style={{ 
+                          fontSize: 12, 
+                          color: Colors.light.icon, 
+                          fontFamily: 'Onest',
+                          textAlign: 'center',
+                        }}>
+                          No shared events
+                        </Text>
+                      </View>
+                    ) : (
+                      <View style={{ gap: 16 }}>
+                        {/* Received Events Section */}
                         {receivedSharedEvents.map((event) => (
                           <View key={event.id} style={{
                             backgroundColor: Colors.light.surface,
@@ -6930,21 +7433,53 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           </View>
                         ))}
                       </View>
-                    </View>
-                  )}
-                  
-                  {/* Sent Events Section */}
-                  {sentSharedEvents.length > 0 && (
-                    <View>
-                      <Text style={{
-                        fontSize: 16,
-                        fontWeight: '700',
-                        color: Colors.light.text,
-                        marginBottom: 8,
-                        fontFamily: 'Onest',
+                    )}
+                  </ScrollView>
+                </View>
+                {/* Sent Tab */}
+                <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
+                  <ScrollView 
+                    style={{ flex: 1, padding: 12 }}
+                    scrollEnabled={true}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled={true}
+                  >
+                    {sentSharedEvents.length === 0 ? (
+                      <View style={{ 
+                        alignItems: 'center', 
+                        justifyContent: 'center',
+                        paddingVertical: 30,
                       }}>
-                        Sent ({sentSharedEvents.length})
-                      </Text>
+                        <View style={{
+                          width: 40,
+                          height: 40,
+                          borderRadius: 20,
+                          backgroundColor: Colors.light.surfaceVariant,
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          marginBottom: 8,
+                        }}>
+                          <Ionicons name="checkmark-circle-outline" size={20} color={Colors.light.accent} />
+                        </View>
+                        <Text style={{ 
+                          fontSize: 14, 
+                          color: Colors.light.text, 
+                          marginBottom: 2,
+                          fontFamily: 'Onest',
+                          fontWeight: '600',
+                        }}>
+                          No sent events
+                        </Text>
+                        <Text style={{ 
+                          fontSize: 12, 
+                          color: Colors.light.icon, 
+                          fontFamily: 'Onest',
+                          textAlign: 'center',
+                        }}>
+                          You haven't sent any shared events yet
+                        </Text>
+                      </View>
+                    ) : (
                       <View style={{ gap: 8 }}>
                         {sentSharedEvents.map((event) => (
                           <View key={event.id} style={{
@@ -7073,17 +7608,189 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                           </View>
                         ))}
                       </View>
-                    </View>
-                  )}
+                    )}
+                  </ScrollView>
                 </View>
-              )}
-            </ScrollView>
+              </Animated.View>
+            </View>
           </View>
         </SafeAreaView>
       </Modal>
 
+      {/* Custom Photo Attachment Modal */}
+      <Modal
+        visible={showCustomPhotoModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCustomPhotoModal(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <View style={{
+            backgroundColor: Colors.light.background,
+            borderRadius: 20,
+            padding: 24,
+            margin: 20,
+            width: '90%',
+            maxWidth: 400,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.25,
+            shadowRadius: 20,
+            elevation: 10,
+          }}>
+            {/* Header */}
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 20,
+            }}>
+              <Text style={{
+                fontSize: 20,
+                fontWeight: '600',
+                color: Colors.light.text,
+                fontFamily: 'Onest',
+              }}>
+                Add Photo to Event
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowCustomPhotoModal(false)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: Colors.light.surfaceVariant,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}
+              >
+                <Ionicons name="close" size={20} color={Colors.light.text} />
+              </TouchableOpacity>
+            </View>
 
+            {/* Privacy Toggle */}
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingVertical: 12,
+              paddingHorizontal: 16,
+              backgroundColor: Colors.light.surfaceVariant,
+              borderRadius: 12,
+              marginBottom: 24,
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons 
+                  name={isPhotoPrivate ? "lock-closed" : "lock-open"} 
+                  size={20} 
+                  color={isPhotoPrivate ? Colors.light.accent : Colors.light.icon} 
+                />
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '500',
+                  color: Colors.light.text,
+                  marginLeft: 12,
+                  fontFamily: 'Onest',
+                }}>
+                  Private Photo
+                </Text>
+              </View>
+              <Switch
+                value={isPhotoPrivate}
+                onValueChange={setIsPhotoPrivate}
+                trackColor={{ false: Colors.light.border, true: Colors.light.accent }}
+                thumbColor={Colors.light.background}
+              />
+            </View>
 
+            {/* Privacy Description */}
+            <Text style={{
+              fontSize: 14,
+              color: Colors.light.icon,
+              marginBottom: 24,
+              fontFamily: 'Onest',
+              lineHeight: 20,
+            }}>
+              {isPhotoPrivate 
+                ? "This photo will only be visible to you and won't be shared with friends."
+                : "This photo can be shared with friends when you share the event."
+              }
+            </Text>
+
+            {/* Action Buttons */}
+            <View style={{ gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowCustomPhotoModal(false);
+                  handleEventPhotoPicker('camera', selectedEventForPhoto);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: Colors.light.accent,
+                  paddingVertical: 16,
+                  borderRadius: 12,
+                  gap: 8,
+                }}
+              >
+                <Ionicons name="camera" size={20} color="#fff" />
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: '#fff',
+                  fontFamily: 'Onest',
+                }}>
+                  Take Photo
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => {
+                  setShowCustomPhotoModal(false);
+                  handleEventPhotoPicker('library', selectedEventForPhoto);
+                }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: Colors.light.surface,
+                  paddingVertical: 16,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: Colors.light.border,
+                  gap: 8,
+                }}
+              >
+                <Ionicons name="images" size={20} color={Colors.light.text} />
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: '600',
+                  color: Colors.light.text,
+                  fontFamily: 'Onest',
+                }}>
+                  Choose from Gallery
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Photo Caption Modal */}
+      <PhotoCaptionModal
+        visible={showCaptionModal}
+        onClose={handleCaptionCancel}
+        onSave={handleCaptionSave}
+        photoUrl={photoForCaption?.url}
+        eventTitle={photoForCaption?.eventTitle}
+        isLoading={isSharingPhoto}
+      />
 
       </>
       

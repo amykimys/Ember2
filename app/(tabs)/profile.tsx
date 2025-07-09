@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions, RefreshControl, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions, RefreshControl, Animated, PanResponder } from 'react-native';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { GoogleSignin, GoogleSigninButton, statusCodes } from '@react-native-google-signin/google-signin';
@@ -12,6 +12,7 @@ import { clearPreferencesCache } from '../../utils/notificationUtils';
 import { manuallyMoveUncompletedTasks, debugUserTasks } from '../../utils/taskUtils';
 import { GoogleCalendarSyncNew } from '../../components/GoogleCalendarSyncNew';
 import { Colors } from '../../constants/Colors';
+import Toast from 'react-native-toast-message';
 
 interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
@@ -126,6 +127,7 @@ export default function ProfileScreen() {
   // Friends state
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
+  const [sentFriendRequests, setSentFriendRequests] = useState<FriendRequest[]>([]);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isSearching, setIsSearching] = useState(false);
@@ -155,6 +157,10 @@ export default function ProfileScreen() {
   const [isRefreshingPhotoShares, setIsRefreshingPhotoShares] = useState(false);
   const [unreadPhotoShares, setUnreadPhotoShares] = useState(0);
   const [lastViewedPhotoShareTime, setLastViewedPhotoShareTime] = useState<number>(0);
+  
+  // Photo zoom state
+  const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
+  const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<PhotoShare | null>(null);
 
   // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -485,48 +491,105 @@ export default function ProfileScreen() {
 
       if (!requestsData || requestsData.length === 0) {
         setFriendRequests([]);
+      } else {
+        // Get the requester IDs (user_id is the requester, friend_id is the recipient)
+        const requesterIds = requestsData.map(request => request.user_id);
+        console.log('👥 Requester IDs:', requesterIds);
+
+        // Fetch the requester profiles using direct query
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, username')
+          .in('id', requesterIds);
+
+        if (profilesError) {
+          console.error('Error loading requester profiles:', profilesError);
+          return;
+        }
+
+        console.log('👤 Found profiles:', profilesData);
+
+        // Create a map of profiles by ID for quick lookup
+        const profilesMap = new Map();
+        profilesData?.forEach((profile: any) => {
+          profilesMap.set(profile.id, profile);
+        });
+
+        // Combine the data
+        const requests: FriendRequest[] = requestsData.map(request => {
+          const profile = profilesMap.get(request.user_id);
+          console.log(`🔗 Request ${request.id}: user_id=${request.user_id}, profile=`, profile);
+          return {
+            friendship_id: request.id,
+            requester_id: request.user_id,
+            requester_name: profile?.full_name || 'Unknown User',
+            requester_avatar: profile?.avatar_url || '',
+            requester_username: profile?.username || '',
+            created_at: request.created_at || request.id
+          };
+        });
+
+        console.log('✅ Final friend requests:', requests);
+        setFriendRequests(requests);
+      }
+
+      // Now load sent friend requests (where current user is the requester)
+      const { data: sentRequestsData, error: sentRequestsError } = await supabase
+        .from('friendships')
+        .select('id, user_id, friend_id, status, created_at')
+        .eq('user_id', userId)
+        .eq('status', 'pending');
+
+      if (sentRequestsError) {
+        console.error('Error loading sent friend requests:', sentRequestsError);
         return;
       }
 
-      // Get the requester IDs (user_id is the requester, friend_id is the recipient)
-      const requesterIds = requestsData.map(request => request.user_id);
-      console.log('👥 Requester IDs:', requesterIds);
+      console.log('📤 Found sent friend requests:', sentRequestsData);
 
-      // Fetch the requester profiles using direct query
-      const { data: profilesData, error: profilesError } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_url, username')
-        .in('id', requesterIds);
+      if (!sentRequestsData || sentRequestsData.length === 0) {
+        setSentFriendRequests([]);
+      } else {
+        // Get the recipient IDs (friend_id is the recipient, user_id is the requester)
+        const recipientIds = sentRequestsData.map(request => request.friend_id);
+        console.log('👥 Recipient IDs:', recipientIds);
 
-      if (profilesError) {
-        console.error('Error loading requester profiles:', profilesError);
-        return;
+        // Fetch the recipient profiles
+        const { data: recipientProfilesData, error: recipientProfilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, username')
+          .in('id', recipientIds);
+
+        if (recipientProfilesError) {
+          console.error('Error loading recipient profiles:', recipientProfilesError);
+          return;
+        }
+
+        console.log('👤 Found recipient profiles:', recipientProfilesData);
+
+        // Create a map of profiles by ID for quick lookup
+        const recipientProfilesMap = new Map();
+        recipientProfilesData?.forEach((profile: any) => {
+          recipientProfilesMap.set(profile.id, profile);
+        });
+
+        // Combine the data
+        const sentRequests: FriendRequest[] = sentRequestsData.map(request => {
+          const profile = recipientProfilesMap.get(request.friend_id);
+          console.log(`🔗 Sent Request ${request.id}: friend_id=${request.friend_id}, profile=`, profile);
+          return {
+            friendship_id: request.id,
+            requester_id: request.friend_id,
+            requester_name: profile?.full_name || 'Unknown User',
+            requester_avatar: profile?.avatar_url || '',
+            requester_username: profile?.username || '',
+            created_at: request.created_at || request.id
+          };
+        });
+
+        console.log('✅ Final sent friend requests:', sentRequests);
+        setSentFriendRequests(sentRequests);
       }
-
-      console.log('👤 Found profiles:', profilesData);
-
-      // Create a map of profiles by ID for quick lookup
-      const profilesMap = new Map();
-      profilesData?.forEach((profile: any) => {
-        profilesMap.set(profile.id, profile);
-      });
-
-      // Combine the data
-      const requests: FriendRequest[] = requestsData.map(request => {
-        const profile = profilesMap.get(request.user_id);
-        console.log(`🔗 Request ${request.id}: user_id=${request.user_id}, profile=`, profile);
-        return {
-          friendship_id: request.id,
-          requester_id: request.user_id,
-          requester_name: profile?.full_name || 'Unknown User',
-          requester_avatar: profile?.avatar_url || '',
-          requester_username: profile?.username || '',
-          created_at: request.created_at || request.id
-        };
-      });
-
-      console.log('✅ Final friend requests:', requests);
-      setFriendRequests(requests);
     } catch (error) {
       console.error('Error in loadFriendRequests:', error);
     }
@@ -769,30 +832,42 @@ export default function ProfileScreen() {
         console.log('📸 No habits with photos found');
       }
 
-      // Fetch events with photos
+      // Fetch events with photos (including private photos)
       console.log('🔍 Fetching events with photos...');
       const { data: eventsData, error: eventsError } = await supabase
         .from('events')
-        .select('id, title, description, date, photos, category_name, category_color')
-        .eq('user_id', userId)
-        .not('photos', 'is', null);
+        .select('id, title, description, date, photos, private_photos, category_name, category_color')
+        .eq('user_id', userId);
 
       if (eventsError) {
         console.error('Error fetching events with photos:', eventsError);
         // Don't return here, continue with habits data
       } else if (eventsData) {
-        console.log('📸 Found events with photos:', eventsData.length);
+        console.log('📸 Found events:', eventsData.length);
         
-        eventsData.forEach(event => {
+        // Filter events that have either regular photos or private photos
+        const eventsWithPhotos = eventsData.filter(event => {
+          const hasRegularPhotos = event.photos && Array.isArray(event.photos) && event.photos.length > 0;
+          const hasPrivatePhotos = event.private_photos && Array.isArray(event.private_photos) && event.private_photos.length > 0;
+          return hasRegularPhotos || hasPrivatePhotos;
+        });
+        
+        console.log('📸 Events with photos:', eventsWithPhotos.length);
+        
+        eventsWithPhotos.forEach(event => {
           console.log(`🔍 Processing event ${event.id}:`, {
             title: event.title,
-            photos: event.photos
+            photos: event.photos,
+            private_photos: event.private_photos
           });
           
-          if (event.photos && Array.isArray(event.photos) && event.photos.length > 0) {
-            console.log(`📷 Photos array for event ${event.id}:`, event.photos);
+          // Combine regular photos and private photos
+          const allPhotos = [...(event.photos || []), ...(event.private_photos || [])];
+          
+          if (allPhotos.length > 0) {
+            console.log(`📷 All photos array for event ${event.id}:`, allPhotos);
             
-            event.photos.forEach((photoUri, photoIndex) => {
+            allPhotos.forEach((photoUri, photoIndex) => {
               console.log(`📅 Processing photo ${photoIndex} for event ${event.id}:`, photoUri);
               
               if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {
@@ -825,7 +900,7 @@ export default function ProfileScreen() {
               }
             });
           } else {
-            console.log(`❌ Event ${event.id} has no valid photos array:`, event.photos);
+            console.log(`❌ Event ${event.id} has no valid photos:`, { photos: event.photos, private_photos: event.private_photos });
           }
         });
       } else {
@@ -1002,6 +1077,39 @@ export default function ProfileScreen() {
       console.error('Error declining friend request:', error);
       Alert.alert('Error', 'Failed to decline friend request. Please try again.');
     }
+  };
+
+  const cancelFriendRequest = async (friendshipId: string) => {
+    Alert.alert(
+      'Cancel Friend Request',
+      'Are you sure you want to cancel this friend request?',
+      [
+        { text: 'Keep Request', style: 'cancel' },
+        {
+          text: 'Cancel Request',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('friendships')
+                .delete()
+                .eq('id', friendshipId);
+
+              if (error) throw error;
+
+              Alert.alert('Success', 'Friend request cancelled.');
+              // Refresh requests
+              if (user) {
+                await loadFriendRequests(user.id);
+              }
+            } catch (error) {
+              console.error('Error cancelling friend request:', error);
+              Alert.alert('Error', 'Failed to cancel friend request. Please try again.');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const removeFriend = async (friendshipId: string) => {
@@ -1713,7 +1821,7 @@ export default function ProfileScreen() {
             onPress={() => setActiveFriendsTab('requests')}
           >
             <Text style={[styles.tabText, activeFriendsTab === 'requests' && styles.activeTabText]}>
-              Requests ({friendRequests.length})
+              Requests ({friendRequests.length + sentFriendRequests.length})
             </Text>
           </TouchableOpacity>
           <TouchableOpacity 
@@ -1768,10 +1876,15 @@ export default function ProfileScreen() {
 
           {activeFriendsTab === 'requests' && (
             <>
+              {/* Received Requests Section */}
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Requests I Received ({friendRequests.length})</Text>
+              </View>
+              
               {friendRequests.length === 0 ? (
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="mail-outline" size={64} color="#ccc" />
-                  <Text style={styles.emptyText}>No friend requests</Text>
+                  <Ionicons name="mail-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptyText}>No received requests</Text>
                   <Text style={styles.emptySubtext}>
                     When someone sends you a friend request, it will appear here
                   </Text>
@@ -1804,6 +1917,47 @@ export default function ProfileScreen() {
           onPress={() => declineFriendRequest(request.friendship_id)}
         >
                         <Ionicons name="close" size={16} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </View>
+                ))
+              )}
+
+              {/* Sent Requests Section */}
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Requests I Sent ({sentFriendRequests.length})</Text>
+              </View>
+              
+              {sentFriendRequests.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="paper-plane-outline" size={48} color="#ccc" />
+                  <Text style={styles.emptyText}>No sent requests</Text>
+                  <Text style={styles.emptySubtext}>
+                    Friend requests you send will appear here
+                  </Text>
+                </View>
+              ) : (
+                sentFriendRequests.map((request, index) => (
+    <View key={`sent-request-${request.friendship_id}-${index}`} style={styles.friendItem}>
+      <View style={styles.friendInfo}>
+        {request.requester_avatar ? (
+          <Image source={{ uri: request.requester_avatar }} style={styles.friendAvatar} />
+        ) : (
+          <View style={styles.friendAvatarPlaceholder}>
+            <Ionicons name="person" size={16} color="#fff" />
+          </View>
+        )}
+        <View style={styles.friendDetails}>
+          <Text style={styles.friendName}>{request.requester_name}</Text>
+          <Text style={styles.friendUsername}>@{request.requester_username || 'no-username'}</Text>
+        </View>
+      </View>
+      <View style={styles.requestActions}>
+        <TouchableOpacity
+          style={[styles.actionButton, { backgroundColor: '#FF3B30' }]}
+          onPress={() => cancelFriendRequest(request.friendship_id)}
+        >
+          <Ionicons name="close" size={16} color="#fff" />
         </TouchableOpacity>
       </View>
     </View>
@@ -1878,9 +2032,6 @@ export default function ProfileScreen() {
                 <View style={styles.emptyContainer}>
                   <Ionicons name="search-outline" size={64} color="#ccc" />
                   <Text style={styles.emptyText}>Search for friends</Text>
-                  <Text style={styles.emptySubtext}>
-                    Enter a name or username to find people to connect with
-                  </Text>
                 </View>
               )}
             </>
@@ -2273,7 +2424,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Friends Feed</Text>
           <TouchableOpacity onPress={handlePhotoSharesRefresh}>
-            <Ionicons name="refresh" size={24} color="#667eea" />
+            <Ionicons name="refresh" size={24} color="#000" />
           </TouchableOpacity>
         </View>
 
@@ -2309,17 +2460,43 @@ export default function ProfileScreen() {
                       <Text style={styles.userUsername}>@{item.user_username}</Text>
                     </View>
                   </View>
-                  <Text style={styles.timeAgo}>{formatTimeAgo(item.created_at)}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={styles.timeAgo}>{formatTimeAgo(item.created_at)}</Text>
+                    {item.user_id === user?.id && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          Alert.alert(
+                            'Delete Post',
+                            'Are you sure you want to delete this post?',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              { text: 'Delete', style: 'destructive', onPress: () => handleDeletePhotoShare(item.update_id) }
+                            ]
+                          );
+                        }}
+                        style={{ marginLeft: 12 }}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
 
                 {/* Photo */}
-                <View style={styles.photoContainer}>
+                <TouchableOpacity 
+                  style={styles.photoContainer}
+                  onPress={() => {
+                    setSelectedPhotoForZoom(item);
+                    setShowPhotoZoomModal(true);
+                  }}
+                  activeOpacity={0.9}
+                >
                   <Image
                     source={{ uri: item.photo_url }}
                     style={styles.photo}
                     resizeMode="contain"
                   />
-                </View>
+                </TouchableOpacity>
 
                 {/* Caption and Source */}
                 <View style={styles.contentContainer}>
@@ -2362,6 +2539,190 @@ export default function ProfileScreen() {
       </SafeAreaView>
     </Modal>
   );
+
+  const renderPhotoZoomModal = () => {
+    if (!selectedPhotoForZoom) return null;
+
+    const panResponder = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        // Handle pan gesture
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        // Handle zoom and pan
+      },
+      onPanResponderRelease: (evt, gestureState) => {
+        // Handle release
+        if (gestureState.dy > 100) {
+          setShowPhotoZoomModal(false);
+          setSelectedPhotoForZoom(null);
+        }
+      },
+    });
+
+    return (
+      <Modal
+        visible={showPhotoZoomModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowPhotoZoomModal(false);
+          setSelectedPhotoForZoom(null);
+        }}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          {/* Swipe Down Overlay */}
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 5,
+            }}
+            {...panResponder.panHandlers}
+          />
+          
+          {/* Top Bar */}
+          <View style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 24,
+            paddingTop: 60,
+            paddingBottom: 16,
+            zIndex: 10,
+          }}>
+            <TouchableOpacity
+              style={{
+                width: 32,
+                height: 32,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              onPress={() => {
+                setShowPhotoZoomModal(false);
+                setSelectedPhotoForZoom(null);
+              }}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}>
+              <Image
+                source={{ 
+                  uri: selectedPhotoForZoom.user_avatar || 'https://via.placeholder.com/24x24?text=U'
+                }}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  marginRight: 8,
+                }}
+              />
+              <Text style={{
+                color: '#fff',
+                fontSize: 14,
+                fontWeight: '600',
+                fontFamily: 'Onest',
+              }}>
+                @{selectedPhotoForZoom.user_username}
+              </Text>
+            </View>
+            
+            <View style={{ width: 32 }} />
+          </View>
+
+          {/* Photo */}
+          <View style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            width: '100%',
+            paddingHorizontal: 20,
+          }}>
+            <Image
+              source={{ uri: selectedPhotoForZoom.photo_url }}
+              style={{
+                width: Dimensions.get('window').width - 40,
+                height: Dimensions.get('window').height * 0.7,
+              }}
+              resizeMode="contain"
+            />
+          </View>
+
+          {/* Bottom Info */}
+          <View style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            paddingHorizontal: 24,
+            paddingBottom: 40,
+            zIndex: 10,
+          }}>
+            {selectedPhotoForZoom.caption && (
+              <Text style={{
+                color: '#fff',
+                fontSize: 16,
+                fontFamily: 'Onest',
+                marginBottom: 8,
+                textAlign: 'center',
+              }}>
+                {selectedPhotoForZoom.caption}
+              </Text>
+            )}
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}>
+              <View style={[
+                {
+                  backgroundColor: selectedPhotoForZoom.source_type === 'habit' ? '#4CAF50' : '#2196F3',
+                  paddingHorizontal: 12,
+                  paddingVertical: 4,
+                  borderRadius: 12,
+                  marginRight: 8,
+                }
+              ]}>
+                <Text style={{
+                  color: '#fff',
+                  fontSize: 12,
+                  fontWeight: '600',
+                  fontFamily: 'Onest',
+                }}>
+                  {selectedPhotoForZoom.source_type === 'habit' ? 'Habit' : 'Event'}
+                </Text>
+              </View>
+              <Text style={{
+                color: '#fff',
+                fontSize: 14,
+                fontFamily: 'Onest',
+                opacity: 0.8,
+              }}>
+                {selectedPhotoForZoom.source_title}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
 
   const renderSettingsModal = () => (
     <Modal
@@ -3460,16 +3821,68 @@ export default function ProfileScreen() {
       const limit = 10;
       const offset = refresh ? 0 : photoSharesPage * limit;
 
-      const { data, error } = await supabase.rpc('get_friends_photo_shares', {
+      console.log('🔄 Loading photo shares for user:', user.id);
+
+      // Try the main function first
+      let { data, error } = await supabase.rpc('get_friends_photo_shares_with_privacy', {
         current_user_id: user.id,
         limit_count: limit
-            });
+      });
           
-          if (error) {
-        console.error('Error loading photo shares:', error);
-        Alert.alert('Error', 'Failed to load friends feed. Please try again.');
-        return;
+      if (error) {
+        console.error('❌ Error with main friends feed function:', error);
+        
+        // Fallback: try to get basic photo shares directly
+        console.log('🔄 Trying fallback approach...');
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('social_updates')
+          .select(`
+            id,
+            user_id,
+            photo_url,
+            caption,
+            source_type,
+            created_at
+          `)
+          .eq('type', 'photo_share')
+          .not('photo_url', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(limit);
+
+        if (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError);
+          Alert.alert('Error', 'Failed to load friends feed. Please try again.');
+          return;
+        }
+
+        // Get user profiles separately to avoid join issues
+        const userIds = [...new Set(fallbackData?.map(item => item.user_id) || [])];
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, username')
+          .in('id', userIds);
+
+        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+
+        // Transform fallback data to match expected format
+        data = fallbackData?.map(item => {
+          const profile = profilesMap.get(item.user_id);
+          return {
+            update_id: item.id,
+            user_id: item.user_id,
+            user_name: profile?.full_name || 'Unknown User',
+            user_avatar: profile?.avatar_url,
+            user_username: profile?.username || 'unknown',
+            photo_url: item.photo_url,
+            caption: item.caption || '',
+            source_type: item.source_type || 'unknown',
+            source_title: item.caption || 'Photo Share',
+            created_at: item.created_at
+          };
+        }) || [];
       }
+
+      console.log('✅ Photo shares loaded:', data?.length || 0);
 
       if (refresh) {
         setPhotoShares(data || []);
@@ -3478,14 +3891,14 @@ export default function ProfileScreen() {
           new Date(share.created_at).getTime() > lastViewedPhotoShareTime
         ).length;
         setUnreadPhotoShares(unreadCount);
-          } else {
+      } else {
         setPhotoShares(prev => [...prev, ...(data || [])]);
       }
 
       setHasMorePhotoShares((data || []).length === limit);
       setPhotoSharesPage(prev => refresh ? 1 : prev + 1);
     } catch (error) {
-      console.error('Error in loadPhotoShares:', error);
+      console.error('❌ Error in loadPhotoShares:', error);
       Alert.alert('Error', 'Failed to load friends feed. Please try again.');
     } finally {
       setIsLoadingPhotoShares(false);
@@ -3643,7 +4056,7 @@ export default function ProfileScreen() {
                 
                 const { data: event, error: fetchError } = await supabase
                   .from('events')
-                  .select('photos')
+                  .select('photos, private_photos')
                   .eq('id', eventId)
                   .single();
                 
@@ -3655,19 +4068,51 @@ export default function ProfileScreen() {
                 if (event?.photos && Array.isArray(event.photos)) {
                   console.log(`📸 Original event photos:`, event.photos);
                   const updatedPhotos = [...event.photos];
+                  const updatedPrivatePhotos = [...(event.private_photos || [])];
+                  
                   // Remove photos in reverse order to maintain correct indices
                   photoIndices.sort((a, b) => b - a).forEach(index => {
                     if (index >= 0 && index < updatedPhotos.length) {
-                      console.log(`🗑️ Removing photo at index ${index}`);
+                      const photoUrlToRemove = updatedPhotos[index];
+                      console.log(`🗑️ Removing photo at index ${index}:`, photoUrlToRemove);
                       updatedPhotos.splice(index, 1);
+                      
+                      // Also remove from private_photos if it exists there
+                      const privateIndex = updatedPrivatePhotos.indexOf(photoUrlToRemove);
+                      if (privateIndex !== -1) {
+                        updatedPrivatePhotos.splice(privateIndex, 1);
+                      }
+                      
+                      // Remove the photo from friends feed (social_updates table)
+                      if (user?.id) {
+                        supabase
+                          .from('social_updates')
+                          .delete()
+                          .eq('user_id', user.id)
+                          .eq('type', 'photo_share')
+                          .eq('source_type', 'event')
+                          .eq('source_id', eventId)
+                          .eq('photo_url', photoUrlToRemove)
+                          .then(({ error: socialError }) => {
+                            if (socialError) {
+                              console.error('Error removing photo from friends feed:', socialError);
+                            } else {
+                              console.log('✅ Photo removed from friends feed');
+                            }
+                          });
+                      }
                     }
                   });
                   
                   console.log(`📸 Updated event photos:`, updatedPhotos);
+                  console.log(`📸 Updated private photos:`, updatedPrivatePhotos);
                   
                   const { error: updateError } = await supabase
                     .from('events')
-                    .update({ photos: updatedPhotos })
+                    .update({ 
+                      photos: updatedPhotos,
+                      private_photos: updatedPrivatePhotos
+                    })
                     .eq('id', eventId);
                   
                   if (updateError) {
@@ -3791,6 +4236,28 @@ export default function ProfileScreen() {
     }
   };
 
+  // Add this handler near other handlers
+  const handleDeletePhotoShare = async (updateId: string) => {
+    try {
+      const { error } = await supabase
+        .from('social_updates')
+        .delete()
+        .eq('id', updateId);
+      if (error) {
+        Alert.alert('Error', 'Failed to delete post.');
+        return;
+      }
+      setPhotoShares(prev => prev.filter(item => item.update_id !== updateId));
+      Toast.show({
+        type: 'success',
+        text1: 'Post deleted',
+        position: 'bottom',
+      });
+    } catch (err) {
+      Alert.alert('Error', 'Failed to delete post.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {user && (
@@ -3799,11 +4266,11 @@ export default function ProfileScreen() {
             setActiveFriendsTab('search');
             setShowFriendsModal(true);
           }}>
-            <Ionicons name="person-add-outline" size={20} color="#667eea" />
+            <Ionicons name="person-add-outline" size={20} color="#000" />
           </TouchableOpacity>
           <View style={styles.headerSpacer} />
           <TouchableOpacity style={styles.settingsButton} onPress={() => setShowSettingsModal(true)}>
-            <Ionicons name="settings-outline" size={20} color="#667eea" />
+            <Ionicons name="settings-outline" size={20} color="#000" />
       </TouchableOpacity>
     </View>
       )}
@@ -3836,8 +4303,14 @@ export default function ProfileScreen() {
         <View style={styles.accountSection}>
           {user ? null : (
             <View style={styles.signInContainer}>
-              {/* App Name - matching loading screen */}
-              <Text style={styles.signInAppName}>Jaani</Text>
+              {/* App Logo and Name */}
+              <View style={styles.logoContainer}>
+                <Image 
+                  source={require('../../assets/images/logo.png')} 
+                  style={styles.appLogoImage}
+                  resizeMode="contain"
+                />
+              </View>
               
               {/* Simple Loading Indicator when signing in */}
               {isLoading ? (
@@ -3867,9 +4340,10 @@ export default function ProfileScreen() {
       {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
       {renderFriendsFeedModal()}
+      {renderPhotoZoomModal()}
       {renderSettingsModal()}
       {renderDefaultScreenModal()}
-        {renderGoogleSyncModal()}
+      {renderGoogleSyncModal()}
       
       {/* Memory detail modal for viewing individual photos */}
       {showMemoryDetailModal && selectedMemory && (
@@ -4090,6 +4564,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontFamily: 'Onest',
   },
+  sectionHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.light.background,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.light.border,
+  },
   sectionSubtitle: {
     fontSize: 13,
     color: Colors.light.icon,
@@ -4124,7 +4605,6 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: Colors.light.surfaceVariant,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -4219,6 +4699,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
+    paddingTop: 24,
   },
   modalCloseButton: {
     padding: 8,
@@ -4234,7 +4715,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#000',
     fontFamily: 'Onest',
@@ -4674,6 +5155,7 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 16,
     marginBottom: 16,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -4730,9 +5212,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     marginRight: 12,
   },
   userDetails: {
@@ -4769,6 +5251,7 @@ const styles = StyleSheet.create({
   sourceContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 8,
   },
   sourceBadge: {
     paddingHorizontal: 8,
@@ -4795,6 +5278,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#000',
     fontFamily: 'Onest',
+    marginTop: 6,
     marginBottom: 8,
   },
   listContainer: {
@@ -5397,6 +5881,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'Onest',
     lineHeight: 16,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  appLogoImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 16,
   },
   modernSignInWrapper: {
     backgroundColor: '#1a1a1a',

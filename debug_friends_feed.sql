@@ -1,75 +1,89 @@
--- Debug Friends Feed Function
--- This script helps debug why photos from events aren't being properly fetched
+-- Debug Friends Feed - Check why event titles aren't showing
+-- Run this in your Supabase SQL Editor to see what's happening
 
--- 1. Check what's in the social_updates table
-SELECT 'Social Updates Table Contents:' as info;
+-- Step 1: Check the social_updates table structure
+SELECT 'Social updates table structure:' as info;
 SELECT 
-    id,
-    user_id,
-    type,
-    photo_url,
-    caption,
-    source_type,
-    source_id,
-    is_public,
-    created_at
-FROM social_updates 
-WHERE type = 'photo_share'
-ORDER BY created_at DESC;
+    column_name,
+    data_type,
+    is_nullable
+FROM information_schema.columns 
+WHERE table_name = 'social_updates' 
+AND table_schema = 'public'
+ORDER BY ordinal_position;
 
--- 2. Check the events table structure
-SELECT 'Events Table Structure:' as info;
+-- Step 2: Check the events table structure
+SELECT 'Events table structure:' as info;
 SELECT 
-    id,
-    title,
-    photos,
-    created_at
-FROM events 
-ORDER BY created_at DESC
+    column_name,
+    data_type,
+    is_nullable
+FROM information_schema.columns 
+WHERE table_name = 'events' 
+AND table_schema = 'public'
+ORDER BY ordinal_position;
+
+-- Step 3: Check what's in social_updates
+SELECT 'Recent photo shares in social_updates:' as info;
+SELECT 
+    su.id,
+    su.user_id,
+    su.type,
+    su.photo_url,
+    su.caption,
+    su.source_type,
+    su.source_id,
+    su.is_public,
+    su.created_at
+FROM social_updates su
+WHERE su.type = 'photo_share'
+ORDER BY su.created_at DESC
 LIMIT 5;
 
--- 3. Test the function with a specific user ID
--- Replace 'YOUR_USER_ID' with an actual user ID from your database
-SELECT 'Testing get_friends_photo_shares function:' as info;
+-- Step 4: Check what's in events table
+SELECT 'Recent events:' as info;
 SELECT 
-    update_id,
-    user_name,
-    user_username,
-    photo_url,
-    caption,
-    source_type,
-    source_title,
-    created_at
-FROM get_friends_photo_shares(
-    'YOUR_USER_ID'::UUID, -- Replace with actual user ID
-    10
-)
-ORDER BY created_at DESC;
+    e.id,
+    e.title,
+    e.user_id,
+    e.created_at
+FROM events e
+ORDER BY e.created_at DESC
+LIMIT 5;
 
--- 4. Check if there are any data type mismatches
-SELECT 'Checking data type compatibility:' as info;
+-- Step 5: Test the join manually
+SELECT 'Testing manual join:' as info;
 SELECT 
     su.id as social_update_id,
-    su.source_id as social_update_source_id,
     su.source_type,
+    su.source_id,
     e.id as event_id,
     e.title as event_title,
     CASE 
-        WHEN su.source_id = e.id::text THEN 'MATCH'
-        ELSE 'NO MATCH'
-    END as id_match
+        WHEN su.source_type = 'event' AND su.source_id IS NOT NULL THEN 
+            COALESCE(e.title, 'Event Not Found')
+        ELSE 
+            'Not an event'
+    END as result_title
 FROM social_updates su
-LEFT JOIN events e ON su.source_type = 'event' AND su.source_id = e.id::text
-WHERE su.type = 'photo_share' AND su.source_type = 'event'
-ORDER BY su.created_at DESC;
+LEFT JOIN events e ON su.source_type = 'event' AND su.source_id::text = e.id
+WHERE su.type = 'photo_share'
+ORDER BY su.created_at DESC
+LIMIT 10;
 
--- 5. Check friendships to see if the user has any friends
-SELECT 'Checking friendships:' as info;
+-- Step 6: Check if there are any events with the same IDs as source_ids
+SELECT 'Checking for matching event IDs:' as info;
 SELECT 
-    user_id,
-    friend_id,
-    status,
-    created_at
-FROM friendships 
-WHERE status = 'accepted'
-ORDER BY created_at DESC; 
+    su.source_id,
+    e.id,
+    e.title,
+    CASE 
+        WHEN su.source_id::text = e.id::text THEN 'MATCH'
+        ELSE 'NO MATCH'
+    END as match_status
+FROM social_updates su
+LEFT JOIN events e ON su.source_id::text = e.id::text
+WHERE su.type = 'photo_share' 
+    AND su.source_type = 'event'
+ORDER BY su.created_at DESC
+LIMIT 10; 

@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler'; 
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { Colors } from '@/constants/Colors';
 import * as Linking from 'expo-linking';
 import { supabase, checkSessionStatus } from '../supabase';
 import { Session } from '@supabase/supabase-js';
@@ -15,6 +16,7 @@ import 'react-native-reanimated';
 import * as Font from 'expo-font';
 import { View } from 'react-native';
 import LoadingScreen from '@/components/LoadingScreen';
+import { checkAndMoveTasksIfNeeded } from '../utils/taskUtils';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -84,6 +86,12 @@ export default function RootLayout() {
         });
         setSession(session);
         
+        // Check and move tasks if needed when app starts
+        if (session.user) {
+          console.log('🔄 App starting - checking for auto-move tasks...');
+          await checkAndMoveTasksIfNeeded(session.user.id);
+        }
+        
         // Additional session validation
         const sessionStatus = await checkSessionStatus();
         console.log('🔍 Session validation result:', sessionStatus);
@@ -111,6 +119,12 @@ export default function RootLayout() {
       
       setSession(session);
       
+      // Check and move tasks when user signs in
+      if (event === 'SIGNED_IN' && session?.user) {
+        console.log('🎉 User signed in successfully - checking for auto-move tasks...');
+        await checkAndMoveTasksIfNeeded(session.user.id);
+      }
+      
       // Handle specific auth events
       if (event === 'SIGNED_IN') {
         console.log('🎉 User signed in successfully');
@@ -125,6 +139,18 @@ export default function RootLayout() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Add periodic check for auto-move tasks (every hour)
+  useEffect(() => {
+    if (!session?.user) return;
+
+    const checkInterval = setInterval(async () => {
+      console.log('⏰ Periodic auto-move check...');
+      await checkAndMoveTasksIfNeeded(session.user.id);
+    }, 60 * 60 * 1000); // Check every hour
+
+    return () => clearInterval(checkInterval);
+  }, [session?.user]);
 
   const listener = Linking.addEventListener('url', (event) => {
     console.log('🔗 Deep link triggered:', event.url);
@@ -152,17 +178,19 @@ export default function RootLayout() {
           <Stack
             screenOptions={{
               headerStyle: {
-                backgroundColor: '#fff',
+                backgroundColor: Colors[colorScheme ?? 'light'].background,
               },
               headerTitleStyle: {
                 fontFamily: 'Onest-Medium',
-              }
+                color: Colors[colorScheme ?? 'light'].text,
+              },
+              headerTintColor: Colors[colorScheme ?? 'light'].text,
             }}
           >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="+not-found" />
           </Stack>
-          <StatusBar style="auto" />
+          <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
         </ThemeProvider>
       </PaperProvider>
     </GestureHandlerRootView>

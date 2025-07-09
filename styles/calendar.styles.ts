@@ -193,6 +193,33 @@ export const calendarStyles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  // Multi-day event styles
+  multiDayEvent: {
+    marginHorizontal: 0,
+    position: 'relative',
+  },
+  multiDayEventStart: {
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    marginRight: -4,
+    paddingRight: 8,
+  },
+  multiDayEventMiddle: {
+    borderRadius: 0,
+    marginHorizontal: -4,
+    paddingHorizontal: 8,
+  },
+  multiDayEventEnd: {
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+    marginLeft: -4,
+    paddingLeft: 8,
+  },
+
   // Google Calendar Event styles
   googleEventBox: {
     flexDirection: 'column',

@@ -4,7 +4,7 @@
     "slug": "Jaani",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/logo.png",
     "scheme": "Jaani",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -46,7 +46,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/logo.png",
           "imageWidth": 120,
           "resizeMode": "contain",
           "backgroundColor": "#667eea"
@@ -62,7 +62,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/images/icon.png",
+          "icon": "./assets/images/logo.png",
           "color": "#667eea",
           "sounds": ["./assets/sounds/notification.wav"]
         }

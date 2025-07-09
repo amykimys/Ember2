@@ -13,6 +13,31 @@ export interface PhotoShareData {
 
 export const sharePhotoWithFriends = async (photoData: PhotoShareData) => {
   try {
+    // Check if this photo is private for events
+    if (photoData.sourceType === 'event') {
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .select('private_photos')
+        .eq('id', photoData.sourceId)
+        .single();
+
+      if (eventError) {
+        console.error('Error checking event privacy:', eventError);
+        throw eventError;
+      }
+
+      // If the photo is marked as private, don't share it to friends feed
+      if (eventData?.private_photos?.includes(photoData.photoUrl)) {
+        Toast.show({
+          type: 'info',
+          text1: 'Private photo not shared',
+          text2: 'This photo is private and will not appear in friends feed',
+          position: 'bottom',
+        });
+        return true; // Return success but don't create social update
+      }
+    }
+
     // Create social update
     const { error: socialError } = await supabase
       .from('social_updates')
@@ -49,6 +74,35 @@ export const sharePhotoWithFriends = async (photoData: PhotoShareData) => {
       text1: 'Failed to share photo',
       position: 'bottom',
     });
+    return false;
+  }
+};
+
+export const removePhotoFromFriendsFeed = async (
+  userId: string,
+  sourceType: 'habit' | 'event',
+  sourceId: string,
+  photoUrl: string
+) => {
+  try {
+    const { error } = await supabase
+      .from('social_updates')
+      .delete()
+      .eq('user_id', userId)
+      .eq('type', 'photo_share')
+      .eq('source_type', sourceType)
+      .eq('source_id', sourceId)
+      .eq('photo_url', photoUrl);
+
+    if (error) {
+      console.error('Error removing photo from friends feed:', error);
+      return false;
+    }
+
+    console.log('✅ Photo removed from friends feed');
+    return true;
+  } catch (error) {
+    console.error('Error removing photo from friends feed:', error);
     return false;
   }
 };

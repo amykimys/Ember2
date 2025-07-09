@@ -106,10 +106,13 @@ export const checkAndMoveTasksIfNeeded = async (userId: string): Promise<void> =
       return;
     }
 
-    // Check if it's after midnight (between 12:00 AM and 6:00 AM)
+    // Check if it's after midnight (between 12:00 AM and 6:00 AM) OR if we haven't checked today yet
     const currentHour = now.getHours();
-    if (currentHour >= 0 && currentHour < 6) {
-      console.log('🌙 It\'s after midnight, moving uncompleted tasks...');
+    const isAfterMidnight = currentHour >= 0 && currentHour < 6;
+    const isFirstCheckOfDay = lastCheckTime !== todayStr;
+    
+    if (isAfterMidnight || isFirstCheckOfDay) {
+      console.log(`🌙 ${isAfterMidnight ? 'It\'s after midnight' : 'First check of the day'}, moving uncompleted tasks...`);
       await moveUncompletedTasksToNextDay(userId);
       
       // Mark that we've checked today
@@ -119,7 +122,7 @@ export const checkAndMoveTasksIfNeeded = async (userId: string): Promise<void> =
         console.warn('⚠️ Could not save to AsyncStorage:', storageError);
       }
     } else {
-      console.log('☀️ Not after midnight, skipping task move...');
+      console.log('☀️ Not after midnight and already checked today, skipping task move...');
     }
   } catch (error) {
     console.error('💥 Error in checkAndMoveTasksIfNeeded:', error);
@@ -211,6 +214,114 @@ export const manuallyMoveUncompletedTasks = async (userId: string): Promise<void
     await debugUserTasks(userId);
   } catch (error) {
     console.error('💥 Error in manuallyMoveUncompletedTasks:', error);
+  }
+};
+
+/**
+ * Force check and move tasks regardless of time or previous checks
+ * This is useful for testing or manual triggers
+ */
+export const forceCheckAndMoveTasks = async (userId: string): Promise<void> => {
+  try {
+    console.log('🔧 Force checking and moving tasks...');
+    
+    // Clear the last check time to force a check
+    const lastCheckKey = `last_task_move_check_${userId}`;
+    try {
+      await AsyncStorage.removeItem(lastCheckKey);
+      console.log('🗑️ Cleared last check time to force check');
+    } catch (storageError) {
+      console.warn('⚠️ Could not clear AsyncStorage:', storageError);
+    }
+    
+    // Now run the normal check
+    await checkAndMoveTasksIfNeeded(userId);
+  } catch (error) {
+    console.error('💥 Error in forceCheckAndMoveTasks:', error);
+  }
+};
+
+/**
+ * Debug function to check auto-move status and what would happen
+ */
+export const debugAutoMoveStatus = async (userId: string): Promise<void> => {
+  try {
+    console.log('🔍 Debugging auto-move status for user:', userId);
+    
+    // Check user preferences
+    const preferences = await getUserPreferences(userId);
+    console.log('📋 User preferences:', preferences);
+    console.log('🔧 Auto-move enabled:', preferences?.auto_move_uncompleted_tasks);
+    
+    // Check last check time
+    const lastCheckKey = `last_task_move_check_${userId}`;
+    let lastCheckTime: string | null = null;
+    try {
+      lastCheckTime = await AsyncStorage.getItem(lastCheckKey);
+    } catch (storageError) {
+      console.warn('⚠️ Could not read from AsyncStorage:', storageError);
+    }
+    console.log('⏰ Last check time:', lastCheckTime);
+    
+    // Check current time
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const currentHour = now.getHours();
+    console.log('🕐 Current time:', now.toISOString());
+    console.log('📅 Today:', todayStr);
+    console.log('⏰ Current hour:', currentHour);
+    
+    // Check if it's after midnight
+    const isAfterMidnight = currentHour >= 0 && currentHour < 6;
+    const isFirstCheckOfDay = lastCheckTime !== todayStr;
+    console.log('🌙 Is after midnight (0-6 AM):', isAfterMidnight);
+    console.log('📅 Is first check of day:', isFirstCheckOfDay);
+    console.log('✅ Would trigger auto-move:', isAfterMidnight || isFirstCheckOfDay);
+    
+    // Check yesterday's tasks
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    
+    const { data: yesterdayTasks, error: yesterdayError } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', yesterdayStr)
+      .eq('completed', false);
+
+    if (yesterdayError) {
+      console.error('❌ Error fetching yesterday\'s tasks:', yesterdayError);
+      return;
+    }
+
+    console.log(`📝 Uncompleted tasks from yesterday (${yesterdayStr}):`, yesterdayTasks?.length || 0);
+    if (yesterdayTasks && yesterdayTasks.length > 0) {
+      yesterdayTasks.forEach(task => {
+        console.log(`  - "${task.text}" (auto_move: ${task.auto_move})`);
+      });
+    }
+    
+    // Check today's tasks
+    const { data: todayTasks, error: todayError } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', todayStr);
+
+    if (todayError) {
+      console.error('❌ Error fetching today\'s tasks:', todayError);
+      return;
+    }
+
+    console.log(`📝 Tasks for today (${todayStr}):`, todayTasks?.length || 0);
+    if (todayTasks && todayTasks.length > 0) {
+      todayTasks.forEach(task => {
+        console.log(`  - "${task.text}" (completed: ${task.completed}, auto_move: ${task.auto_move})`);
+      });
+    }
+  } catch (error) {
+    console.error('💥 Error in debugAutoMoveStatus:', error);
   }
 };
 
