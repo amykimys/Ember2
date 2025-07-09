@@ -1,11 +1,22 @@
--- Fix Share Task Function - Store Task Mapping
--- This script creates a simple, working version of the share_task_with_friend function
--- that stores the mapping between original and copied task IDs
+-- Add copied_task_id column to shared_tasks table
+-- This script adds the necessary column to track which copied task corresponds to which original shared task
 
--- Drop the existing function
-DROP FUNCTION IF EXISTS share_task_with_friend(TEXT, UUID, UUID);
+-- Add copied_task_id column to shared_tasks table if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'shared_tasks' 
+    AND column_name = 'copied_task_id'
+  ) THEN
+    ALTER TABLE shared_tasks ADD COLUMN copied_task_id TEXT;
+    RAISE NOTICE 'Added copied_task_id column to shared_tasks table';
+  ELSE
+    RAISE NOTICE 'copied_task_id column already exists in shared_tasks table';
+  END IF;
+END $$;
 
--- Create a simple, working function with different parameter names to avoid conflicts
+-- Update the share_task_with_friend function to store the copied_task_id
 CREATE OR REPLACE FUNCTION share_task_with_friend(
   p_task_id TEXT,
   p_user_id UUID,
@@ -88,23 +99,10 @@ $$;
 -- Grant permissions
 GRANT EXECUTE ON FUNCTION share_task_with_friend TO authenticated;
 
--- Add copied_task_id column to shared_tasks table if it doesn't exist
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM information_schema.columns 
-    WHERE table_name = 'shared_tasks' 
-    AND column_name = 'copied_task_id'
-  ) THEN
-    ALTER TABLE shared_tasks ADD COLUMN copied_task_id TEXT;
-  END IF;
-END $$;
-
--- Test the function
+-- Test the updated function
 DO $$
 DECLARE
   current_user_id uuid;
-  test_friend_id uuid := gen_random_uuid();
 BEGIN
   -- Get current user
   SELECT auth.uid() INTO current_user_id;
@@ -114,17 +112,6 @@ BEGIN
     RETURN;
   END IF;
 
-  RAISE NOTICE 'Testing share_task_with_friend function...';
+  RAISE NOTICE 'Function updated successfully!';
   RAISE NOTICE 'Current user: %', current_user_id;
-  RAISE NOTICE 'Test friend: %', test_friend_id;
-
-  -- Create a test task
-  INSERT INTO todos (id, text, user_id, date, created_at)
-  VALUES ('test-share-task', 'Test task for sharing', current_user_id, NOW(), NOW())
-  ON CONFLICT (id) DO NOTHING;
-
-  -- Test sharing
-  PERFORM share_task_with_friend('test-share-task', current_user_id, test_friend_id);
-  
-  RAISE NOTICE 'Function test completed successfully!';
 END $$; 

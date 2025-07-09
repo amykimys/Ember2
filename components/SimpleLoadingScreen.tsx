@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Animated,
   StatusBar,
+  Image,
 } from 'react-native';
 
 interface SimpleLoadingScreenProps {
@@ -49,6 +50,22 @@ export default function SimpleLoadingScreen({
       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
       
       <View style={styles.content}>
+        {/* Logo */}
+        <Animated.View
+          style={[
+            styles.logoContainer,
+            {
+              opacity: fadeAnim,
+            },
+          ]}
+        >
+          <Image 
+            source={require('../assets/images/logo.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+        </Animated.View>
+
         {/* Loading Indicator */}
         <Animated.View
           style={[
@@ -92,6 +109,13 @@ const styles = StyleSheet.create({
   content: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  logoContainer: {
+    marginBottom: 30,
+  },
+  logo: {
+    width: 100,
+    height: 100,
   },
   loadingIndicator: {
     marginBottom: 24,

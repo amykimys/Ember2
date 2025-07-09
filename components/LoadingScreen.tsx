@@ -5,6 +5,7 @@ import {
   StyleSheet,
   Animated,
   StatusBar,
+  Image,
 } from 'react-native';
 
 interface LoadingScreenProps {
@@ -40,6 +41,13 @@ export default function LoadingScreen({ onLoadingComplete }: LoadingScreenProps)
           },
         ]}
       >
+        {/* Logo */}
+        <Image 
+          source={require('../assets/images/logo.png')} 
+          style={styles.logo}
+          resizeMode="contain"
+        />
+        
         {/* App Name */}
         <Text style={styles.appName}>Jaani</Text>
         
@@ -65,6 +73,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
+  },
+  logo: {
+    width: 120,
+    height: 120,
+    marginBottom: 20,
   },
   appName: {
     fontSize: 36,

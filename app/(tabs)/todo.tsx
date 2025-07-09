@@ -569,6 +569,25 @@ export default function TodoScreen() {
     friend_username: string;
   }>>({});
 
+  // Add notification listeners for shared task notifications
+  useEffect(() => {
+    const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('🔔 [Todo Notifications] Notification response received:', response);
+      
+      // Handle shared task notifications
+      const notificationData = response.notification.request.content.data;
+      if (notificationData?.type === 'task_shared') {
+        console.log('🔔 [Todo Notifications] Handling shared task notification:', notificationData);
+        // Refresh todos to show the new shared task
+        fetchData(user);
+      }
+    });
+
+    return () => {
+      Notifications.removeNotificationSubscription(responseListener);
+    };
+  }, [user]);
+
   // Add this function to handle the end date selection
   const handleEndDateConfirm = () => {
     const selectedDate = new Date(
@@ -2057,47 +2076,50 @@ export default function TodoScreen() {
         {/* Shared Task Information - Right side */}
         {taskSharedFriends[todo.id] && taskSharedFriends[todo.id].length > 0 && (
           <View style={{
-            marginLeft: 8,
+            marginLeft: 12,
             alignItems: 'flex-end',
             justifyContent: 'center',
-            minWidth: 80,
+            minWidth: 100,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+            backgroundColor: Colors.light.surfaceVariant,
+            borderRadius: 8,
           }}>
             <View style={{
               alignItems: 'flex-end',
-              gap: 2,
+              gap: 4,
             }}>
               <View style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 2,
+                gap: 4,
               }}>
                 {taskSharedFriends[todo.id].slice(0, 2).map((friend, index) => (
                   <View key={friend.friend_id} style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    gap: 2,
+                    gap: 4,
                   }}>
                     {friend.friend_avatar && friend.friend_avatar.trim() !== '' ? (
                       <Image 
                         source={{ uri: friend.friend_avatar }} 
-                        style={{ width: 14, height: 14, borderRadius: 7 }} 
+                        style={{ width: 18, height: 18, borderRadius: 9 }} 
                       />
                     ) : (
                       <View 
                         style={{ 
-                          width: 14, 
-                          height: 14, 
-                          borderRadius: 7,
-                          backgroundColor: Colors.light.surfaceVariant,
+                          width: 18, 
+                          height: 18, 
+                          borderRadius: 9,
                           justifyContent: 'center',
                           alignItems: 'center'
                         }}
                       >
-                        <Ionicons name="person" size={7} color={Colors.light.icon} />
+                        <Ionicons name="person" size={9} color={Colors.light.icon} />
                       </View>
                     )}
                     <Text style={{ 
-                      fontSize: 9, 
+                      fontSize: 12, 
                       color: Colors.light.accent, 
                       fontFamily: 'Onest',
                       fontWeight: '600'
@@ -2105,13 +2127,13 @@ export default function TodoScreen() {
                       {friend.friend_name}
                     </Text>
                     {index < Math.min(taskSharedFriends[todo.id].length - 1, 1) && (
-                      <Text style={{ fontSize: 9, color: Colors.light.accent }}>,</Text>
+                      <Text style={{ fontSize: 12, color: Colors.light.accent }}>,</Text>
                     )}
                   </View>
                 ))}
                 {taskSharedFriends[todo.id].length > 2 && (
                   <Text style={{ 
-                    fontSize: 9, 
+                    fontSize: 12, 
                     color: Colors.light.accent, 
                     fontFamily: 'Onest',
                     fontWeight: '600'
@@ -3579,8 +3601,17 @@ export default function TodoScreen() {
   // Add function to move task to tomorrow
   const moveTaskToTomorrow = async (taskId: string) => {
     try {
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
+      // Find the current task to get its date
+      const currentTask = todos.find(todo => todo.id === taskId);
+      if (!currentTask) {
+        console.error('Task not found');
+        return;
+      }
+
+      // Calculate tomorrow based on the task's current date
+      const taskDate = new Date(currentTask.date);
+      const tomorrow = new Date(taskDate);
+      tomorrow.setDate(taskDate.getDate() + 1);
       tomorrow.setHours(0, 0, 0, 0);
 
       const { error } = await supabase
@@ -3845,7 +3876,8 @@ export default function TodoScreen() {
           original_task_id,
           shared_by,
           shared_with,
-          status
+          status,
+          copied_task_id
         `)
         .or(`shared_by.eq.${userToUse.id},shared_with.eq.${userToUse.id}`);
 
@@ -3994,7 +4026,7 @@ export default function TodoScreen() {
       }>> = {};
 
       // For tasks you sent: use original_task_id as key
-      // For tasks you received: map to the actual copied task IDs
+      // For tasks you received: use copied_task_id for accurate mapping
       relevantSharedTasks.forEach(sharedTask => {
         const originalTaskId = sharedTask.original_task_id;
         
@@ -4009,19 +4041,33 @@ export default function TodoScreen() {
             }));
           }
         } else if (sharedTask.shared_with === userToUse.id) {
-          // You're the recipient - map to all copied tasks
-          // Since we can't directly map original_task_id to specific copied_task_id,
-          // we'll show the sender info for all shared tasks you have
-          copiedTasks?.forEach(copiedTask => {
-            if (taskParticipantsMap[originalTaskId]) {
-              taskFriendsMap[copiedTask.id] = taskParticipantsMap[originalTaskId].map(participant => ({
-                friend_id: participant.friend_id,
-                friend_name: participant.friend_name,
-                friend_avatar: participant.friend_avatar,
-                friend_username: participant.friend_username,
-              }));
+          // You're the recipient - show the sender using copied_task_id
+          const senderProfile = friendProfilesMap.get(sharedTask.shared_by);
+          if (senderProfile && sharedTask.copied_task_id) {
+            // Use the copied_task_id to map to the specific task
+            if (taskIds.includes(sharedTask.copied_task_id)) {
+              taskFriendsMap[sharedTask.copied_task_id] = [{
+                friend_id: senderProfile.friend_id,
+                friend_name: senderProfile.friend_name,
+                friend_avatar: senderProfile.friend_avatar,
+                friend_username: senderProfile.friend_username,
+              }];
+              console.log('🔍 [Shared Tasks] Mapped friend info for copied task:', sharedTask.copied_task_id, 'from sender:', senderProfile.friend_name);
             }
-          });
+          } else if (senderProfile && !sharedTask.copied_task_id) {
+            // Fallback for tasks shared before the copied_task_id field was added
+            console.log('🔍 [Shared Tasks] No copied_task_id found for shared task, using fallback mapping');
+            copiedTasks?.forEach(copiedTask => {
+              if (taskIds.includes(copiedTask.id) && !taskFriendsMap[copiedTask.id]) {
+                taskFriendsMap[copiedTask.id] = [{
+                  friend_id: senderProfile.friend_id,
+                  friend_name: senderProfile.friend_name,
+                  friend_avatar: senderProfile.friend_avatar,
+                  friend_username: senderProfile.friend_username,
+                }];
+              }
+            });
+          }
         }
       });
 
@@ -4034,12 +4080,19 @@ export default function TodoScreen() {
       }> = {};
 
       relevantSharedTasks.forEach(sharedTask => {
-        const taskId = sharedTask.original_task_id;
         // Track who shared this task with the current user
         if (sharedTask.shared_with === userToUse.id && sharedTask.shared_by !== userToUse.id) {
           const sharedByProfile = friendProfilesMap.get(sharedTask.shared_by);
-          if (sharedByProfile) {
-            taskSharedByMap[taskId] = sharedByProfile;
+          if (sharedByProfile && sharedTask.copied_task_id) {
+            // Use the copied task ID as the key for better accuracy
+            taskSharedByMap[sharedTask.copied_task_id] = sharedByProfile;
+          } else if (sharedByProfile && !sharedTask.copied_task_id) {
+            // Fallback for tasks shared before the copied_task_id field was added
+            copiedTasks?.forEach(copiedTask => {
+              if (taskIds.includes(copiedTask.id) && !taskSharedByMap[copiedTask.id]) {
+                taskSharedByMap[copiedTask.id] = sharedByProfile;
+              }
+            });
           }
         }
       });
@@ -4111,6 +4164,8 @@ export default function TodoScreen() {
 
             
           </View>
+
+
 
           {/* Network Status Indicator */}
           {!isOnline && (

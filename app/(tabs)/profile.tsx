@@ -8,11 +8,12 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useFocusEffect } from '@react-navigation/native';
-import { clearPreferencesCache } from '../../utils/notificationUtils';
+import { clearPreferencesCache, testSharingNotifications } from '../../utils/notificationUtils';
 import { manuallyMoveUncompletedTasks, debugUserTasks } from '../../utils/taskUtils';
 import { GoogleCalendarSyncNew } from '../../components/GoogleCalendarSyncNew';
 import { Colors } from '../../constants/Colors';
 import Toast from 'react-native-toast-message';
+import PhotoZoomViewer from '../../components/PhotoZoomViewer';
 
 interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
@@ -157,6 +158,9 @@ export default function ProfileScreen() {
   const [isRefreshingPhotoShares, setIsRefreshingPhotoShares] = useState(false);
   const [unreadPhotoShares, setUnreadPhotoShares] = useState(0);
   const [lastViewedPhotoShareTime, setLastViewedPhotoShareTime] = useState<number>(0);
+  
+  // Friends modal refresh state
+  const [isRefreshingFriends, setIsRefreshingFriends] = useState(false);
   
   // Photo zoom state
   const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
@@ -1145,6 +1149,22 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleFriendsRefresh = async () => {
+    if (!user?.id) return;
+    
+    setIsRefreshingFriends(true);
+    try {
+      await Promise.all([
+        loadFriends(user.id),
+        loadFriendRequests(user.id)
+      ]);
+    } catch (error) {
+      console.error('Error refreshing friends:', error);
+    } finally {
+      setIsRefreshingFriends(false);
+    }
+  };
+
   const handleSearch = (text: string) => {
     setSearchTerm(text);
     if (text.trim()) {
@@ -1281,7 +1301,7 @@ export default function ProfileScreen() {
       if (error) throw error;
       
       // Clear the preferences cache so other screens get the updated setting
-      clearPreferencesCache(user.id);
+              clearPreferencesCache();
     } catch (error) {
       console.error('Error updating preference:', error);
       // Revert to the previous value if the update failed
@@ -1835,7 +1855,16 @@ export default function ProfileScreen() {
         </View>
 
         {/* Tab Content */}
-        <ScrollView style={styles.modalContent}>
+        <ScrollView 
+          style={styles.modalContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshingFriends}
+              onRefresh={handleFriendsRefresh}
+              tintColor="#007AFF"
+            />
+          }
+        >
           {activeFriendsTab === 'friends' && (
             <>
               {friends.length === 0 ? (
@@ -1877,90 +1906,84 @@ export default function ProfileScreen() {
           {activeFriendsTab === 'requests' && (
             <>
               {/* Received Requests Section */}
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Requests I Received ({friendRequests.length})</Text>
+              <View style={styles.requestsSection}>
+                <Text style={styles.requestsSectionTitle}>Received Requests</Text>
+                <Text style={styles.requestsCount}>{friendRequests.length}</Text>
               </View>
               
               {friendRequests.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="mail-outline" size={48} color="#ccc" />
-                  <Text style={styles.emptyText}>No received requests</Text>
-                  <Text style={styles.emptySubtext}>
-                    When someone sends you a friend request, it will appear here
-                  </Text>
+                <View style={styles.emptyRequestsContainer}>
+                  <Ionicons name="mail-outline" size={32} color="#8E8E93" />
+                  <Text style={styles.emptyRequestsText}>No pending requests</Text>
                 </View>
               ) : (
                 friendRequests.map((request, index) => (
-    <View key={`request-${request.friendship_id}-${index}`} style={styles.friendItem}>
-      <View style={styles.friendInfo}>
-        {request.requester_avatar ? (
-          <Image source={{ uri: request.requester_avatar }} style={styles.friendAvatar} />
-        ) : (
-          <View style={styles.friendAvatarPlaceholder}>
-            <Ionicons name="person" size={16} color="#fff" />
-          </View>
-        )}
-        <View style={styles.friendDetails}>
-          <Text style={styles.friendName}>{request.requester_name}</Text>
-          <Text style={styles.friendUsername}>@{request.requester_username || 'no-username'}</Text>
-                </View>
-      </View>
-      <View style={styles.requestActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.acceptButton]}
-          onPress={() => acceptFriendRequest(request.friendship_id)}
-        >
-                        <Ionicons name="checkmark" size={16} color="#fff" />
-              </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionButton, styles.declineButton]}
-          onPress={() => declineFriendRequest(request.friendship_id)}
-        >
-                        <Ionicons name="close" size={16} color="#fff" />
-        </TouchableOpacity>
-      </View>
-    </View>
+                  <View key={`request-${request.friendship_id}-${index}`} style={styles.requestItem}>
+                    <View style={styles.requestUserInfo}>
+                      {request.requester_avatar ? (
+                        <Image source={{ uri: request.requester_avatar }} style={styles.requestAvatar} />
+                      ) : (
+                        <View style={styles.requestAvatarPlaceholder}>
+                          <Ionicons name="person" size={14} color="#8E8E93" />
+                        </View>
+                      )}
+                      <View style={styles.requestUserDetails}>
+                        <Text style={styles.requestUserName}>{request.requester_name}</Text>
+                        <Text style={styles.requestUserUsername}>@{request.requester_username || 'no-username'}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.requestButtons}>
+                      <TouchableOpacity
+                        style={styles.acceptRequestButton}
+                        onPress={() => acceptFriendRequest(request.friendship_id)}
+                      >
+                        <Text style={styles.acceptRequestText}>Accept</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.declineRequestButton}
+                        onPress={() => declineFriendRequest(request.friendship_id)}
+                      >
+                        <Text style={styles.declineRequestText}>Decline</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
                 ))
               )}
 
               {/* Sent Requests Section */}
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Requests I Sent ({sentFriendRequests.length})</Text>
+              <View style={styles.requestsSection}>
+                <Text style={styles.requestsSectionTitle}>Sent Requests</Text>
+                <Text style={styles.requestsCount}>{sentFriendRequests.length}</Text>
               </View>
               
               {sentFriendRequests.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="paper-plane-outline" size={48} color="#ccc" />
-                  <Text style={styles.emptyText}>No sent requests</Text>
-                  <Text style={styles.emptySubtext}>
-                    Friend requests you send will appear here
-                  </Text>
+                <View style={styles.emptyRequestsContainer}>
+                  <Ionicons name="paper-plane-outline" size={32} color="#8E8E93" />
+                  <Text style={styles.emptyRequestsText}>No sent requests</Text>
                 </View>
               ) : (
                 sentFriendRequests.map((request, index) => (
-    <View key={`sent-request-${request.friendship_id}-${index}`} style={styles.friendItem}>
-      <View style={styles.friendInfo}>
-        {request.requester_avatar ? (
-          <Image source={{ uri: request.requester_avatar }} style={styles.friendAvatar} />
-        ) : (
-          <View style={styles.friendAvatarPlaceholder}>
-            <Ionicons name="person" size={16} color="#fff" />
-          </View>
-        )}
-        <View style={styles.friendDetails}>
-          <Text style={styles.friendName}>{request.requester_name}</Text>
-          <Text style={styles.friendUsername}>@{request.requester_username || 'no-username'}</Text>
-        </View>
-      </View>
-      <View style={styles.requestActions}>
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: '#FF3B30' }]}
-          onPress={() => cancelFriendRequest(request.friendship_id)}
-        >
-          <Ionicons name="close" size={16} color="#fff" />
-        </TouchableOpacity>
-      </View>
-    </View>
+                  <View key={`sent-request-${request.friendship_id}-${index}`} style={styles.requestItem}>
+                    <View style={styles.requestUserInfo}>
+                      {request.requester_avatar ? (
+                        <Image source={{ uri: request.requester_avatar }} style={styles.requestAvatar} />
+                      ) : (
+                        <View style={styles.requestAvatarPlaceholder}>
+                          <Ionicons name="person" size={14} color="#8E8E93" />
+                        </View>
+                      )}
+                      <View style={styles.requestUserDetails}>
+                        <Text style={styles.requestUserName}>{request.requester_name}</Text>
+                        <Text style={styles.requestUserUsername}>@{request.requester_username || 'no-username'}</Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.cancelRequestButton}
+                      onPress={() => cancelFriendRequest(request.friendship_id)}
+                    >
+                      <Text style={styles.cancelRequestText}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
                 ))
               )}
             </>
@@ -2057,7 +2080,16 @@ export default function ProfileScreen() {
           <View style={{ width: 24 }} />
         </View>
 
-        <ScrollView style={styles.modalContent}>
+        <ScrollView 
+          style={styles.modalContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshingFriends}
+              onRefresh={handleFriendsRefresh}
+              tintColor="#007AFF"
+            />
+          }
+        >
           {friends.length === 0 ? (
             <View style={styles.emptyContainer}>
               <Ionicons name="people-outline" size={64} color="#ccc" />
@@ -2558,184 +2590,20 @@ export default function ProfileScreen() {
   const renderPhotoZoomModal = () => {
     if (!selectedPhotoForZoom) return null;
 
-    const panResponder = PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        // Handle pan gesture
-      },
-      onPanResponderMove: (evt, gestureState) => {
-        // Handle zoom and pan
-      },
-      onPanResponderRelease: (evt, gestureState) => {
-        // Handle release
-        if (gestureState.dy > 100) {
-          setShowPhotoZoomModal(false);
-          setSelectedPhotoForZoom(null);
-        }
-      },
-    });
-
     return (
-      <Modal
+      <PhotoZoomViewer
         visible={showPhotoZoomModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
+        photoUrl={selectedPhotoForZoom.photo_url}
+        caption={selectedPhotoForZoom.caption}
+        sourceType={selectedPhotoForZoom.source_type}
+        sourceTitle={selectedPhotoForZoom.source_title}
+        userAvatar={selectedPhotoForZoom.user_avatar}
+        username={selectedPhotoForZoom.user_username}
+        onClose={() => {
           setShowPhotoZoomModal(false);
           setSelectedPhotoForZoom(null);
         }}
-      >
-        <View style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.9)',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}>
-          {/* Swipe Down Overlay */}
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 5,
-            }}
-            {...panResponder.panHandlers}
-          />
-          
-          {/* Top Bar */}
-          <View style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            paddingHorizontal: 24,
-            paddingTop: 60,
-            paddingBottom: 16,
-            zIndex: 10,
-          }}>
-            <TouchableOpacity
-              style={{
-                width: 32,
-                height: 32,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              onPress={() => {
-                setShowPhotoZoomModal(false);
-                setSelectedPhotoForZoom(null);
-              }}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-            
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}>
-              <Image
-                source={{ 
-                  uri: selectedPhotoForZoom.user_avatar || 'https://via.placeholder.com/24x24?text=U'
-                }}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  marginRight: 8,
-                }}
-              />
-              <Text style={{
-                color: '#fff',
-                fontSize: 14,
-                fontWeight: '600',
-                fontFamily: 'Onest',
-              }}>
-                @{selectedPhotoForZoom.user_username}
-              </Text>
-            </View>
-            
-            <View style={{ width: 32 }} />
-          </View>
-
-          {/* Photo */}
-          <View style={{
-            flex: 1,
-            justifyContent: 'center',
-            alignItems: 'center',
-            width: '100%',
-            paddingHorizontal: 20,
-          }}>
-            <Image
-              source={{ uri: selectedPhotoForZoom.photo_url }}
-              style={{
-                width: Dimensions.get('window').width - 40,
-                height: Dimensions.get('window').height * 0.7,
-              }}
-              resizeMode="contain"
-            />
-          </View>
-
-          {/* Bottom Info */}
-          <View style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            paddingHorizontal: 24,
-            paddingBottom: 40,
-            zIndex: 10,
-          }}>
-            {selectedPhotoForZoom.caption && (
-              <Text style={{
-                color: '#fff',
-                fontSize: 16,
-                fontFamily: 'Onest',
-                marginBottom: 8,
-                textAlign: 'center',
-              }}>
-                {selectedPhotoForZoom.caption}
-              </Text>
-            )}
-            <View style={{
-              flexDirection: 'row',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}>
-              <View style={[
-                {
-                  backgroundColor: selectedPhotoForZoom.source_type === 'habit' ? '#4CAF50' : '#2196F3',
-                  paddingHorizontal: 12,
-                  paddingVertical: 4,
-                  borderRadius: 12,
-                  marginRight: 8,
-                }
-              ]}>
-                <Text style={{
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: '600',
-                  fontFamily: 'Onest',
-                }}>
-                  {selectedPhotoForZoom.source_type === 'habit' ? 'Habit' : 'Event'}
-                </Text>
-              </View>
-              <Text style={{
-                color: '#fff',
-                fontSize: 14,
-                fontFamily: 'Onest',
-                opacity: 0.8,
-              }}>
-                {selectedPhotoForZoom.source_title}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      />
     );
   };
 
@@ -2787,6 +2655,26 @@ export default function ProfileScreen() {
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Actions</Text>
             <Text style={styles.sectionSubtitle}>Account management options</Text>
+            
+            {renderSettingsItem('notifications-outline', 'Test Sharing Notifications', undefined, async () => {
+              try {
+                await testSharingNotifications();
+                Toast.show({
+                  type: 'success',
+                  text1: 'Test Complete',
+                  text2: 'Sharing notifications sent! Check your notifications.',
+                  position: 'bottom',
+                });
+              } catch (error) {
+                Toast.show({
+                  type: 'error',
+                  text1: 'Test Failed',
+                  text2: 'Failed to send test notifications',
+                  position: 'bottom',
+                });
+              }
+            })}
+
             <TouchableOpacity style={styles.dangerActionItem} onPress={handleSignOut}>
               <View style={styles.dangerActionLeft}>
                 <View style={styles.dangerActionIcon}>
@@ -5177,6 +5065,130 @@ const styles = StyleSheet.create({
   },
   declineButton: {
     backgroundColor: '#FF3B30',
+  },
+  // New minimalistic request styles
+  requestsSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: '#F8F9FA',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7',
+  },
+  requestsSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    fontFamily: 'Onest',
+  },
+  requestsCount: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#8E8E93',
+    backgroundColor: '#E5E5E7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    fontFamily: 'Onest',
+  },
+  emptyRequestsContainer: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+  },
+  emptyRequestsText: {
+    fontSize: 16,
+    color: '#8E8E93',
+    marginTop: 8,
+    fontFamily: 'Onest',
+  },
+  requestItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F2F2F7',
+  },
+  requestUserInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  requestAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+  },
+  requestAvatarPlaceholder: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F2F2F7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  requestUserDetails: {
+    flex: 1,
+  },
+  requestUserName: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1C1C1E',
+    marginBottom: 2,
+    fontFamily: 'Onest',
+  },
+  requestUserUsername: {
+    fontSize: 14,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  requestButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  acceptRequestButton: {
+    backgroundColor: '#34C759',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  acceptRequestText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    fontFamily: 'Onest',
+  },
+  declineRequestButton: {
+    backgroundColor: '#FF3B30',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  declineRequestText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+    fontFamily: 'Onest',
+  },
+  cancelRequestButton: {
+    backgroundColor: '#F2F2F7',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  cancelRequestText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#8E8E93',
+    fontFamily: 'Onest',
   },
   addFriendsButton: {
     padding: 12,

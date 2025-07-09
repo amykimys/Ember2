@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { sendNoteSharedNotification } from './notificationUtils';
 
 // Types
 export interface SharedNote {
@@ -24,7 +25,7 @@ export interface NoteCollaborator {
 export const shareNote = async (
   noteId: string,
   friendIds: string[],
-  canEdit: boolean = false
+  canEdit: boolean = true
 ): Promise<{ success: boolean; error?: string }> => {
   try {
     console.log('🔍 [ShareNote] Starting to share note:', { noteId, friendIds, canEdit });
@@ -68,40 +69,31 @@ export const shareNote = async (
       .insert(sharedNoteData);
 
     if (insertError) {
-      console.error('❌ [ShareNote] Error sharing note:', insertError);
-      
-      // If the error is about the table not existing, try to create it
-      if (insertError.message && insertError.message.includes('relation "shared_notes" does not exist')) {
-        console.log('🔨 [ShareNote] Table does not exist, attempting to create it...');
-        
-        // Try to create the table using a simple approach
-        const createTableResult = await ensureSharedNotesTable();
-        if (createTableResult.success) {
-          // Try the insert again
-          const { error: retryError } = await supabase
-            .from('shared_notes')
-            .insert(sharedNoteData);
-            
-          if (retryError) {
-            console.error('❌ [ShareNote] Error after creating table:', retryError);
-            return { success: false, error: 'Failed to share note after creating table' };
-          }
-          
-          console.log('✅ [ShareNote] Successfully shared note after creating table');
-          return { success: true };
-        } else {
-          return { success: false, error: 'Failed to create shared notes table' };
-        }
-      }
-      
-      return { success: false, error: 'Failed to share note' };
+      console.error('❌ [ShareNote] Error inserting shared notes:', insertError);
+      return { success: false, error: insertError.message };
     }
 
-    console.log('✅ [ShareNote] Successfully shared note with friends');
+    console.log('✅ [ShareNote] Shared notes created successfully');
+
+    // Send notifications to all friends
+    for (const friendId of friendIds) {
+      try {
+        await sendNoteSharedNotification(
+          friendId,
+          user.id,
+          note.title,
+          noteId
+        );
+      } catch (notificationError) {
+        console.error('Error sending notification to friend:', friendId, notificationError);
+        // Don't fail the entire operation if notification fails
+      }
+    }
+
     return { success: true };
   } catch (error) {
     console.error('❌ [ShareNote] Unexpected error:', error);
-    return { success: false, error: 'Unexpected error occurred' };
+    return { success: false, error: 'Failed to share note' };
   }
 };
 
@@ -110,12 +102,32 @@ export const shareNoteWithFriends = shareNote;
 
 export const getSharedNotes = async (): Promise<{ success: boolean; data?: SharedNote[]; error?: string }> => {
   try {
+    console.log('🔍 [GetSharedNotes] Starting to fetch shared notes...');
+    
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
+    if (userError) {
+      console.error('❌ [GetSharedNotes] User error:', userError);
+      return { success: false, error: 'User authentication error' };
+    }
+    if (!user) {
+      console.error('❌ [GetSharedNotes] No user found');
       return { success: false, error: 'User not authenticated' };
     }
 
-    console.log('🔍 [SharedNotes] Fetching shared notes for user:', user.id);
+    console.log('✅ [GetSharedNotes] User authenticated:', user.id);
+
+    // Check if shared_notes table exists and is accessible
+    const { data: tableCheck, error: tableError } = await supabase
+      .from('shared_notes')
+      .select('id')
+      .limit(1);
+
+    if (tableError) {
+      console.error('❌ [GetSharedNotes] Table access error:', tableError);
+      return { success: false, error: `Table access error: ${tableError.message}` };
+    }
+
+    console.log('✅ [GetSharedNotes] Shared notes table is accessible');
 
     const { data, error } = await supabase
       .from('shared_notes')
@@ -123,16 +135,17 @@ export const getSharedNotes = async (): Promise<{ success: boolean; data?: Share
       .eq('shared_with', user.id);
 
     if (error) {
-      console.error('Error fetching shared notes:', error);
-      return { success: false, error: 'Failed to fetch shared notes' };
+      console.error('❌ [GetSharedNotes] Query error:', error);
+      return { success: false, error: `Failed to fetch shared notes: ${error.message}` };
     }
 
-    console.log('🔍 [SharedNotes] Found shared notes:', data?.length || 0, data);
+    console.log('🔍 [GetSharedNotes] Raw query result:', data);
+    console.log('✅ [GetSharedNotes] Found shared notes:', data?.length || 0);
 
     return { success: true, data: data || [] };
   } catch (error) {
-    console.error('Error in getSharedNotes:', error);
-    return { success: false, error: 'Unexpected error occurred' };
+    console.error('❌ [GetSharedNotes] Unexpected error:', error);
+    return { success: false, error: `Unexpected error: ${error instanceof Error ? error.message : 'Unknown error'}` };
   }
 };
 
@@ -295,20 +308,30 @@ export const canUserEditNote = async (noteId: string): Promise<boolean> => {
   try {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
+      console.log('🔍 [CanUserEditNote] User not authenticated');
       return false;
     }
+
+    console.log('🔍 [CanUserEditNote] Checking edit permissions for note:', noteId, 'user:', user.id);
 
     const { data, error } = await supabase
       .from('shared_notes')
       .select('can_edit')
       .eq('original_note_id', noteId)
-      .eq('shared_with', user.id) // Use eq instead of contains
+      .eq('shared_with', user.id)
       .single();
 
-    if (error || !data) {
+    if (error) {
+      console.log('🔍 [CanUserEditNote] Error fetching permissions:', error);
       return false;
     }
 
+    if (!data) {
+      console.log('🔍 [CanUserEditNote] No shared note record found');
+      return false;
+    }
+
+    console.log('🔍 [CanUserEditNote] Can edit result:', data.can_edit);
     return data.can_edit;
   } catch (error) {
     console.error('Error in canUserEditNote:', error);

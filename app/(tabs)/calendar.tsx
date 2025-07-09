@@ -36,6 +36,7 @@ import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as accept
 import type { SharedEvent } from '../../utils/sharing';
 import { Colors } from '../../constants/Colors';
 import PhotoCaptionModal from '../../components/PhotoCaptionModal';
+import PhotoZoomViewer from '../../components/PhotoZoomViewer';
 
 import { arePushNotificationsEnabled } from '../../utils/notificationUtils';
 
@@ -445,6 +446,13 @@ const CalendarScreen: React.FC = () => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const result = `${year}-${month}-${day}`;
+    console.log('🔍 [Calendar] getLocalDateString called with:', {
+      inputDate: date.toISOString(),
+      year,
+      month,
+      day,
+      result
+    });
     return result;
   };
 
@@ -563,6 +571,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [selectedPhotoForViewing, setSelectedPhotoForViewing] = useState<{ event: CalendarEvent; photoUrl: string } | null>(null);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
+  // New Instagram-like photo zoom state
+  const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
+  const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<{ photoUrl: string; eventTitle: string } | null>(null);
+  
   // Custom photo attachment modal state
   const [showCustomPhotoModal, setShowCustomPhotoModal] = useState(false);
   const [selectedEventForPhoto, setSelectedEventForPhoto] = useState<string | undefined>(undefined);
@@ -602,6 +614,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [searchFriend, setSearchFriend] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isLoadingFriends, setIsLoadingFriends] = useState(false);
+
+  // Add loading state for calendar data
+  const [isLoadingCalendarData, setIsLoadingCalendarData] = useState(false);
 
   // Edit modal friends state variables
   const [editSelectedFriends, setEditSelectedFriends] = useState<string[]>([]);
@@ -1080,8 +1095,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   useEffect(() => {
     const fetchEvents = async () => {
       try {
+        setIsLoadingCalendarData(true);
         
         if (!user?.id) {
+          setIsLoadingCalendarData(false);
           return;
         }
 
@@ -1367,6 +1384,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         
       } catch (error) {
         console.error('🔍 [Calendar] Error in fetchEvents:', error);
+      } finally {
+        setIsLoadingCalendarData(false);
       }
     };
     
@@ -1377,10 +1396,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const refreshEvents = async () => {
     try {
       console.log('🔄 [Calendar] Refreshing events...');
+      setIsLoadingCalendarData(true);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         console.log('❌ [Calendar] No user found, skipping refresh');
+        setIsLoadingCalendarData(false);
         return;
       }
 
@@ -1587,6 +1608,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEvents(parsedEvents);
     } catch (error) {
       console.error('❌ [Calendar] Error in refreshEvents:', error);
+    } finally {
+      setIsLoadingCalendarData(false);
     }
   };
 
@@ -2243,6 +2266,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleSaveEvent = async (customEvent?: CalendarEvent, originalEvent?: CalendarEvent): Promise<void> => {
     try {
+      // Add a small delay to ensure state updates are processed
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       // First, check and refresh session if needed
       const sessionValid = await checkAndRefreshSession();
       if (!sessionValid) {
@@ -2280,7 +2306,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         title: newEventTitle,
         description: newEventDescription,
         location: newEventLocation,
-        date: getLocalDateString(startDateTime),
+        date: getLocalDateString(startDateTime), // This should use the current startDateTime state
         startDateTime: new Date(startDateTime),
         endDateTime: new Date(endDateTime),
         categoryName: selectedCategory?.name,
@@ -2305,6 +2331,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         photos: eventPhotos.filter(photo => !photoPrivacyMap[photo]), // Only regular photos
         private_photos: eventPhotos.filter(photo => photoPrivacyMap[photo]) // Only private photos
       };
+
+      // Add debugging to see what date is being used
+      console.log('🔍 [Calendar] Event date debugging:', {
+        startDateTime: startDateTime,
+        startDateTimeType: typeof startDateTime,
+        startDateTimeString: startDateTime.toISOString(),
+        calculatedDate: getLocalDateString(startDateTime),
+        isAllDay: isAllDay
+      });
 
       console.log('🔍 [Calendar] Event to save details:', {
         title: eventToSave.title,
@@ -3294,6 +3329,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
 
     try {
+      // Add a small delay to ensure state updates are processed
+      await new Promise(resolve => setTimeout(resolve, 100));
       const originalEvent = selectedEvent.event;
       
       // Step 1: Find the event in database by title and date (more reliable than ID)
@@ -3516,6 +3553,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
     const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
       console.log('🔔 [Notifications] Notification response received:', response);
+      
+      // Handle shared event notifications
+      const notificationData = response.notification.request.content.data;
+      if (notificationData?.type === 'event_shared') {
+        console.log('🔔 [Notifications] Handling shared event notification:', notificationData);
+        // Refresh events to show the new shared event
+        refreshEvents();
+        // Show shared events modal
+        setShowSharedEventsModal(true);
+        setActiveSharedEventsTab('received');
+      }
     });
 
     return () => {
@@ -4042,7 +4090,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         await removePhotoFromFriendsFeed(user.id, 'event', eventId, photoUrlToRemove);
       }
 
-      // Update local state - combine both arrays for display
+      // Update local state - co                                                                                                            mbine both arrays for display
       const allUpdatedPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
       setEvents(prev => {
         const updated = { ...prev };
@@ -4229,18 +4277,35 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleAcceptSharedEvent = async (event: CalendarEvent) => {
     try {
+      console.log('🔍 [Accept] Starting accept process for event:', event.id);
+      
       // Extract the shared event ID from the event ID
-      const sharedEventId = event.id.replace('shared_', '');
+      let sharedEventId = event.id;
+      if (event.id.startsWith('shared_')) {
+        sharedEventId = event.id.replace('shared_', '');
+      }
+      
+      console.log('🔍 [Accept] Extracted shared event ID:', sharedEventId);
       
       // Use the imported sharing utility function
       const result = await acceptSharedEventUtil(sharedEventId);
+      
+      console.log('🔍 [Accept] Accept result:', result);
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to accept event');
       }
 
+      // Show success message
+      Toast.show({
+        type: 'success',
+        text1: 'Event accepted',
+        text2: 'The event has been added to your calendar',
+        position: 'bottom',
+      });
+
       // Refresh events to update the display
-      refreshEvents();
+      await refreshEvents();
     } catch (error) {
       console.error('Error accepting shared event:', error);
       Alert.alert('Error', 'Failed to accept event. Please try again.');
@@ -4249,18 +4314,35 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleDeclineSharedEvent = async (event: CalendarEvent) => {
     try {
+      console.log('🔍 [Decline] Starting decline process for event:', event.id);
+      
       // Extract the shared event ID from the event ID
-      const sharedEventId = event.id.replace('shared_', '');
+      let sharedEventId = event.id;
+      if (event.id.startsWith('shared_')) {
+        sharedEventId = event.id.replace('shared_', '');
+      }
+      
+      console.log('🔍 [Decline] Extracted shared event ID:', sharedEventId);
       
       // Use the imported sharing utility function
       const result = await declineSharedEventUtil(sharedEventId);
+      
+      console.log('🔍 [Decline] Decline result:', result);
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to decline event');
       }
 
+      // Show success message
+      Toast.show({
+        type: 'success',
+        text1: 'Event declined',
+        text2: 'The event has been removed from your pending list',
+        position: 'bottom',
+      });
+
       // Refresh events to update the display
-      refreshEvents();
+      await refreshEvents();
     } catch (error) {
       console.error('Error declining shared event:', error);
       Alert.alert('Error', 'Failed to decline event. Please try again.');
@@ -4468,9 +4550,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
 
       {/* Calendar and Event List Container */}
-      <View style={{ flex: 1, flexDirection: 'column' }}>
+      <View style={{ 
+        flex: 1, 
+        flexDirection: 'column',
+        minHeight: 600, // Ensure stable minimum height
+      }}>
         {/* Calendar Grid */}
-        <View style={{ flex: isMonthCompact ? 0.5 : 1 }}>
+        <View style={{ 
+          flex: isMonthCompact ? 0.5 : 1,
+          minHeight: isMonthCompact ? 200 : 400, // Ensure stable height
+        }}>
           <FlatList
             ref={flatListRef}
             data={months}
@@ -4487,7 +4576,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             })}
             showsHorizontalScrollIndicator={false}
             style={{ flex: 1 }}
-            scrollEnabled={true} // Keep horizontal scrolling enabled but make it less sensitive
+            scrollEnabled={true}
+            removeClippedSubviews={false}
+            maxToRenderPerBatch={1}
+            windowSize={3}
             onScroll={(event) => {
               const newIndex = Math.round(event.nativeEvent.contentOffset.x / SCREEN_WIDTH);
               if (newIndex !== currentMonthIndex) {
@@ -4499,7 +4591,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
         {/* Event List */}
         {isMonthCompact && selectedDate && (
-          <View style={{ flex: 0.6, backgroundColor: 'white' }}>
+          <View style={{ 
+            flex: 0.6, 
+            backgroundColor: 'white',
+            minHeight: 300, // Ensure stable height
+          }}>
             <View style={styles.dateHeader}>
               <Text style={styles.dateHeaderText}>
                 {`${selectedDate.getDate()}. ${selectedDate.toLocaleDateString('en-US', { weekday: 'short' })}`}
@@ -4712,8 +4808,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                           return;
                                         }
                                         
-                                      setSelectedPhotoForViewing({ event, photoUrl });
-                                      setShowPhotoViewer(true);
+                                        // Use the new Instagram-like zoom viewer
+                                        setSelectedPhotoForZoom({ photoUrl, eventTitle: event.title });
+                                        setShowPhotoZoomModal(true);
                                       } catch (error) {
                                         console.error('Error opening photo viewer:', error);
                                         Alert.alert('Error', 'Failed to open photo viewer');
@@ -5162,6 +5259,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             onChange={(event, selectedDate) => {
                               if (selectedDate) {
                                 if (showStartPicker) {
+                                  console.log('🔍 [Calendar] Date picker - updating startDateTime:', {
+                                    oldStartDateTime: startDateTime.toISOString(),
+                                    newStartDateTime: selectedDate.toISOString(),
+                                    oldDate: getLocalDateString(startDateTime),
+                                    newDate: getLocalDateString(selectedDate)
+                                  });
                                   setStartDateTime(selectedDate);
                                   if (endDateTime < selectedDate) {
                                     const newEnd = new Date(selectedDate);
@@ -5170,6 +5273,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   }
                                   debouncePickerClose('start');
                                 } else {
+                                  console.log('🔍 [Calendar] Date picker - updating endDateTime:', {
+                                    oldEndDateTime: endDateTime.toISOString(),
+                                    newEndDateTime: selectedDate.toISOString()
+                                  });
                                   setEndDateTime(selectedDate);
                                   debouncePickerClose('end');
                                 }
@@ -6175,6 +6282,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             onChange={(event, selectedDate) => {
                           if (selectedDate) {
                               if (showStartPicker) {
+                                console.log('🔍 [Calendar] Edit modal date picker - updating editedStartDateTime:', {
+                                  oldEditedStartDateTime: editedStartDateTime.toISOString(),
+                                  newEditedStartDateTime: selectedDate.toISOString(),
+                                  oldDate: getLocalDateString(editedStartDateTime),
+                                  newDate: getLocalDateString(selectedDate)
+                                });
                               setEditedStartDateTime(selectedDate);
                               if (editedEndDateTime < selectedDate) {
                                 const newEnd = new Date(selectedDate);
@@ -6183,6 +6296,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               }
                                   debouncePickerClose('start');
                               } else {
+                                console.log('🔍 [Calendar] Edit modal date picker - updating editedEndDateTime:', {
+                                  oldEditedEndDateTime: editedEndDateTime.toISOString(),
+                                  newEditedEndDateTime: selectedDate.toISOString()
+                                });
                               setEditedEndDateTime(selectedDate);
                                   debouncePickerClose('end');
                                 }
@@ -7131,74 +7248,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   }],
                 }}
               >
-                {/* Gesture Handler Overlay */}
-                <View
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    zIndex: 1,
-                  }}
-                  {...PanResponder.create({
-                    onStartShouldSetPanResponder: () => true,
-                    onMoveShouldSetPanResponder: (evt, gestureState) => {
-                      const { dx, dy } = gestureState;
-                      // Only respond to horizontal gestures
-                      const shouldRespond = Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10;
-                      console.log('🔄 [Shared Events] Gesture detected:', { dx, dy, shouldRespond });
-                      return shouldRespond;
-                    },
-                    onPanResponderGrant: () => {
-                      console.log('🔄 [Shared Events] Gesture started');
-                      swipeAnimation.stopAnimation();
-                    },
-                    onPanResponderMove: (evt, gestureState) => {
-                      const { dx } = gestureState;
-                      const base = activeSharedEventsTab === 'sent' ? -SCREEN_WIDTH : 0;
-                      let newTranslate = base + dx;
-                      
-                      // Clamp the translation
-                      newTranslate = Math.max(-SCREEN_WIDTH, Math.min(0, newTranslate));
-                      
-                      // Apply resistance at boundaries
-                      if (newTranslate < -SCREEN_WIDTH) {
-                        newTranslate = -SCREEN_WIDTH + (newTranslate + SCREEN_WIDTH) * 0.3;
-                      } else if (newTranslate > 0) {
-                        newTranslate = newTranslate * 0.3;
-                      }
-                      
-                      console.log('🔄 [Shared Events] Moving:', { dx, newTranslate });
-                      swipeAnimation.setValue(newTranslate / SCREEN_WIDTH);
-                    },
-                    onPanResponderRelease: (evt, gestureState) => {
-                      const { dx, vx } = gestureState;
-                      let toTab = activeSharedEventsTab;
-                      
-                      console.log('🔄 [Shared Events] Gesture released:', { dx, vx, currentTab: activeSharedEventsTab });
-                      
-                      // Determine which tab to switch to
-                      if (activeSharedEventsTab === 'received' && (dx < -SCREEN_WIDTH / 3 || vx < -0.5)) {
-                        toTab = 'sent';
-                      } else if (activeSharedEventsTab === 'sent' && (dx > SCREEN_WIDTH / 3 || vx > 0.5)) {
-                        toTab = 'received';
-                      }
-                      
-                      console.log('🔄 [Shared Events] Switching to tab:', toTab);
-                      setActiveSharedEventsTab(toTab);
-                      
-                      Animated.spring(swipeAnimation, {
-                        toValue: toTab === 'sent' ? -1 : 0,
-                        useNativeDriver: true,
-                        tension: 100,
-                        friction: 8,
-                      }).start(() => {
-                        swipeAnimation.setValue(toTab === 'sent' ? -1 : 0);
-                      });
-                    },
-                  }).panHandlers}
-                />
+                {/* Removed PanResponder overlay to fix button touch events */}
                 {/* Received Tab */}
                 <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
                   <ScrollView 
@@ -7371,12 +7421,27 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             }}>
                               <TouchableOpacity
                                 onPress={async () => {
-                                  await handleAcceptSharedEvent(event);
-                                  updatePendingSharedEvents();
-                                  if (pendingSharedEvents.length === 1) {
-                                    setShowSharedEventsModal(false);
+                                  console.log('🔍 [Accept Button] TOUCH DETECTED!');
+                                  try {
+                                    console.log('🔍 [Accept Button] Button pressed for event:', {
+                                      id: event.id,
+                                      title: event.title,
+                                      isShared: event.isShared,
+                                      sharedStatus: event.sharedStatus
+                                    });
+                                    
+                                    await handleAcceptSharedEvent(event);
+                                    // Refresh events to update the display
+                                    await refreshEvents();
+                                    // Update the pending events list to reflect changes
+                                    updatePendingSharedEvents();
+                                  } catch (error) {
+                                    console.error('Error in accept button handler:', error);
+                                    Alert.alert('Error', 'Failed to accept event. Please try again.');
                                   }
                                 }}
+                                activeOpacity={0.7}
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                 style={{
                                   flex: 1,
                                   backgroundColor: Colors.light.accent,
@@ -7403,12 +7468,27 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               
                               <TouchableOpacity
                                 onPress={async () => {
-                                  await handleDeclineSharedEvent(event);
-                                  updatePendingSharedEvents();
-                                  if (pendingSharedEvents.length === 1) {
-                                    setShowSharedEventsModal(false);
+                                  console.log('🔍 [Decline Button] TOUCH DETECTED!');
+                                  try {
+                                    console.log('🔍 [Decline Button] Button pressed for event:', {
+                                      id: event.id,
+                                      title: event.title,
+                                      isShared: event.isShared,
+                                      sharedStatus: event.sharedStatus
+                                    });
+                                    
+                                    await handleDeclineSharedEvent(event);
+                                    // Refresh events to update the display
+                                    await refreshEvents();
+                                    // Update the pending events list to reflect changes
+                                    updatePendingSharedEvents();
+                                  } catch (error) {
+                                    console.error('Error in decline button handler:', error);
+                                    Alert.alert('Error', 'Failed to decline event. Please try again.');
                                   }
                                 }}
+                                activeOpacity={0.7}
+                                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                                 style={{
                                   flex: 1,
                                   backgroundColor: Colors.light.surface,
@@ -7790,6 +7870,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         photoUrl={photoForCaption?.url}
         eventTitle={photoForCaption?.eventTitle}
         isLoading={isSharingPhoto}
+      />
+
+      {/* Instagram-like Photo Zoom Viewer */}
+      <PhotoZoomViewer
+        visible={showPhotoZoomModal}
+        photoUrl={selectedPhotoForZoom?.photoUrl || ''}
+        sourceTitle={selectedPhotoForZoom?.eventTitle}
+        sourceType="event"
+        onClose={() => {
+          setShowPhotoZoomModal(false);
+          setSelectedPhotoForZoom(null);
+        }}
       />
 
       </>

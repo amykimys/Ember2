@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import Toast from 'react-native-toast-message';
+import { sendEventSharedNotification, sendTaskSharedNotification } from './notificationUtils';
 
 export interface ShareData {
   originalId: string;
@@ -77,6 +78,18 @@ export const shareTaskWithFriend = async (taskId: string, friendId: string, user
   console.log('🔍 shareTaskWithFriend: User ID:', userId);
   
   try {
+    // Get task details for notification
+    const { data: taskData, error: taskError } = await supabase
+      .from('todos')
+      .select('text')
+      .eq('id', taskId)
+      .single();
+
+    if (taskError) {
+      console.error('Error fetching task details:', taskError);
+      throw taskError;
+    }
+
     const { error } = await supabase.rpc('share_task_with_friend', {
       p_task_id: taskId,
       p_user_id: userId,
@@ -89,6 +102,20 @@ export const shareTaskWithFriend = async (taskId: string, friendId: string, user
     }
 
     console.log('✅ shareTaskWithFriend: Task shared successfully');
+
+    // Send notification to the friend
+    try {
+      await sendTaskSharedNotification(
+        friendId,
+        userId,
+        taskData.text,
+        taskId
+      );
+    } catch (notificationError) {
+      console.error('Error sending task shared notification:', notificationError);
+      // Don't fail the entire operation if notification fails
+    }
+
   } catch (error) {
     console.error('❌ shareTaskWithFriend: Error in shareTaskWithFriend:', error);
     throw error;
@@ -120,6 +147,18 @@ export const shareEventWithFriends = async (
       return { success: false, error: 'User not authenticated' };
     }
 
+    // Get event details for notifications
+    const { data: eventData, error: eventError } = await supabase
+      .from('events')
+      .select('title')
+      .eq('id', eventId)
+      .single();
+
+    if (eventError) {
+      console.error('Error fetching event details:', eventError);
+      return { success: false, error: 'Event not found' };
+    }
+
     // Create shared event records
     const sharedEvents = friendIds.map(friendId => ({
       original_event_id: eventId,
@@ -138,6 +177,21 @@ export const shareEventWithFriends = async (
     if (error) {
       console.error('Error sharing event:', error);
       return { success: false, error: error.message };
+    }
+
+    // Send notifications to all friends
+    for (const friendId of friendIds) {
+      try {
+        await sendEventSharedNotification(
+          friendId,
+          user.id,
+          eventData.title,
+          eventId
+        );
+      } catch (notificationError) {
+        console.error('Error sending notification to friend:', friendId, notificationError);
+        // Don't fail the entire operation if notification fails
+      }
     }
 
     return { success: true };
@@ -213,8 +267,23 @@ export const createAndShareEvent = async (
       .insert(sharedEvents);
 
     if (shareError) {
-      console.error('Error sharing event:', shareError);
+      console.error('Error creating shared events:', shareError);
       return { success: false, error: shareError.message };
+    }
+
+    // Send notifications to all friends
+    for (const friendId of friendIds) {
+      try {
+        await sendEventSharedNotification(
+          friendId,
+          user.id,
+          eventData.title,
+          eventData.id
+        );
+      } catch (notificationError) {
+        console.error('Error sending notification to friend:', friendId, notificationError);
+        // Don't fail the entire operation if notification fails
+      }
     }
 
     return { success: true, eventId: eventData.id };
@@ -481,53 +550,84 @@ export const acceptSharedEvent = async (
   sharedEventId: string
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    console.log('🔍 [AcceptSharedEvent] Starting accept process for shared event ID:', sharedEventId);
+    
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      console.error('❌ [AcceptSharedEvent] User error:', userError);
+      return { success: false, error: 'User authentication error' };
+    }
     if (!user) {
+      console.error('❌ [AcceptSharedEvent] No user found');
       return { success: false, error: 'User not authenticated' };
     }
+    
+    console.log('✅ [AcceptSharedEvent] User authenticated:', user.id);
 
     // First, get the shared event details
+    console.log('🔍 [AcceptSharedEvent] Fetching shared event details...');
     const { data: sharedEvent, error: fetchError } = await supabase
       .from('shared_events')
       .select(`
         *,
-        events!inner(*)
+        events(*)
       `)
       .eq('id', sharedEventId)
       .eq('shared_with', user.id)
       .single();
 
-    if (fetchError || !sharedEvent) {
-      console.error('Error fetching shared event:', fetchError);
+    if (fetchError) {
+      console.error('❌ [AcceptSharedEvent] Error fetching shared event:', fetchError);
+      return { success: false, error: `Failed to fetch shared event: ${fetchError.message}` };
+    }
+    
+    if (!sharedEvent) {
+      console.error('❌ [AcceptSharedEvent] Shared event not found');
       return { success: false, error: 'Shared event not found' };
     }
+    
+    console.log('✅ [AcceptSharedEvent] Shared event found:', sharedEvent);
+    console.log('🔍 [AcceptSharedEvent] Events data:', sharedEvent.events);
 
     // Create a new event in the user's events table
     // Note: We do NOT copy photos to keep them with the original event owner
+    console.log('🔍 [AcceptSharedEvent] Creating new event in user\'s events table...');
+    
+    if (!sharedEvent.events || sharedEvent.events.length === 0) {
+      console.error('❌ [AcceptSharedEvent] No events data found in shared event');
+      return { success: false, error: 'No event data found' };
+    }
+    
+    const eventData = sharedEvent.events[0];
+    console.log('🔍 [AcceptSharedEvent] Event data to copy:', eventData);
+    
     const { error: insertError } = await supabase
       .from('events')
       .insert({
         id: `accepted_${sharedEvent.original_event_id}_${user.id}`,
-        title: sharedEvent.events.title,
-        description: sharedEvent.events.description,
-        location: sharedEvent.events.location,
-        date: sharedEvent.events.date,
-        start_datetime: sharedEvent.events.start_datetime,
-        end_datetime: sharedEvent.events.end_datetime,
-        category_name: sharedEvent.events.category_name,
-        category_color: sharedEvent.events.category_color,
-        is_all_day: sharedEvent.events.is_all_day,
+        title: eventData.title,
+        description: eventData.description,
+        location: eventData.location,
+        date: eventData.date,
+        start_datetime: eventData.start_datetime,
+        end_datetime: eventData.end_datetime,
+        category_name: eventData.category_name,
+        category_color: eventData.category_color,
+        is_all_day: eventData.is_all_day,
         photos: [], // Don't copy photos - keep them with original event owner
         user_id: user.id,
         created_at: new Date().toISOString()
       });
 
     if (insertError) {
-      console.error('Error creating accepted event:', insertError);
+      console.error('❌ [AcceptSharedEvent] Error creating accepted event:', insertError);
       return { success: false, error: insertError.message };
     }
+    
+    console.log('✅ [AcceptSharedEvent] New event created successfully');
 
     // Update the shared event status to accepted
+    console.log('🔍 [AcceptSharedEvent] Updating shared event status to accepted...');
     const { error: updateError } = await supabase
       .from('shared_events')
       .update({ 
@@ -538,9 +638,11 @@ export const acceptSharedEvent = async (
       .eq('shared_with', user.id);
 
     if (updateError) {
-      console.error('Error updating shared event status:', updateError);
+      console.error('❌ [AcceptSharedEvent] Error updating shared event status:', updateError);
       return { success: false, error: updateError.message };
     }
+    
+    console.log('✅ [AcceptSharedEvent] Shared event status updated to accepted');
 
     Toast.show({
       type: 'success',
@@ -608,11 +710,21 @@ export const declineSharedEvent = async (
   sharedEventId: string
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    console.log('🔍 [DeclineSharedEvent] Starting decline process for shared event ID:', sharedEventId);
+    
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError) {
+      console.error('❌ [DeclineSharedEvent] User error:', userError);
+      return { success: false, error: 'User authentication error' };
+    }
     if (!user) {
+      console.error('❌ [DeclineSharedEvent] No user found');
       return { success: false, error: 'User not authenticated' };
     }
+    
+    console.log('✅ [DeclineSharedEvent] User authenticated:', user.id);
 
+    console.log('🔍 [DeclineSharedEvent] Updating shared event status to declined...');
     const { error } = await supabase
       .from('shared_events')
       .update({ 
@@ -623,9 +735,11 @@ export const declineSharedEvent = async (
       .eq('shared_with', user.id);
 
     if (error) {
-      console.error('Error declining shared event:', error);
+      console.error('❌ [DeclineSharedEvent] Error declining shared event:', error);
       return { success: false, error: error.message };
     }
+    
+    console.log('✅ [DeclineSharedEvent] Shared event declined successfully');
 
     return { success: true };
   } catch (error) {

@@ -82,15 +82,15 @@ export const calendarStyles = StyleSheet.create({
   gridCompact: {
     paddingTop: 5,
     height: getCellHeight(new Date()) * 5,
-    overflow: 'hidden',
+    overflow: 'visible',
   },
 
   // Cell styles
   cell: {
     width: CELL_WIDTH,
     paddingTop: 2,
-    paddingLeft: 2,
-    paddingRight: 2,
+    paddingLeft: 1,
+    paddingRight: 1,
     borderColor: '#eee',
     backgroundColor: 'white',
     overflow: 'visible',
@@ -159,10 +159,11 @@ export const calendarStyles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 3,
     width: '100%',
-    paddingHorizontal: 0,
+    paddingHorizontal: 1,
     minHeight: 0,
     flex: 1,
-    gap: 2
+    gap: 2,
+    overflow: 'visible',
   },
   eventBoxText: {
     flexDirection: 'row',
@@ -171,6 +172,7 @@ export const calendarStyles = StyleSheet.create({
     borderRadius: 4,
     paddingVertical: 2,
     paddingHorizontal: 4,
+    overflow: 'visible',
   },
   eventDotsContainer: {
     flexDirection: 'row',
@@ -203,21 +205,24 @@ export const calendarStyles = StyleSheet.create({
     borderBottomLeftRadius: 4,
     borderTopRightRadius: 0,
     borderBottomRightRadius: 0,
-    marginRight: -4,
-    paddingRight: 8,
+    marginRight: -1,
+    paddingRight: 5,
+    zIndex: 2,
   },
   multiDayEventMiddle: {
     borderRadius: 0,
-    marginHorizontal: -4,
-    paddingHorizontal: 8,
+    marginHorizontal: -1,
+    paddingHorizontal: 5,
+    zIndex: 1,
   },
   multiDayEventEnd: {
     borderTopLeftRadius: 0,
     borderBottomLeftRadius: 0,
     borderTopRightRadius: 4,
     borderBottomRightRadius: 4,
-    marginLeft: -4,
-    paddingLeft: 8,
+    marginLeft: -1,
+    paddingLeft: 5,
+    zIndex: 2,
   },
 
   // Google Calendar Event styles

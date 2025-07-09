@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack } from 'expo-router';
 import { supabase } from '../../supabase';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
 import moment from 'moment';
 import debounce from 'lodash/debounce';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -34,6 +35,7 @@ import {
   subscribeToNoteCollaborators,
   subscribeToSharedNotes,
   ensureSharedNotesTable,
+  updateSharedNote,
   type SharedNote,
   type NoteCollaborator
 } from '../../utils/sharedNotes';
@@ -108,6 +110,25 @@ export default function NotesScreen() {
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
   const [sharedNoteDetails, setSharedNoteDetails] = useState<Map<string, string[]>>(new Map());
   
+  // Add notification listeners for shared note notifications
+  useEffect(() => {
+    const responseListener = Notifications.addNotificationResponseReceivedListener((response: any) => {
+      console.log('🔔 [Notes Notifications] Notification response received:', response);
+      
+      // Handle shared note notifications
+      const notificationData = response.notification.request.content.data;
+      if (notificationData?.type === 'note_shared') {
+        console.log('🔔 [Notes Notifications] Handling shared note notification:', notificationData);
+        // Refresh notes to show the new shared note
+        fetchNotes(true);
+        loadSharedNotes();
+      }
+    });
+
+    return () => {
+      Notifications.removeNotificationSubscription(responseListener);
+    };
+  }, []);
 
 
   // Combine regular notes and shared notes
@@ -122,6 +143,7 @@ export default function NotesScreen() {
     for (const sharedNote of sharedNotes) {
       try {
         console.log('🔍 [CombineNotes] Processing shared note:', sharedNote.original_note_id);
+        console.log('🔍 [CombineNotes] Shared note can_edit value:', sharedNote.can_edit);
         
         // Fetch the actual note content for each shared note
         const { data: noteData, error } = await supabase
@@ -428,39 +450,62 @@ export default function NotesScreen() {
         const { title, body } = splitContent(content.trim());
 
         if (note) {
-          // Optimistic update for existing note
-          const optimisticNote = {
-            ...note,
-            title,
-            content: body,
-            updated_at: new Date().toISOString(),
-          };
-
-          setNotes(prevNotes =>
-            prevNotes.map(n =>
-              n.id === note.id ? optimisticNote : n
-            ).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-          );
-
-          // Update in database
-          const { error } = await supabase
-            .from('notes')
-            .update({
+          // Check if this is a shared note that the user can edit
+          if (note.isShared && note.canEdit) {
+            console.log('🔍 [SaveNote] Saving shared note with collaboration');
+            
+            // Use the shared note update function
+            const result = await updateSharedNote(note.id, body, title);
+            
+            if (!result.success) {
+              console.error('❌ [SaveNote] Failed to update shared note:', result.error);
+              Alert.alert('Error', 'Failed to save shared note. You may not have edit permissions.');
+              return;
+            }
+            
+            console.log('✅ [SaveNote] Shared note updated successfully');
+          } else if (note.isShared && !note.canEdit) {
+            console.log('❌ [SaveNote] User does not have edit permissions for this shared note');
+            Alert.alert('Error', 'You do not have permission to edit this shared note.');
+            return;
+          } else {
+            // Regular note update
+            console.log('🔍 [SaveNote] Saving regular note');
+            
+            // Optimistic update for existing note
+            const optimisticNote = {
+              ...note,
               title,
               content: body,
-              updated_at: optimisticNote.updated_at,
-            })
-            .eq('id', note.id)
-            .eq('user_id', user.id);
+              updated_at: new Date().toISOString(),
+            };
 
-          if (error) {
-            // Revert optimistic update on error
             setNotes(prevNotes =>
               prevNotes.map(n =>
-                n.id === note.id ? note : n
+                n.id === note.id ? optimisticNote : n
               ).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
             );
-            throw error;
+
+            // Update in database
+            const { error } = await supabase
+              .from('notes')
+              .update({
+                title,
+                content: body,
+                updated_at: optimisticNote.updated_at,
+              })
+              .eq('id', note.id)
+              .eq('user_id', user.id);
+
+            if (error) {
+              // Revert optimistic update on error
+              setNotes(prevNotes =>
+                prevNotes.map(n =>
+                  n.id === note.id ? note : n
+                ).sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+              );
+              throw error;
+            }
           }
         } else {
           // Create new note with optimistic update
@@ -522,6 +567,16 @@ export default function NotesScreen() {
     debouncedSave(text, currentNote);
   }, [debouncedSave, currentNote]);
 
+  const checkNoteEditPermissions = useCallback(async (noteId: string) => {
+    try {
+      const result = await canUserEditNote(noteId);
+      return result;
+    } catch (error) {
+      console.error('Error checking edit permissions:', error);
+      return false;
+    }
+  }, []);
+
   const handleDeleteNote = useCallback(async (noteId: string) => {
     try {
       if (!user) {
@@ -565,12 +620,30 @@ export default function NotesScreen() {
     }
   }, [user, notes, currentNote]);
 
-  const handleOpenNote = useCallback((note: Note) => {
+  const handleOpenNote = useCallback(async (note: Note) => {
     setCurrentNote(note);
     setNoteContent(note.title !== 'Untitled Note' ? note.title + '\n' + note.content : note.content);
     setShowNoteModal(true);
     setIsEditing(false);
-  }, []);
+
+    // Check if this is a shared note and if the user can edit it
+    if (note.isShared) {
+      try {
+        const canEdit = await checkNoteEditPermissions(note.id);
+        console.log('🔍 [OpenNote] Shared note edit permission:', canEdit);
+        
+        // Update the note with edit permission
+        setCurrentNote(prev => prev ? { ...prev, canEdit } : null);
+        
+        // If user can edit, allow them to start editing immediately
+        if (canEdit) {
+          setIsEditing(true);
+        }
+      } catch (error) {
+        console.error('Error checking edit permissions:', error);
+      }
+    }
+  }, [checkNoteEditPermissions]);
 
   const handleNewNote = useCallback(() => {
     setCurrentNote(null);
@@ -591,22 +664,69 @@ export default function NotesScreen() {
   }, []);
 
   const handleStartEditing = useCallback(() => {
+    // Check if this is a shared note and if the user can edit it
+    if (currentNote?.isShared && !currentNote?.canEdit) {
+      Alert.alert('View Only', 'You can only view this shared note. You do not have edit permissions.');
+      return;
+    }
     setIsEditing(true);
-  }, []);
+  }, [currentNote]);
 
   // Shared notes functions
   const loadSharedNotes = useCallback(async () => {
     try {
-      console.log('🔄 Loading shared notes...');
+      console.log('🔄 [LoadSharedNotes] Starting to load shared notes...');
       setLoadingStates(prev => ({ ...prev, sharedNotes: true }));
       
+      // First check authentication
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError) {
+        console.error('❌ [LoadSharedNotes] Auth error:', authError);
+        return;
+      }
+      if (!user) {
+        console.error('❌ [LoadSharedNotes] No user found');
+        return;
+      }
+      
+      console.log('✅ [LoadSharedNotes] User authenticated:', user.id);
+      
+      // Test database connectivity
+      const { data: testData, error: testError } = await supabase
+        .from('shared_notes')
+        .select('id')
+        .limit(1);
+      
+      if (testError) {
+        console.error('❌ [LoadSharedNotes] Database connectivity error:', testError);
+        return;
+      }
+      
+      console.log('✅ [LoadSharedNotes] Database connectivity confirmed');
+      
       const result = await getSharedNotes();
+      console.log('🔍 [LoadSharedNotes] getSharedNotes result:', result);
+      
       if (result.success && result.data) {
         setSharedNotes(result.data);
-        console.log('✅ Loaded shared notes:', result.data.length);
+        console.log('✅ [LoadSharedNotes] Loaded shared notes:', result.data.length);
+        console.log('🔍 [LoadSharedNotes] Shared notes data:', result.data);
+        
+        // Debug can_edit values
+        result.data.forEach((sharedNote, index) => {
+          console.log(`🔍 [LoadSharedNotes] Shared note ${index}:`, {
+            id: sharedNote.id,
+            original_note_id: sharedNote.original_note_id,
+            can_edit: sharedNote.can_edit,
+            shared_by: sharedNote.shared_by,
+            shared_with: sharedNote.shared_with
+          });
+        });
+      } else {
+        console.error('❌ [LoadSharedNotes] Failed to load shared notes:', result.error);
       }
     } catch (error) {
-      console.error('Error loading shared notes:', error);
+      console.error('❌ [LoadSharedNotes] Unexpected error:', error);
     } finally {
       setLoadingStates(prev => ({ ...prev, sharedNotes: false }));
     }
@@ -618,43 +738,56 @@ export default function NotesScreen() {
 
   // Memoized note item renderer for better performance
   const renderNoteItem = useCallback(({ item: note }: { item: Note }) => {
+    // Debug logging for shared notes
+    if (sharedNoteIds.has(note.id)) {
+      console.log('🔍 [RenderNoteItem] Note is shared:', note.id);
+      console.log('🔍 [RenderNoteItem] Shared details:', sharedNoteDetails.get(note.id));
+      console.log('🔍 [RenderNoteItem] Note isShared property:', note.isShared);
+      console.log('🔍 [RenderNoteItem] Should show "Shared with":', sharedNoteIds.has(note.id) && !note.isShared);
+    }
 
     const renderRightActions = () => {
       return (
         <View style={styles.rightActions}>
-          <TouchableOpacity
-            style={styles.shareAction}
-            onPress={() => {
-              if (Platform.OS !== 'web') {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              }
-              handleShareNote(note);
-            }}
-          >
-            <Ionicons name="share-outline" size={20} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.deleteAction}
-            onPress={() => {
-              if (Platform.OS !== 'web') {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              }
-              Alert.alert(
-                'Delete Note',
-                'Are you sure you want to delete this note?',
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: () => handleDeleteNote(note.id),
-                  },
-                ]
-              );
-            }}
-          >
-            <Ionicons name="trash" size={20} color="#fff" />
-          </TouchableOpacity>
+          {/* Only show share button for notes that the user owns */}
+          {!note.isShared && (
+            <TouchableOpacity
+              style={styles.shareAction}
+              onPress={() => {
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
+                handleShareNote(note);
+              }}
+            >
+              <Ionicons name="share-outline" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
+          {/* Only show delete button for notes that the user owns */}
+          {!note.isShared && (
+            <TouchableOpacity
+              style={styles.deleteAction}
+              onPress={() => {
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                }
+                Alert.alert(
+                  'Delete Note',
+                  'Are you sure you want to delete this note?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: () => handleDeleteNote(note.id),
+                    },
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="trash" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
         </View>
       );
     };
@@ -672,18 +805,27 @@ export default function NotesScreen() {
             if (Platform.OS !== 'web') {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             }
-            Alert.alert(
-              'Delete Note',
-              'Are you sure you want to delete this note?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Delete',
-                  style: 'destructive',
-                  onPress: () => handleDeleteNote(note.id),
-                },
-              ]
-            );
+            // Only allow deletion for notes that the user owns
+            if (!note.isShared) {
+              Alert.alert(
+                'Delete Note',
+                'Are you sure you want to delete this note?',
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Delete',
+                    style: 'destructive',
+                    onPress: () => handleDeleteNote(note.id),
+                  },
+                ]
+              );
+            } else {
+              Alert.alert(
+                'Shared Note',
+                'This is a shared note. You cannot delete notes shared with you.',
+                [{ text: 'OK', style: 'default' }]
+              );
+            }
           }}
           delayLongPress={500}
         >
@@ -702,6 +844,11 @@ export default function NotesScreen() {
                 </View>
               )}
             </View>
+            {note.content ? (
+              <Text style={styles.notePreviewContent} numberOfLines={2}>
+                {note.content}
+              </Text>
+            ) : null}
             {note.isShared && (
               <View style={styles.sharedWithContainer}>
                 <Text style={styles.sharedWithText}>
@@ -716,11 +863,6 @@ export default function NotesScreen() {
                 </Text>
               </View>
             )}
-            {note.content ? (
-              <Text style={styles.notePreviewContent} numberOfLines={2}>
-                {note.content}
-              </Text>
-            ) : null}
             <Text style={styles.noteDate}>
               {moment(note.updated_at).fromNow()}
             </Text>
@@ -729,6 +871,67 @@ export default function NotesScreen() {
       </Swipeable>
     );
   }, [handleDeleteNote, handleOpenNote, sharedNoteIds, sharedNoteDetails]);
+
+  // Debug function to test shared notes functionality
+  const debugSharedNotes = useCallback(async () => {
+    try {
+      console.log('🔍 [DebugSharedNotes] Starting debug...');
+      
+      // Check authentication
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        console.error('❌ [DebugSharedNotes] Auth issue:', authError);
+        return;
+      }
+      
+      console.log('✅ [DebugSharedNotes] User:', user.id);
+      
+      // Check if shared_notes table exists
+      const { data: tableData, error: tableError } = await supabase
+        .from('shared_notes')
+        .select('*')
+        .limit(5);
+      
+      console.log('🔍 [DebugSharedNotes] Table check result:', { data: tableData, error: tableError });
+      
+      // Check for shared notes where user is recipient
+      const { data: receivedNotes, error: receivedError } = await supabase
+        .from('shared_notes')
+        .select('*')
+        .eq('shared_with', user.id);
+      
+      console.log('🔍 [DebugSharedNotes] Received notes:', { data: receivedNotes, error: receivedError });
+      
+      // Check for shared notes where user is sender
+      const { data: sentNotes, error: sentError } = await supabase
+        .from('shared_notes')
+        .select('*')
+        .eq('shared_by', user.id);
+      
+      console.log('🔍 [DebugSharedNotes] Sent notes:', { data: sentNotes, error: sentError });
+      
+      // Check notes table
+      const { data: notesData, error: notesError } = await supabase
+        .from('notes')
+        .select('id, title')
+        .eq('user_id', user.id)
+        .limit(5);
+      
+      console.log('🔍 [DebugSharedNotes] User notes:', { data: notesData, error: notesError });
+      
+      // Test edit permissions for received notes
+      if (receivedNotes && receivedNotes.length > 0) {
+        console.log('🔍 [DebugSharedNotes] Testing edit permissions...');
+        for (const sharedNote of receivedNotes) {
+          const canEdit = await checkNoteEditPermissions(sharedNote.original_note_id);
+          console.log(`🔍 [DebugSharedNotes] Note ${sharedNote.original_note_id}: canEdit = ${canEdit}`);
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ [DebugSharedNotes] Error:', error);
+    }
+  }, [checkNoteEditPermissions]);
 
   // Load shared note IDs and friend names for current user's notes
   const loadSharedNoteIds = useCallback(async () => {
@@ -906,8 +1109,34 @@ export default function NotesScreen() {
         setShowShareModal(false);
         setSelectedNoteForSharing(null);
         setSelectedFriends(new Set());
-        // Refresh shared note IDs to show "Shared with" information
-        await loadSharedNoteIds();
+        
+        // Optimistically update the UI immediately
+        if (selectedNoteForSharing) {
+          const friendNames = Array.from(selectedFriends).map(friendId => {
+            const friend = friends.find(f => f.id === friendId);
+            return friend?.name || 'Unknown';
+          });
+          
+          console.log('🔍 [HandleShareNote] Optimistic update - Note ID:', selectedNoteForSharing.id);
+          console.log('🔍 [HandleShareNote] Optimistic update - Friend names:', friendNames);
+          
+          // Update shared note IDs and details optimistically
+          setSharedNoteIds(prev => {
+            const newSet = new Set([...prev, selectedNoteForSharing.id]);
+            console.log('🔍 [HandleShareNote] Updated shared note IDs:', Array.from(newSet));
+            return newSet;
+          });
+          setSharedNoteDetails(prev => {
+            const newMap = new Map(prev);
+            newMap.set(selectedNoteForSharing.id, friendNames);
+            console.log('🔍 [HandleShareNote] Updated shared note details:', Array.from(newMap.entries()));
+            return newMap;
+          });
+        }
+        
+        // Refresh the combined notes to ensure UI updates immediately
+        await combineNotes();
+        
         Alert.alert('Success', 'Note shared successfully!');
       } else {
         console.error('❌ [HandleShareNote] Share failed:', result.error);
@@ -917,7 +1146,7 @@ export default function NotesScreen() {
       console.error('❌ [HandleShareNote] Unexpected error:', error);
       Alert.alert('Error', 'Failed to share note');
     }
-  }, [selectedNoteForSharing, selectedFriends, loadSharedNoteIds]);
+  }, [selectedNoteForSharing, selectedFriends, loadSharedNoteIds, combineNotes, friends]);
 
   // Add friends functions
   const searchUsers = useCallback(async (searchTerm: string) => {
@@ -1014,15 +1243,7 @@ export default function NotesScreen() {
     }
   }, []);
 
-  const checkNoteEditPermissions = useCallback(async (noteId: string) => {
-    try {
-      const result = await canUserEditNote(noteId);
-      return result;
-    } catch (error) {
-      console.error('Error checking edit permissions:', error);
-      return false;
-    }
-  }, []);
+
 
   // Memoized key extractor for FlatList
   const keyExtractor = useCallback((item: Note) => item.id, []);
@@ -1129,6 +1350,19 @@ export default function NotesScreen() {
         {/* Minimal Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Notes</Text>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity
+              style={styles.debugButton}
+              onPress={() => {
+                console.log('🔍 [Debug] Current shared note IDs:', Array.from(sharedNoteIds));
+                console.log('🔍 [Debug] Current shared note details:', Array.from(sharedNoteDetails.entries()));
+                console.log('🔍 [Debug] Combined notes count:', combinedNotes.length);
+                debugSharedNotes();
+              }}
+            >
+              <Ionicons name="bug" size={20} color="#007AFF" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Notes List - Using FlatList for better performance */}
@@ -1216,55 +1450,82 @@ export default function NotesScreen() {
                 )}
                 
                 <View style={styles.modalRightButtons}>
-                  <TouchableOpacity
-                    onPress={() => {
-                      console.log('Add Friends button pressed!');
-                      console.log('Current note being set for sharing:', currentNote);
-                      console.log('Current note ID:', currentNote?.id);
-                      console.log('Current note title:', currentNote?.title);
-                      
-                      // Allow sharing even empty notes - if the note modal is open, we can share
-                      // The note context will be created from currentNote or noteContent
-                      if (!showNoteModal) {
-                        Alert.alert('Error', 'No note open. Please open a note first.');
-                        return;
-                      }
-                      
-                      setIsTemporarilyClosingModal(true);
-                      setCurrentNoteForSharing(currentNote);
-                      setShowAddFriendsModal(true);
-                      setShowNoteModal(false); // Close note modal to show add friends modal
-                    }}
-                    style={styles.modalAddFriendsButton}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="person-add-outline" size={20} color="#007AFF" />
-                  </TouchableOpacity>
+                  {/* Only show share button for notes that the user owns */}
+                  {currentNote && !currentNote.isShared && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        console.log('Add Friends button pressed!');
+                        console.log('Current note being set for sharing:', currentNote);
+                        console.log('Current note ID:', currentNote?.id);
+                        console.log('Current note title:', currentNote?.title);
+                        
+                        // Allow sharing even empty notes - if the note modal is open, we can share
+                        // The note context will be created from currentNote or noteContent
+                        if (!showNoteModal) {
+                          Alert.alert('Error', 'No note open. Please open a note first.');
+                          return;
+                        }
+                        
+                        setIsTemporarilyClosingModal(true);
+                        setCurrentNoteForSharing(currentNote);
+                        setShowAddFriendsModal(true);
+                        setShowNoteModal(false); // Close note modal to show add friends modal
+                      }}
+                      style={styles.modalAddFriendsButton}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="person-add-outline" size={20} color="#007AFF" />
+                    </TouchableOpacity>
+                  )}
 
+                  {/* Show different button text for shared notes */}
                   <TouchableOpacity
                     onPress={handleCloseNote}
                     style={styles.modalCloseButton}
                   >
-                    <Text style={styles.modalCloseText}>Save</Text>
+                    <Text style={styles.modalCloseText}>
+                      {currentNote?.isShared ? 'Done' : 'Save'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
 
+              {/* Shared Note Indicator */}
+              {currentNote?.isShared && (
+                <View style={styles.sharedNoteIndicator}>
+                  <Ionicons name="people" size={16} color="#007AFF" />
+                  <Text style={styles.sharedNoteText}>
+                    Shared by {currentNote.sharedBy}
+                  </Text>
+                </View>
+              )}
+
               {/* Note Editor */}
               {isEditing ? (
                 <TextInput
-                  style={styles.noteEditor}
+                  style={[
+                    styles.noteEditor,
+                    currentNote?.isShared && !currentNote?.canEdit && styles.noteEditorDisabled
+                  ]}
                   placeholder="Start writing..."
                   value={noteContent}
                   onChangeText={handleContentChange}
                   multiline
                   textAlignVertical="top"
                   autoFocus
+                  editable={!currentNote?.isShared || currentNote?.canEdit}
                 />
               ) : (
                 <TouchableOpacity
                   style={styles.noteEditorContainer}
-                  onPress={handleStartEditing}
+                  onPress={() => {
+                    // Only allow editing if it's not a shared note or if user has edit permissions
+                    if (!currentNote?.isShared || currentNote?.canEdit) {
+                      handleStartEditing();
+                    } else {
+                      Alert.alert('View Only', 'You can only view this shared note. You do not have edit permissions.');
+                    }
+                  }}
                   activeOpacity={0.8}
                 >
                   <View style={styles.noteEditorPlaceholder}>
@@ -1673,6 +1934,14 @@ const styles = StyleSheet.create({
     color: '#000',
     fontFamily: 'Onest',
   },
+  debugButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#f0f0f0',
+  },
 
   pendingNoteItem: {
     padding: 16,
@@ -2022,5 +2291,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     fontFamily: 'Onest',
+  },
+  sharedNoteIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#f0f8ff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  sharedNoteText: {
+    fontSize: 14,
+    color: '#007AFF',
+    marginLeft: 8,
+    fontFamily: 'Onest',
+  },
+  noteEditorDisabled: {
+    backgroundColor: '#f8f9fa',
+    color: '#999',
   },
 }); 
