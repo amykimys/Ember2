@@ -87,7 +87,7 @@ export const shareTaskWithFriend = async (taskId: string, friendId: string, user
 
     if (taskError) {
       console.error('Error fetching task details:', taskError);
-      throw taskError;
+      // Don't throw error here, continue with sharing
     }
 
     const { error } = await supabase.rpc('share_task_with_friend', {
@@ -103,21 +103,101 @@ export const shareTaskWithFriend = async (taskId: string, friendId: string, user
 
     console.log('✅ shareTaskWithFriend: Task shared successfully');
 
-    // Send notification to the friend
-    try {
-      await sendTaskSharedNotification(
-        friendId,
-        userId,
-        taskData.text,
-        taskId
-      );
-    } catch (notificationError) {
-      console.error('Error sending task shared notification:', notificationError);
-      // Don't fail the entire operation if notification fails
+    // Send notification to the friend (optional, don't fail if it doesn't work)
+    // Don't send notification if sharing with yourself
+    if (taskData?.text && friendId !== userId) {
+      try {
+        await sendTaskSharedNotification(
+          friendId,
+          userId,
+          taskData.text,
+          taskId
+        );
+      } catch (notificationError) {
+        console.error('Error sending task shared notification:', notificationError);
+        // Don't fail the entire operation if notification fails
+      }
+    } else if (friendId === userId) {
+      console.log('🔍 shareTaskWithFriend: Skipping notification for self-share');
     }
 
   } catch (error) {
     console.error('❌ shareTaskWithFriend: Error in shareTaskWithFriend:', error);
+    throw error;
+  }
+};
+
+// Add friend to existing shared task (no new task creation for original user)
+export const addFriendToSharedTask = async (taskId: string, friendId: string, userId: string) => {
+  console.log('🔍 addFriendToSharedTask: Adding friend to existing shared task');
+  console.log('🔍 addFriendToSharedTask: Task ID:', taskId);
+  console.log('🔍 addFriendToSharedTask: Friend ID:', friendId);
+  console.log('🔍 addFriendToSharedTask: User ID:', userId);
+  
+  try {
+    // Check if this task is already shared with this friend
+    const { data: existingShare, error: checkError } = await supabase
+      .from('shared_tasks')
+      .select('id')
+      .eq('original_task_id', taskId)
+      .eq('shared_by', userId)
+      .eq('shared_with', friendId)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+      console.error('Error checking existing share:', checkError);
+      throw checkError;
+    }
+
+    // If already shared, don't do anything
+    if (existingShare) {
+      console.log('🔍 addFriendToSharedTask: Task already shared with this friend');
+      return;
+    }
+
+    // Get task details for notification
+    const { data: taskData, error: taskError } = await supabase
+      .from('todos')
+      .select('text')
+      .eq('id', taskId)
+      .single();
+
+    if (taskError) {
+      console.error('Error fetching task details:', taskError);
+      // Don't throw error here, continue with sharing
+    }
+
+    // Call the same function but this will only create a copy for the new friend
+    const { error } = await supabase.rpc('share_task_with_friend', {
+      p_task_id: taskId,
+      p_user_id: userId,
+      p_friend_id: friendId
+    });
+
+    if (error) {
+      console.error('❌ addFriendToSharedTask: Error adding friend to shared task:', error);
+      throw error;
+    }
+
+    console.log('✅ addFriendToSharedTask: Friend added to shared task successfully');
+
+    // Send notification to the friend (optional, don't fail if it doesn't work)
+    if (taskData?.text && friendId !== userId) {
+      try {
+        await sendTaskSharedNotification(
+          friendId,
+          userId,
+          taskData.text,
+          taskId
+        );
+      } catch (notificationError) {
+        console.error('Error sending task shared notification:', notificationError);
+        // Don't fail the entire operation if notification fails
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ addFriendToSharedTask: Error in addFriendToSharedTask:', error);
     throw error;
   }
 };

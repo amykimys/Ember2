@@ -39,6 +39,7 @@ import {
   type SharedNote,
   type NoteCollaborator
 } from '../../utils/sharedNotes';
+import CustomToast from '../../components/CustomToast';
 
 interface Note {
   id: string;
@@ -109,6 +110,10 @@ export default function NotesScreen() {
   // Shared notes tracking
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
   const [sharedNoteDetails, setSharedNoteDetails] = useState<Map<string, string[]>>(new Map());
+  
+  // Real-time update tracking
+  const [isRealTimeUpdating, setIsRealTimeUpdating] = useState(false);
+  const [showUpdateToast, setShowUpdateToast] = useState(false);
   
   // Add notification listeners for shared note notifications
   useEffect(() => {
@@ -1328,10 +1333,100 @@ export default function NotesScreen() {
         loadSharedNoteIds();
       });
 
+      // Set up real-time subscription for shared note content changes
+      const sharedNoteContentSubscription = supabase
+        .channel('shared-notes-content-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notes',
+          },
+          async (payload: any) => {
+            console.log('🔄 Shared note content real-time update:', payload);
+            
+            // Check if this note is shared with the current user
+            if (payload.new && user && payload.new.id) {
+              const { data: sharedNoteData, error } = await supabase
+                .from('shared_notes')
+                .select('*')
+                .eq('original_note_id', payload.new.id)
+                .eq('shared_with', user.id)
+                .single();
+
+              if (!error && sharedNoteData) {
+                console.log('🔄 Shared note content changed, refreshing...');
+                
+                // Show real-time update indicator and toast
+                setIsRealTimeUpdating(true);
+                setShowUpdateToast(true);
+                
+                // Refresh the combined notes to show the updated content
+                await combineNotes();
+                
+                // If this note is currently open in the modal, update its content
+                if (currentNote && currentNote.id === payload.new.id) {
+                  console.log('🔄 Updating current note content in modal...');
+                  setCurrentNote(prev => prev ? {
+                    ...prev,
+                    title: payload.new.title || prev.title,
+                    content: payload.new.content || prev.content,
+                    updated_at: payload.new.updated_at || prev.updated_at
+                  } : null);
+                  
+                  // Update the note content in the editor
+                  const newContent = (payload.new.title && payload.new.title !== 'Untitled Note') 
+                    ? payload.new.title + '\n' + (payload.new.content || '')
+                    : (payload.new.content || '');
+                  setNoteContent(newContent);
+                }
+                
+                // Hide real-time update indicator and toast after a short delay
+                setTimeout(() => {
+                  setIsRealTimeUpdating(false);
+                  setShowUpdateToast(false);
+                }, 3000);
+              }
+            }
+          }
+        )
+        .subscribe((status) => {
+          console.log('🔌 Shared note content subscription status:', status);
+        });
+
+      // Set up real-time subscription for shared_notes table changes
+      const sharedNotesTableSubscription = supabase
+        .channel('shared-notes-table-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'shared_notes',
+            filter: `shared_with=eq.${user.id}`,
+          },
+          async (payload: any) => {
+            console.log('🔄 Shared notes table real-time update:', payload);
+            
+            // Refresh shared note IDs and details when sharing status changes
+            await loadSharedNoteIds();
+            await loadSharedNotes();
+            
+            // Refresh combined notes to show/hide shared notes
+            await combineNotes();
+          }
+        )
+        .subscribe((status) => {
+          console.log('🔌 Shared notes table subscription status:', status);
+        });
+
       return () => {
         console.log('🔌 Cleaning up real-time subscriptions...');
         notesSubscription.unsubscribe();
         sharedNotesSubscription.unsubscribe(); // Use unsubscribe method
+        sharedNoteContentSubscription.unsubscribe();
+        sharedNotesTableSubscription.unsubscribe();
       };
     }
   }, [user?.id]); // Remove fetchNotes and isInitialLoad from dependencies to prevent re-subscription
@@ -1447,6 +1542,13 @@ export default function NotesScreen() {
                 
                 {isSaving && (
                   <ActivityIndicator size="small" color="#666" style={styles.savingIndicator} />
+                )}
+                
+                {isRealTimeUpdating && (
+                  <View style={styles.realTimeUpdateIndicator}>
+                    <ActivityIndicator size="small" color="#007AFF" />
+                    <Text style={styles.realTimeUpdateText}>Updating...</Text>
+                  </View>
                 )}
                 
                 <View style={styles.modalRightButtons}>
@@ -1882,6 +1984,11 @@ export default function NotesScreen() {
           <Ionicons name="add" size={22} color="white" />
         </TouchableOpacity>
 
+        {/* Real-time Update Toast */}
+        {showUpdateToast && (
+          <CustomToast text1="Note updated by collaborator" />
+        )}
+
       </SafeAreaView>
     </>
   );
@@ -2114,6 +2221,24 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: '50%',
     transform: [{ translateX: -10 }],
+  },
+  realTimeUpdateIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    position: 'absolute',
+    left: '50%',
+    transform: [{ translateX: -40 }],
+    backgroundColor: '#f0f8ff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  realTimeUpdateText: {
+    fontSize: 12,
+    color: '#007AFF',
+    marginLeft: 4,
+    fontFamily: 'Onest',
+    fontWeight: '500',
   },
   noteEditor: {
     flex: 1,

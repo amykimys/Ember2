@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
 import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 
 export interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
@@ -47,23 +48,70 @@ export const getUserPreferences = async (userId: string): Promise<UserPreference
           auto_move_uncompleted_tasks: false,
         };
 
-        const { data: newData, error: insertError } = await supabase
-          .from('user_preferences')
-          .insert({
-            user_id: userId,
-            ...defaultPreferences
-          })
-          .select()
-          .single();
+        // Try to insert with all fields, but handle missing column error
+        try {
+          const { data: newData, error: insertError } = await supabase
+            .from('user_preferences')
+            .insert({
+              user_id: userId,
+              theme: defaultPreferences.theme,
+              notifications_enabled: defaultPreferences.notifications_enabled,
+              default_view: defaultPreferences.default_view,
+              email_notifications: defaultPreferences.email_notifications,
+              push_notifications: defaultPreferences.push_notifications,
+              default_screen: defaultPreferences.default_screen,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
 
-        if (insertError) {
-          console.error('Error creating default user preferences:', insertError);
+          if (insertError) {
+            console.error('Error creating default user preferences:', insertError);
+            return null;
+          }
+
+          // Cache the result
+          userPreferencesCache[userId] = newData;
+          return newData;
+        } catch (insertError: any) {
+          console.error('Error in preference creation:', insertError);
+          
+          // If the error is about missing column, try without it
+          if (insertError.message && insertError.message.includes('auto_move_uncompleted_tasks')) {
+            console.log('🔄 Retrying without auto_move_uncompleted_tasks column...');
+            try {
+              const { data: newData, error: retryError } = await supabase
+                .from('user_preferences')
+                .insert({
+                  user_id: userId,
+                  theme: defaultPreferences.theme,
+                  notifications_enabled: defaultPreferences.notifications_enabled,
+                  default_view: defaultPreferences.default_view,
+                  email_notifications: defaultPreferences.email_notifications,
+                  push_notifications: defaultPreferences.push_notifications,
+                  default_screen: defaultPreferences.default_screen,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                })
+                .select()
+                .single();
+
+              if (retryError) {
+                console.error('Error in retry preference creation:', retryError);
+                return null;
+              }
+
+              // Cache the result
+              userPreferencesCache[userId] = newData;
+              return newData;
+            } catch (retryError: any) {
+              console.error('Error in retry preference creation:', retryError);
+              return null;
+            }
+          }
           return null;
         }
-
-        // Cache the result
-        userPreferencesCache[userId] = newData;
-        return newData;
       }
       
       return null;
@@ -75,6 +123,95 @@ export const getUserPreferences = async (userId: string): Promise<UserPreference
   } catch (error) {
     console.error('Error in getUserPreferences:', error);
     return null;
+  }
+};
+
+/**
+ * Save Expo push token to user's profile
+ */
+export const saveExpoPushToken = async (userId: string): Promise<boolean> => {
+  try {
+    console.log('🔔 [Notifications] Saving Expo push token for user:', userId);
+    
+    // Get the Expo push token
+    const token = await Notifications.getExpoPushTokenAsync({
+      projectId: 'c77ca206-6258-4213-b712-5d687c9861d3', // Your Expo project ID
+    });
+    
+    console.log('🔔 [Notifications] Expo push token:', token.data);
+    
+    // Save to user's profile
+    const { error } = await supabase
+      .from('profiles')
+      .update({ expo_push_token: token.data })
+      .eq('id', userId);
+    
+    if (error) {
+      console.error('🔔 [Notifications] Error saving push token:', error);
+      return false;
+    }
+    
+    console.log('🔔 [Notifications] Push token saved successfully');
+    return true;
+  } catch (error) {
+    console.error('🔔 [Notifications] Error getting/saving push token:', error);
+    return false;
+  }
+};
+
+/**
+ * Initialize notifications and save push token
+ */
+export const initializeNotificationsWithToken = async (userId: string): Promise<boolean> => {
+  try {
+    console.log('🔔 [Notifications] Initializing notifications with token for user:', userId);
+    
+    // Request permissions
+    const { status } = await Notifications.requestPermissionsAsync();
+    console.log('🔔 [Notifications] Permission status:', status);
+    
+    if (status !== 'granted') {
+      console.log('🔔 [Notifications] Permission denied');
+      return false;
+    }
+    
+    // Set up notification handler
+    Notifications.setNotificationHandler({
+      handleNotification: async (notification) => {
+        console.log('🔔 [Notifications] Notification received:', notification.request.content.title);
+        
+        // Handle shared item notifications
+        const data = notification.request.content.data;
+        if (data?.type === 'shared_item') {
+          console.log('🔔 [Notifications] Shared item notification:', data);
+          return {
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+          };
+        }
+        
+        // Default handling for other notifications
+        return {
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: false,
+        };
+      },
+    });
+    
+    // Save push token to profile
+    const tokenSaved = await saveExpoPushToken(userId);
+    if (!tokenSaved) {
+      console.log('🔔 [Notifications] Failed to save push token');
+      return false;
+    }
+    
+    console.log('🔔 [Notifications] Notifications initialized successfully');
+    return true;
+  } catch (error) {
+    console.error('🔔 [Notifications] Error initializing notifications:', error);
+    return false;
   }
 };
 

@@ -54,7 +54,7 @@ import { useRouter } from 'expo-router';
 import Calendar from 'react-native-calendars';
 import * as FileSystem from 'expo-file-system';
 import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
-import { shareTaskWithFriend, shareHabitWithFriend } from '../../utils/sharing';
+import { shareTaskWithFriend, shareHabitWithFriend, addFriendToSharedTask } from '../../utils/sharing';
 import { arePushNotificationsEnabled } from '../../utils/notificationUtils';
 
 import Toast from 'react-native-toast-message';
@@ -433,7 +433,7 @@ export default function TodoScreen() {
           setShowEndDatePicker(false);
           break;
       }
-    }, 1500); // 1.5 second delay
+    }, 60000); // 2 minute delay
   };
 
   // Habit modal state
@@ -992,10 +992,10 @@ export default function TodoScreen() {
             
             console.log('🔍 [Edit Save] User is the owner, updating sharing...');
             
-            // Get current friends this task is shared with
+            // Get current friends this task is shared with and their copied task IDs
             const { data: existingShares, error: sharesError } = await supabase
               .from('shared_tasks')
-              .select('shared_with')
+              .select('shared_with, copied_task_id')
               .eq('original_task_id', originalTaskId)
               .eq('shared_by', user.id);
             
@@ -1004,6 +1004,10 @@ export default function TodoScreen() {
             }
             
             const existingFriendIds = existingShares?.map(share => share.shared_with) || [];
+            const existingShareMap = new Map(
+              existingShares?.map(share => [share.shared_with, share.copied_task_id]) || []
+            );
+            
             console.log('🔍 [Edit Save] Existing friend IDs:', existingFriendIds);
             console.log('🔍 [Edit Save] Selected friend IDs:', selectedFriends);
             
@@ -1011,24 +1015,69 @@ export default function TodoScreen() {
             const friendsToRemove = existingFriendIds.filter(friendId => !selectedFriends.includes(friendId));
             if (friendsToRemove.length > 0) {
               console.log('🔍 [Edit Save] Removing shares for friends:', friendsToRemove);
+              
+              // Delete the shared task records
               await supabase
                 .from('shared_tasks')
                 .delete()
                 .eq('original_task_id', originalTaskId)
                 .eq('shared_by', user.id)
                 .in('shared_with', friendsToRemove);
+              
+              // Delete the copied tasks for those friends
+              const copiedTaskIdsToDelete = friendsToRemove
+                .map(friendId => existingShareMap.get(friendId))
+                .filter(id => id); // Remove undefined values
+              
+              if (copiedTaskIdsToDelete.length > 0) {
+                await supabase
+                  .from('todos')
+                  .delete()
+                  .in('id', copiedTaskIdsToDelete);
+              }
             }
             
-            // Add shares for new friends only
+            // Update existing shared tasks for friends who are still selected
+            const friendsToUpdate = selectedFriends.filter(friendId => existingFriendIds.includes(friendId));
+            for (const friendId of friendsToUpdate) {
+              const copiedTaskId = existingShareMap.get(friendId);
+              if (copiedTaskId) {
+                console.log('🔍 [Edit Save] Updating existing shared task for friend:', friendId);
+                try {
+                  await supabase
+                    .from('todos')
+                    .update({
+                      text: updatedTodo.text,
+                      description: updatedTodo.description,
+                      category_id: updatedTodo.categoryId,
+                      date: updatedTodo.date.toISOString(),
+                      repeat: updatedTodo.repeat,
+                      repeat_end_date: updatedTodo.repeatEndDate?.toISOString(),
+                      reminder_time: updatedTodo.reminderTime?.toISOString(),
+                      custom_repeat_dates: selectedRepeat === 'custom'
+                        ? customSelectedDates
+                        : null,
+                      auto_move: modalAutoMove,
+                    })
+                    .eq('id', copiedTaskId);
+                  console.log('🔍 [Edit Save] Successfully updated shared task for friend:', friendId);
+                } catch (updateError) {
+                  console.error('🔍 [Edit Save] Error updating shared task for friend:', friendId, updateError);
+                }
+              }
+            }
+            
+            // Add shares for new friends only (create new copies)
             const newFriends = selectedFriends.filter(friendId => !existingFriendIds.includes(friendId));
             if (newFriends.length > 0) {
               console.log('🔍 [Edit Save] Adding shares for new friends:', newFriends);
               for (const friendId of newFriends) {
                 try {
-                  await shareTaskWithFriend(originalTaskId, friendId, user.id);
-                  console.log('🔍 [Edit Save] Successfully shared task with friend:', friendId);
+                  // Use the new function that only adds friends without creating duplicates
+                  await addFriendToSharedTask(originalTaskId, friendId, user.id);
+                  console.log('🔍 [Edit Save] Successfully added friend to shared task:', friendId);
                 } catch (shareError) {
-                  console.error('🔍 [Edit Save] Error sharing task with friend:', friendId, shareError);
+                  console.error('🔍 [Edit Save] Error adding friend to shared task:', friendId, shareError);
                 }
               }
             } else {
@@ -2080,10 +2129,8 @@ export default function TodoScreen() {
             alignItems: 'flex-end',
             justifyContent: 'center',
             minWidth: 100,
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-            backgroundColor: Colors.light.surfaceVariant,
-            borderRadius: 8,
+            // paddingHorizontal: 8, // Removed padding
+            // paddingVertical: 4, // Removed padding
           }}>
             <View style={{
               alignItems: 'flex-end',
@@ -2320,7 +2367,53 @@ export default function TodoScreen() {
         });
 
         if (result) {
-          const mappedTasks = result.map((task: any) => ({
+          // First, get all shared task relationships for this user
+          const { data: sharedTasks, error: sharedError } = await supabase
+            .from('shared_tasks')
+            .select('original_task_id, shared_by, shared_with, copied_task_id')
+            .or(`shared_by.eq.${userToUse.id},shared_with.eq.${userToUse.id}`);
+
+          if (sharedError) {
+            console.error('Error fetching shared tasks:', sharedError);
+          }
+
+          // Create a map to track which tasks should be shown
+          const tasksToShow = new Set<string>();
+          const tasksToHide = new Set<string>();
+
+          // Process shared tasks to determine which tasks to show/hide
+          sharedTasks?.forEach(sharedTask => {
+            const originalTaskId = sharedTask.original_task_id;
+            const copiedTaskId = sharedTask.copied_task_id;
+            
+            if (sharedTask.shared_by === userToUse.id) {
+              // You're the sender - show the original task
+              tasksToShow.add(originalTaskId);
+              if (copiedTaskId) {
+                tasksToHide.add(copiedTaskId);
+              }
+            } else if (sharedTask.shared_with === userToUse.id) {
+              // You're the recipient - show the copied task, hide the original
+              if (copiedTaskId) {
+                tasksToShow.add(copiedTaskId);
+              }
+              tasksToHide.add(originalTaskId);
+            }
+          });
+
+          // Filter tasks to only show the appropriate ones
+          const filteredTasks = result.filter((task: any) => {
+            if (tasksToHide.has(task.id)) {
+              return false; // Hide this task
+            }
+            if (tasksToShow.has(task.id)) {
+              return true; // Show this task
+            }
+            // For tasks not involved in sharing, show them normally
+            return true;
+          });
+
+          const mappedTasks = filteredTasks.map((task: any) => ({
             ...task,
             date: task.date ? new Date(task.date) : new Date(),
             repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
@@ -2331,6 +2424,7 @@ export default function TodoScreen() {
             photo: task.photo,
             autoMove: task.auto_move || false
           }));
+          
           setTodos(mappedTasks);
           
           // Fetch shared friends for these tasks
@@ -4218,7 +4312,7 @@ export default function TodoScreen() {
             justifyContent: 'space-between',
             alignItems: 'center',
             marginHorizontal: 22,
-            marginTop: 15,
+            marginTop: 5, // Reduced from 15 to move header up
             marginBottom: 10,
           }}>
             <View style={{

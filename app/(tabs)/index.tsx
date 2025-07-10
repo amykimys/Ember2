@@ -12,9 +12,11 @@ export default function InitialRouting() {
   useEffect(() => {
     const loadDefaultScreen = async () => {
       try {
+        console.log('🚀 Starting default screen routing...');
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session?.user) {
+          console.log('👤 User authenticated:', session.user.email);
           // Get user's default screen preference using cached preferences
           const preferences = await getUserPreferences(session.user.id);
           
@@ -29,10 +31,15 @@ export default function InitialRouting() {
             }
           } else {
             console.log('📱 No default screen preference found, using calendar');
+            setDefaultScreen('calendar');
           }
+        } else {
+          console.log('❌ No user session found, using calendar as default');
+          setDefaultScreen('calendar');
         }
       } catch (error) {
-        console.error('Error loading default screen preference:', error);
+        console.error('❌ Error loading default screen preference:', error);
+        setDefaultScreen('calendar');
       } finally {
         setIsLoading(false);
       }
@@ -41,7 +48,11 @@ export default function InitialRouting() {
     loadDefaultScreen();
   }, []);
 
-  if (!rootNavigationState?.key || isLoading) return null;
+  if (!rootNavigationState?.key || isLoading) {
+    console.log('⏳ Waiting for navigation state or loading...');
+    return null;
+  }
 
+  console.log('🎯 Redirecting to:', defaultScreen);
   return <Redirect href={`/(tabs)/${defaultScreen}`} />;
 }

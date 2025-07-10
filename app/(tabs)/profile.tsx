@@ -8,7 +8,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useFocusEffect } from '@react-navigation/native';
-import { clearPreferencesCache, testSharingNotifications } from '../../utils/notificationUtils';
+import { clearPreferencesCache, testSharingNotifications, initializeNotificationsWithToken } from '../../utils/notificationUtils';
 import { manuallyMoveUncompletedTasks, debugUserTasks } from '../../utils/taskUtils';
 import { GoogleCalendarSyncNew } from '../../components/GoogleCalendarSyncNew';
 import { Colors } from '../../constants/Colors';
@@ -165,6 +165,7 @@ export default function ProfileScreen() {
   // Photo zoom state
   const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
   const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<PhotoShare | null>(null);
+  const [photoDimensions, setPhotoDimensions] = useState<{[key: string]: {width: number, height: number}}>({});
 
   // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -197,6 +198,9 @@ export default function ProfileScreen() {
           await loadUserProfile(session.user.id);
           await loadUserPreferences(session.user.id);
           await loadFriends(session.user.id);
+          
+          // Initialize notifications and save push token
+          await initializeNotificationsWithToken(session.user.id);
           await loadFriendRequests(session.user.id);
           await loadMemories(session.user.id);
           await loadPhotoShares(true);
@@ -359,6 +363,8 @@ export default function ProfileScreen() {
 
   const loadUserPreferences = async (userId: string) => {
     try {
+      console.log('🔄 Loading user preferences for user:', userId);
+      
       const { data, error } = await supabase
         .from('user_preferences')
         .select('*')
@@ -371,6 +377,7 @@ export default function ProfileScreen() {
       }
 
       if (data) {
+        console.log('✅ Found existing preferences:', data);
         setPreferences({
           theme: data.theme || 'system',
           notifications_enabled: data.notifications_enabled ?? true,
@@ -381,32 +388,55 @@ export default function ProfileScreen() {
           auto_move_uncompleted_tasks: data.auto_move_uncompleted_tasks ?? false
         });
       } else {
+        console.log('📝 No preferences found, creating defaults...');
         // Create default preferences
-          const defaultPreferences: UserPreferences = {
-            theme: 'system',
-            notifications_enabled: true,
-            default_view: 'day',
-            email_notifications: true,
-            push_notifications: true,
-            default_screen: 'calendar',
-            auto_move_uncompleted_tasks: false
-          };
+        const defaultPreferences: UserPreferences = {
+          theme: 'system',
+          notifications_enabled: true,
+          default_view: 'day',
+          email_notifications: true,
+          push_notifications: true,
+          default_screen: 'calendar',
+          auto_move_uncompleted_tasks: false
+        };
 
-          const { error: insertError } = await supabase
-            .from('user_preferences')
-            .insert({
+        // Simple insert without complex error handling
+        const { error: insertError } = await supabase
+          .from('user_preferences')
+          .insert({
             user_id: userId,
-              ...defaultPreferences,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            });
+            theme: defaultPreferences.theme,
+            notifications_enabled: defaultPreferences.notifications_enabled,
+            default_view: defaultPreferences.default_view,
+            email_notifications: defaultPreferences.email_notifications,
+            push_notifications: defaultPreferences.push_notifications,
+            default_screen: defaultPreferences.default_screen,
+            auto_move_uncompleted_tasks: defaultPreferences.auto_move_uncompleted_tasks,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
 
-        if (!insertError) {
+        if (insertError) {
+          console.error('❌ Error creating default preferences:', insertError);
+          // Set default preferences locally even if database insert fails
+          setPreferences(defaultPreferences);
+        } else {
+          console.log('✅ Default preferences created successfully');
           setPreferences(defaultPreferences);
         }
       }
     } catch (error) {
-      console.error('Error in loadUserPreferences:', error);
+      console.error('❌ Error in loadUserPreferences:', error);
+      // Set default preferences locally as fallback
+      setPreferences({
+        theme: 'system',
+        notifications_enabled: true,
+        default_view: 'day',
+        email_notifications: true,
+        push_notifications: true,
+        default_screen: 'calendar',
+        auto_move_uncompleted_tasks: false
+      });
     }
   };
 
@@ -1270,7 +1300,7 @@ export default function ProfileScreen() {
     );
   };
 
-  const getDefaultScreenLabel = (screen: string) => {
+  const getDefaultScreenLabel = (screen: 'calendar' | 'todo' | 'notes' | 'profile') => {
     switch (screen) {
       case 'calendar': return 'Calendar';
       case 'todo': return 'Todo';
@@ -1286,10 +1316,13 @@ export default function ProfileScreen() {
     // Store the previous value in case we need to revert
     const previousValue = preferences[key];
     
+    console.log(`🔄 Updating preference: ${key} = ${value}`);
+    
     // Optimistically update the UI immediately
     setPreferences(prev => ({ ...prev, [key]: value }));
 
     try {
+      // Simple upsert without complex error handling
       const { error } = await supabase
         .from('user_preferences')
         .upsert({
@@ -1298,12 +1331,30 @@ export default function ProfileScreen() {
           updated_at: new Date().toISOString()
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error updating preference:', error);
+        // Revert to the previous value if the update failed
+        setPreferences(prev => ({ ...prev, [key]: previousValue }));
+        Alert.alert('Error', 'Failed to update preference');
+        return;
+      }
+      
+      console.log(`✅ Successfully updated preference: ${key} = ${value}`);
       
       // Clear the preferences cache so other screens get the updated setting
-              clearPreferencesCache();
+      clearPreferencesCache();
+      
+      // If this is the default_screen preference, show a confirmation
+      if (key === 'default_screen') {
+        Toast.show({
+          type: 'success',
+          text1: 'Default Screen Updated',
+          text2: `App will now start with ${getDefaultScreenLabel((value || 'calendar') as 'calendar' | 'todo' | 'notes' | 'profile')}`,
+          position: 'bottom',
+        });
+      }
     } catch (error) {
-      console.error('Error updating preference:', error);
+      console.error('❌ Error updating preference:', error);
       // Revert to the previous value if the update failed
       setPreferences(prev => ({ ...prev, [key]: previousValue }));
       Alert.alert('Error', 'Failed to update preference');
@@ -1624,11 +1675,11 @@ export default function ProfileScreen() {
   const renderFeatureCard = (icon: string, title: string, subtitle: string, count?: number, onPress?: () => void) => (
     <TouchableOpacity style={styles.featureCard} onPress={onPress}>
       <View style={styles.featureIcon}>
-        <Ionicons name={icon as any} size={24} color={Colors.light.accent} />
+        <Ionicons name={icon as any} size={20} color={Colors.light.accent} />
       </View>
       <View style={styles.featureContent}>
-        <Text style={styles.featureTitle}>{title}</Text>
-        <Text style={styles.featureSubtitle}>{subtitle}</Text>
+        <Text style={[styles.featureTitle, !subtitle && styles.featureTitleCentered]}>{title}</Text>
+        {subtitle && <Text style={styles.featureSubtitle}>{subtitle}</Text>}
       </View>
       {count !== undefined && (
         <View style={styles.featureCount}>
@@ -1978,10 +2029,10 @@ export default function ProfileScreen() {
                       </View>
                     </View>
                     <TouchableOpacity
-                      style={styles.cancelRequestButton}
+                      style={styles.removeFriendButton}
                       onPress={() => cancelFriendRequest(request.friendship_id)}
                     >
-                      <Text style={styles.cancelRequestText}>Cancel</Text>
+                      <Ionicons name="close" size={16} color="#8E8E93" />
                     </TouchableOpacity>
                   </View>
                 ))
@@ -2499,39 +2550,43 @@ export default function ProfileScreen() {
                       style={styles.userAvatar}
                     />
                     <View style={styles.userDetails}>
-                      <Text style={styles.userUsername}>@{item.user_username}</Text>
+                      <Text style={[styles.userUsername, { fontWeight: 'bold', color: '#000', marginBottom: 2 }]}>{item.user_username}</Text>
+                      <Text style={[styles.timeAgo, { marginTop: 0 }]}>{formatTimeAgo(item.created_at)}</Text>
                     </View>
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={styles.timeAgo}>{formatTimeAgo(item.created_at)}</Text>
-                    {item.user_id === user?.id && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          console.log('🗑️ Delete button pressed for post:', {
-                            update_id: item.update_id,
-                            user_id: item.user_id,
-                            current_user: user?.id
-                          });
-                          Alert.alert(
-                            'Delete Post',
-                            'Are you sure you want to delete this post?',
-                            [
-                              { text: 'Cancel', style: 'cancel' },
-                              { text: 'Delete', style: 'destructive', onPress: () => handleDeletePhotoShare(item.update_id) }
-                            ]
-                          );
-                        }}
-                        style={{ marginLeft: 12 }}
-                      >
-                        <Ionicons name="trash-outline" size={20} color="#FF3B30" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
+                  {item.user_id === user?.id && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        console.log('🗑️ Delete button pressed for post:', {
+                          update_id: item.update_id,
+                          user_id: item.user_id,
+                          current_user: user?.id
+                        });
+                        Alert.alert(
+                          'Delete Post',
+                          'Are you sure you want to delete this post?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete', style: 'destructive', onPress: () => handleDeletePhotoShare(item.update_id) }
+                          ]
+                        );
+                      }}
+                      style={{ marginLeft: 12 }}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                    </TouchableOpacity>
+                  )}
                 </View>
-
+                {/* Caption above photo, smaller font */}
+                {item.caption && (
+                  <Text style={[styles.caption, { fontSize: 13, marginBottom: 8, marginTop: 0 }]}>{item.caption}</Text>
+                )}
                 {/* Photo */}
                 <TouchableOpacity 
-                  style={styles.photoContainer}
+                  style={{
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                  }}
                   onPress={() => {
                     setSelectedPhotoForZoom(item);
                     setShowPhotoZoomModal(true);
@@ -2540,16 +2595,19 @@ export default function ProfileScreen() {
                 >
                   <Image
                     source={{ uri: item.photo_url }}
-                    style={styles.photo}
-                    resizeMode="contain"
+                    style={photoDimensions[item.update_id] && photoDimensions[item.update_id].width < photoDimensions[item.update_id].height ? styles.photoSquare : styles.photo}
+                    resizeMode="cover"
+                    onLayout={(event) => {
+                      const { width, height } = event.nativeEvent.layout;
+                      setPhotoDimensions(prev => ({
+                        ...prev,
+                        [item.update_id]: { width, height }
+                      }));
+                    }}
                   />
                 </TouchableOpacity>
-
                 {/* Caption and Source */}
                 <View style={styles.contentContainer}>
-                  {item.caption && (
-                    <Text style={styles.caption}>{item.caption}</Text>
-                  )}
                   <View style={styles.sourceContainer}>
                     <View style={[
                       styles.sourceBadge,
@@ -2632,7 +2690,7 @@ export default function ProfileScreen() {
             <Text style={styles.sectionSubtitle}>Customize your app experience</Text>
             {renderSettingsItem('color-palette-outline', 'Theme', preferences.theme)}
             {renderSettingsItem('notifications-outline', 'Push Notifications', undefined, undefined, true, preferences.push_notifications, (value) => handlePreferenceChange('push_notifications', value))}
-            {renderSettingsItem('home-outline', 'Default Screen', getDefaultScreenLabel(preferences.default_screen), () => {
+            {renderSettingsItem('home-outline', 'Default Screen', getDefaultScreenLabel((preferences.default_screen || 'calendar') as 'calendar' | 'todo' | 'notes' | 'profile'), () => {
               setShowSettingsModal(false);
               setShowDefaultScreenModal(true);
             })}
@@ -4269,20 +4327,21 @@ export default function ProfileScreen() {
 
         {user && (
           <View style={styles.featuresSection}>
+            <View style={{ height: 40 }} />
             <View style={styles.featuresGrid}>
 
             {renderFeatureCard(
                 'images-outline',
                 'Memories',
-                'View all your memories',
-                memories.flatMap(group => group.memories).length,
+                '',
+                Number(memories.flatMap(group => group.memories).length) || undefined,
                 () => setShowMemoriesModal(true)
               )}
               {renderFeatureCard(
                 'people-outline',
                 'Friends Feed',
-                'See what your friends are up to',
-                unreadPhotoShares > 0 ? unreadPhotoShares : undefined,
+                '',
+                typeof unreadPhotoShares === 'number' && unreadPhotoShares > 0 ? unreadPhotoShares : undefined,
                 () => setShowFriendsFeedModal(true)
               )}
             </View>
@@ -4418,19 +4477,19 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 20,
     paddingHorizontal: 20,
     backgroundColor: Colors.light.background,
-    marginBottom: 32,
+    marginBottom: 20,
   },
   avatarContainer: {
     position: 'relative',
-    marginBottom: 12, // Reduced from 24 to bring name closer
+    marginBottom: 8,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
   },
   avatarPlaceholder: {
     width: 80,
@@ -4452,8 +4511,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   profileName: {
-    fontSize: 24,
-    fontWeight: '600',
+    fontSize: 22,
+    fontWeight: '500',
     color: Colors.light.text,
     marginBottom: 4,
     fontFamily: 'Onest',
@@ -4462,67 +4521,50 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.light.icon,
     fontFamily: 'Onest',
-    marginBottom: 4,
-  },
-  profileEmail: {
-    fontSize: 14,
-    color: Colors.light.icon,
-    marginBottom: 8,
-    fontFamily: 'Onest',
+    marginBottom: 2,
   },
   profileBio: {
-    fontSize: 14,
+    fontSize: 13,
     color: Colors.light.icon,
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
     fontFamily: 'Onest',
-    lineHeight: 20,
+    lineHeight: 18,
     maxWidth: 280,
   },
-  editProfileButton: {
-    backgroundColor: Colors.light.accent,
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 16,
-  },
-  editProfileText: {
-    fontSize: 14,
-    color: '#fff',
-    fontWeight: '600',
-    fontFamily: 'Onest',
-  },
   featuresSection: {
-    marginBottom: 32,
+    marginBottom: 20,
     paddingHorizontal: 20,
   },
   featureCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.light.surface,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
+    backgroundColor: 'transparent',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 6,
+    borderWidth: 0,
   },
   featureIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.light.surfaceVariant,
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   featureContent: {
     flex: 1,
+    justifyContent: 'center',
   },
   featureTitle: {
-    fontSize: 16,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '400',
     color: Colors.light.text,
     marginBottom: 2,
     fontFamily: 'Onest',
+  },
+  featureTitleCentered: {
+    marginBottom: 0,
   },
   featureSubtitle: {
     fontSize: 14,
@@ -5048,11 +5090,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: '#F8F9FA',
   },
-  requestActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
+
   actionButton: {
     width: 28,
     height: 28,
@@ -5060,46 +5098,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  acceptButton: {
-    backgroundColor: '#34C759',
-  },
-  declineButton: {
-    backgroundColor: '#FF3B30',
-  },
+
   // New minimalistic request styles
   requestsSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#F8F9FA',
-    borderBottomWidth: 1,
+    paddingVertical: 12, // Reduced from 16
+    backgroundColor: 'transparent', // Changed from #F8F9FA to transparent
+    borderBottomWidth: 0.5, // Reduced from 1
     borderBottomColor: '#E5E5E7',
   },
   requestsSectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1C1C1E',
+    fontSize: 14, // Reduced from 16
+    fontWeight: '500', // Reduced from 600
+    color: '#8E8E93', // Changed from #1C1C1E to lighter color
     fontFamily: 'Onest',
   },
   requestsCount: {
-    fontSize: 14,
+    fontSize: 12, // Reduced from 14
     fontWeight: '500',
     color: '#8E8E93',
-    backgroundColor: '#E5E5E7',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    backgroundColor: 'transparent', // Removed background
+    paddingHorizontal: 0, // Removed padding
+    paddingVertical: 0, // Removed padding
+    borderRadius: 0, // Removed border radius
     fontFamily: 'Onest',
   },
   emptyRequestsContainer: {
     alignItems: 'center',
-    paddingVertical: 32,
+    paddingVertical: 24, // Reduced from 32
     paddingHorizontal: 20,
   },
   emptyRequestsText: {
-    fontSize: 16,
+    fontSize: 14, // Reduced from 16
     color: '#8E8E93',
     marginTop: 8,
     fontFamily: 'Onest',
@@ -5108,7 +5141,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12, // Reduced from 16
     paddingHorizontal: 20,
     backgroundColor: '#fff',
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -5120,15 +5153,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   requestAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32, // Reduced from 40
+    height: 32, // Reduced from 40
+    borderRadius: 16, // Reduced from 20
     marginRight: 12,
   },
   requestAvatarPlaceholder: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 32, // Reduced from 40
+    height: 32, // Reduced from 40
+    borderRadius: 16, // Reduced from 20
     backgroundColor: '#F2F2F7',
     justifyContent: 'center',
     alignItems: 'center',
@@ -5138,57 +5171,62 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   requestUserName: {
-    fontSize: 16,
+    fontSize: 15, // Reduced from 16
     fontWeight: '500',
     color: '#1C1C1E',
     marginBottom: 2,
     fontFamily: 'Onest',
   },
   requestUserUsername: {
-    fontSize: 14,
+    fontSize: 13, // Reduced from 14
     color: '#8E8E93',
     fontFamily: 'Onest',
   },
   requestButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6, // Reduced from 8
   },
   acceptRequestButton: {
     backgroundColor: '#34C759',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingHorizontal: 12, // Reduced from 16
+    paddingVertical: 6, // Reduced from 8
+    borderRadius: 12, // Reduced from 16
   },
   acceptRequestText: {
-    fontSize: 14,
+    fontSize: 13, // Reduced from 14
     fontWeight: '600',
     color: '#fff',
     fontFamily: 'Onest',
   },
   declineRequestButton: {
     backgroundColor: '#FF3B30',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingHorizontal: 12, // Reduced from 16
+    paddingVertical: 6, // Reduced from 8
+    borderRadius: 12, // Reduced from 16
   },
   declineRequestText: {
-    fontSize: 14,
+    fontSize: 13, // Reduced from 14
     fontWeight: '600',
     color: '#fff',
     fontFamily: 'Onest',
   },
   cancelRequestButton: {
     backgroundColor: '#F2F2F7',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 16,
+    paddingHorizontal: 12, // Reduced from 16
+    paddingVertical: 6, // Reduced from 8
+    borderRadius: 12, // Reduced from 16
   },
   cancelRequestText: {
-    fontSize: 14,
+    fontSize: 13, // Reduced from 14
     fontWeight: '600',
     color: '#8E8E93',
     fontFamily: 'Onest',
+  },
+  cancelRequestIconButton: {
+    padding: 8,
+    borderRadius: 16,
+    backgroundColor: '#F2F2F7',
   },
   addFriendsButton: {
     padding: 12,
@@ -5290,29 +5328,26 @@ const styles = StyleSheet.create({
   searchLoading: {
     marginLeft: 8,
   },
-  memoryTitle: {
-    fontSize: 12,
-    color: '#FFFFFF',
-    fontWeight: '600',
-    fontFamily: 'Onest',
-    textShadowColor: 'rgba(0, 0, 0, 0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-    position: 'absolute',
-    bottom: 8,
-    left: 8,
-    right: 8,
-  },
+ 
   photoShareCard: {
     padding: 16,
-    backgroundColor: '#fff',
+    // backgroundColor: '#fff', // Remove background color
     borderRadius: 12,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+  },
+  photo: {
+    width: '100%',
+    height: 240, // Default height for horizontal photos
+    // borderRadius: 16, // Moved to TouchableOpacity wrapper
+    // overflow: 'hidden', // Moved to TouchableOpacity wrapper
+    // backgroundColor: 'transparent', // Ensure no background
+  },
+  photoSquare: {
+    width: '100%',
+    aspectRatio: 1, // 1:1 square format for vertical photos
+    // borderRadius: 16, // Moved to TouchableOpacity wrapper
+    // overflow: 'hidden', // Moved to TouchableOpacity wrapper
+    // backgroundColor: 'transparent', // Ensure no background
   },
   userHeader: {
     flexDirection: 'row',
@@ -5333,12 +5368,6 @@ const styles = StyleSheet.create({
   userDetails: {
     flex: 1,
   },
-  userName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#000',
-    fontFamily: 'Onest',
-  },
   userUsername: {
     fontSize: 14,
     color: '#8E8E93',
@@ -5348,14 +5377,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#8E8E93',
     fontFamily: 'Onest',
-  },
-  photoContainer: {
-    marginBottom: 8,
-  },
-  photo: {
-    width: '100%',
-    height: 150,
-    borderRadius: 8,
   },
   contentContainer: {
     flexDirection: 'column',
@@ -5432,802 +5453,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: 'Onest',
   },
-  signedInContainer: {
-    backgroundColor: '#fff',
-    padding: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  signedInHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  signedInTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
-    marginRight: 8,
-    fontFamily: 'Onest',
-  },
-  signedInSubtitle: {
-    fontSize: 14,
-    color: '#8E8E93',
-    marginTop: 10,
-    textAlign: 'center',
-    fontFamily: 'Onest',
-  },
-  settingsButtonText: {
-    fontSize: 16,
-    color: '#667eea',
-    fontWeight: '600',
-    fontFamily: 'Onest',
-    marginLeft: 8,
-  },
-  signInHeader: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  signInIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  signInFeatures: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0F8FF',
-    padding: 12,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  featureText: {
-    fontSize: 14,
-    color: '#000',
-    fontWeight: '600',
-    fontFamily: 'Onest',
-    marginLeft: 8,
-  },
-  signInActions: {
-    marginBottom: 16,
-  },
-  googleButton: {
-    width: '100%',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  privacyText: {
-    fontSize: 14,
-    color: '#8E8E93',
-    marginTop: 10,
-    textAlign: 'center',
-    fontFamily: 'Onest',
-  },
-  minimalSignInContainer: {
-    backgroundColor: '#fff',
-    padding: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
-    marginTop: 32,
-    marginBottom: 32,
-  },
-  minimalSignInTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 8,
-    textAlign: 'center',
-    fontFamily: 'Onest',
-  },
-  minimalSignInSubtitle: {
-    fontSize: 15,
-    color: '#8E8E93',
-    textAlign: 'center',
-    marginBottom: 24,
-    fontFamily: 'Onest',
-  },
-  minimalSignInActions: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  minimalGoogleButton: {
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  minimalPrivacyText: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 16,
-  },
-  appSignInContainer: {
-    backgroundColor: '#fff',
-    padding: 32,
-    borderRadius: 22,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  appSignInWrapper: {
-    backgroundColor: '#667eea',
-    borderRadius: 24,
-    padding: 2,
-    marginHorizontal: 16,
-    marginTop: 32,
-    marginBottom: 32,
-  },
-  appLogoContainer: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  appLogo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#007AFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  appName: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 6,
-    fontFamily: 'Onest',
-    letterSpacing: -0.5,
-  },
-  appTagline: {
-    fontSize: 16,
-    color: '#8E8E93',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 22,
-  },
-  signInSection: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  welcomeTitle: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#000',
-    marginBottom: 8,
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    letterSpacing: -0.3,
-  },
-  welcomeSubtitle: {
-    fontSize: 16,
-    color: '#8E8E93',
-    textAlign: 'center',
-    lineHeight: 22,
-    fontFamily: 'Onest',
-    marginBottom: 24,
-  },
-  signInButtonContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  appGoogleButton: {
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  appLoadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    marginTop: 12,
-  },
-  appLoadingText: {
-    fontSize: 14,
-    color: '#8E8E93',
-    marginLeft: 8,
-    fontFamily: 'Onest',
-    fontWeight: '500',
-  },
-  appPrivacyText: {
-    fontSize: 12,
-    color: '#C7C7CC',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 16,
-  },
-  signedInIconContainer: {
-    marginBottom: 16,
-  },
-  prettySignInWrapper: {
-    backgroundColor: '#667eea',
-    borderRadius: 28,
-    padding: 3,
-    marginHorizontal: 16,
-    marginTop: 32,
-    marginBottom: 32,
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  prettySignInContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 25,
-    padding: 36,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  prettyLogoContainer: {
-    alignItems: 'center',
-    marginBottom: 36,
-  },
-  prettyLogo: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  prettyAppName: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#1a1a1a',
-    marginBottom: 8,
-    fontFamily: 'Onest',
-    letterSpacing: -1,
-  },
-  prettyTagline: {
-    fontSize: 17,
-    color: '#666',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 24,
-    fontWeight: '500',
-  },
-  prettySignInSection: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  prettyWelcomeTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#1a1a1a',
-    marginBottom: 10,
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    letterSpacing: -0.5,
-  },
-  prettyWelcomeSubtitle: {
-    fontSize: 17,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-    fontFamily: 'Onest',
-    marginBottom: 28,
-    fontWeight: '500',
-  },
-  prettySignInButtonContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-  prettyGoogleButton: {
-    width: '100%',
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  prettyLoadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 18,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 16,
-    marginTop: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  prettyLoadingText: {
-    fontSize: 15,
-    color: '#666',
-    marginLeft: 10,
-    fontFamily: 'Onest',
-    fontWeight: '600',
-  },
-  prettyPrivacyText: {
-    fontSize: 13,
-    color: '#999',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 18,
-    fontWeight: '500',
-  },
-  decorativeCircle1: {
-    position: 'absolute',
-    top: -20,
-    right: -20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(102, 126, 234, 0.1)',
-  },
-  decorativeCircle2: {
-    position: 'absolute',
-    bottom: -15,
-    left: -15,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(118, 75, 162, 0.1)',
-  },
-  decorativeCircle3: {
-    position: 'absolute',
-    top: '50%',
-    right: -10,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'rgba(102, 126, 234, 0.08)',
-  },
-  minimalLogoContainer: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  minimalLogo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  minimalAppName: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#000',
-    marginBottom: 6,
-    fontFamily: 'Onest',
-    letterSpacing: -0.5,
-  },
-  minimalTagline: {
-    fontSize: 16,
-    color: '#8E8E93',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 22,
-  },
-  minimalSignInSection: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  minimalWelcomeTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 8,
-    textAlign: 'center',
-    fontFamily: 'Onest',
-  },
-  minimalWelcomeSubtitle: {
-    fontSize: 15,
-    color: '#8E8E93',
-    textAlign: 'center',
-    marginBottom: 24,
-    fontFamily: 'Onest',
-  },
-  minimalSignInButtonContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 28,
-  },
-  minimalLoadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 18,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 16,
-    marginTop: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  minimalLoadingText: {
-    fontSize: 15,
-    color: '#666',
-    marginLeft: 10,
-    fontFamily: 'Onest',
-    fontWeight: '600',
-  },
-  signInLogoContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  signInLogo: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#667eea',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  signInAppName: {
-    fontSize: 36,
-    fontWeight: '900',
-    color: '#0f172a',
-    fontFamily: 'Onest-Bold',
-    marginBottom: 40,
-    letterSpacing: -1,
-  },
-  signInWelcomeContainer: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  signInWelcomeTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#222',
-    marginBottom: 8,
-    textAlign: 'center',
-    fontFamily: 'Onest',
-  },
-  signInWelcomeSubtitle: {
-    fontSize: 15,
-    color: '#8E8E93',
-    textAlign: 'center',
-    marginBottom: 24,
-    fontFamily: 'Onest',
-  },
-
-  signInGoogleButton: {
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  signInLoadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 18,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 16,
-    marginTop: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  signInLoadingText: {
-    fontSize: 15,
-    color: '#666',
-    marginLeft: 10,
-    fontFamily: 'Onest',
-    fontWeight: '600',
-  },
-  signInPrivacyText: {
-    fontSize: 12,
-    color: '#C7C7CC',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 16,
-  },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 5,
+    marginBottom: 0, // Reduced from 5 to 2
   },
   appLogoImage: {
-    width: 120,
-    height: 120,
-    marginBottom: 16,
-  },
-  modernSignInWrapper: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 20,
-    padding: 32,
-    marginHorizontal: 16,
-    marginTop: 32,
-    marginBottom: 32,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  modernHeader: {
-    alignItems: 'center',
-    marginBottom: 32,
-  },
-  modernLogo: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  modernAppTitle: {
-    fontSize: 32,
-    fontWeight: '900',
-    color: '#fff',
-    marginBottom: 8,
-    fontFamily: 'Onest',
-    letterSpacing: -1,
-  },
-  modernSubtitle: {
-    fontSize: 16,
-    color: '#999',
-    textAlign: 'center',
-    fontFamily: 'Onest',
-    lineHeight: 22,
-  },
-  modernSignInButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    paddingVertical: 18,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  modernButtonText: {
-    fontSize: 17,
-    color: '#1a1a1a',
-    fontWeight: '700',
-    fontFamily: 'Onest',
-    marginLeft: 12,
-  },
-  modernFeatures: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 24,
-  },
-  modernFeature: {
-    alignItems: 'center',
-  },
-  modernFeatureIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: 'rgba(102, 126, 234, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  modernFeatureText: {
-    fontSize: 12,
-    color: '#999',
-    fontFamily: 'Onest',
-    fontWeight: '500',
-  },
-  cleanSignInContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 40,
-    marginHorizontal: 20,
-    marginTop: 40,
-    marginBottom: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-  cleanLogo: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    alignSelf: 'center',
-    marginBottom: 24,
-  },
-  cleanTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#1a1a1a',
-    textAlign: 'center',
-    marginBottom: 8,
-    fontFamily: 'Onest',
-    letterSpacing: -0.5,
-  },
-  cleanSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 40,
-    fontFamily: 'Onest',
-    lineHeight: 22,
-  },
-  cleanButton: {
-    backgroundColor: '#1a1a1a',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  cleanButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-    fontFamily: 'Onest',
-    marginLeft: 12,
-  },
-  cleanDivider: {
-    height: 1,
-    backgroundColor: '#f0f0f0',
-    marginVertical: 24,
-  },
-  cleanFooter: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  cleanFooterText: {
-    fontSize: 13,
-    color: '#999',
-    fontFamily: 'Onest',
-  },
-  gradientSignInWrapper: {
-    backgroundColor: '#fff',
-    borderRadius: 0,
-    padding: 0,
-    marginHorizontal: 0,
-    marginTop: 0,
-    marginBottom: 0,
-    minHeight: 400,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  gradientBackground: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#fff',
-  },
-  floatingCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 32,
-    marginHorizontal: 24,
-    alignItems: 'center',
-  },
-  gradientLogo: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    backgroundColor: '#667eea',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  gradientTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 8,
-    fontFamily: 'Onest',
-    textAlign: 'center',
-  },
-  gradientSubtitle: {
-    fontSize: 15,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 32,
-    fontFamily: 'Onest',
-    lineHeight: 20,
-  },
-  gradientButton: {
-    backgroundColor: '#667eea',
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  gradientButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-    fontFamily: 'Onest',
-    marginLeft: 12,
+    width: 140,
+    height: 140,
+    marginBottom: 0, // Reduced from 16 to 8
   },
   profileNameContainer: {
     flexDirection: 'column',
@@ -6301,24 +5534,24 @@ const styles = StyleSheet.create({
     marginHorizontal: 3,
   },
   minimalSignInButton: {
-    backgroundColor: '#0f172a',
-    paddingVertical: 16,
+    backgroundColor: 'transparent',
+    paddingVertical: 10,
     paddingHorizontal: 32,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#0f172a',
+    borderColor: 'transparent',
     minWidth: 140,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   minimalSignInButtonText: {
-    fontSize: 16,
-    color: '#fff',
+    fontSize: 18,
+    color: '#000',
     fontWeight: '500',
     fontFamily: 'Onest',
     letterSpacing: 0.5,

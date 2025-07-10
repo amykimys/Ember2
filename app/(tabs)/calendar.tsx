@@ -713,7 +713,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           setShowEndDatePicker(false);
           break;
       }
-    }, 1500); // 2 second delay
+    }, 60000); // 2 minute delay
   };
 
   // Cleanup timeouts on unmount
@@ -813,7 +813,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     try {
       console.log('🔍 [Calendar] Fetching shared events for user:', userId);
       
-      // Fetch shared events where current user is either the recipient or sender
+      // Fetch shared events where current user is either the sender or recipient
       const { data: sharedEventsData, error } = await supabase
         .from('shared_events')
         .select(`
@@ -825,24 +825,29 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           created_at
         `)
         .or(`shared_with.eq.${userId},shared_by.eq.${userId}`)
-        .in('status', ['pending', 'accepted']);
+        .in('status', ['pending', 'accepted']); // Include both pending and accepted events
 
       if (error) {
         console.error('🔍 [Calendar] Error fetching shared events:', error);
+        console.error('🔍 [Calendar] Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         return [];
       }
 
-      console.log('🔍 [Calendar] Found shared events:', sharedEventsData?.length || 0);
-      console.log('🔍 [Calendar] Raw shared events data:', JSON.stringify(sharedEventsData, null, 2));
+      console.log('🔍 [Calendar] Raw shared events data:', sharedEventsData);
+      console.log('🔍 [Calendar] Shared events count:', sharedEventsData?.length || 0);
 
       if (!sharedEventsData || sharedEventsData.length === 0) {
-        console.log('🔍 [Calendar] No shared events found for user:', userId);
+        console.log('🔍 [Calendar] No shared events found');
         return [];
       }
 
       // Extract the original event IDs
       const originalEventIds = sharedEventsData.map((se: any) => se.original_event_id);
-      console.log('🔍 [Calendar] Original event IDs:', originalEventIds);
 
       // Fetch the actual events using the original event IDs
       const { data: eventsData, error: eventsError } = await supabase
@@ -867,16 +872,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return [];
       }
 
-      console.log('🔍 [Calendar] Fetched events data:', eventsData);
-      console.log('🔍 [Calendar] Raw events from database:', eventsData?.map(e => ({
-        id: e.id,
-        title: e.title,
-        start_datetime: e.start_datetime,
-        end_datetime: e.end_datetime,
-        is_all_day: e.is_all_day,
-        start_datetime_type: typeof e.start_datetime,
-        end_datetime_type: typeof e.end_datetime
-      })));
+      console.log('🔍 [Calendar] Original events data:', eventsData);
+      console.log('🔍 [Calendar] Original events count:', eventsData?.length || 0);
+
+
 
       // Create a map of event ID to event data
       const eventsMap = new Map();
@@ -892,8 +891,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         allUserIds.add(se.shared_by);
         allUserIds.add(se.shared_with);
       });
-      console.log('🔍 [Calendar] All user IDs:', Array.from(allUserIds));
       
+      // Debug: Check what user IDs we're collecting
+      if (__DEV__) {
+        console.log('🔍 [Calendar] User IDs to fetch profiles for:', Array.from(allUserIds));
+      }
       // Fetch profiles for all users involved
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
@@ -902,16 +904,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       if (profilesError) {
         console.error('🔍 [Calendar] Error fetching profiles:', profilesError);
+      } else if (__DEV__) {
+        console.log('🔍 [Calendar] Fetched profiles:', profilesData?.map(p => ({
+          id: p.id,
+          username: p.username,
+          full_name: p.full_name,
+          avatar_url: p.avatar_url ? 'Yes' : 'No',
+          avatar_url_value: p.avatar_url
+        })));
       }
-
-      console.log('🔍 [Calendar] Profiles data:', profilesData);
-      console.log('🔍 [Calendar] Profiles with avatars:', profilesData?.map(p => ({
-        id: p.id,
-        username: p.username,
-        full_name: p.full_name,
-        avatar_url: p.avatar_url,
-        has_avatar: !!p.avatar_url
-      })));
 
       // Create a map of user ID to profile data
       const profilesMap = new Map();
@@ -921,73 +922,69 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         });
       }
 
+      console.log('🔍 [Calendar] Profiles map size:', profilesMap.size);
+      console.log('🔍 [Calendar] Profiles map keys:', Array.from(profilesMap.keys()));
+      
+      // Debug: Check if current user's profile exists
+      const currentUserProfile = profilesMap.get(userId);
+      console.log('🔍 [Calendar] Current user profile:', {
+        userId,
+        profileFound: !!currentUserProfile,
+        profileData: currentUserProfile
+      });
+      
+
+
       // Transform shared events into CalendarEvent format
       const transformedSharedEvents = sharedEventsData
         .filter((sharedEvent: any) => {
           // Check if the original event exists
           const originalEvent = eventsMap.get(sharedEvent.original_event_id);
           if (!originalEvent) {
-            console.warn('🔍 [Calendar] Shared event has no associated event:', sharedEvent.id, 'Original event ID:', sharedEvent.original_event_id);
             return false;
           }
-          console.log('🔍 [Calendar] Processing shared event:', {
-            id: sharedEvent.id,
-            eventTitle: originalEvent.title,
-            eventDate: originalEvent.date,
-            status: sharedEvent.status
-          });
           return true;
         })
         .map((sharedEvent: any) => {
           const event = eventsMap.get(sharedEvent.original_event_id);
           
           // Determine if current user is the sender or recipient
-          const isCurrentUserSender = sharedEvent.shared_by === userId;
-          const isCurrentUserRecipient = sharedEvent.shared_with === userId;
-          
-          // For sent events, show the recipient's profile
-          // For received events, show the sender's profile
-          const profileToShowId = isCurrentUserSender ? sharedEvent.shared_with : sharedEvent.shared_by;
+          // Always show the sender's profile for shared events
+          const profileToShowId = sharedEvent.shared_by;
           const profileToShow = profilesMap.get(profileToShowId);
           
-          console.log('🔍 [Calendar] Processing shared event:', {
-            sharedEventId: sharedEvent.id,
-            originalEventId: sharedEvent.original_event_id,
-            eventFound: !!event,
-            eventTitle: event?.title,
-            eventStartDatetime: event?.start_datetime,
-            eventEndDatetime: event?.end_datetime,
-            eventIsAllDay: event?.is_all_day
-          });
+          // Debug: Check profile lookup
+          if (__DEV__) {
+            console.log('🔍 [Calendar] Profile lookup for shared event:', {
+              sharedEventId: sharedEvent.id,
+              profileToShowId,
+              profileFound: !!profileToShow,
+              profileAvatar: profileToShow?.avatar_url ? 'Yes' : 'No',
+              profileAvatarValue: profileToShow?.avatar_url,
+              profilesMapSize: profilesMap.size,
+              allProfileIds: Array.from(profilesMap.keys()),
+              profileToShowData: profileToShow
+            });
+          }
           
-          // Parse dates with better error handling and logging
+
+          
+          // Parse dates with better error handling
           const parseDate = (dateStr: string | null) => {
             if (!dateStr) return null;
             try {
-              console.log('🔍 [Calendar] Parsing date string:', dateStr);
-              
-              // Handle different datetime formats
-              let date: Date;
-              
-              // The formatDateToUTC function creates strings like "2025-01-15T10:00:00Z"
-              // So we should be able to parse them directly with new Date()
-              date = new Date(dateStr);
-              
+              const date = new Date(dateStr);
               if (isNaN(date.getTime())) {
-                console.warn('🔍 [Calendar] Invalid date string:', dateStr);
                 return null;
               }
-              console.log('🔍 [Calendar] Successfully parsed date:', date.toISOString());
               return date;
             } catch (error) {
-              console.error('🔍 [Calendar] Error parsing date:', dateStr, error);
               return null;
             }
           };
 
           // Handle all-day events differently to avoid timezone issues
           let startDateTime, endDateTime;
-          console.log('🔍 [Calendar] Event is_all_day flag:', event.is_all_day);
           
           // First, try to parse the start and end times
           const parsedStart = event.start_datetime ? parseDate(event.start_datetime) : null;
@@ -997,17 +994,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           const hasValidStartTime = parsedStart instanceof Date && !isNaN(parsedStart.getTime());
           const hasValidEndTime = parsedEnd instanceof Date && !isNaN(parsedEnd.getTime());
           const hasValidTimes = hasValidStartTime;
-          
-          console.log('🔍 [Calendar] Time parsing results:', {
-            start_datetime: event.start_datetime,
-            end_datetime: event.end_datetime,
-            parsed_start: parsedStart,
-            parsed_end: parsedEnd,
-            has_valid_start_time: hasValidStartTime,
-            has_valid_end_time: hasValidEndTime,
-            has_valid_times: hasValidTimes,
-            original_is_all_day: event.is_all_day
-          });
           
           // Determine if this should be an all-day event
           // Priority: valid times override the is_all_day flag
@@ -1019,7 +1005,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             const [year, month, day] = event.date.split('-').map(Number);
             startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
             endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
-            console.log('🔍 [Calendar] All-day event times:', { startDateTime, endDateTime });
           } else {
             // For regular events, use the parsed datetime values
             startDateTime = parsedStart || undefined;
@@ -1029,13 +1014,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             if (startDateTime && !endDateTime) {
               endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000); // 1 hour later
             }
-            
-            console.log('🔍 [Calendar] Regular event times:', { 
-              startDateTime,
-              endDateTime,
-              start_is_valid: startDateTime instanceof Date && !isNaN(startDateTime.getTime()),
-              end_is_valid: endDateTime instanceof Date && !isNaN(endDateTime.getTime())
-            });
           }
 
           const transformedEvent = {
@@ -1059,32 +1037,21 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             sharedByAvatarUrl: profileToShow?.avatar_url || null,
           };
 
-          console.log('🔍 [Calendar] Transformed shared event with times:', {
-            id: transformedEvent.id,
-            title: transformedEvent.title,
-            date: transformedEvent.date,
-            startDateTime: transformedEvent.startDateTime,
-            endDateTime: transformedEvent.endDateTime,
-            isAllDay: transformedEvent.isAllDay,
-            startDateTimeType: typeof transformedEvent.startDateTime,
-            endDateTimeType: typeof transformedEvent.endDateTime
-          });
-
-          console.log('🔍 [Calendar] Transformed shared event:', {
-            id: transformedEvent.id,
-            title: transformedEvent.title,
-            date: transformedEvent.date,
-            isShared: transformedEvent.isShared,
+          // Debug: Log the final transformed event avatar info
+          console.log('🔍 [Calendar] Final transformed event avatar info:', {
+            eventId: transformedEvent.id,
             sharedBy: transformedEvent.sharedBy,
             sharedByAvatarUrl: transformedEvent.sharedByAvatarUrl,
-            hasAvatar: !!transformedEvent.sharedByAvatarUrl
+            profileToShowAvatar: profileToShow?.avatar_url,
+            profileToShowId: profileToShowId,
+            profileToShowData: profileToShow
           });
+
+
 
           return transformedEvent;
         });
 
-      console.log('🔍 [Calendar] Successfully transformed shared events:', transformedSharedEvents.length);
-      console.log('🔍 [Calendar] Final transformed events:', transformedSharedEvents.map(e => ({ id: e.id, title: e.title, date: e.date })));
       return transformedSharedEvents;
     } catch (error) {
       console.error('🔍 [Calendar] Error in fetchSharedEvents:', error);
@@ -2172,6 +2139,112 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     try {
       console.log('🗑️ [Delete] Starting delete for event ID:', eventId);
       
+      // Check if this is a shared event
+      const isSharedEvent = eventId.startsWith('shared_');
+      
+      if (isSharedEvent) {
+        // Handle shared event deletion
+        await handleDeleteSharedEvent(eventId);
+      } else {
+        // Handle regular event deletion
+        await handleDeleteRegularEvent(eventId);
+      }
+    } catch (error) {
+      console.error('🗑️ [Delete] Error in handleDeleteEvent:', error);
+      Alert.alert('Error', 'Failed to delete event. Please try again.');
+    }
+  };
+
+  const handleDeleteSharedEvent = async (sharedEventId: string) => {
+    try {
+      console.log('🗑️ [Delete Shared] Starting delete for shared event ID:', sharedEventId);
+      
+      // Extract the actual shared event ID (remove 'shared_' prefix)
+      const actualSharedEventId = sharedEventId.replace('shared_', '');
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Check if user is the owner or recipient of this shared event
+      const { data: sharedEventData, error: fetchError } = await supabase
+        .from('shared_events')
+        .select('shared_by, shared_with, original_event_id')
+        .eq('id', actualSharedEventId)
+        .single();
+
+      if (fetchError || !sharedEventData) {
+        throw new Error('Shared event not found');
+      }
+
+      const isOwner = sharedEventData.shared_by === user.id;
+      const isRecipient = sharedEventData.shared_with === user.id;
+
+      if (isOwner) {
+        // If user is the owner, delete the original event (this will cascade delete shared events)
+        console.log('🗑️ [Delete Shared] User is owner, deleting original event');
+        await handleDeleteRegularEvent(sharedEventData.original_event_id);
+      } else if (isRecipient) {
+        // If user is the recipient, decline the shared event
+        console.log('🗑️ [Delete Shared] User is recipient, declining shared event');
+        
+        // Update shared event status to declined
+        const { error: updateError } = await supabase
+          .from('shared_events')
+          .update({ 
+            status: 'declined',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', actualSharedEventId)
+          .eq('shared_with', user.id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        // Remove from local state
+        setEvents(prevEvents => {
+          const newEvents = { ...prevEvents };
+          Object.keys(newEvents).forEach(dateKey => {
+            newEvents[dateKey] = newEvents[dateKey].filter(event => event.id !== sharedEventId);
+            if (newEvents[dateKey].length === 0) {
+              delete newEvents[dateKey];
+            }
+          });
+          return newEvents;
+        });
+
+        Toast.show({
+          type: 'success',
+          text1: 'Event declined',
+          text2: 'The event has been removed from your calendar',
+          position: 'bottom',
+          visibilityTime: 2000,
+        });
+
+        // Refresh events to ensure consistency
+        if (user?.id) {
+          setTimeout(() => {
+            refreshEvents();
+          }, 500);
+        }
+      } else {
+        throw new Error('User not authorized to delete this event');
+      }
+
+      console.log('🗑️ [Delete Shared] Shared event deletion completed successfully');
+    } catch (error) {
+      console.error('🗑️ [Delete Shared] Error in handleDeleteSharedEvent:', error);
+      throw error;
+    }
+  };
+
+  const handleDeleteRegularEvent = async (eventId: string) => {
+    try {
+      console.log('🗑️ [Delete Regular] Starting delete for regular event ID:', eventId);
+      
       // Cancel any scheduled notifications for this event
       await cancelEventNotification(eventId);
 
@@ -2182,11 +2255,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         .eq('id', eventId);
 
       if (error) {
-        console.error('🗑️ [Delete] Database delete error:', error);
+        console.error('🗑️ [Delete Regular] Database delete error:', error);
         throw error;
       }
 
-      console.log('🗑️ [Delete] Database delete successful');
+      console.log('🗑️ [Delete Regular] Database delete successful');
 
       // Update local state - remove all segments of the multi-day event
       setEvents(prevEvents => {
@@ -2205,9 +2278,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           }
         });
 
-        console.log('🗑️ [Delete] Removed', removedCount, 'segments from local state');
+        console.log('🗑️ [Delete Regular] Removed', removedCount, 'segments from local state');
         return newEvents;
       });
+
+      // Refresh events to ensure shared events are also updated
+      if (user?.id) {
+        setTimeout(() => {
+          refreshEvents();
+        }, 500);
+      }
 
       // Show success message
       Toast.show({
@@ -2217,12 +2297,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         visibilityTime: 2000,
       });
 
-      // Don't refresh immediately to avoid race conditions
-      // The local state update should be sufficient
-      console.log('🗑️ [Delete] Delete completed successfully');
+      console.log('🗑️ [Delete Regular] Delete completed successfully');
     } catch (error) {
-      console.error('🗑️ [Delete] Error in handleDeleteEvent:', error);
-      Alert.alert('Error', 'Failed to delete event. Please try again.');
+      console.error('🗑️ [Delete Regular] Error in handleDeleteRegularEvent:', error);
+      throw error;
     }
   };
 
@@ -4427,6 +4505,85 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   };
 
   // Add function to update shared events for the modal
+  // Test function to create a shared event for debugging
+  const createTestSharedEvent = async () => {
+    try {
+      console.log('🔍 [Test] Creating test shared event...');
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.error('❌ [Test] User not authenticated');
+        return;
+      }
+
+      // First, add avatar URL to user profile
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_url: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face'
+        })
+        .eq('id', user.id);
+
+      if (profileError) {
+        console.error('❌ [Test] Error updating profile:', profileError);
+      } else {
+        console.log('✅ [Test] Avatar URL added to profile');
+      }
+
+      // Create a test event
+      const testEventId = `test_event_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+      const { data: eventData, error: eventError } = await supabase
+        .from('events')
+        .insert({
+          id: testEventId,
+          title: 'Test Shared Event',
+          description: 'This is a test event for debugging',
+          location: 'Test Location',
+          date: '2025-01-09',
+          start_datetime: '2025-01-09T10:00:00Z',
+          end_datetime: '2025-01-09T11:00:00Z',
+          category_name: 'Test',
+          category_color: '#FF6B6B',
+          is_all_day: false,
+          user_id: user.id
+        })
+        .select()
+        .single();
+
+      if (eventError) {
+        console.error('❌ [Test] Error creating test event:', eventError);
+        return;
+      }
+
+      console.log('✅ [Test] Created test event:', eventData);
+
+      // Create a shared event (share with yourself for testing)
+      const { data: sharedEventData, error: sharedEventError } = await supabase
+        .from('shared_events')
+        .insert({
+          original_event_id: testEventId,
+          shared_by: user.id,
+          shared_with: user.id,
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (sharedEventError) {
+        console.error('❌ [Test] Error creating shared event:', sharedEventError);
+        return;
+      }
+
+      console.log('✅ [Test] Created shared event:', sharedEventData);
+      
+      // Refresh events to show the new shared event
+      await refreshEvents();
+      
+    } catch (error) {
+      console.error('❌ [Test] Error in createTestSharedEvent:', error);
+    }
+  };
+
   const updatePendingSharedEvents = useCallback(() => {
     const allEvents = Object.values(events).flat();
     const sharedEvents = allEvents.filter(event => event.isShared && (event.sharedStatus === 'pending' || event.sharedStatus === 'accepted'));
@@ -4510,16 +4667,23 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           <TouchableOpacity onPress={() => setCalendarMode('week')}>
             <MaterialIcons name="calendar-view-week" size={24} color="#333" />
           </TouchableOpacity>
-          {pendingSharedEvents.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setShowSharedEventsModal(true)}
-              style={{
-                padding: 8,
-                marginLeft: 12,
-                position: 'relative',
-              }}
-            >
-              <Ionicons name="notifications-outline" size={20} color="#333" />
+          {/* Always show shared events button, not just when there are pending events */}
+          <TouchableOpacity
+            onPress={() => {
+              console.log('🔍 [Calendar] Opening shared events modal');
+              console.log('🔍 [Calendar] Pending events count:', pendingSharedEvents.length);
+              console.log('🔍 [Calendar] Sent events count:', sentSharedEvents.length);
+              console.log('🔍 [Calendar] Received events count:', receivedSharedEvents.length);
+              setShowSharedEventsModal(true);
+            }}
+            style={{
+              padding: 8,
+              marginLeft: 12,
+              position: 'relative',
+            }}
+          >
+            <Ionicons name="people-outline" size={20} color="#333" />
+            {pendingSharedEvents.length > 0 && (
               <View style={{
                 position: 'absolute',
                 top: 4,
@@ -4540,8 +4704,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   {pendingSharedEvents.length > 9 ? '9+' : pendingSharedEvents.length}
                 </Text>
               </View>
-            </TouchableOpacity>
-          )}
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -4928,16 +5092,23 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           <TouchableOpacity onPress={() => setCalendarMode('month')}>
             <MaterialIcons name="calendar-view-month" size={24} color="#333" />
           </TouchableOpacity>
-          {pendingSharedEvents.length > 0 && (
+          {/* Always show shared events button, not just when there are pending events */}
           <TouchableOpacity
-              onPress={() => setShowSharedEventsModal(true)}
-              style={{
-                padding: 8,
-                marginLeft: 12,
-                position: 'relative',
-              }}
-            >
-              <Ionicons name="notifications-outline" size={20} color="#333" />
+            onPress={() => {
+              console.log('🔍 [Calendar] Opening shared events modal (week view)');
+              console.log('🔍 [Calendar] Pending events count:', pendingSharedEvents.length);
+              console.log('🔍 [Calendar] Sent events count:', sentSharedEvents.length);
+              console.log('🔍 [Calendar] Received events count:', receivedSharedEvents.length);
+              setShowSharedEventsModal(true);
+            }}
+            style={{
+              padding: 8,
+              marginLeft: 12,
+              position: 'relative',
+            }}
+          >
+            <Ionicons name="people-outline" size={20} color="#333" />
+            {pendingSharedEvents.length > 0 && (
               <View style={{
                 position: 'absolute',
                 top: 4,
@@ -4958,8 +5129,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   {pendingSharedEvents.length > 9 ? '9+' : pendingSharedEvents.length}
                 </Text>
               </View>
-            </TouchableOpacity>
-          )}
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -7143,7 +7314,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               </TouchableOpacity>
               
               <Text style={{
-                fontSize: 15,
+                fontSize: 18,
                 fontWeight: '600',
                 color: Colors.light.text,
                 fontFamily: 'Onest'
@@ -7155,13 +7326,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             </View>
 
             {/* Tab Navigation */}
-            <View style={{
-              flexDirection: 'row',
-              marginHorizontal: 16,
-              marginBottom: 20,
-              borderBottomWidth: 1,
-              borderBottomColor: Colors.light.surfaceVariant,
-            }}>
+            <View 
+              style={{
+                flexDirection: 'row',
+                marginHorizontal: 16,
+                marginTop: 20,
+                borderBottomWidth: 1,
+                borderBottomColor: Colors.light.surfaceVariant,
+              }}
+            >
               <TouchableOpacity
                 onPress={() => {
                   if (activeSharedEventsTab !== 'received') {
@@ -7188,7 +7361,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 }}
               >
                 <Text style={{
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: activeSharedEventsTab === 'received' ? '600' : '400',
                   color: activeSharedEventsTab === 'received' ? '#3b82f6' : '#64748b',
                   fontFamily: 'Onest',
@@ -7223,7 +7396,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 }}
               >
                 <Text style={{
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: activeSharedEventsTab === 'sent' ? '600' : '400',
                   color: activeSharedEventsTab === 'sent' ? '#3b82f6' : '#64748b',
                   fontFamily: 'Onest',
@@ -7234,7 +7407,59 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             </View>
 
             {/* Horizontal Pager Content */}
-            <View style={{ flex: 1, overflow: 'hidden' }}>
+            <View 
+              style={{ flex: 1, overflow: 'hidden' }}
+              {...PanResponder.create({
+                onStartShouldSetPanResponder: () => true,
+                onMoveShouldSetPanResponder: (_, gestureState) => {
+                  // Simple horizontal swipe detection
+                  const isHorizontal = Math.abs(gestureState.dx) > Math.abs(gestureState.dy);
+                  const hasDistance = Math.abs(gestureState.dx) > 10;
+                  console.log('🔍 [Swipe] Gesture detected:', { dx: gestureState.dx, dy: gestureState.dy, isHorizontal, hasDistance });
+                  return isHorizontal && hasDistance;
+                },
+                onPanResponderGrant: () => {
+                  console.log('🔍 [Swipe] PanResponder granted');
+                  swipeAnimation.stopAnimation();
+                },
+                onPanResponderMove: (_, gestureState) => {
+                  const progress = gestureState.dx / SCREEN_WIDTH;
+                  const currentValue = activeSharedEventsTab === 'sent' ? -1 : 0;
+                  const newValue = currentValue - progress;
+                  swipeAnimation.setValue(Math.max(-1, Math.min(0, newValue)));
+                },
+                onPanResponderRelease: (_, gestureState) => {
+                  const threshold = 0.05;
+                  const velocity = gestureState.vx;
+                  const progress = gestureState.dx / SCREEN_WIDTH;
+                  
+                  console.log('🔍 [Swipe] Release:', { progress, velocity, threshold });
+                  
+                  let targetValue = activeSharedEventsTab === 'sent' ? -1 : 0;
+                  
+                  if (Math.abs(progress) > threshold || Math.abs(velocity) > 0.1) {
+                    if (progress > 0 || velocity > 0) {
+                      // Swipe right - go to received tab
+                      console.log('🔍 [Swipe] Going to received tab');
+                      targetValue = 0;
+                      setActiveSharedEventsTab('received');
+                    } else {
+                      // Swipe left - go to sent tab
+                      console.log('🔍 [Swipe] Going to sent tab');
+                      targetValue = -1;
+                      setActiveSharedEventsTab('sent');
+                    }
+                  }
+                  
+                  Animated.spring(swipeAnimation, {
+                    toValue: targetValue,
+                    useNativeDriver: true,
+                    tension: 100,
+                    friction: 8,
+                  }).start();
+                },
+              }).panHandlers}
+            >
               <Animated.View
                 style={{
                   flexDirection: 'row',
@@ -7248,7 +7473,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   }],
                 }}
               >
-                {/* Removed PanResponder overlay to fix button touch events */}
+
                 {/* Received Tab */}
                 <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
                   <ScrollView 
@@ -7256,12 +7481,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     scrollEnabled={true}
                     showsVerticalScrollIndicator={false}
                     nestedScrollEnabled={true}
+                    scrollEventThrottle={16}
+                    directionalLockEnabled={true}
+                    alwaysBounceHorizontal={false}
+                    alwaysBounceVertical={true}
                   >
                     {receivedSharedEvents.length === 0 ? (
                       <View style={{ 
                         alignItems: 'center', 
                         justifyContent: 'center',
-                        paddingVertical: 30,
+                        paddingVertical: 80,
+                        marginTop: 60,
                       }}>
                         <View style={{
                           width: 40,
@@ -7380,38 +7610,74 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               backgroundColor: Colors.light.surfaceVariant,
                               borderRadius: 6,
                             }}>
-                              {event.sharedByAvatarUrl ? (
-                                <Image
-                                  source={{ uri: event.sharedByAvatarUrl }}
-                                  style={{
-                                    width: 20,
-                                    height: 20,
-                                    borderRadius: 10,
-                                    backgroundColor: Colors.light.accent,
-                                  }}
-                                />
-                              ) : (
-                                <View 
-                                  style={{ 
-                                    width: 20, 
-                                    height: 20, 
-                                    borderRadius: 10,
-                                    backgroundColor: Colors.light.accent,
-                                    justifyContent: 'center',
-                                    alignItems: 'center'
-                                  }}
-                                >
-                                  <Ionicons name="person" size={10} color="#fff" />
-                                </View>
-                              )}
-                              <Text style={{
-                                fontSize: 12,
-                                color: Colors.light.text,
-                                fontFamily: 'Onest',
-                                fontWeight: '500',
-                              }}>
-                                Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
-                              </Text>
+
+
+                              {(() => {
+                                // Debug logging
+                                console.log('🔍 [Shared Events Modal] Avatar debug for event:', {
+                                  eventId: event.id,
+                                  sharedBy: event.sharedBy,
+                                  sharedByAvatarUrl: event.sharedByAvatarUrl,
+                                  hasAvatarUrl: !!event.sharedByAvatarUrl,
+                                  avatarUrlLength: event.sharedByAvatarUrl?.length,
+                                  avatarUrlStartsWith: event.sharedByAvatarUrl?.substring(0, 20)
+                                });
+                                
+                                return event.sharedByAvatarUrl && event.sharedByAvatarUrl.trim() !== '' ? (
+                                  <Image
+                                    source={{ 
+                                      uri: event.sharedByAvatarUrl,
+                                      // Add cache busting and error handling
+                                      cache: 'reload',
+                                      headers: {
+                                        'Cache-Control': 'no-cache'
+                                      }
+                                    }}
+                                    style={{
+                                      width: 20,
+                                      height: 20,
+                                      borderRadius: 10,
+                                      backgroundColor: Colors.light.accent,
+                                    }}
+                                    onError={(error) => {
+                                      console.error('❌ [Shared Events Modal] Avatar image loading error:', {
+                                        error: error.nativeEvent.error,
+                                        url: event.sharedByAvatarUrl,
+                                        eventId: event.id
+                                      });
+                                    }}
+                                    onLoad={() => {
+                                      console.log('✅ [Shared Events Modal] Avatar image loaded successfully:', {
+                                        url: event.sharedByAvatarUrl,
+                                        eventId: event.id
+                                      });
+                                    }}
+                                  />
+                                ) : (
+                                  <View 
+                                    style={{ 
+                                      width: 20, 
+                                      height: 20, 
+                                      borderRadius: 10,
+                                      backgroundColor: Colors.light.accent,
+                                      justifyContent: 'center',
+                                      alignItems: 'center'
+                                    }}
+                                  >
+                                    <Ionicons name="person" size={10} color="#fff" />
+                                  </View>
+                                );
+                              })()}
+                                                              <Text style={{
+                                  fontSize: 12,
+                                  color: Colors.light.text,
+                                  fontFamily: 'Onest',
+                                  fontWeight: '500',
+                                }}>
+                                  Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
+                                </Text>
+                                
+
                             </View>
 
                             {/* Action Buttons - Only show for received events */}
@@ -7523,12 +7789,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     scrollEnabled={true}
                     showsVerticalScrollIndicator={false}
                     nestedScrollEnabled={true}
+                    scrollEventThrottle={16}
+                    directionalLockEnabled={true}
+                    alwaysBounceHorizontal={false}
+                    alwaysBounceVertical={true}
                   >
                     {sentSharedEvents.length === 0 ? (
                       <View style={{ 
                         alignItems: 'center', 
                         justifyContent: 'center',
-                        paddingVertical: 30,
+                        paddingVertical: 80,
+                        marginTop: 60,
                       }}>
                         <View style={{
                           width: 40,
