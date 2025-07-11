@@ -16,7 +16,8 @@ import {
   Image,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Animated
+  Animated,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -480,6 +481,28 @@ const CalendarScreen: React.FC = () => {
     setShowCustomTimeInline(false);
   };
 
+  // Helper function to properly handle date conversion for all-day events
+  const getLocalDateForEdit = (date: Date | undefined, isAllDay: boolean = false): Date | undefined => {
+    if (!date) return undefined;
+    
+    if (isAllDay) {
+      // For all-day events, create a local date from the UTC date
+      // All-day events are stored as 12pm UTC, so we extract the date components
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth();
+      const day = date.getUTCDate();
+      return new Date(year, month, day);
+    } else {
+      // For non-all-day events, use the date as is
+      return new Date(date);
+    }
+  };
+
+  // Helper function to reset just the all-day toggle for new events
+  const resetAllDayToggle = () => {
+    setIsAllDay(false);
+  };
+
   const [selectedDate, setSelectedDate] = useState(today);
   const [user, setUser] = useState<any>(null);
   const [events, setEvents] = useState<{ [date: string]: CalendarEvent[] }>({});
@@ -537,6 +560,7 @@ const CalendarScreen: React.FC = () => {
 
   const [calendarMode, setCalendarMode] = useState<'month' | 'week'>('month');
   const [isMonthCompact, setIsMonthCompact] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
 const [editingTimeBoxId, setEditingTimeBoxId] = useState<string | null>(null);
 const [editingField, setEditingField] = useState<'start' | 'end'>('start');
@@ -803,7 +827,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setUser(session.user);
         // Add a small delay to ensure user state is set, then fetch events
         setTimeout(() => {
-          refreshEvents();
+          fetchEvents();
         }, 100);
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
@@ -849,8 +873,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return [];
       }
 
-      console.log('🔍 [Calendar] Raw shared events data:', sharedEventsData);
-      console.log('🔍 [Calendar] Shared events count:', sharedEventsData?.length || 0);
 
       if (!sharedEventsData || sharedEventsData.length === 0) {
         console.log('🔍 [Calendar] No shared events found');
@@ -882,12 +904,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         console.error('🔍 [Calendar] Error fetching events:', eventsError);
         return [];
       }
-
-      console.log('🔍 [Calendar] Original events data:', eventsData);
-      console.log('🔍 [Calendar] Original events count:', eventsData?.length || 0);
-
-
-
       // Create a map of event ID to event data
       const eventsMap = new Map();
       if (eventsData) {
@@ -932,9 +948,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           profilesMap.set(profile.id, profile);
         });
       }
-
-      console.log('🔍 [Calendar] Profiles map size:', profilesMap.size);
-      console.log('🔍 [Calendar] Profiles map keys:', Array.from(profilesMap.keys()));
       
       // Debug: Check if current user's profile exists
       const currentUserProfile = profilesMap.get(userId);
@@ -943,8 +956,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         profileFound: !!currentUserProfile,
         profileData: currentUserProfile
       });
-      
-
 
       // Transform shared events into CalendarEvent format
       const transformedSharedEvents = sharedEventsData
@@ -978,8 +989,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             });
           }
           
-
-          
           // Parse dates with better error handling
           const parseDate = (dateStr: string | null) => {
             if (!dateStr) return null;
@@ -1001,21 +1010,33 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           const parsedStart = event.start_datetime ? parseDate(event.start_datetime) : null;
           const parsedEnd = event.end_datetime ? parseDate(event.end_datetime) : null;
           
-          // Check if we have valid start time (this indicates it's a timed event, not all-day)
-          const hasValidStartTime = parsedStart instanceof Date && !isNaN(parsedStart.getTime());
-          const hasValidEndTime = parsedEnd instanceof Date && !isNaN(parsedEnd.getTime());
-          const hasValidTimes = hasValidStartTime;
-          
-          // Determine if this should be an all-day event
-          // Priority: valid times override the is_all_day flag
-          // If we have valid times, it's not all day, regardless of the flag
-          let isAllDay = !hasValidTimes;
+          // Use the database is_all_day flag directly
+          let isAllDay = !!event.is_all_day;
           
           if (isAllDay) {
-            // For all-day events, create dates from the date string directly
+            // For all-day events, preserve the dates for multi-day detection
+            // but don't set specific times to avoid timezone issues
+            if (event.start_datetime && event.end_datetime) {
+              const parsedStart = parseDate(event.start_datetime);
+              const parsedEnd = parseDate(event.end_datetime);
+              if (parsedStart && parsedEnd) {
+                // Set to start of day for both start and end to preserve date info
+                startDateTime = new Date(parsedStart);
+                startDateTime.setHours(0, 0, 0, 0);
+                endDateTime = new Date(parsedEnd);
+                endDateTime.setHours(0, 0, 0, 0);
+              } else {
+                // Fallback: create dates from the date string
             const [year, month, day] = event.date.split('-').map(Number);
-            startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
-            endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0); // month is 0-indexed
+                startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+                endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+              }
+            } else {
+              // Fallback: create dates from the date string
+              const [year, month, day] = event.date.split('-').map(Number);
+              startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+              endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+            }
           } else {
             // For regular events, use the parsed datetime values
             startDateTime = parsedStart || undefined;
@@ -1070,7 +1091,199 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
-  useEffect(() => {
+  // Fetch only ACCEPTED shared events for the calendar (not pending ones)
+  const fetchAcceptedSharedEvents = async (userId: string): Promise<CalendarEvent[]> => {
+    try {
+      console.log('🔍 [Calendar] Fetching ACCEPTED shared events for user:', userId);
+      
+      // Fetch shared events where current user is either the sender or recipient, but ONLY accepted ones
+      const { data: sharedEventsData, error } = await supabase
+        .from('shared_events')
+        .select(`
+          id,
+          original_event_id,
+          shared_by,
+          shared_with,
+          status,
+          created_at
+        `)
+        .or(`shared_with.eq.${userId},shared_by.eq.${userId}`)
+        .eq('status', 'accepted'); // Only accepted events
+
+      if (error) {
+        console.error('🔍 [Calendar] Error fetching accepted shared events:', error);
+        return [];
+      }
+
+      if (!sharedEventsData || sharedEventsData.length === 0) {
+        console.log('🔍 [Calendar] No accepted shared events found');
+        return [];
+      }
+
+      // Extract the original event IDs
+      const originalEventIds = sharedEventsData.map((se: any) => se.original_event_id);
+
+      // Fetch the actual events using the original event IDs
+      const { data: eventsData, error: eventsError } = await supabase
+        .from('events')
+        .select(`
+          id,
+          title,
+          description,
+          location,
+          date,
+          start_datetime,
+          end_datetime,
+          category_name,
+          category_color,
+          is_all_day,
+          photos
+        `)
+        .in('id', originalEventIds);
+
+      if (eventsError) {
+        console.error('🔍 [Calendar] Error fetching events:', eventsError);
+        return [];
+      }
+
+      // Create a map of event ID to event data
+      const eventsMap = new Map();
+      if (eventsData) {
+        eventsData.forEach((event: any) => {
+          eventsMap.set(event.id, event);
+        });
+      }
+
+      // Get unique user IDs involved in shared events (both senders and recipients)
+      const allUserIds = new Set<string>();
+      sharedEventsData.forEach((se: any) => {
+        allUserIds.add(se.shared_by);
+        allUserIds.add(se.shared_with);
+      });
+      
+      // Fetch profiles for all users involved
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url')
+        .in('id', Array.from(allUserIds));
+
+      if (profilesError) {
+        console.error('🔍 [Calendar] Error fetching profiles:', profilesError);
+      }
+
+      // Create a map of user ID to profile data
+      const profilesMap = new Map();
+      if (profilesData) {
+        profilesData.forEach((profile: any) => {
+          profilesMap.set(profile.id, profile);
+        });
+      }
+
+      // Transform accepted shared events into CalendarEvent format
+      const transformedAcceptedSharedEvents = sharedEventsData
+        .filter((sharedEvent: any) => {
+          // Check if the original event exists
+          const originalEvent = eventsMap.get(sharedEvent.original_event_id);
+          return !!originalEvent;
+        })
+        .map((sharedEvent: any) => {
+          const event = eventsMap.get(sharedEvent.original_event_id);
+          
+          // Always show the sender's profile for shared events
+          const profileToShowId = sharedEvent.shared_by;
+          const profileToShow = profilesMap.get(profileToShowId);
+          
+          // Parse dates with better error handling
+          const parseDate = (dateStr: string | null) => {
+            if (!dateStr) return null;
+            try {
+              const date = new Date(dateStr);
+              if (isNaN(date.getTime())) {
+                return null;
+              }
+              return date;
+            } catch (error) {
+              return null;
+            }
+          };
+
+          // Handle all-day events differently to avoid timezone issues
+          let startDateTime, endDateTime;
+          
+          // First, try to parse the start and end times
+          const parsedStart = event.start_datetime ? parseDate(event.start_datetime) : null;
+          const parsedEnd = event.end_datetime ? parseDate(event.end_datetime) : null;
+          
+          // Use the database is_all_day flag directly
+          let isAllDay = !!event.is_all_day;
+          
+          if (isAllDay) {
+            // For all-day events, preserve the dates for multi-day detection
+            // but don't set specific times to avoid timezone issues
+            if (event.start_datetime && event.end_datetime) {
+              const parsedStart = parseDate(event.start_datetime);
+              const parsedEnd = parseDate(event.end_datetime);
+              if (parsedStart && parsedEnd) {
+                // Set to start of day for both start and end to preserve date info
+                startDateTime = new Date(parsedStart);
+                startDateTime.setHours(0, 0, 0, 0);
+                endDateTime = new Date(parsedEnd);
+                endDateTime.setHours(0, 0, 0, 0);
+              } else {
+                // Fallback: create dates from the date string
+                const [year, month, day] = event.date.split('-').map(Number);
+                startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+                endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+              }
+            } else {
+              // Fallback: create dates from the date string
+              const [year, month, day] = event.date.split('-').map(Number);
+              startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+              endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+            }
+          } else {
+            // For regular events, use the parsed datetime values
+            startDateTime = parsedStart || undefined;
+            endDateTime = parsedEnd || undefined;
+            
+            // If we have a start time but no end time, create a default end time (1 hour later)
+            if (startDateTime && !endDateTime) {
+              endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000); // 1 hour later
+            }
+          }
+
+          const transformedEvent = {
+            id: `shared_${sharedEvent.id}`, // Prefix to distinguish from regular events
+            originalEventId: sharedEvent.original_event_id, // Store the original event ID for deduplication
+            title: event.title || 'Untitled Event',
+            description: event.description,
+            location: event.location,
+            date: event.date,
+            startDateTime: startDateTime,
+            endDateTime: endDateTime,
+            categoryName: event.category_name,
+            categoryColor: '#00BCD4', // Cyan for shared events
+            isAllDay: isAllDay,
+            photos: event.photos || [],
+            // Shared event properties
+            isShared: true,
+            sharedBy: sharedEvent.shared_by,
+            sharedByUsername: profileToShow?.username || 'Unknown',
+            sharedByFullName: profileToShow?.full_name || 'Unknown User',
+            sharedStatus: sharedEvent.status,
+            sharedByAvatarUrl: profileToShow?.avatar_url || null,
+          };
+
+          return transformedEvent;
+        });
+
+      return transformedAcceptedSharedEvents;
+    } catch (error) {
+      console.error('🔍 [Calendar] Error in fetchAcceptedSharedEvents:', error);
+      return [];
+    }
+  };
+
     const fetchEvents = async () => {
       try {
         setIsLoadingCalendarData(true);
@@ -1085,7 +1298,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         if (!sessionValid) {
           return;
         }
-
         
         // First, let's check if the events table exists and is accessible
         const { data: tableCheck, error: tableError } = await supabase
@@ -1098,14 +1310,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return;
         }
 
-        // Fetch both regular events and shared events in parallel
-        const [regularEventsResult, sharedEvents] = await Promise.all([
+              // Fetch regular events and ACCEPTED shared events only
+      const [regularEventsResult, acceptedSharedEvents] = await Promise.all([
           supabase
             .from('events')
             .select('*, photos, private_photos')
             .eq('user_id', user.id)
             .order('date', { ascending: true }),
-          fetchSharedEvents(user.id)
+        fetchAcceptedSharedEvents(user.id) // Only fetch accepted shared events
         ]);
 
         const { data: eventsData, error } = regularEventsResult;
@@ -1115,43 +1327,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return;
         }
 
-        // Debug: Log what we have
-        console.log('🔍 [Calendar] Regular events from database:', eventsData?.map(e => ({ id: e.id, title: e.title })));
-        console.log('🔍 [Calendar] Shared events from fetchSharedEvents:', sharedEvents.map(e => ({ id: e.id, title: e.title, isShared: e.isShared })));
-        
-        // Get the original event IDs that are part of shared events
-        const sharedOriginalEventIds = new Set();
-        
-        // Fetch the original event IDs from shared events
-        const { data: sharedEventsData, error: sharedError } = await supabase
-          .from('shared_events')
-          .select('original_event_id')
-          .or(`shared_with.eq.${user.id},shared_by.eq.${user.id}`)
-          .in('status', ['pending', 'accepted']);
-          
-        if (!sharedError && sharedEventsData) {
-          sharedEventsData.forEach(se => {
-            sharedOriginalEventIds.add(se.original_event_id);
-          });
-        }
-        
-        console.log('🔍 [Calendar] Shared original event IDs from database:', Array.from(sharedOriginalEventIds));
-
-        // Filter out regular events that are part of shared events
-        const filteredRegularEvents = (eventsData || []).filter(event => {
-          const shouldExclude = sharedOriginalEventIds.has(event.id);
-          if (shouldExclude) {
-            console.log('🔍 [Calendar] Excluding regular event:', { id: event.id, title: event.title });
-          }
-          return !shouldExclude;
-        });
-        console.log('🔍 [Calendar] Filtered regular events count:', filteredRegularEvents.length);
-
-        // Combine filtered regular events and shared events
-        const allEvents = [...filteredRegularEvents, ...sharedEvents];
+        // No need to filter regular events anymore since we only fetch accepted shared events
+        // Regular events should always show on the calendar
+        const allEvents = [...(eventsData || []), ...acceptedSharedEvents];
         console.log('🔍 [Calendar] Combined events count:', allEvents.length);
-        console.log('🔍 [Calendar] Regular events count:', filteredRegularEvents.length);
-        console.log('🔍 [Calendar] Shared events count:', sharedEvents.length);
+        console.log('🔍 [Calendar] Regular events count:', (eventsData || []).length);
+        console.log('🔍 [Calendar] Accepted shared events count:', acceptedSharedEvents.length);
 
         if (allEvents.length === 0) {
           setEvents({});
@@ -1181,9 +1362,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           
           // Check if this is a Google Calendar event that should be all-day
           const isGoogleAllDay = event.is_google_event && (!event.start_datetime || !event.end_datetime);
-          
-          // For shared events, they should already be properly transformed from fetchSharedEvents
-          // For regular events, use the standard logic
           let isAllDay;
           
           if (event.isShared) {
@@ -1195,22 +1373,32 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           } else {
             // For regular events, use the standard logic
           // Force isAllDay to true for Google Calendar all-day events or if explicitly marked as all-day
-            isAllDay = !!event.is_all_day || isGoogleAllDay;
-          
-          // Only override isAllDay if we have valid start and end times AND it's not a Google Calendar all-day event
-          if (event.start_datetime && event.end_datetime && !isGoogleAllDay) {
-            const parsedStart = parseDate(event.start_datetime);
-            const parsedEnd = parseDate(event.end_datetime);
-            if (parsedStart instanceof Date && !isNaN(parsedStart.getTime()) && parsedEnd instanceof Date && !isNaN(parsedEnd.getTime())) {
-              isAllDay = false;
-            }
-          }
+          isAllDay = !!event.is_all_day || isGoogleAllDay;
           
           if (isAllDay) {
-            // For all-day events, don't create Date objects for start/end times
-            // This prevents timezone conversion issues
-            startDateTime = undefined;
-            endDateTime = undefined;
+            // For all-day events, preserve the dates for multi-day detection
+            // but don't set specific times to avoid timezone issues
+            if (event.start_datetime && event.end_datetime) {
+              const parsedStart = parseDate(event.start_datetime);
+              const parsedEnd = parseDate(event.end_datetime);
+              if (parsedStart && parsedEnd) {
+                // Set to start of day for both start and end to preserve date info
+                startDateTime = new Date(parsedStart);
+                startDateTime.setHours(0, 0, 0, 0);
+                endDateTime = new Date(parsedEnd);
+                endDateTime.setHours(0, 0, 0, 0);
+              } else {
+                // Fallback: create dates from the date string
+                const [year, month, day] = event.date.split('-').map(Number);
+                startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+                endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+              }
+            } else {
+              // Fallback: create dates from the date string
+              const [year, month, day] = event.date.split('-').map(Number);
+              startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+              endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
+            }
           } else {
             // For regular events, parse the datetime strings
             startDateTime = event.start_datetime ? parseDate(event.start_datetime) : undefined;
@@ -1268,14 +1456,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             isGoogleEvent: event.is_google_event || false
           };
 
-          console.log('🔍 [Calendar] Processing event:', {
-            id: transformedEvent.id,
-            title: transformedEvent.title,
-            date: transformedEvent.date,
-            isShared: transformedEvent.isShared,
-            customDates: transformedEvent.customDates
-          });
-
           // Check if this is a multi-day event
           const isMultiDayEvent = (event: CalendarEvent): boolean => {
             if (!event.startDateTime || !event.endDateTime) return false;
@@ -1286,16 +1466,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             return startDate.getTime() !== endDate.getTime();
           };
 
-          // For custom events, add to all custom dates
-          if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
-            transformedEvent.customDates.forEach((date: string) => {
-              if (!acc[date]) {
-                acc[date] = [];
-              }
-              acc[date].push(transformedEvent);
-              console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
-            });
-          } else if (isMultiDayEvent(transformedEvent)) {
+          // Check if this is a multi-day event first (regardless of customDates)
+          if (isMultiDayEvent(transformedEvent)) {
             // Handle multi-day events by creating separate instances for each day
             console.log('🔍 [Calendar] Processing multi-day event:', transformedEvent.title);
             const startDate = new Date(transformedEvent.startDateTime!);
@@ -1339,6 +1511,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               // Move to next day
               currentDate.setDate(currentDate.getDate() + 1);
             }
+          } else if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
+            // For custom events, add to all custom dates
+            transformedEvent.customDates.forEach((date: string) => {
+              if (!acc[date]) {
+                acc[date] = [];
+              }
+              acc[date].push(transformedEvent);
+              console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
+            });
           } else {
             // For regular single-day events, add to the primary date
             if (!acc[transformedEvent.date]) {
@@ -1357,8 +1538,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
         
         // Add detailed debugging for shared events
-        console.log('🔍 [Calendar] All shared events before transformation:', sharedEvents.map(e => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
-        console.log('🔍 [Calendar] All events before transformation:', allEvents.map(e => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
+        console.log('🔍 [Calendar] All accepted shared events before transformation:', acceptedSharedEvents.map((e: CalendarEvent) => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
+        console.log('🔍 [Calendar] All events before transformation:', allEvents.map((e: CalendarEvent) => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
         
         // Check if any events have the date 2025-01-15
         const eventsForJan15 = allEvents.filter(e => e.date === '2025-01-15');
@@ -1373,265 +1554,29 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
     };
     
+  const onRefresh = useCallback(async () => {
+    console.log('🔄 [Calendar] Starting pull-to-refresh...');
+    setIsRefreshing(true);
+    try {
+      // Refresh all data
+      await Promise.all([
+        fetchEvents(),
+        fetchFriends(),
+        fetchSharedEvents(user?.id || '')
+      ]);
+      console.log('🔄 [Calendar] Pull-to-refresh completed successfully');
+    } catch (error) {
+      console.error('🔄 [Calendar] Error during pull-to-refresh:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+   
+    
     fetchEvents();
   }, [user]);
-
-  // Add a function to refresh events
-  const refreshEvents = async () => {
-    try {
-      console.log('🔄 [Calendar] Refreshing events...');
-      setIsLoadingCalendarData(true);
-      
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        console.log('❌ [Calendar] No user found, skipping refresh');
-        setIsLoadingCalendarData(false);
-        return;
-      }
-
-      console.log('👤 [Calendar] Refreshing events for user:', user.id);
-
-      // Fetch both regular events and shared events in parallel
-      const [regularEventsResult, sharedEvents] = await Promise.all([
-        supabase
-          .from('events')
-          .select('*, photos, private_photos')
-          .eq('user_id', user.id)
-          .order('date', { ascending: true }),
-        fetchSharedEvents(user.id)
-      ]);
-
-      const { data: eventsData, error: eventsError } = regularEventsResult;
-
-      if (eventsError) {
-        console.error('❌ [Calendar] Error fetching events:', eventsError);
-        return;
-      }
-
-      console.log('📅 [Calendar] Fetched events from database:', eventsData?.length || 0);
-      console.log('📅 [Calendar] Fetched shared events:', sharedEvents.length);
-      
-      // Get the original event IDs that are part of shared events
-      const sharedOriginalEventIds = new Set();
-      
-      // Fetch the original event IDs from shared events
-      const { data: sharedEventsData, error: sharedError } = await supabase
-        .from('shared_events')
-        .select('original_event_id')
-        .or(`shared_with.eq.${user.id},shared_by.eq.${user.id}`)
-        .in('status', ['pending', 'accepted']);
-        
-      if (!sharedError && sharedEventsData) {
-        sharedEventsData.forEach(se => {
-          sharedOriginalEventIds.add(se.original_event_id);
-        });
-      }
-      
-      console.log('📅 [Calendar] Shared original event IDs from database:', Array.from(sharedOriginalEventIds));
-
-      // Filter out regular events that are part of shared events
-      const filteredRegularEvents = (eventsData || []).filter(event => {
-        const shouldExclude = sharedOriginalEventIds.has(event.id);
-        if (shouldExclude) {
-          console.log('📅 [Calendar] Excluding regular event in refresh:', { id: event.id, title: event.title });
-        }
-        return !shouldExclude;
-      });
-      
-      console.log('📅 [Calendar] Filtered regular events count:', filteredRegularEvents.length);
-      
-      // Combine filtered regular events and shared events
-      const allEvents = [...filteredRegularEvents, ...sharedEvents];
-      
-      if (allEvents.length === 0) {
-        setEvents({});
-        return;
-      }
-
-      const parsedEvents: { [date: string]: CalendarEvent[] } = {};
-      
-      allEvents.forEach(event => {
-        console.log('📋 [Calendar] Processing event:', event.title, 'on', event.date, 'isShared:', event.isShared);
-        
-        const parseDate = (dateStr: string | null) => {
-          if (!dateStr) return null;
-            const date = new Date(dateStr);
-            return isNaN(date.getTime()) ? null : date;
-        };
-
-        // Handle all-day events differently to avoid timezone issues
-        let startDateTime, endDateTime, isAllDay;
-        
-        // For shared events, they should already have the correct startDateTime, endDateTime, and isAllDay
-        // from the fetchSharedEvents transformation
-        if (event.isShared) {
-          // Shared events should already have the correct properties
-          startDateTime = event.startDateTime;
-          endDateTime = event.endDateTime;
-          isAllDay = event.isAllDay;
-        } else {
-          // For regular events, use the standard logic
-          // Check if this is a Google Calendar event that should be all-day
-          const isGoogleAllDay = event.is_google_event && (!event.start_datetime || !event.end_datetime);
-          
-          // First, try to parse the start and end times
-          const parsedStart = event.start_datetime ? parseDate(event.start_datetime) : null;
-          const parsedEnd = event.end_datetime ? parseDate(event.end_datetime) : null;
-          
-          // Check if we have valid start time (this indicates it's a timed event, not all-day)
-          const hasValidStartTime = parsedStart instanceof Date && !isNaN(parsedStart.getTime());
-          const hasValidEndTime = parsedEnd instanceof Date && !isNaN(parsedEnd.getTime());
-          const hasValidTimes = hasValidStartTime;
-          
-          // Determine if this should be an all-day event
-          // Priority: valid times override the is_all_day flag
-          // If we have valid times, it's not all day, regardless of the flag
-          isAllDay = !hasValidTimes;
-          
-          // Force isAllDay to true for Google Calendar all-day events
-          if (isGoogleAllDay) {
-            isAllDay = true;
-          }
-          
-          if (isAllDay) {
-            // For all-day events, don't create Date objects for start/end times
-            // This prevents timezone conversion issues
-            startDateTime = undefined;
-            endDateTime = undefined;
-          } else {
-            // For regular events, use the parsed datetime values
-            startDateTime = parsedStart || undefined;
-            endDateTime = parsedEnd || undefined;
-            
-            // If we have a start time but no end time, create a default end time (1 hour later)
-            if (startDateTime && !endDateTime) {
-              endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000); // 1 hour later
-            }
-          }
-        }
-
-        const calendarEvent: CalendarEvent = {
-          id: event.id,
-          title: event.title,
-          description: event.description || '',
-          location: event.location || '',
-          date: event.date,
-          startDateTime: startDateTime,
-          endDateTime: endDateTime,
-          categoryName: event.category_name,
-          categoryColor: event.category_color || '#00BCD4',
-          reminderTime: parseDate(event.reminder_time),
-          repeatOption: event.repeat_option || 'None',
-          repeatEndDate: parseDate(event.repeat_end_date),
-          customDates: event.custom_dates || [],
-          customTimes: event.custom_times || {},
-          isContinued: event.is_continued || false,
-          isAllDay: isAllDay,
-          photos: [...(event.photos || []), ...(event.private_photos || [])],
-          // Shared event properties (for shared events)
-          isShared: event.isShared || false,
-          sharedBy: event.sharedBy,
-          sharedByUsername: event.sharedByUsername,
-          sharedByFullName: event.sharedByFullName,
-          sharedStatus: event.sharedStatus,
-          // Google Calendar properties
-          googleCalendarId: event.google_calendar_id,
-          googleEventId: event.google_event_id,
-          isGoogleEvent: event.is_google_event || false,
-          calendarColor: event.calendar_color,
-        };
-
-        // Generate repeated events if this is a repeating event
-        if (calendarEvent.repeatOption && calendarEvent.repeatOption !== 'None' && calendarEvent.repeatOption !== 'Custom') {
-          const eventsToAdd = generateRepeatedEvents(calendarEvent);
-          
-          eventsToAdd.forEach((eventInstance: CalendarEvent) => {
-            const dateKey = eventInstance.date;
-            if (!parsedEvents[dateKey]) {
-              parsedEvents[dateKey] = [];
-            }
-            parsedEvents[dateKey].push(eventInstance);
-          });
-        } else {
-          // For non-repeating events, just add to the original date
-          const dateKey = calendarEvent.date;
-          if (!parsedEvents[dateKey]) {
-            parsedEvents[dateKey] = [];
-          }
-          parsedEvents[dateKey].push(calendarEvent);
-        }
-
-        // Check if this is a multi-day event
-        const isMultiDayEvent = (event: CalendarEvent): boolean => {
-          if (!event.startDateTime || !event.endDateTime) return false;
-          const startDate = new Date(event.startDateTime);
-          const endDate = new Date(event.endDateTime);
-          startDate.setHours(0, 0, 0, 0);
-          endDate.setHours(0, 0, 0, 0);
-          return startDate.getTime() !== endDate.getTime();
-        };
-
-        // Handle multi-day events by creating separate instances for each day
-        if (isMultiDayEvent(calendarEvent)) {
-          console.log('🔍 [Calendar] Processing multi-day event in refresh:', calendarEvent.title);
-          const startDate = new Date(calendarEvent.startDateTime!);
-          const endDate = new Date(calendarEvent.endDateTime!);
-          
-          // Reset times to compare only dates
-          startDate.setHours(0, 0, 0, 0);
-          endDate.setHours(0, 0, 0, 0);
-          
-          // Create separate event instances for each day in the range
-          const currentDate = new Date(startDate);
-          while (currentDate <= endDate) {
-            const dateKey = getLocalDateString(currentDate);
-            
-            if (!parsedEvents[dateKey]) {
-              parsedEvents[dateKey] = [];
-            }
-            
-            // Create a separate event instance for this specific date
-            const eventInstance = {
-              ...calendarEvent,
-              id: `${calendarEvent.id}_${dateKey}`, // Unique ID for each day
-              date: dateKey,
-              // Adjust start/end times for this specific day
-              startDateTime: new Date(currentDate),
-              endDateTime: new Date(currentDate),
-            };
-            
-            // If it's not an all-day event, preserve the time from the original event
-            if (!calendarEvent.isAllDay && calendarEvent.startDateTime && calendarEvent.endDateTime) {
-              const originalStart = new Date(calendarEvent.startDateTime);
-              const originalEnd = new Date(calendarEvent.endDateTime);
-              
-              eventInstance.startDateTime.setHours(originalStart.getHours(), originalStart.getMinutes(), originalStart.getSeconds());
-              eventInstance.endDateTime.setHours(originalEnd.getHours(), originalEnd.getMinutes(), originalEnd.getSeconds());
-            }
-            
-            parsedEvents[dateKey].push(eventInstance);
-            console.log('🔍 [Calendar] Added multi-day event to date in refresh:', dateKey, 'Event:', calendarEvent.title);
-            
-            // Move to next day
-            currentDate.setDate(currentDate.getDate() + 1);
-          }
-        } else {
-          // Single day event
-          if (!parsedEvents[event.date]) {
-            parsedEvents[event.date] = [];
-          }
-          parsedEvents[event.date].push(calendarEvent);
-        }
-      });
-
-      console.log('🗓️ [Calendar] Parsed events by date:', Object.keys(parsedEvents));
-      setEvents(parsedEvents);
-    } catch (error) {
-      console.error('❌ [Calendar] Error in refreshEvents:', error);
-    } finally {
-      setIsLoadingCalendarData(false);
-    }
-  };
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -2142,8 +2087,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     date?.toDateString() === selectedDate.toDateString();
 
 
-
-  
   const handleDeleteEvent = async (eventId: string) => {
     try {
       console.log('🗑️ [Delete] Starting delete for event ID:', eventId);
@@ -2155,20 +2098,25 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return;
       }
 
-      // For multi-day events, extract the base event ID
-      // Multi-day event IDs have format: originalId_dateKey (e.g., "abc123_2025-01-15")
-      // Regular event IDs are just the original ID
-      const baseEventId = eventId.includes('_') ? eventId.split('_')[0] : eventId;
+      const parts = eventId.split('_');
+      const isMultiDayInstance = parts.length >= 3 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+      const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
       
-      console.log('🗑️ [Delete] Base event ID for deletion:', baseEventId);
+      console.log('🗑️ [Delete] Event ID analysis:', {
+        originalId: eventId,
+        isMultiDayInstance,
+        baseEventId
+      });
 
       // Check if this is a shared event
       const isSharedEvent = baseEventId.startsWith('shared_');
       
       if (isSharedEvent) {
+        console.log('🗑️ [Delete] Calling handleDeleteSharedEvent');
         await handleDeleteSharedEvent(baseEventId);
       } else {
-        await handleDeleteRegularEvent(baseEventId);
+        console.log('🗑️ [Delete] Calling handleDeleteRegularEvent with baseEventId:', baseEventId, 'and originalEventId:', eventId);
+        await handleDeleteRegularEvent(baseEventId, eventId); // Pass both base ID and original ID
       }
     } catch (error) {
       console.error('🗑️ [Delete] Error in handleDeleteEvent:', error);
@@ -2178,7 +2126,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleDeleteSharedEvent = async (sharedEventId: string) => {
     try {
-      console.log('🗑️ [Delete Shared] Starting delete for shared event ID:', sharedEventId);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -2252,20 +2199,23 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }
   };
 
-  const handleDeleteRegularEvent = async (eventId: string) => {
+  const handleDeleteRegularEvent = async (baseEventId: string, originalEventId?: string) => {
     try {
-      console.log('🗑️ [Delete Regular] Starting delete for event ID:', eventId);
+      console.log('🗑️ [Delete Regular] Starting with baseEventId:', baseEventId, 'originalEventId:', originalEventId);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         throw new Error('User not authenticated');
       }
 
+      // The baseEventId passed here is already the base event ID (extracted in handleDeleteEvent)
+      // No need to extract again
+
       // Check if event exists and user owns it
       const { data: existingEvent, error: checkError } = await supabase
         .from('events')
-        .select('id, title, user_id, repeat_option, custom_dates')
-        .eq('id', eventId)
+        .select('id, title, user_id, start_datetime, end_datetime, category_id')
+        .eq('id', baseEventId)
         .single();
 
       if (checkError && checkError.code !== 'PGRST116') {
@@ -2273,9 +2223,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       if (!existingEvent) {
-        console.warn('🗑️ [Delete Regular] Event not found in database:', eventId);
+        console.warn('🗑️ [Delete Regular] Event not found in database:', baseEventId);
         // Still remove from local state even if not in database
-        removeEventFromLocalState(eventId);
+        // We need to pass the original event ID (with date suffix) to remove all instances
+        removeEventFromLocalState(originalEventId || baseEventId);
         return;
       }
 
@@ -2284,13 +2235,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       // Cancel notifications for this event
-      await cancelEventNotification(eventId);
+      await cancelEventNotification(baseEventId);
 
       // Delete shared events first
       const { error: sharedDeleteError } = await supabase
         .from('shared_events')
         .delete()
-        .eq('original_event_id', eventId);
+        .eq('original_event_id', baseEventId);
 
       if (sharedDeleteError) {
         console.error('🗑️ [Delete Regular] Error deleting shared events:', sharedDeleteError);
@@ -2300,25 +2251,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       const { error: deleteError } = await supabase
         .from('events')
         .delete()
-        .eq('id', eventId);
+        .eq('id', baseEventId);
 
       if (deleteError) {
         throw deleteError;
       }
-
-      console.log('🗑️ [Delete Regular] Database delete successful');
-
+      console.log('🗑️ [Delete Regular] Database deletion successful, now removing from local state with ID:', originalEventId || baseEventId);
       // Remove from local state
-      removeEventFromLocalState(eventId);
-
-      Toast.show({
-        type: 'success',
-        text1: 'Event deleted successfully',
-        position: 'bottom',
-        visibilityTime: 2000,
-      });
-
-      console.log('🗑️ [Delete Regular] Delete completed successfully');
+      removeEventFromLocalState(originalEventId || baseEventId);
     } catch (error) {
       console.error('🗑️ [Delete Regular] Error:', error);
       Alert.alert('Error', 'Failed to delete event. Please try again.');
@@ -2335,14 +2275,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     const events: CalendarEvent[] = [];
     const baseDate = event.startDateTime || new Date(event.date);
     const endDate = event.repeatEndDate || new Date(baseDate.getFullYear() + 1, baseDate.getMonth(), baseDate.getDate());
-    
-    console.log('🔄 [Repeat] Generating repeated events:', {
-      title: event.title,
-      repeatOption: event.repeatOption,
-      baseDate: baseDate.toISOString(),
-      endDate: endDate.toISOString(),
-      isAllDay: event.isAllDay
-    });
+
 
     // Helper function to create an event for a specific date
     const createEventForDate = (date: Date): CalendarEvent => {
@@ -2409,51 +2342,67 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       currentDate = nextDate;
       }
 
-    console.log('🔄 [Repeat] Generated', events.length, 'events');
     return events;
   };
 
   const removeEventFromLocalState = (eventId: string) => {
-    setEvents(prevEvents => {
-      const newEvents = { ...prevEvents };
-      let removedCount = 0;
+    console.log('🗑️ [removeEventFromLocalState] Starting removal for eventId:', eventId);
+    
+      setEvents(prevEvents => {
+        const newEvents = { ...prevEvents };
+        let removedCount = 0;
       
-      // For multi-day events, we need to extract the base event ID
-      // Multi-day event IDs have format: originalId_dateKey (e.g., "abc123_2025-01-15")
-      // Regular event IDs are just the original ID
-      const baseEventId = eventId.includes('_') ? eventId.split('_')[0] : eventId;
+      const parts = eventId.split('_');
+      const isMultiDayInstance = parts.length >= 3 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+      const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
       
-      Object.keys(newEvents).forEach(dateKey => {
-        const beforeCount = newEvents[dateKey].length;
-        
-        // Remove all instances of the event
-        // For multi-day events, remove any event that starts with the base event ID
-        newEvents[dateKey] = newEvents[dateKey].filter(event => {
-          const eventBaseId = event.id.includes('_') ? event.id.split('_')[0] : event.id;
-          return eventBaseId !== baseEventId;
-        });
-        
-        const afterCount = newEvents[dateKey].length;
-        removedCount += (beforeCount - afterCount);
-        
-        if (newEvents[dateKey].length === 0) {
-          delete newEvents[dateKey];
-        }
+      console.log('🗑️ [removeEventFromLocalState] Analysis:', {
+        originalId: eventId,
+        isMultiDayInstance,
+        baseEventId,
+        totalDates: Object.keys(newEvents).length
       });
+        
+        Object.keys(newEvents).forEach(dateKey => {
+          const beforeCount = newEvents[dateKey].length;
+        console.log(`🗑️ [removeEventFromLocalState] Processing date ${dateKey}, events before: ${beforeCount}`);
+          
+            newEvents[dateKey] = newEvents[dateKey].filter(event => {
+          const eventParts = event.id.split('_');
+          const eventIsMultiDayInstance = eventParts.length >= 3 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+          const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') : event.id;
+          
+          const shouldKeep = eventBaseId !== baseEventId;
+          if (!shouldKeep) {
+            console.log(`🗑️ [removeEventFromLocalState] Removing event: ${event.id} (base: ${eventBaseId})`);
+          }
+          return shouldKeep;
+        });
+          
+          const afterCount = newEvents[dateKey].length;
+          removedCount += (beforeCount - afterCount);
+        console.log(`🗑️ [removeEventFromLocalState] Date ${dateKey}, events after: ${afterCount}, removed: ${beforeCount - afterCount}`);
+          
+          if (newEvents[dateKey].length === 0) {
+            delete newEvents[dateKey];
+          console.log(`🗑️ [removeEventFromLocalState] Deleted empty date: ${dateKey}`);
+          }
+        });
 
-      console.log('🗑️ [Delete] Removed', removedCount, 'events from local state for base event ID:', baseEventId);
-      return newEvents;
-    });
+      console.log('🗑️ [removeEventFromLocalState] Total removed:', removedCount);
+        return newEvents;
+      });
   };
 
-  const resetEventForm = () => {
+  const resetEventForm = (customSelectedDate?: Date) => {
     setNewEventTitle('');
     setNewEventDescription('');
     setNewEventLocation('');
     
-    // Use the currently selected date instead of today's date
-    const selectedDateForEvent = new Date(selectedDate);
-    const selectedDateEndTime = new Date(selectedDate);
+    // Use the provided date or the currently selected date
+    const dateToUse = customSelectedDate || selectedDate;
+    const selectedDateForEvent = new Date(dateToUse);
+    const selectedDateEndTime = new Date(dateToUse);
     selectedDateEndTime.setHours(selectedDateEndTime.getHours() + 1); // 1 hour later
     
     setStartDateTime(selectedDateForEvent);
@@ -2477,7 +2426,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     setCustomStartTime(selectedDateForEvent);
     setCustomEndTime(selectedDateEndTime);
     setUserChangedEndTime(false);
-    setIsAllDay(false);
+    // Removed setIsAllDay(false) to preserve all-day toggle state when modal closes
     setEventPhotos([]);
     setEditedEventPhotos([]);
     setPhotoPrivacyMap({});
@@ -2557,68 +2506,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         photos: eventPhotos.filter(photo => !photoPrivacyMap[photo]), // Only regular photos
         private_photos: eventPhotos.filter(photo => photoPrivacyMap[photo]) // Only private photos
       };
-
-      // Add debugging to see what date is being used
-      console.log('🔍 [Calendar] Event date debugging:', {
-        startDateTime: startDateTime,
-        startDateTimeType: typeof startDateTime,
-        startDateTimeString: startDateTime.toISOString(),
-        calculatedDate: getLocalDateString(startDateTime),
-        isAllDay: isAllDay
-      });
-
-      console.log('🔍 [Calendar] Event to save details:', {
-        title: eventToSave.title,
-        isAllDay: eventToSave.isAllDay,
-        startDateTime: eventToSave.startDateTime,
-        endDateTime: eventToSave.endDateTime,
-        startDateTimeType: typeof eventToSave.startDateTime,
-        endDateTimeType: typeof eventToSave.endDateTime,
-        startHours: eventToSave.startDateTime?.getHours(),
-        startMinutes: eventToSave.startDateTime?.getMinutes(),
-        endHours: eventToSave.endDateTime?.getHours(),
-        endMinutes: eventToSave.endDateTime?.getMinutes(),
-        startTimeString: eventToSave.startDateTime?.toLocaleTimeString(),
-        endTimeString: eventToSave.endDateTime?.toLocaleTimeString()
-      });
-
-      console.log('🔄 [Repeat] Creating event with repeat settings:', {
-        title: eventToSave.title,
-        repeatOption: eventToSave.repeatOption,
-        repeatEndDate: eventToSave.repeatEndDate,
-        isAllDay: eventToSave.isAllDay,
-        stateRepeatOption: repeatOption,
-        stateRepeatEndDate: repeatEndDate
-      });
-
-      // For all-day events, we only store the date without time components
-      console.log('🔍 [Calendar] Event to save isAllDay:', eventToSave.isAllDay);
-      console.log('🔍 [Calendar] State isAllDay:', isAllDay);
       
       if (eventToSave.isAllDay) {
-        const startDate = new Date(eventToSave.date);
-        startDate.setHours(0, 0, 0, 0);
+        // For all-day events, create UTC dates with 12pm-1pm times to avoid timezone issues
+        const [year, month, day] = eventToSave.date.split('-').map(Number);
+        const startDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0)); // 12:00 PM UTC
+        const endDate = new Date(Date.UTC(year, month - 1, day, 13, 0, 0, 0));   // 1:00 PM UTC
         eventToSave.startDateTime = startDate;
-        eventToSave.endDateTime = startDate; // Use the same date for both start and end
-        console.log('🔍 [Calendar] Setting all-day event times:', { startDateTime: eventToSave.startDateTime, endDateTime: eventToSave.endDateTime });
+        eventToSave.endDateTime = endDate;
       } else {
         // For regular events, store the full datetime
         eventToSave.startDateTime = new Date(startDateTime);
         eventToSave.endDateTime = new Date(endDateTime);
-        console.log('🔍 [Calendar] Setting regular event times:', { startDateTime: eventToSave.startDateTime, endDateTime: eventToSave.endDateTime });
       }
 
       // Generate all repeated events for local state
       const allEvents = generateRepeatedEvents(eventToSave);
 
       // Prepare database data - only save the original event with repeat information
-      const dbEvent = {
+        const dbEvent = {
         id: eventToSave.id,
         title: eventToSave.title,
         description: eventToSave.description,
         date: eventToSave.date,
-        start_datetime: eventToSave.isAllDay ? null : (eventToSave.startDateTime ? formatDateToUTC(eventToSave.startDateTime) : null),
-        end_datetime: eventToSave.isAllDay ? null : (eventToSave.endDateTime ? formatDateToUTC(eventToSave.endDateTime) : null),
+        start_datetime: formatDateToUTC(eventToSave.startDateTime),
+        end_datetime: formatDateToUTC(eventToSave.endDateTime),
         category_name: eventToSave.categoryName || null,
         category_color: eventToSave.categoryColor || null,
         reminder_time: eventToSave.reminderTime ? formatDateToUTC(eventToSave.reminderTime) : null,
@@ -2627,29 +2539,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         custom_dates: eventToSave.customDates,
         custom_times: eventToSave.customTimes ? 
           Object.entries(eventToSave.customTimes).reduce((acc, [date, times]) => ({
-            ...acc,
-            [date]: {
-              start: formatDateToUTC(times.start),
-              end: formatDateToUTC(times.end),
-              reminder: times.reminder ? formatDateToUTC(times.reminder) : null,
-              repeat: times.repeat
-            }
-          }), {}) : null,
+              ...acc,
+              [date]: {
+                start: formatDateToUTC(times.start),
+                end: formatDateToUTC(times.end),
+                reminder: times.reminder ? formatDateToUTC(times.reminder) : null,
+                repeat: times.repeat
+              }
+            }), {}) : null,
         is_all_day: eventToSave.isAllDay,
         photos: eventToSave.photos || [],
         private_photos: eventToSave.private_photos || [],
-        user_id: currentUser.id // Use the verified current user ID
-      };
-      
-      console.log('🔍 [Calendar] Database event data:', {
-        id: dbEvent.id,
-        title: dbEvent.title,
-        is_all_day: dbEvent.is_all_day,
-        start_datetime: dbEvent.start_datetime,
-        end_datetime: dbEvent.end_datetime,
-        repeat_option: dbEvent.repeat_option,
-        repeat_end_date: dbEvent.repeat_end_date
-      });
+          user_id: currentUser.id // Use the verified current user ID
+        };
 
       let dbError;
       // If we have an ID and it's not a new event (editingEvent exists), update the existing event
@@ -2696,36 +2598,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             deleteSuccess = true;
           }
         }
-
-        // Approach 3: If still not successful, try to find and delete by multiple criteria
-        if (!deleteSuccess) {
-          const { data: eventsToDelete, error: findError } = await supabase
-            .from('events')
-            .select('*')
-            .eq('title', eventToDelete?.title || '')
-            .eq('user_id', currentUser.id);
-
-          if (!findError && eventsToDelete && eventsToDelete.length > 0) {
-            const eventIds = eventsToDelete.map(e => e.id);
-            const { error: bulkDeleteError } = await supabase
-              .from('events')
-              .delete()
-              .in('id', eventIds);
-
-            if (!bulkDeleteError) {
-              deleteSuccess = true;
-            }
-          }
-        }
-
-        // Insert the updated event
-        console.log('🔍 [Calendar] About to insert updated event into database:', {
-          id: dbEvent.id,
-          title: dbEvent.title,
-          is_all_day: dbEvent.is_all_day,
-          start_datetime: dbEvent.start_datetime,
-          end_datetime: dbEvent.end_datetime
-        });
         
         const { error: insertError } = await supabase
           .from('events')
@@ -2733,15 +2605,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
         dbError = insertError;
       } else if (selectedFriends.length === 0) {
-        // Only insert events to database if not creating a shared event
-        // Insert the new event
-        console.log('🔍 [Calendar] About to insert new event into database:', {
-          id: dbEvent.id,
-          title: dbEvent.title,
-          is_all_day: dbEvent.is_all_day,
-          start_datetime: dbEvent.start_datetime,
-          end_datetime: dbEvent.end_datetime
-        });
         
         const { error: insertError } = await supabase
           .from('events')
@@ -2750,7 +2613,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         dbError = insertError;
       } else {
         // For shared events, we'll handle the database insertion in the sharing function
-        console.log('🔍 [Calendar] Skipping database insertion for shared event - will be handled by createAndShareEvent');
         dbError = null;
       }
 
@@ -2797,11 +2659,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               }
               updated[dateKey] = updated[dateKey].filter(e => e.id !== event.id);
               updated[dateKey].push(event);
-              console.log('🔄 [Repeat] Added event to date', dateKey, ':', event.title);
             }
           });
           
-          console.log('🔄 [Repeat] Final state has events on dates:', Object.keys(updated));
           return updated;
         });
 
@@ -2812,7 +2672,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           }
         }
       } else {
-        console.log('🔍 [Calendar] Skipping local state update for shared event - will be refreshed after sharing');
       }
 
       // Handle shared event creation differently
@@ -2860,7 +2719,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           });
           
           // Refresh events to show the shared event
-          await refreshEvents();
+          await fetchEvents();
         } else {
           Toast.show({
             type: 'error',
@@ -2883,13 +2742,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setShowModal(false);
       setShowCustomDatesPicker(false);
       setEditingEvent(null);
-
-      // Show success message
-      Toast.show({
-        type: 'success',
-        text1: editingEvent ? 'Event updated successfully' : 'Event created successfully',
-        position: 'bottom',
-      });
 
       // If the event has photos and is not private, share them to friends feed
       if (eventToSave.photos && eventToSave.photos.length > 0 && user?.id) {
@@ -2945,10 +2797,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // PanResponder for swipe up/down gesture
   const panResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
         // Make vertical scrolling much more sensitive than horizontal
-        const verticalThreshold = 5; // Very low threshold for vertical
-        const horizontalThreshold = 60; // Higher threshold for horizontal (but not too high)
+        const verticalThreshold = 3; // Very low threshold for vertical
+        const horizontalThreshold = 50; // Higher threshold for horizontal
         
         const isVertical = Math.abs(gestureState.dy) > verticalThreshold;
         const isHorizontal = Math.abs(gestureState.dx) > horizontalThreshold;
@@ -2957,16 +2810,38 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         if (isMonthCompact) {
           // Make vertical gestures much more sensitive when event list is up
           // But still allow horizontal gestures if they're very deliberate
-          return isVertical && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.5;
+          const shouldRespond = isVertical && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.2;
+          console.log('🔄 [Calendar] PanResponder in compact mode:', { 
+            isVertical, 
+            isHorizontal, 
+            dy: gestureState.dy, 
+            dx: gestureState.dx, 
+            shouldRespond 
+          });
+          return shouldRespond;
         }
         
         // Default behavior for expanded mode
-        return Math.abs(gestureState.dy) > 15;
+        const shouldRespond = Math.abs(gestureState.dy) > 10;
+        console.log('🔄 [Calendar] PanResponder in expanded mode:', { 
+          dy: gestureState.dy, 
+          shouldRespond 
+        });
+        return shouldRespond;
+      },
+      onPanResponderGrant: () => {
+        console.log('🔄 [Calendar] PanResponder granted');
+      },
+      onPanResponderMove: (_, gestureState) => {
+        console.log('🔄 [Calendar] PanResponder moving:', { dy: gestureState.dy });
       },
       onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy < -30) {
+        console.log('🔄 [Calendar] PanResponder released:', { dy: gestureState.dy });
+        if (gestureState.dy < -20) {
+          console.log('🔄 [Calendar] Swiping up - setting compact mode');
           setIsMonthCompact(true); // Swiped up
-        } else if (gestureState.dy > 30) {
+        } else if (gestureState.dy > 20) {
+          console.log('🔄 [Calendar] Swiping down - setting expanded mode');
           setIsMonthCompact(false); // Swiped down
         }
       },
@@ -2994,7 +2869,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           </View>
 
           <View
-            {...panResponder.panHandlers}
             style={[
               needsSixRowsThisMonth ? styles.gridSixRows : styles.grid,
               isMonthCompact && {
@@ -3034,7 +2908,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     }}
                     onLongPress={() => {
                       setSelectedDate(date);
-                      resetEventForm();
+                      resetEventForm(date);
+                      resetAllDayToggle(); // Reset all-day toggle for new events
                       setShowModal(true);
                     }}
                     style={styles.cellContent}
@@ -3080,14 +2955,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   setEditedEventTitle(event.title);
                                   setEditedEventDescription(event.description ?? '');
                                   setEditedEventLocation(event.location ?? '');
-                                  setEditedStartDateTime(new Date(event.startDateTime!));
-                                  setEditedEndDateTime(new Date(event.endDateTime!));
+                                  setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
+                                  setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
                                   setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                                   setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                                   setEditedRepeatOption(event.repeatOption || 'None');
                                   setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                                   setCustomSelectedDates(event.customDates || []);
-                                  setIsEditedAllDay(!(hasValidStart && hasValidEnd));                                  setEditedEventPhotos([...(event.photos || []), ...(event.private_photos || [])]);
+                                  setIsEditedAllDay(event.isAllDay || false);                                  setEditedEventPhotos([...(event.photos || []), ...(event.private_photos || [])]);
                                   setShowEditEventModal(true);
                                 }}
                                 onLongPress={() => handleLongPress(event)}
@@ -3155,13 +3030,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     setEditedEventTitle(event.title);
                                     setEditedEventDescription(event.description ?? '');
                                     setEditedEventLocation(event.location ?? '');
-                                    setEditedStartDateTime(new Date(event.startDateTime!));
-                                    setEditedEndDateTime(new Date(event.endDateTime!));
+                                    setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
+                                    setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
                                     setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                                     setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                                     setEditedRepeatOption(event.repeatOption || 'None');
                                     setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                                     setCustomSelectedDates(event.customDates || []);
+                                    setIsEditedAllDay(event.isAllDay || false);
                                     setShowEditEventModal(true);
                                   }}
                                   onLongPress={() => handleLongPress(event)}
@@ -3238,14 +3114,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEditedEventTitle(event.title);
       setEditedEventDescription(event.description ?? '');
       setEditedEventLocation(event.location ?? '');
-      setEditedStartDateTime(new Date(event.startDateTime!));
-      setEditedEndDateTime(new Date(event.endDateTime!));
+      setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
+      setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
       setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
       setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
       setEditedRepeatOption(event.repeatOption || 'None');
       setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
       setCustomSelectedDates(event.customDates || []);
-      setIsEditedAllDay(!(hasValidStart && hasValidEnd));
+      setIsEditedAllDay(event.isAllDay || false);
       setEditedEventPhotos(event.photos || []);
       
       // Reset edit modal friends state first
@@ -3657,7 +3533,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           // Skip DELETE operations to avoid bringing back deleted events
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
             console.log('🔄 [Real-time] Event change detected:', payload.eventType, 'refreshing events');
-            refreshEvents();
+            fetchEvents();
           } else if (payload.eventType === 'DELETE') {
             console.log('🔄 [Real-time] Event deletion detected, skipping refresh to preserve local state');
           }
@@ -3694,7 +3570,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (notificationData?.type === 'event_shared') {
         console.log('🔔 [Notifications] Handling shared event notification:', notificationData);
         // Refresh events to show the new shared event
-        refreshEvents();
+        fetchEvents();
         // Show shared events modal
         setShowSharedEventsModal(true);
         setActiveSharedEventsTab('received');
@@ -3730,7 +3606,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         [
           {
             text: 'Retry',
-            onPress: () => refreshEvents()
+            onPress: () => fetchEvents()
           },
           {
             text: 'OK',
@@ -3828,7 +3704,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       // This prevents overwriting local state changes like deletions
       if (Object.keys(events).length === 0) {
         console.log('🔄 [Calendar] No events loaded, refreshing on focus');
-        refreshEvents();
+        fetchEvents();
       } else {
         console.log('🔄 [Calendar] Events already loaded, skipping refresh on focus');
       }
@@ -4182,7 +4058,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       
       // Refresh events to ensure UI is updated
       setTimeout(() => {
-        refreshEvents();
+        fetchEvents();
       }, 500);
     } catch (error) {
       throw error;
@@ -4411,7 +4287,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEditedRepeatOption(event.repeatOption || 'None');
       setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
       setCustomSelectedDates(event.customDates || []);
-      setIsEditedAllDay(!(hasValidStart && hasValidEnd));
+      setIsEditedAllDay(event.isAllDay || false);
       setEditedEventPhotos(event.photos || []);
       setShowEditEventModal(true);
     }
@@ -4447,7 +4323,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       });
 
       // Refresh events to update the display
-      await refreshEvents();
+      await fetchEvents();
     } catch (error) {
       console.error('Error accepting shared event:', error);
       Alert.alert('Error', 'Failed to accept event. Please try again.');
@@ -4484,7 +4360,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       });
 
       // Refresh events to update the display
-      await refreshEvents();
+      await fetchEvents();
     } catch (error) {
       console.error('Error declining shared event:', error);
       Alert.alert('Error', 'Failed to decline event. Please try again.');
@@ -4641,7 +4517,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       console.log('✅ [Test] Created shared event:', sharedEventData);
       
       // Refresh events to show the new shared event
-      await refreshEvents();
+      await fetchEvents();
       
     } catch (error) {
       console.error('❌ [Test] Error in createTestSharedEvent:', error);
@@ -4778,11 +4654,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
 
       {/* Calendar and Event List Container */}
-      <View style={{ 
+      <View 
+        {...panResponder.panHandlers}
+        style={{ 
         flex: 1, 
         flexDirection: 'column',
         minHeight: 600, // Ensure stable minimum height
-      }}>
+        }}
+      >
         {/* Calendar Grid */}
         <View style={{ 
           flex: isMonthCompact ? 0.5 : 1,
@@ -4814,6 +4693,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 setCurrentMonthIndex(newIndex);
               }
             }}
+            refreshControl={
+              !isMonthCompact ? (
+                <RefreshControl
+                  refreshing={isRefreshing}
+                  onRefresh={onRefresh}
+                />
+              ) : undefined
+            }
           />
         </View>
 
@@ -4964,11 +4851,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   isShared: event.isShared
                                 });
                                 
-                                // Force check for valid times regardless of isAllDay flag
+                                // Check if this is an all-day event first
+                                if (event.isAllDay) {
+                                  return 'All Day';
+                                }
+                                
+                                // For non-all-day events, check for valid times
                                 if (event.startDateTime && event.endDateTime && 
                                     event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime()) &&
                                     event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime())) {
-                                  console.log('🔍 [Calendar] Event has valid times, showing times instead of all-day');
+                                  console.log('🔍 [Calendar] Event has valid times, showing times');
                                   const formatTime = (date: Date | undefined) => {
                                     console.log('🔍 [Calendar] Formatting time for event list:', {
                                       date,
@@ -4996,7 +4888,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   const startTime = formatTime(event.startDateTime);
                                   const endTime = formatTime(event.endDateTime);
                                   
-                                                                    const result = `${startTime} – ${endTime}`;
+                                  const result = `${startTime} – ${endTime}`;
                                   console.log('🔍 [Calendar] Final time string for event list:', result);
                                   return result;
                                 } else {
@@ -5220,10 +5112,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         setEditedEventPhotos={setEditedEventPhotos}
         setEditedAllDay={setIsEditedAllDay}
         setShowEditEventModal={setShowEditEventModal}
+        resetAllDayToggle={resetAllDayToggle}
         hideHeader={true}
         setVisibleWeekMonth={setVisibleWeekMonth}
         setVisibleWeekMonthText={setVisibleWeekMonthText}
         visibleWeekMonthText={visibleWeekMonthText}
+        isRefreshing={isRefreshing}
+        onRefresh={onRefresh}
       />
     </View>
   )}
@@ -5233,6 +5128,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     style={styles.addButton}
     onPress={() => {
       resetEventForm();
+      resetAllDayToggle(); // Reset all-day toggle for new events
       setShowModal(true);
       // The resetEventForm now uses selectedDate, so we don't need to override it
       const currentDateStr = getLocalDateString(startDateTime);
@@ -5249,6 +5145,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     }}
     onLongPress={() => {
       resetEventForm();
+      resetAllDayToggle(); // Reset all-day toggle for new events
       // Set up for custom event
       setCustomModalTitle('');
       setCustomModalDescription('');
@@ -7550,6 +7447,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     directionalLockEnabled={true}
                     alwaysBounceHorizontal={false}
                     alwaysBounceVertical={true}
+                    refreshControl={
+                      <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                      />
+                    }
                   >
                     {receivedSharedEvents.length === 0 ? (
                       <View style={{ 
@@ -7636,6 +7539,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   fontFamily: 'Onest',
                                 }}>
                                   {event.date} • {(() => {
+                                    // Check if this is an all-day event first
+                                    if (event.isAllDay) {
+                                      return 'All day event';
+                                    }
+                                    
                                     // Check for valid start time (this indicates it's a timed event, not all-day)
                                     const hasValidStartTime = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
                                     const hasValidEndTime = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
@@ -7763,7 +7671,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     
                                     await handleAcceptSharedEvent(event);
                                     // Refresh events to update the display
-                                    await refreshEvents();
+                                    await fetchEvents();
                                     // Update the pending events list to reflect changes
                                     updatePendingSharedEvents();
                                   } catch (error) {
@@ -7810,7 +7718,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     
                                     await handleDeclineSharedEvent(event);
                                     // Refresh events to update the display
-                                    await refreshEvents();
+                                    await fetchEvents();
                                     // Update the pending events list to reflect changes
                                     updatePendingSharedEvents();
                                   } catch (error) {
@@ -7858,6 +7766,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     directionalLockEnabled={true}
                     alwaysBounceHorizontal={false}
                     alwaysBounceVertical={true}
+                    refreshControl={
+                      <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                      />
+                    }
                   >
                     {sentSharedEvents.length === 0 ? (
                       <View style={{ 
@@ -7943,6 +7857,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   fontFamily: 'Onest',
                                 }}>
                                   {event.date} • {(() => {
+                                    // Check if this is an all-day event first
+                                    if (event.isAllDay) {
+                                      return 'All day event';
+                                    }
+                                    
                                     // Check for valid start time (this indicates it's a timed event, not all-day)
                                     const hasValidStartTime = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
                                     const hasValidEndTime = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());

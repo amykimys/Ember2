@@ -3473,36 +3473,83 @@ export default function TodoScreen() {
 
   const deleteHabit = async (habitId: string) => {
     try {
+      console.log('🗑️ [Delete Habit] Starting deletion for habit ID:', habitId);
+      
       // Get the current user
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) {
+        console.error('🗑️ [Delete Habit] Auth error:', authError);
+        Alert.alert('Error', 'Authentication error. Please log in again.');
+        return;
+      }
+      
       if (!user) {
-        console.error('No user logged in');
+        console.error('🗑️ [Delete Habit] No user logged in');
         Alert.alert('Error', 'You must be logged in to delete habits.');
         return;
       }
 
+      console.log('🗑️ [Delete Habit] User ID:', user.id);
+      console.log('🗑️ [Delete Habit] Habit ID to delete:', habitId);
+
+      // First, verify the habit exists and belongs to the user
+      const { data: habitData, error: fetchError } = await supabase
+        .from('habits')
+        .select('id, user_id')
+        .eq('id', habitId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (fetchError) {
+        console.error('🗑️ [Delete Habit] Error fetching habit:', fetchError);
+        Alert.alert('Error', 'Habit not found or you do not have permission to delete it.');
+        return;
+      }
+
+      if (!habitData) {
+        console.error('🗑️ [Delete Habit] Habit not found or does not belong to user');
+        Alert.alert('Error', 'Habit not found or you do not have permission to delete it.');
+        return;
+      }
+
+      console.log('🗑️ [Delete Habit] Habit found, proceeding with deletion');
+
       // Delete from Supabase
-      const { error } = await supabase
+      const { error: deleteError } = await supabase
         .from('habits')
         .delete()
         .eq('id', habitId)
         .eq('user_id', user.id);
 
-      if (error) {
-        console.error('Error deleting habit:', error);
-        Alert.alert('Error', 'Failed to delete habit. Please try again.');
+      if (deleteError) {
+        console.error('🗑️ [Delete Habit] Error deleting habit:', deleteError);
+        Alert.alert('Error', `Failed to delete habit: ${deleteError.message}`);
         return;
       }
 
+      console.log('🗑️ [Delete Habit] Successfully deleted from database');
+
       // Update local state
       setHabits(prev => prev.filter(habit => habit.id !== habitId));
+
+      console.log('🗑️ [Delete Habit] Updated local state');
 
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
+
+      // Show success message
+      Toast.show({
+        type: 'success',
+        text1: 'Habit deleted successfully',
+        position: 'bottom',
+        visibilityTime: 2000,
+      });
+
     } catch (error) {
-      console.error('Error in deleteHabit:', error);
+      console.error('🗑️ [Delete Habit] Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
@@ -4878,7 +4925,7 @@ export default function TodoScreen() {
                                     const weekEnd = moment().endOf('isoWeek');
                                     return habitDate.isBetween(weekStart, weekEnd, 'day', '[]');
                                   }).length;
-                                  return `${completedThisWeek}/${habit.targetPerWeek}`;
+                                  return `${completedThisWeek}/${habit.targetPerWeek || 7}`;
                                 })()}
                               </Text>
                             </View>
@@ -5131,10 +5178,10 @@ export default function TodoScreen() {
                       style={{
                         paddingHorizontal: 8,
                         paddingVertical: 6,
-                        backgroundColor: Colors.light.primary,
+                        backgroundColor: '#00ACC1',
                         borderRadius: 8,
                         borderWidth: 1,
-                        borderColor: Colors.light.primary,
+                        borderColor: '#00ACC1',
                         flexDirection: 'row',
                         alignItems: 'center',
                         gap: 4,
@@ -5198,10 +5245,10 @@ export default function TodoScreen() {
                                 style={{
                                   paddingHorizontal: 8,
                                   paddingVertical: 4,
-                                  backgroundColor: quickAddWeeklyGoal === goal ? Colors.light.primary : 'transparent',
+                                  backgroundColor: quickAddWeeklyGoal === goal ? '#00ACC1' : 'transparent',
                                   borderRadius: 4,
                                   borderWidth: 1,
-                                  borderColor: quickAddWeeklyGoal === goal ? Colors.light.primary : Colors.light.border,
+                                  borderColor: quickAddWeeklyGoal === goal ? '#00ACC1' : Colors.light.border,
                                   minWidth: 24,
                                   alignItems: 'center',
                                 }}
@@ -5238,10 +5285,10 @@ export default function TodoScreen() {
                                 style={{
                                   paddingHorizontal: 8,
                                   paddingVertical: 4,
-                                  backgroundColor: quickAddWeeklyGoal === goal ? Colors.light.primary : 'transparent',
+                                  backgroundColor: quickAddWeeklyGoal === goal ? '#00ACC1' : 'transparent',
                                   borderRadius: 4,
                                   borderWidth: 1,
-                                  borderColor: quickAddWeeklyGoal === goal ? Colors.light.primary : Colors.light.border,
+                                  borderColor: quickAddWeeklyGoal === goal ? '#00ACC1' : Colors.light.border,
                                   minWidth: 24,
                                   alignItems: 'center',
                                 }}

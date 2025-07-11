@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Alert } from 'react-native';
+import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Alert, RefreshControl } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Feather } from '@expo/vector-icons';
@@ -96,10 +96,13 @@ interface WeeklyCalendarViewProps {
     setEditedEventPhotos: React.Dispatch<React.SetStateAction<string[]>>;
     setEditedAllDay: React.Dispatch<React.SetStateAction<boolean>>;
     setShowEditEventModal: (show: boolean) => void;
+    resetAllDayToggle?: () => void; // Add this prop
     hideHeader?: boolean;
     setVisibleWeekMonth: (date: Date) => void;
     setVisibleWeekMonthText: React.Dispatch<React.SetStateAction<string>>;
     visibleWeekMonthText: string;
+    isRefreshing?: boolean;
+    onRefresh?: () => void;
 }
 
 const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalendarViewProps>(({
@@ -122,10 +125,13 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     setEditedEventPhotos,
     setEditedAllDay,
     setShowEditEventModal,
+    resetAllDayToggle,
     hideHeader = false,
     setVisibleWeekMonth,
     setVisibleWeekMonthText,
     visibleWeekMonthText,
+    isRefreshing = false,
+    onRefresh,
 }, ref) => {
     const baseDate = new Date(selectedDate);
     const flatListRef = useRef<FlatList>(null);
@@ -215,6 +221,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
       // prepare the event data and use the main modal
       setStartDateTime(start);
       setEndDateTime(end);
+      resetAllDayToggle?.(); // Reset all-day toggle for new events
       setShowModal(true);
     };
     
@@ -356,6 +363,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         const end = new Date(clickedDate);
         end.setHours(end.getHours() + 1);
         setEndDateTime(end);
+        resetAllDayToggle?.(); // Reset all-day toggle for new events
         setShowModal(true);
     };
 
@@ -436,8 +444,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                     setSelectedEvent(eventData);
                     setEditedEventTitle(event.title);
                     setEditedEventDescription(event.description ?? '');
-                    setEditedStartDateTime(new Date(event.startDateTime!));
-                    setEditedEndDateTime(new Date(event.endDateTime!));
+                    setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
+                    setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
                     setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                     setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                     setEditedRepeatOption(event.repeatOption || 'None');
@@ -508,6 +516,14 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
             }
           }}
           style={{ flex: 1 }}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl
+                refreshing={isRefreshing}
+                onRefresh={onRefresh}
+              />
+            ) : undefined
+          }
           onLayout={() => {
             // Auto-scroll to current time when the current week's ScrollView is laid out
             if (isCurrentWeek && !hasScrolledToCurrentTime.current) {
@@ -654,8 +670,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                             setSelectedEvent(eventData);
                             setEditedEventTitle(event.title);
                             setEditedEventDescription(event.description ?? '');
-                            setEditedStartDateTime(new Date(event.startDateTime!));
-                            setEditedEndDateTime(new Date(event.endDateTime!));
+                            setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
+                            setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
                             setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                             setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                             setEditedRepeatOption(event.repeatOption || 'None');
@@ -745,6 +761,23 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     }
     
     return '#ffffff'; // White text for most colors
+  };
+
+  // Helper function to properly handle date conversion for all-day events
+  const getLocalDateForEdit = (date: Date | undefined, isAllDay: boolean = false): Date | undefined => {
+    if (!date) return undefined;
+    
+    if (isAllDay) {
+      // For all-day events, create a local date from the UTC date
+      // All-day events are stored as 12pm UTC, so we extract the date components
+      const year = date.getUTCFullYear();
+      const month = date.getUTCMonth();
+      const day = date.getUTCDate();
+      return new Date(year, month, day);
+    } else {
+      // For non-all-day events, use the date as is
+      return new Date(date);
+    }
   };
 
   // Update scrollToWeek to handle any target date
