@@ -104,7 +104,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
           textSectionTitleColor: '#666',
           selectedDayBackgroundColor: '#FF9A8B',
           selectedDayTextColor: '#ffffff',
-          todayTextColor: '#FF9A8B',
+          todayTextColor: '#ffffff',
           dayTextColor: '#3A3A3A',
           textDisabledColor: '#DCD7C9',
           dotColor: '#FF9A8B',
@@ -181,7 +181,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
               }),
             },
             today: {
-              backgroundColor: '#FAF9F6',
+              backgroundColor: '#00ACC1',
               borderRadius: 16,
             },
             selected: {

@@ -1798,7 +1798,7 @@ export default function ProfileScreen() {
             <Text style={styles.editAvatarLabel}>Profile Picture</Text>
             {isUploadingImage && (
               <View style={styles.uploadingContainer}>
-                <ActivityIndicator size="small" color="#007AFF" />
+                <ActivityIndicator size="small" color="#6B9BD1" />
                 <Text style={styles.uploadingText}>Uploading...</Text>
               </View>
                   )}
@@ -1912,7 +1912,7 @@ export default function ProfileScreen() {
             <RefreshControl
               refreshing={isRefreshingFriends}
               onRefresh={handleFriendsRefresh}
-              tintColor="#007AFF"
+              tintColor="#6B9BD1"
             />
           }
         >
@@ -2051,7 +2051,7 @@ export default function ProfileScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
-                {isSearching && <ActivityIndicator size="small" color="#007AFF" style={styles.searchLoading} />}
+                {isSearching && <ActivityIndicator size="small" color="#6B9BD1" style={styles.searchLoading} />}
               </View>
 
               {searchResults.length === 0 && searchTerm.trim() ? (
@@ -2079,12 +2079,12 @@ export default function ProfileScreen() {
         </View>
       </View>
         <TouchableOpacity
-                      style={[
-                        styles.actionButton,
-                        result.is_friend 
-                          ? { backgroundColor: '#34C759' }
-                          : { backgroundColor: '#007AFF' }
-                      ]}
+                                              style={[
+                          styles.actionButton,
+                          result.is_friend 
+                            ? { backgroundColor: '#34C759' }
+                            : { backgroundColor: '#6B9BD1' }
+                        ]}
                       onPress={() => {
                         if (result.is_friend) {
                           Alert.alert('Already Friends', 'You are already friends with this user.');
@@ -2137,7 +2137,7 @@ export default function ProfileScreen() {
             <RefreshControl
               refreshing={isRefreshingFriends}
               onRefresh={handleFriendsRefresh}
-              tintColor="#007AFF"
+              tintColor="#6B9BD1"
             />
           }
         >
@@ -2231,7 +2231,7 @@ export default function ProfileScreen() {
                   onPress={toggleMultiSelectMode}
                   disabled={isDeletingMemories}
                 >
-                  <Text style={[styles.cancelText, { color: isDeletingMemories ? "#ccc" : "#007AFF" }]}>
+                  <Text style={[styles.cancelText, { color: isDeletingMemories ? "#ccc" : "#6B9BD1" }]}>
                     Cancel
                   </Text>
                 </TouchableOpacity>
@@ -2249,9 +2249,8 @@ export default function ProfileScreen() {
         </View>
 
         {isLoadingMemories ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#667eea" />
-            <Text style={styles.loadingText}>Loading memories...</Text>
+          <View style={styles.minimalLoadingContainer}>
+            <ActivityIndicator size="small" color="#6B9BD1" />
           </View>
         ) : memories.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -2318,7 +2317,7 @@ export default function ProfileScreen() {
               <Text style={styles.debugButtonText}>Comprehensive Check</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#007AFF' }]} 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#6B9BD1' }]} 
               onPress={async () => {
                 if (user?.id) {
                   Alert.alert('Force Refresh', 'This will completely reset and reload memories. Continue?', [
@@ -2428,8 +2427,8 @@ export default function ProfileScreen() {
                     await loadMemories(user.id);
                   }
                 }}
-                colors={['#667eea']}
-                tintColor="#667eea"
+                            colors={['#6B9BD1']}
+            tintColor="#6B9BD1"
               />
             }
             contentContainerStyle={styles.memoriesList}
@@ -2464,7 +2463,7 @@ export default function ProfileScreen() {
               <View style={styles.memoryDetailInfo}>
                 <View style={[
                   styles.memoryDetailTypeBadge,
-                  { backgroundColor: selectedMemory.categoryColor || '#007AFF' }
+                  { backgroundColor: selectedMemory.categoryColor || '#00ACC1' }
                 ]}>
                   <Text style={styles.memoryDetailTypeText}>
                     {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
@@ -2523,7 +2522,7 @@ export default function ProfileScreen() {
 
         {isLoadingPhotoShares ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#667eea" />
+            <ActivityIndicator size="large" color="#6B9BD1" />
             <Text style={styles.loadingText}>Loading friends feed...</Text>
           </View>
         ) : photoShares.length === 0 ? (
@@ -2611,7 +2610,7 @@ export default function ProfileScreen() {
                   <View style={styles.sourceContainer}>
                     <View style={[
                       styles.sourceBadge,
-                      { backgroundColor: item.source_type === 'habit' ? '#4CAF50' : '#2196F3' }
+                      { backgroundColor: item.source_type === 'habit' ? '#4CAF50' : '#00BCD4' }
                     ]}>
                       <Ionicons 
                         name={item.source_type === 'habit' ? 'repeat' : 'calendar'} 
@@ -2631,8 +2630,8 @@ export default function ProfileScreen() {
               <RefreshControl
                 refreshing={isRefreshingPhotoShares}
                 onRefresh={handlePhotoSharesRefresh}
-                colors={['#007AFF']}
-                tintColor="#007AFF"
+                colors={['#6B9BD1']}
+                tintColor="#6B9BD1"
               />
             }
             onEndReached={handlePhotoSharesLoadMore}
@@ -2803,7 +2802,7 @@ export default function ProfileScreen() {
                   <Ionicons 
                     name={screen.icon as any} 
                     size={20} 
-                    color={preferences.default_screen === screen.key ? '#667eea' : '#666'} 
+                    color={preferences.default_screen === screen.key ? '#6B9BD1' : '#666'} 
                   />
                   <Text style={[
                     styles.screenOptionLabel,
@@ -2813,7 +2812,7 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
                 {preferences.default_screen === screen.key && (
-                  <Ionicons name="checkmark" size={20} color="#667eea" />
+                  <Ionicons name="checkmark" size={20} color="#6B9BD1" />
                 )}
               </TouchableOpacity>
             ))}
@@ -4427,7 +4426,7 @@ export default function ProfileScreen() {
               <View style={styles.memoryDetailInfo}>
                 <View style={[
                   styles.memoryDetailTypeBadge,
-                  { backgroundColor: selectedMemory.categoryColor || '#007AFF' }
+                  { backgroundColor: selectedMemory.categoryColor || '#00ACC1' }
                 ]}>
                   <Text style={styles.memoryDetailTypeText}>
                     {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
@@ -4760,7 +4759,7 @@ const styles = StyleSheet.create({
   },
   modalSaveText: {
     fontSize: 16,
-    color: '#007AFF',
+    color: '#6B9BD1',
     fontWeight: '600',
     fontFamily: 'Onest',
   },
@@ -4788,7 +4787,7 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#007AFF',
+    backgroundColor: '#6B9BD1',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -4854,7 +4853,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#007AFF',
+    borderBottomColor: '#6B9BD1',
   },
   tabText: {
     fontSize: 15,
@@ -4863,7 +4862,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   activeTabText: {
-    color: '#007AFF',
+    color: '#6B9BD1',
     fontWeight: '600',
   },
   loadingContainer: {
@@ -4875,9 +4874,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     borderRadius: 8,
   },
+  minimalLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
   loadingText: {
     fontSize: 14,
-    color: '#007AFF',
+    color: '#6B9BD1',
     marginLeft: 8,
     fontWeight: '500',
     fontFamily: 'Onest',
@@ -5276,7 +5281,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   debugButton: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#6B9BD1',
     padding: 12,
     borderRadius: 20,
   },
@@ -5438,18 +5443,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   memoryCheckboxSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: '#6B9BD1',
+    borderColor: '#6B9BD1',
   },
   selectText: {
     fontSize: 16,
-    color: '#667eea',
+    color: '#6B9BD1',
     fontWeight: '600',
     fontFamily: 'Onest',
   },
   cancelText: {
     fontSize: 16,
-    color: '#667eea',
+    color: '#6B9BD1',
     fontWeight: '600',
     fontFamily: 'Onest',
   },
@@ -5503,7 +5508,7 @@ const styles = StyleSheet.create({
   selectedScreenOption: {
     backgroundColor: '#f0f4ff',
     borderWidth: 1,
-    borderColor: '#667eea',
+    borderColor: '#6B9BD1',
   },
   screenOptionLeft: {
     flexDirection: 'row',
@@ -5517,7 +5522,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   selectedScreenOptionLabel: {
-    color: '#667eea',
+    color: '#6B9BD1',
     fontWeight: '600',
   },
   // Sign-in styles matching loading screen design
@@ -5530,7 +5535,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#6B9BD1',
     marginHorizontal: 3,
   },
   minimalSignInButton: {

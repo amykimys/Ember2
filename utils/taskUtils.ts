@@ -9,23 +9,17 @@ export const moveUncompletedTasksToNextDay = async (userId: string): Promise<voi
   try {
     console.log('🔄 Processing auto-move tasks...');
 
-    // Get today's date (the day that just passed)
+    // Get today's date (the current date)
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
 
-    // Get tomorrow's date (the day we're moving tasks to)
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
-
-    console.log(`📅 Moving tasks from ${todayStr} to ${tomorrowStr}`);
-
-    // Find uncompleted tasks from today that have auto_move enabled
+    // Find uncompleted tasks from previous days that have auto_move enabled
+    // We'll look for tasks with dates before today
     const { data: uncompletedTasks, error: fetchError } = await supabase
       .from('todos')
       .select('*')
       .eq('user_id', userId)
-      .eq('date', todayStr)
+      .lt('date', todayStr) // Tasks from dates before today
       .eq('completed', false)
       .eq('auto_move', true);
 
@@ -35,18 +29,18 @@ export const moveUncompletedTasksToNextDay = async (userId: string): Promise<voi
     }
 
     if (!uncompletedTasks || uncompletedTasks.length === 0) {
-      console.log('✅ No uncompleted tasks with auto-move found from today');
+      console.log('✅ No uncompleted tasks with auto-move found from previous days');
       return;
     }
 
-    console.log(`📝 Found ${uncompletedTasks.length} uncompleted tasks with auto-move enabled to move`);
+    console.log(`📝 Found ${uncompletedTasks.length} uncompleted tasks with auto-move enabled to move to today`);
 
-    // Update each task to tomorrow's date
+    // Update each task to today's date
     for (const task of uncompletedTasks) {
       const { error: updateError } = await supabase
         .from('todos')
         .update({
-          date: tomorrowStr,
+          date: todayStr,
           updated_at: new Date().toISOString()
         })
         .eq('id', task.id)
@@ -55,11 +49,11 @@ export const moveUncompletedTasksToNextDay = async (userId: string): Promise<voi
       if (updateError) {
         console.error(`❌ Error updating task ${task.id}:`, updateError);
       } else {
-        console.log(`✅ Moved task "${task.text}" to tomorrow`);
+        console.log(`✅ Moved task "${task.text}" from ${task.date} to today`);
       }
     }
 
-    console.log(`🎉 Successfully moved ${uncompletedTasks.length} auto-move tasks to tomorrow`);
+    console.log(`🎉 Successfully moved ${uncompletedTasks.length} auto-move tasks to today`);
   } catch (error) {
     console.error('💥 Error in moveUncompletedTasksToNextDay:', error);
   }
@@ -92,24 +86,16 @@ export const checkAndMoveTasksIfNeeded = async (userId: string): Promise<void> =
       return;
     }
 
-    // Check if it's after midnight (between 12:00 AM and 6:00 AM) OR if we haven't checked today yet
-    const currentHour = now.getHours();
-    const isAfterMidnight = currentHour >= 0 && currentHour < 6;
-    const isFirstCheckOfDay = lastCheckTime !== todayStr;
+    // Always move tasks if we haven't checked today yet
+    // This ensures tasks from previous days are moved to today regardless of time
+    console.log(`📅 Checking for tasks to move to today (${todayStr})...`);
+    await moveUncompletedTasksToNextDay(userId);
     
-    // Only move tasks if it's after midnight, not just on first check of the day
-    if (isAfterMidnight) {
-      console.log(`🌙 It's after midnight (${currentHour}:00), moving uncompleted tasks...`);
-      await moveUncompletedTasksToNextDay(userId);
-      
-      // Mark that we've checked today
-      try {
-        await AsyncStorage.setItem(lastCheckKey, todayStr);
-      } catch (storageError) {
-        console.warn('⚠️ Could not save to AsyncStorage:', storageError);
-      }
-    } else {
-      console.log(`☀️ Not after midnight (${currentHour}:00), skipping task move...`);
+    // Mark that we've checked today
+    try {
+      await AsyncStorage.setItem(lastCheckKey, todayStr);
+    } catch (storageError) {
+      console.warn('⚠️ Could not save to AsyncStorage:', storageError);
     }
   } catch (error) {
     console.error('💥 Error in checkAndMoveTasksIfNeeded:', error);

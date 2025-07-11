@@ -19,7 +19,7 @@ const getCellHeight = (date: Date | null, isCompact: boolean = false) => {
   if (!date) return BASE_CELL_HEIGHT;
 
   if (isCompact) {
-    return BASE_CELL_HEIGHT * 0.45;
+    return BASE_CELL_HEIGHT * 0.5; // Increased from 0.45 to 0.5 for consistency
   }
 
   return needsSixRows(date.getFullYear(), date.getMonth())
@@ -44,8 +44,8 @@ export const calendarStyles = StyleSheet.create({
     marginVertical: 1,
     backgroundColor: 'white',
     zIndex: 1,
-    marginTop: 15,
-    marginBottom: 22
+    marginTop: 6,
+    marginBottom: 8
   },
 
   // Calendar grid styles
@@ -81,7 +81,6 @@ export const calendarStyles = StyleSheet.create({
   },
   gridCompact: {
     paddingTop: 5,
-    height: getCellHeight(new Date()) * 5,
     overflow: 'visible',
   },
 
@@ -107,7 +106,7 @@ export const calendarStyles = StyleSheet.create({
     height: BASE_CELL_HEIGHT * 0.9 + 4,
   },
   cellCompact: {
-    height: BASE_CELL_HEIGHT * 0.435,
+    height: BASE_CELL_HEIGHT * 0.41, // Increased from 0.435 to 0.5 for more space
     marginBottom: 1,
     paddingTop: 1,
   },
@@ -135,14 +134,14 @@ export const calendarStyles = StyleSheet.create({
     textAlign: 'center',
   },
   todayContainer: {
-    backgroundColor: '#FAF9F6',
+    backgroundColor: 'transparent',
   },
   selectedContainer: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#00ACC1',
   },
   todayText: {
-    color: '#667eea',
-    fontWeight: '500',
+    color: '#00ACC1',
+    fontWeight: '700',
   },
   selectedText: {
     color: '#FFFFFF',
@@ -281,7 +280,7 @@ export const calendarStyles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#00ACC1',
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
@@ -377,7 +376,7 @@ export const calendarStyles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#667eea',
+    borderColor: '#00ACC1',
   },
   modalTimeText: {
     fontSize: 14,
@@ -405,7 +404,7 @@ export const calendarStyles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#667eea',
+    borderColor: '#00ACC1',
   },
   modalCategoryText: {
     fontSize: 14,
@@ -438,7 +437,7 @@ export const calendarStyles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 6,
     borderRadius: 4,
-    backgroundColor: '#667eea20',
+    backgroundColor: '#00ACC120',
     marginBottom: 1,
   },
   modalCategoryOptionText: {
@@ -501,12 +500,11 @@ export const calendarStyles = StyleSheet.create({
     marginLeft: -8,
   },
   modalFormButtonPrimary: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#00BCD4', // Brighter cyan
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderRadius: 12,
     alignItems: 'center',
-    marginLeft: 4,
     marginTop: 0,
     flex: 1,
   },
@@ -523,12 +521,12 @@ export const calendarStyles = StyleSheet.create({
     fontWeight: '600',
   },
   modalDeleteButton: {
-    backgroundColor: '#9B59B6',
+    backgroundColor: '#FF6B6B', // Coral red for delete
     paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 12,
     alignItems: 'center',
     flex: 1,
-    marginRight: 4,
     marginTop: 0,
   },
   modalDeleteButtonText: {
@@ -539,7 +537,7 @@ export const calendarStyles = StyleSheet.create({
   },
   modalActionRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     alignItems: 'center',
     gap: 12,
     marginTop: 20,

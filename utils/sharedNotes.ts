@@ -25,7 +25,7 @@ export interface NoteCollaborator {
 export const shareNote = async (
   noteId: string,
   friendIds: string[],
-  canEdit: boolean = true
+  canEdit: boolean = true // Always true for automatic editing
 ): Promise<{ success: boolean; error?: string }> => {
   try {
     console.log('🔍 [ShareNote] Starting to share note:', { noteId, friendIds, canEdit });
@@ -53,12 +53,12 @@ export const shareNote = async (
 
     console.log('🔍 [ShareNote] Found note:', note);
 
-    // Create shared note entries - one for each friend
+    // Create shared note entries - one for each friend (always with edit permissions)
     const sharedNoteData = friendIds.map(friendId => ({
       original_note_id: noteId,
       shared_by: user.id,
       shared_with: friendId,
-      can_edit: canEdit
+      can_edit: true // Always allow editing for shared notes
     }));
 
     console.log('🔍 [ShareNote] Creating shared note entries:', sharedNoteData);
@@ -235,17 +235,16 @@ export const updateSharedNote = async (
       return { success: false, error: 'User not authenticated' };
     }
 
-    // Check if user has permission to edit this shared note
+    // Check if user has access to this shared note (either as sender or recipient)
     const { data: sharedNote, error: checkError } = await supabase
       .from('shared_notes')
       .select('*')
       .eq('original_note_id', noteId)
-      .eq('shared_with', user.id)
-      .eq('can_edit', true)
+      .or(`shared_by.eq.${user.id},shared_with.eq.${user.id}`)
       .single();
 
     if (checkError || !sharedNote) {
-      return { success: false, error: 'No edit permission for this note' };
+      return { success: false, error: 'No access to this shared note' };
     }
 
     // Update the original note content (not the shared_notes table)
@@ -312,17 +311,18 @@ export const canUserEditNote = async (noteId: string): Promise<boolean> => {
       return false;
     }
 
-    console.log('🔍 [CanUserEditNote] Checking edit permissions for note:', noteId, 'user:', user.id);
+    console.log('🔍 [CanUserEditNote] Checking access for note:', noteId, 'user:', user.id);
 
+    // Check if user has access to this shared note (either as sender or recipient)
     const { data, error } = await supabase
       .from('shared_notes')
-      .select('can_edit')
+      .select('id')
       .eq('original_note_id', noteId)
-      .eq('shared_with', user.id)
+      .or(`shared_by.eq.${user.id},shared_with.eq.${user.id}`)
       .single();
 
     if (error) {
-      console.log('🔍 [CanUserEditNote] Error fetching permissions:', error);
+      console.log('🔍 [CanUserEditNote] Error fetching access:', error);
       return false;
     }
 
@@ -331,8 +331,8 @@ export const canUserEditNote = async (noteId: string): Promise<boolean> => {
       return false;
     }
 
-    console.log('🔍 [CanUserEditNote] Can edit result:', data.can_edit);
-    return data.can_edit;
+    console.log('🔍 [CanUserEditNote] User has access to shared note');
+    return true; // Always allow editing for shared notes
   } catch (error) {
     console.error('Error in canUserEditNote:', error);
     return false;

@@ -40,6 +40,7 @@ import {
   type NoteCollaborator
 } from '../../utils/sharedNotes';
 import CustomToast from '../../components/CustomToast';
+import { useData } from '../../contexts/DataContext';
 
 interface Note {
   id: string;
@@ -49,14 +50,15 @@ interface Note {
   created_at: string;
   updated_at: string;
   isShared?: boolean;
-  sharedBy?: string;
+  sharedBy?: string; // Can be either user ID or user name
   canEdit?: boolean;
 }
 
 export default function NotesScreen() {
   const router = useRouter();
+  const { data: appData } = useData();
   const [notes, setNotes] = useState<Note[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [currentNote, setCurrentNote] = useState<Note | null>(null);
@@ -64,17 +66,9 @@ export default function NotesScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [cachedUser, setCachedUser] = useState<any>(null);
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const lastFetchRef = useRef<number>(0);
-
-  // Comprehensive loading state management
-  const [loadingStates, setLoadingStates] = useState({
-    notes: true,
-    sharedNotes: true,
-    sharedNoteIds: true,
-    user: true
-  });
 
   // Shared notes state
   const [sharedNotes, setSharedNotes] = useState<SharedNote[]>([]);
@@ -144,11 +138,47 @@ export default function NotesScreen() {
     
     const combined: Note[] = [...notes];
     
+    // Get unique user IDs from shared notes to fetch their profiles
+    const sharedByUserIds = [...new Set(sharedNotes.map(sn => sn.shared_by))];
+    console.log('🔍 [CombineNotes] Unique user IDs to fetch profiles for:', sharedByUserIds);
+    
+    // Fetch user profiles for all shared notes
+    let userProfilesMap = new Map<string, { full_name: string; username: string }>();
+    if (sharedByUserIds.length > 0) {
+      try {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, username')
+          .in('id', sharedByUserIds);
+
+        if (profilesError) {
+          console.error('❌ [CombineNotes] Error fetching user profiles:', profilesError);
+        } else {
+          userProfilesMap = new Map(
+            profilesData?.map(profile => [
+              profile.id, 
+              { 
+                full_name: profile.full_name || 'Unknown User', 
+                username: profile.username || 'unknown' 
+              }
+            ]) || []
+          );
+          console.log('✅ [CombineNotes] Fetched user profiles:', userProfilesMap);
+        }
+      } catch (error) {
+        console.error('❌ [CombineNotes] Error fetching user profiles:', error);
+      }
+    }
+    
     // Add shared notes to the combined list with actual content
     for (const sharedNote of sharedNotes) {
       try {
         console.log('🔍 [CombineNotes] Processing shared note:', sharedNote.original_note_id);
         console.log('🔍 [CombineNotes] Shared note can_edit value:', sharedNote.can_edit);
+        
+        // Get the user profile for this shared note
+        const userProfile = userProfilesMap.get(sharedNote.shared_by);
+        const sharedByName = userProfile?.full_name || userProfile?.username || 'Unknown User';
         
         // Fetch the actual note content for each shared note
         const { data: noteData, error } = await supabase
@@ -162,14 +192,14 @@ export default function NotesScreen() {
           // Add with placeholder if fetch fails
           const sharedNoteItem: Note = {
             id: sharedNote.original_note_id,
-            title: `Shared Note from ${sharedNote.shared_by}`,
+            title: `Shared Note from ${sharedByName}`,
             content: 'Unable to load content',
             user_id: sharedNote.shared_by,
             created_at: sharedNote.created_at,
             updated_at: sharedNote.updated_at,
             isShared: true,
-            sharedBy: sharedNote.shared_by,
-            canEdit: sharedNote.can_edit,
+            sharedBy: sharedByName,
+            canEdit: true, // Always allow editing for shared notes
           };
           combined.push(sharedNoteItem);
         } else {
@@ -182,14 +212,14 @@ export default function NotesScreen() {
           // Add with actual content
           const sharedNoteItem: Note = {
             id: sharedNote.original_note_id,
-            title: noteData.title || `Shared Note from ${sharedNote.shared_by}`,
+            title: noteData.title || `Shared Note from ${sharedByName}`,
             content: noteData.content || '',
             user_id: sharedNote.shared_by,
             created_at: noteData.created_at || sharedNote.created_at,
             updated_at: noteData.updated_at || sharedNote.updated_at,
             isShared: true,
-            sharedBy: sharedNote.shared_by,
-            canEdit: sharedNote.can_edit,
+            sharedBy: sharedByName,
+            canEdit: true, // Always allow editing for shared notes
           };
           combined.push(sharedNoteItem);
         }
@@ -208,32 +238,41 @@ export default function NotesScreen() {
   // Memoize user to prevent unnecessary re-renders
   const user = useMemo(() => cachedUser, [cachedUser]);
 
-  // Check if all initial data is loaded
-  const isAllDataLoaded = useMemo(() => {
-    return !loadingStates.notes && 
-           !loadingStates.sharedNotes && 
-           !loadingStates.sharedNoteIds && 
-           !loadingStates.user;
-  }, [loadingStates]);
-
-  // Update main loading state based on all loading states
+  // Use preloaded data from DataContext
   useEffect(() => {
-    if (isAllDataLoaded && isInitialLoad) {
-      // Add a minimum loading time to ensure smooth UX
-      const minLoadingTime = 800; // 800ms minimum
-      const timeSinceStart = Date.now() - (window as any).__notesLoadStart || 0;
+    console.log('🔄 [Notes] DataContext useEffect triggered');
+    console.log('🔄 [Notes] isPreloaded:', appData.isPreloaded);
+    console.log('🔄 [Notes] notes count:', appData.notes?.length || 0);
+    console.log('🔄 [Notes] sharedNotes count:', appData.sharedNotes?.length || 0);
+    
+    if (appData.isPreloaded) {
+      console.log('🔄 [Notes] Using preloaded data from DataContext');
       
-      if (timeSinceStart < minLoadingTime) {
-        setTimeout(() => {
-          setIsLoading(false);
-          setIsInitialLoad(false);
-        }, minLoadingTime - timeSinceStart);
-      } else {
-        setIsLoading(false);
-        setIsInitialLoad(false);
+      // Set notes from preloaded data
+      if (appData.notes) {
+        console.log('🔄 [Notes] Setting notes from DataContext:', appData.notes.length);
+        setNotes(appData.notes);
       }
+      
+      // Set shared notes from preloaded data
+      if (appData.sharedNotes) {
+        console.log('🔄 [Notes] Setting shared notes from DataContext:', appData.sharedNotes.length);
+        // Transform DataContext shared notes to match local SharedNote type
+        const transformedSharedNotes = appData.sharedNotes.map(sharedNote => ({
+          id: sharedNote.id,
+          original_note_id: sharedNote.original_note_id,
+          shared_by: sharedNote.shared_by,
+          shared_with: sharedNote.shared_with[0] || '', // Take first shared_with value
+          can_edit: sharedNote.can_edit,
+          created_at: sharedNote.created_at,
+          updated_at: sharedNote.created_at // Use created_at as fallback for updated_at
+        }));
+        setSharedNotes(transformedSharedNotes);
+      }
+      
+      setIsLoading(false);
     }
-  }, [isAllDataLoaded, isInitialLoad]);
+  }, [appData.isPreloaded, appData.notes, appData.sharedNotes]);
 
   // Add session check and refresh mechanism
   const checkAndRefreshSession = useCallback(async () => {
@@ -330,10 +369,7 @@ export default function NotesScreen() {
     try {
       console.log('🔍 Starting fetchNotes...');
       
-      // Set loading state for notes
-      if (isInitialLoad) {
-        setLoadingStates(prev => ({ ...prev, notes: true }));
-      }
+      // No loading state needed when using DataContext
       
       // Prevent rapid successive calls
       const now = Date.now();
@@ -353,7 +389,6 @@ export default function NotesScreen() {
       const sessionValid = await checkAndRefreshSession();
       if (!sessionValid) {
         console.log('❌ Session invalid, redirecting to home');
-        setLoadingStates(prev => ({ ...prev, user: false }));
         router.replace('/');
         return;
       }
@@ -363,14 +398,12 @@ export default function NotesScreen() {
       
       if (authError) {
         console.error('❌ Auth error:', authError);
-        setLoadingStates(prev => ({ ...prev, user: false }));
         handleDatabaseError(authError);
         return;
       }
       
       if (!currentUser) {
         console.log('❌ No user found, redirecting to home');
-        setLoadingStates(prev => ({ ...prev, user: false }));
         router.replace('/');
         return;
       }
@@ -379,9 +412,6 @@ export default function NotesScreen() {
 
       // Cache the user to avoid repeated auth calls
       setCachedUser(currentUser);
-      
-      // Mark user as loaded
-      setLoadingStates(prev => ({ ...prev, user: false }));
 
       console.log('📊 Fetching notes for user:', currentUser.id);
       
@@ -418,14 +448,9 @@ export default function NotesScreen() {
       
       setNotes(data || []);
       setLastFetchTime(Date.now());
-      
-      // Mark notes as loaded
-      setLoadingStates(prev => ({ ...prev, notes: false }));
     } catch (error) {
       console.error('💥 Error fetching notes:', error);
       handleDatabaseError(error);
-      // Mark notes as loaded even on error to prevent infinite loading
-      setLoadingStates(prev => ({ ...prev, notes: false }));
     }
   }, [user, lastFetchTime, isInitialLoad, router, checkAndRefreshSession, handleDatabaseError]);
 
@@ -455,24 +480,20 @@ export default function NotesScreen() {
         const { title, body } = splitContent(content.trim());
 
         if (note) {
-          // Check if this is a shared note that the user can edit
-          if (note.isShared && note.canEdit) {
-            console.log('🔍 [SaveNote] Saving shared note with collaboration');
+          // Handle both regular and shared notes the same way
+          if (note.isShared) {
+            console.log('🔍 [SaveNote] Saving shared note');
             
             // Use the shared note update function
             const result = await updateSharedNote(note.id, body, title);
             
             if (!result.success) {
               console.error('❌ [SaveNote] Failed to update shared note:', result.error);
-              Alert.alert('Error', 'Failed to save shared note. You may not have edit permissions.');
+              Alert.alert('Error', 'Failed to save shared note.');
               return;
             }
             
             console.log('✅ [SaveNote] Shared note updated successfully');
-          } else if (note.isShared && !note.canEdit) {
-            console.log('❌ [SaveNote] User does not have edit permissions for this shared note');
-            Alert.alert('Error', 'You do not have permission to edit this shared note.');
-            return;
           } else {
             // Regular note update
             console.log('🔍 [SaveNote] Saving regular note');
@@ -629,26 +650,8 @@ export default function NotesScreen() {
     setCurrentNote(note);
     setNoteContent(note.title !== 'Untitled Note' ? note.title + '\n' + note.content : note.content);
     setShowNoteModal(true);
-    setIsEditing(false);
-
-    // Check if this is a shared note and if the user can edit it
-    if (note.isShared) {
-      try {
-        const canEdit = await checkNoteEditPermissions(note.id);
-        console.log('🔍 [OpenNote] Shared note edit permission:', canEdit);
-        
-        // Update the note with edit permission
-        setCurrentNote(prev => prev ? { ...prev, canEdit } : null);
-        
-        // If user can edit, allow them to start editing immediately
-        if (canEdit) {
-          setIsEditing(true);
-        }
-      } catch (error) {
-        console.error('Error checking edit permissions:', error);
-      }
-    }
-  }, [checkNoteEditPermissions]);
+    setIsEditing(true); // Always allow editing for all notes, including shared ones
+  }, []);
 
   const handleNewNote = useCallback(() => {
     setCurrentNote(null);
@@ -669,19 +672,14 @@ export default function NotesScreen() {
   }, []);
 
   const handleStartEditing = useCallback(() => {
-    // Check if this is a shared note and if the user can edit it
-    if (currentNote?.isShared && !currentNote?.canEdit) {
-      Alert.alert('View Only', 'You can only view this shared note. You do not have edit permissions.');
-      return;
-    }
+    // Always allow editing for all notes, including shared ones
     setIsEditing(true);
-  }, [currentNote]);
+  }, []);
 
   // Shared notes functions
   const loadSharedNotes = useCallback(async () => {
     try {
       console.log('🔄 [LoadSharedNotes] Starting to load shared notes...');
-      setLoadingStates(prev => ({ ...prev, sharedNotes: true }));
       
       // First check authentication
       const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -732,8 +730,6 @@ export default function NotesScreen() {
       }
     } catch (error) {
       console.error('❌ [LoadSharedNotes] Unexpected error:', error);
-    } finally {
-      setLoadingStates(prev => ({ ...prev, sharedNotes: false }));
     }
   }, []);
 
@@ -841,7 +837,7 @@ export default function NotesScreen() {
               </Text>
               {note.isShared ? (
                 <View style={styles.sharedIndicator}>
-                  <Ionicons name="people" size={14} color="#007AFF" />
+                  <Ionicons name="people" size={14} color="#00ACC1" />
                 </View>
               ) : sharedNoteIds.has(note.id) && (
                 <View style={styles.sharedIndicator}>
@@ -942,12 +938,10 @@ export default function NotesScreen() {
   const loadSharedNoteIds = useCallback(async () => {
     try {
       console.log('🔄 [LoadSharedNoteIds] Loading shared note IDs...');
-      setLoadingStates(prev => ({ ...prev, sharedNoteIds: true }));
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         console.log('❌ [LoadSharedNoteIds] User not authenticated');
-        setLoadingStates(prev => ({ ...prev, sharedNoteIds: false }));
         return;
       }
 
@@ -1015,8 +1009,6 @@ export default function NotesScreen() {
       console.log('🔍 [LoadSharedNoteIds] Shared note details:', Array.from(sharedDetails.entries()));
     } catch (error) {
       console.error('❌ [LoadSharedNoteIds] Unexpected error:', error);
-    } finally {
-      setLoadingStates(prev => ({ ...prev, sharedNoteIds: false }));
     }
   }, []);
 
@@ -1269,16 +1261,7 @@ export default function NotesScreen() {
   useEffect(() => {
     console.log('🔄 Setting up notes component...');
     
-    // Set load start time for minimum loading duration
-    (window as any).__notesLoadStart = Date.now();
-    
-    // Initialize loading states for initial load
-    setLoadingStates({
-      notes: true,
-      sharedNotes: true,
-      sharedNoteIds: true,
-      user: true
-    });
+    // No loading states needed when using DataContext
     
     // Ensure shared_notes table exists first
     ensureSharedNotesTable().then(result => {
@@ -1445,43 +1428,11 @@ export default function NotesScreen() {
         {/* Minimal Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Notes</Text>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity
-              style={styles.debugButton}
-              onPress={() => {
-                console.log('🔍 [Debug] Current shared note IDs:', Array.from(sharedNoteIds));
-                console.log('🔍 [Debug] Current shared note details:', Array.from(sharedNoteDetails.entries()));
-                console.log('🔍 [Debug] Combined notes count:', combinedNotes.length);
-                debugSharedNotes();
-              }}
-            >
-              <Ionicons name="bug" size={20} color="#007AFF" />
-            </TouchableOpacity>
-          </View>
+
         </View>
 
         {/* Notes List - Using FlatList for better performance */}
         <GestureHandlerRootView style={{ flex: 1 }}>
-          {isLoading && isInitialLoad ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#666" />
-              <Text style={styles.loadingText}>Loading your notes...</Text>
-              <View style={styles.loadingProgress}>
-                <Text style={styles.loadingProgressText}>
-                  {!loadingStates.user ? '✓' : '○'} User
-                </Text>
-                <Text style={styles.loadingProgressText}>
-                  {!loadingStates.notes ? '✓' : '○'} Notes
-                </Text>
-                <Text style={styles.loadingProgressText}>
-                  {!loadingStates.sharedNotes ? '✓' : '○'} Shared Notes
-                </Text>
-                <Text style={styles.loadingProgressText}>
-                  {!loadingStates.sharedNoteIds ? '✓' : '○'} Sharing Info
-                </Text>
-              </View>
-            </View>
-          ) : (
             <FlatList
               data={combinedNotes}
               renderItem={renderNoteItem}
@@ -1509,7 +1460,6 @@ export default function NotesScreen() {
                 index,
               })}
             />
-          )}
         </GestureHandlerRootView>
 
         {/* Note Modal */}
@@ -1546,7 +1496,7 @@ export default function NotesScreen() {
                 
                 {isRealTimeUpdating && (
                   <View style={styles.realTimeUpdateIndicator}>
-                    <ActivityIndicator size="small" color="#007AFF" />
+                    <ActivityIndicator size="small" color="#00ACC1" />
                     <Text style={styles.realTimeUpdateText}>Updating...</Text>
                   </View>
                 )}
@@ -1576,7 +1526,7 @@ export default function NotesScreen() {
                       style={styles.modalAddFriendsButton}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="person-add-outline" size={20} color="#007AFF" />
+                      <Ionicons name="person-add-outline" size={20} color="#00ACC1" />
                     </TouchableOpacity>
                   )}
 
@@ -1595,7 +1545,7 @@ export default function NotesScreen() {
               {/* Shared Note Indicator */}
               {currentNote?.isShared && (
                 <View style={styles.sharedNoteIndicator}>
-                  <Ionicons name="people" size={16} color="#007AFF" />
+                  <Ionicons name="people" size={16} color="#00ACC1" />
                   <Text style={styles.sharedNoteText}>
                     Shared by {currentNote.sharedBy}
                   </Text>
@@ -1605,29 +1555,19 @@ export default function NotesScreen() {
               {/* Note Editor */}
               {isEditing ? (
                 <TextInput
-                  style={[
-                    styles.noteEditor,
-                    currentNote?.isShared && !currentNote?.canEdit && styles.noteEditorDisabled
-                  ]}
+                  style={styles.noteEditor}
                   placeholder="Start writing..."
                   value={noteContent}
                   onChangeText={handleContentChange}
                   multiline
                   textAlignVertical="top"
                   autoFocus
-                  editable={!currentNote?.isShared || currentNote?.canEdit}
+                  editable={true}
                 />
               ) : (
                 <TouchableOpacity
                   style={styles.noteEditorContainer}
-                  onPress={() => {
-                    // Only allow editing if it's not a shared note or if user has edit permissions
-                    if (!currentNote?.isShared || currentNote?.canEdit) {
-                      handleStartEditing();
-                    } else {
-                      Alert.alert('View Only', 'You can only view this shared note. You do not have edit permissions.');
-                    }
-                  }}
+                  onPress={handleStartEditing}
                   activeOpacity={0.8}
                 >
                   <View style={styles.noteEditorPlaceholder}>
@@ -1948,7 +1888,7 @@ export default function NotesScreen() {
                           styles.actionButton,
                           result.is_friend 
                             ? { backgroundColor: '#34C759' }
-                            : { backgroundColor: '#007AFF' }
+                            : { backgroundColor: '#00ACC1' }
                         ]}>
                           <Ionicons 
                             name={result.is_friend ? "checkmark" : "person-add"} 
@@ -2041,14 +1981,7 @@ const styles = StyleSheet.create({
     color: '#000',
     fontFamily: 'Onest',
   },
-  debugButton: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: '#f0f0f0',
-  },
+
 
   pendingNoteItem: {
     padding: 16,
@@ -2078,7 +2011,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#00ACC1',
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
@@ -2148,7 +2081,7 @@ const styles = StyleSheet.create({
   },
   sharedWithText: {
     fontSize: 12,
-    color: '#007AFF',
+    color: '#00ACC1',
     fontFamily: 'Onest',
     fontStyle: 'italic',
   },
@@ -2235,7 +2168,7 @@ const styles = StyleSheet.create({
   },
   realTimeUpdateText: {
     fontSize: 12,
-    color: '#007AFF',
+    color: '#00ACC1',
     marginLeft: 4,
     fontFamily: 'Onest',
     fontWeight: '500',
@@ -2254,7 +2187,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   shareAction: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#00ACC1',
     width: 60,
     height: '100%',
     alignItems: 'center',
@@ -2387,8 +2320,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   selectionIndicatorSelected: {
-    backgroundColor: '#007AFF',
-    borderColor: '#007AFF',
+    backgroundColor: '#00ACC1',
+    borderColor: '#00ACC1',
   },
   actionButton: {
     width: 32,
@@ -2428,7 +2361,7 @@ const styles = StyleSheet.create({
   },
   sharedNoteText: {
     fontSize: 14,
-    color: '#007AFF',
+    color: '#00ACC1',
     marginLeft: 8,
     fontFamily: 'Onest',
   },

@@ -358,6 +358,7 @@ const {
   SCREEN_WIDTH,
   SIDE_PADDING,
   needsSixRows,
+  getCellHeight,
 } = CALENDAR_CONSTANTS;
 
 const weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -369,6 +370,26 @@ const styles = calendarStyles;
 
 // Add this array of predefined colors near the top of the file, after the imports
 const CATEGORY_COLORS = [
+  // Cyan/Turquoise Colors (Primary)
+  '#00BCD4', // Bright Cyan
+  '#4ECDC4', // Turquoise
+  '#45B7D1', // Ocean Blue
+  '#00ACC1', // Darker Cyan
+  '#26C6DA', // Light Cyan
+  '#80DEEA', // Very Light Cyan
+  '#B2EBF2', // Pale Cyan
+  '#E0F7FA', // Very Pale Cyan
+  '#0097A7', // Dark Cyan
+  '#006064', // Very Dark Cyan
+  
+  // Complementary Colors
+  '#FF6B6B', // Coral Red
+  '#96CEB4', // Mint Green
+  '#FFEEAD', // Cream
+  '#D4A5A5', // Dusty Rose
+  '#2ECC71', // Emerald
+  '#F1C40F', // Yellow
+  
   // Pastel Colors
   '#FADADD', // Pink
   '#FF9A8B', // Coral
@@ -381,28 +402,14 @@ const CATEGORY_COLORS = [
   '#F0E68C', // Khaki
   '#E6E6FA', // Lavender
   
-  // Vibrant Colors
-  '#FF6B6B', // Coral Red
-  '#4ECDC4', // Turquoise
-  '#45B7D1', // Ocean Blue
-  '#96CEB4', // Mint Green
-  '#FFEEAD', // Cream
-  '#D4A5A5', // Dusty Rose
-  '#9B59B6', // Purple
-  '#3498DB', // Blue
-  '#2ECC71', // Emerald
-  '#F1C40F', // Yellow
-  
   // Muted Colors
   '#95A5A6', // Gray
   '#7F8C8D', // Dark Gray
   '#34495E', // Navy
-  '#8E44AD', // Deep Purple
   '#16A085', // Teal
   '#D35400', // Orange
   '#C0392B', // Red
   '#27AE60', // Green
-  '#2980B9', // Dark Blue
   '#F39C12', // Amber
 ];
 
@@ -623,13 +630,17 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [editSearchFriend, setEditSearchFriend] = useState('');
   const [editIsSearchFocused, setEditIsSearchFocused] = useState(false);
 
-  // Shared events notification modal state
-  const [showSharedEventsModal, setShowSharedEventsModal] = useState(false);
+  // Shared events state variables
   const [pendingSharedEvents, setPendingSharedEvents] = useState<CalendarEvent[]>([]);
   const [sentSharedEvents, setSentSharedEvents] = useState<CalendarEvent[]>([]);
   const [receivedSharedEvents, setReceivedSharedEvents] = useState<CalendarEvent[]>([]);
-  const [activeSharedEventsTab, setActiveSharedEventsTab] = useState<'received' | 'sent'>('received');
+  const [showSharedEventsModal, setShowSharedEventsModal] = useState(false);
+  const [activeSharedEventsTab, setActiveSharedEventsTab] = useState<'sent' | 'received'>('received');
+
+  // Animation state
   const swipeAnimation = useRef(new Animated.Value(0)).current;
+  const [currentEditingField, setCurrentEditingField] = useState<'start' | 'end'>('start');
+  const [isTimePickerVisible, setIsTimePickerVisible] = useState(false);
   
   // Shared event details modal state
   const [showSharedEventDetailsView, setShowSharedEventDetailsView] = useState(false);
@@ -1025,7 +1036,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             startDateTime: startDateTime,
             endDateTime: endDateTime,
             categoryName: event.category_name,
-            categoryColor: '#007AFF', // iOS blue for shared events
+            categoryColor: '#00BCD4', // Cyan for shared events
             isAllDay: isAllDay,
             photos: event.photos || [],
             // Shared event properties
@@ -1265,9 +1276,28 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             customDates: transformedEvent.customDates
           });
 
-          // Handle multi-day events by creating display segments for each day
-          if (isMultiDayEvent(transformedEvent)) {
-            console.log('🔍 [MultiDay] Processing multi-day event:', transformedEvent.title);
+          // Check if this is a multi-day event
+          const isMultiDayEvent = (event: CalendarEvent): boolean => {
+            if (!event.startDateTime || !event.endDateTime) return false;
+            const startDate = new Date(event.startDateTime);
+            const endDate = new Date(event.endDateTime);
+            startDate.setHours(0, 0, 0, 0);
+            endDate.setHours(0, 0, 0, 0);
+            return startDate.getTime() !== endDate.getTime();
+          };
+
+          // For custom events, add to all custom dates
+          if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
+            transformedEvent.customDates.forEach((date: string) => {
+              if (!acc[date]) {
+                acc[date] = [];
+              }
+              acc[date].push(transformedEvent);
+              console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
+            });
+          } else if (isMultiDayEvent(transformedEvent)) {
+            // Handle multi-day events by creating separate instances for each day
+            console.log('🔍 [Calendar] Processing multi-day event:', transformedEvent.title);
             const startDate = new Date(transformedEvent.startDateTime!);
             const endDate = new Date(transformedEvent.endDateTime!);
             
@@ -1275,11 +1305,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             startDate.setHours(0, 0, 0, 0);
             endDate.setHours(0, 0, 0, 0);
             
-            console.log('🔍 [MultiDay] Date range:', startDate.toDateString(), 'to', endDate.toDateString());
-            
-            // Create display segments for each day in the range
+            // Create separate event instances for each day in the range
             const currentDate = new Date(startDate);
-            let dayCount = 0;
             while (currentDate <= endDate) {
               const dateKey = getLocalDateString(currentDate);
               
@@ -1287,40 +1314,38 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 acc[dateKey] = [];
               }
               
-              // Create a display segment for this specific date (same event, different display properties)
-              const eventSegment = {
+              // Create a separate event instance for this specific date
+              const eventInstance = {
                 ...transformedEvent,
-                id: transformedEvent.id, // Keep the same ID for all segments
+                id: `${transformedEvent.id}_${dateKey}`, // Unique ID for each day
                 date: dateKey,
-                // Keep the original start/end times for the event
+                // Adjust start/end times for this specific day
+                startDateTime: new Date(currentDate),
+                endDateTime: new Date(currentDate),
               };
               
-              acc[dateKey].push(eventSegment);
-              dayCount++;
-              console.log('🔍 [MultiDay] Added segment to date:', dateKey, 'Day', dayCount);
+              // If it's not an all-day event, preserve the time from the original event
+              if (!transformedEvent.isAllDay && transformedEvent.startDateTime && transformedEvent.endDateTime) {
+                const originalStart = new Date(transformedEvent.startDateTime);
+                const originalEnd = new Date(transformedEvent.endDateTime);
+                
+                eventInstance.startDateTime.setHours(originalStart.getHours(), originalStart.getMinutes(), originalStart.getSeconds());
+                eventInstance.endDateTime.setHours(originalEnd.getHours(), originalEnd.getMinutes(), originalEnd.getSeconds());
+              }
+              
+              acc[dateKey].push(eventInstance);
+              console.log('🔍 [Calendar] Added multi-day event to date:', dateKey, 'Event:', transformedEvent.title);
               
               // Move to next day
               currentDate.setDate(currentDate.getDate() + 1);
             }
-            console.log('🔍 [MultiDay] Total segments created:', dayCount);
           } else {
-            // For custom events, add to all custom dates
-            if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
-              transformedEvent.customDates.forEach((date: string) => {
-                if (!acc[date]) {
-                  acc[date] = [];
-                }
-                acc[date].push(transformedEvent);
-                console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
-              });
-            } else {
-              // For regular events, add to the primary date
-              if (!acc[transformedEvent.date]) {
-                acc[transformedEvent.date] = [];
-              }
-              acc[transformedEvent.date].push(transformedEvent);
-              console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
+            // For regular single-day events, add to the primary date
+            if (!acc[transformedEvent.date]) {
+              acc[transformedEvent.date] = [];
             }
+            acc[transformedEvent.date].push(transformedEvent);
+            console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
           }
 
           return acc;
@@ -1329,15 +1354,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         console.log('🔍 [Calendar] Final transformed events by date:', Object.keys(transformedEvents));
         console.log('🔍 [Calendar] Events for 2025-01-15:', transformedEvents['2025-01-15']?.map((e: CalendarEvent) => ({ title: e.title, isShared: e.isShared, id: e.id })) || 'No events');
         
-        // Debug: Check for multi-day events in the final result
-        Object.keys(transformedEvents).forEach(dateKey => {
-          const eventsForDate = transformedEvents[dateKey];
-          eventsForDate.forEach((event: CalendarEvent) => {
-            if (isMultiDayEvent(event)) {
-              console.log('🔍 [MultiDay] Found multi-day event in final result:', event.title, 'on', dateKey, 'ID:', event.id);
-            }
-          });
-        });
+
         
         // Add detailed debugging for shared events
         console.log('🔍 [Calendar] All shared events before transformation:', sharedEvents.map(e => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
@@ -1502,7 +1519,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           startDateTime: startDateTime,
           endDateTime: endDateTime,
           categoryName: event.category_name,
-          categoryColor: event.category_color || '#667eea',
+          categoryColor: event.category_color || '#00BCD4',
           reminderTime: parseDate(event.reminder_time),
           repeatOption: event.repeat_option || 'None',
           repeatEndDate: parseDate(event.repeat_end_date),
@@ -1524,9 +1541,39 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           calendarColor: event.calendar_color,
         };
 
-        // Handle multi-day events by creating display segments for each day
+        // Generate repeated events if this is a repeating event
+        if (calendarEvent.repeatOption && calendarEvent.repeatOption !== 'None' && calendarEvent.repeatOption !== 'Custom') {
+          const eventsToAdd = generateRepeatedEvents(calendarEvent);
+          
+          eventsToAdd.forEach((eventInstance: CalendarEvent) => {
+            const dateKey = eventInstance.date;
+            if (!parsedEvents[dateKey]) {
+              parsedEvents[dateKey] = [];
+            }
+            parsedEvents[dateKey].push(eventInstance);
+          });
+        } else {
+          // For non-repeating events, just add to the original date
+          const dateKey = calendarEvent.date;
+          if (!parsedEvents[dateKey]) {
+            parsedEvents[dateKey] = [];
+          }
+          parsedEvents[dateKey].push(calendarEvent);
+        }
+
+        // Check if this is a multi-day event
+        const isMultiDayEvent = (event: CalendarEvent): boolean => {
+          if (!event.startDateTime || !event.endDateTime) return false;
+          const startDate = new Date(event.startDateTime);
+          const endDate = new Date(event.endDateTime);
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(0, 0, 0, 0);
+          return startDate.getTime() !== endDate.getTime();
+        };
+
+        // Handle multi-day events by creating separate instances for each day
         if (isMultiDayEvent(calendarEvent)) {
-          console.log('🔍 [MultiDay] Processing multi-day event in refresh:', calendarEvent.title);
+          console.log('🔍 [Calendar] Processing multi-day event in refresh:', calendarEvent.title);
           const startDate = new Date(calendarEvent.startDateTime!);
           const endDate = new Date(calendarEvent.endDateTime!);
           
@@ -1534,11 +1581,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           startDate.setHours(0, 0, 0, 0);
           endDate.setHours(0, 0, 0, 0);
           
-          console.log('🔍 [MultiDay] Date range in refresh:', startDate.toDateString(), 'to', endDate.toDateString());
-          
-          // Create display segments for each day in the range
+          // Create separate event instances for each day in the range
           const currentDate = new Date(startDate);
-          let dayCount = 0;
           while (currentDate <= endDate) {
             const dateKey = getLocalDateString(currentDate);
             
@@ -1546,22 +1590,31 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               parsedEvents[dateKey] = [];
             }
             
-            // Create a display segment for this specific date (same event, different display properties)
-            const eventSegment = {
+            // Create a separate event instance for this specific date
+            const eventInstance = {
               ...calendarEvent,
-              id: calendarEvent.id, // Keep the same ID for all segments
+              id: `${calendarEvent.id}_${dateKey}`, // Unique ID for each day
               date: dateKey,
-              // Keep the original start/end times for the event
+              // Adjust start/end times for this specific day
+              startDateTime: new Date(currentDate),
+              endDateTime: new Date(currentDate),
             };
             
-            parsedEvents[dateKey].push(eventSegment);
-            dayCount++;
-            console.log('🔍 [MultiDay] Added segment to date in refresh:', dateKey, 'Day', dayCount);
+            // If it's not an all-day event, preserve the time from the original event
+            if (!calendarEvent.isAllDay && calendarEvent.startDateTime && calendarEvent.endDateTime) {
+              const originalStart = new Date(calendarEvent.startDateTime);
+              const originalEnd = new Date(calendarEvent.endDateTime);
+              
+              eventInstance.startDateTime.setHours(originalStart.getHours(), originalStart.getMinutes(), originalStart.getSeconds());
+              eventInstance.endDateTime.setHours(originalEnd.getHours(), originalEnd.getMinutes(), originalEnd.getSeconds());
+            }
+            
+            parsedEvents[dateKey].push(eventInstance);
+            console.log('🔍 [Calendar] Added multi-day event to date in refresh:', dateKey, 'Event:', calendarEvent.title);
             
             // Move to next day
             currentDate.setDate(currentDate.getDate() + 1);
           }
-          console.log('🔍 [MultiDay] Total segments created in refresh:', dayCount);
         } else {
           // Single day event
           if (!parsedEvents[event.date]) {
@@ -2088,66 +2141,34 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const isSelected = (date: Date | null) =>
     date?.toDateString() === selectedDate.toDateString();
 
-  // Function to check if an event spans multiple days
-  const isMultiDayEvent = (event: CalendarEvent): boolean => {
-    if (!event.startDateTime || !event.endDateTime) {
-      console.log('🔍 [MultiDay] Event missing start/end times:', event.title, 'startDateTime:', event.startDateTime, 'endDateTime:', event.endDateTime);
-      return false;
-    }
-    
-    const startDate = new Date(event.startDateTime);
-    const endDate = new Date(event.endDateTime);
-    
-    // Reset time to compare only dates
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(0, 0, 0, 0);
-    
-    const isMultiDay = startDate.getTime() !== endDate.getTime();
-    console.log('🔍 [MultiDay] Event check:', event.title, 'startDate:', startDate.toDateString(), 'endDate:', endDate.toDateString(), 'isMultiDay:', isMultiDay);
-    
-    return isMultiDay;
-  };
 
-  // Function to get the position of an event within a multi-day span
-  const getMultiDayEventPosition = (event: CalendarEvent, currentDate: Date): 'start' | 'middle' | 'end' | 'single' => {
-    if (!isMultiDayEvent(event)) return 'single';
-    
-    const startDate = new Date(event.startDateTime!);
-    const endDate = new Date(event.endDateTime!);
-    const currentDateOnly = new Date(currentDate);
-    
-    // Reset times to compare only dates
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(0, 0, 0, 0);
-    currentDateOnly.setHours(0, 0, 0, 0);
-    
-    if (currentDateOnly.getTime() === startDate.getTime()) return 'start';
-    if (currentDateOnly.getTime() === endDate.getTime()) return 'end';
-    return 'middle';
-  };
-
-  // Function to get the original event from a multi-day event segment
-  const getOriginalMultiDayEvent = (event: CalendarEvent): CalendarEvent => {
-    // Since multi-day events now use the same ID for all segments, we can return the event as-is
-    // The event already contains the complete start/end date information
-    console.log('🔍 [MultiDay] Returning event as original (unified approach):', event.title);
-    return event;
-  };
 
   
   const handleDeleteEvent = async (eventId: string) => {
     try {
       console.log('🗑️ [Delete] Starting delete for event ID:', eventId);
       
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'Please log in again to delete events.');
+        return;
+      }
+
+      // For multi-day events, extract the base event ID
+      // Multi-day event IDs have format: originalId_dateKey (e.g., "abc123_2025-01-15")
+      // Regular event IDs are just the original ID
+      const baseEventId = eventId.includes('_') ? eventId.split('_')[0] : eventId;
+      
+      console.log('🗑️ [Delete] Base event ID for deletion:', baseEventId);
+
       // Check if this is a shared event
-      const isSharedEvent = eventId.startsWith('shared_');
+      const isSharedEvent = baseEventId.startsWith('shared_');
       
       if (isSharedEvent) {
-        // Handle shared event deletion
-        await handleDeleteSharedEvent(eventId);
+        await handleDeleteSharedEvent(baseEventId);
       } else {
-        // Handle regular event deletion
-        await handleDeleteRegularEvent(eventId);
+        await handleDeleteRegularEvent(baseEventId);
       }
     } catch (error) {
       console.error('🗑️ [Delete] Error in handleDeleteEvent:', error);
@@ -2159,16 +2180,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     try {
       console.log('🗑️ [Delete Shared] Starting delete for shared event ID:', sharedEventId);
       
-      // Extract the actual shared event ID (remove 'shared_' prefix)
-      const actualSharedEventId = sharedEventId.replace('shared_', '');
-      
-      // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         throw new Error('User not authenticated');
       }
 
-      // Check if user is the owner or recipient of this shared event
+      // Extract the actual shared event ID (remove 'shared_' prefix)
+      const actualSharedEventId = sharedEventId.replace('shared_', '');
+      
+      // Get shared event data
       const { data: sharedEventData, error: fetchError } = await supabase
         .from('shared_events')
         .select('shared_by, shared_with, original_event_id')
@@ -2183,14 +2203,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       const isRecipient = sharedEventData.shared_with === user.id;
 
       if (isOwner) {
-        // If user is the owner, delete the original event (this will cascade delete shared events)
+        // Owner: delete the original event and all shared instances
         console.log('🗑️ [Delete Shared] User is owner, deleting original event');
         await handleDeleteRegularEvent(sharedEventData.original_event_id);
       } else if (isRecipient) {
-        // If user is the recipient, decline the shared event
+        // Recipient: decline the shared event
         console.log('🗑️ [Delete Shared] User is recipient, declining shared event');
         
-        // Update shared event status to declined
+        // Update status to declined
         const { error: updateError } = await supabase
           .from('shared_events')
           .update({ 
@@ -2223,73 +2243,74 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           position: 'bottom',
           visibilityTime: 2000,
         });
-
-        // Refresh events to ensure consistency
-        if (user?.id) {
-          setTimeout(() => {
-            refreshEvents();
-          }, 500);
-        }
       } else {
         throw new Error('User not authorized to delete this event');
       }
-
-      console.log('🗑️ [Delete Shared] Shared event deletion completed successfully');
     } catch (error) {
-      console.error('🗑️ [Delete Shared] Error in handleDeleteSharedEvent:', error);
-      throw error;
+      console.error('🗑️ [Delete Shared] Error:', error);
+      Alert.alert('Error', 'Failed to delete shared event. Please try again.');
     }
   };
 
   const handleDeleteRegularEvent = async (eventId: string) => {
     try {
-      console.log('🗑️ [Delete Regular] Starting delete for regular event ID:', eventId);
+      console.log('🗑️ [Delete Regular] Starting delete for event ID:', eventId);
       
-      // Cancel any scheduled notifications for this event
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Check if event exists and user owns it
+      const { data: existingEvent, error: checkError } = await supabase
+        .from('events')
+        .select('id, title, user_id, repeat_option, custom_dates')
+        .eq('id', eventId)
+        .single();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        throw checkError;
+      }
+
+      if (!existingEvent) {
+        console.warn('🗑️ [Delete Regular] Event not found in database:', eventId);
+        // Still remove from local state even if not in database
+        removeEventFromLocalState(eventId);
+        return;
+      }
+
+      if (existingEvent.user_id !== user.id) {
+        throw new Error('You can only delete your own events');
+      }
+
+      // Cancel notifications for this event
       await cancelEventNotification(eventId);
 
-      // Delete from database
-      const { error } = await supabase
+      // Delete shared events first
+      const { error: sharedDeleteError } = await supabase
+        .from('shared_events')
+        .delete()
+        .eq('original_event_id', eventId);
+
+      if (sharedDeleteError) {
+        console.error('🗑️ [Delete Regular] Error deleting shared events:', sharedDeleteError);
+      }
+
+      // Delete the main event
+      const { error: deleteError } = await supabase
         .from('events')
         .delete()
         .eq('id', eventId);
 
-      if (error) {
-        console.error('🗑️ [Delete Regular] Database delete error:', error);
-        throw error;
+      if (deleteError) {
+        throw deleteError;
       }
 
       console.log('🗑️ [Delete Regular] Database delete successful');
 
-      // Update local state - remove all segments of the multi-day event
-      setEvents(prevEvents => {
-        const newEvents = { ...prevEvents };
-        let removedCount = 0;
-        
-        // Remove the event from all dates where it exists (handles multi-day events)
-        Object.keys(newEvents).forEach(dateKey => {
-          const beforeCount = newEvents[dateKey].length;
-          newEvents[dateKey] = newEvents[dateKey].filter(event => event.id !== eventId);
-          const afterCount = newEvents[dateKey].length;
-          removedCount += (beforeCount - afterCount);
-          
-          if (newEvents[dateKey].length === 0) {
-            delete newEvents[dateKey];
-          }
-        });
+      // Remove from local state
+      removeEventFromLocalState(eventId);
 
-        console.log('🗑️ [Delete Regular] Removed', removedCount, 'segments from local state');
-        return newEvents;
-      });
-
-      // Refresh events to ensure shared events are also updated
-      if (user?.id) {
-        setTimeout(() => {
-          refreshEvents();
-        }, 500);
-      }
-
-      // Show success message
       Toast.show({
         type: 'success',
         text1: 'Event deleted successfully',
@@ -2299,18 +2320,145 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       console.log('🗑️ [Delete Regular] Delete completed successfully');
     } catch (error) {
-      console.error('🗑️ [Delete Regular] Error in handleDeleteRegularEvent:', error);
-      throw error;
+      console.error('🗑️ [Delete Regular] Error:', error);
+      Alert.alert('Error', 'Failed to delete event. Please try again.');
     }
   };
 
+  // Helper function to remove events from local state
+  // Helper function to generate repeated events
+  const generateRepeatedEvents = (event: CalendarEvent): CalendarEvent[] => {
+    if (!event.repeatOption || event.repeatOption === 'None' || event.repeatOption === 'Custom') {
+      return [event];
+    }
+
+    const events: CalendarEvent[] = [];
+    const baseDate = event.startDateTime || new Date(event.date);
+    const endDate = event.repeatEndDate || new Date(baseDate.getFullYear() + 1, baseDate.getMonth(), baseDate.getDate());
+    
+    console.log('🔄 [Repeat] Generating repeated events:', {
+      title: event.title,
+      repeatOption: event.repeatOption,
+      baseDate: baseDate.toISOString(),
+      endDate: endDate.toISOString(),
+      isAllDay: event.isAllDay
+    });
+
+    // Helper function to create an event for a specific date
+    const createEventForDate = (date: Date): CalendarEvent => {
+      const newEvent: CalendarEvent = {
+        ...event,
+        id: event.id, // Keep the same ID for all repeated events
+        date: getLocalDateString(date),
+        isAllDay: event.isAllDay
+      };
+
+      if (event.isAllDay) {
+        // For all-day events, set the date without time
+        newEvent.startDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+        newEvent.endDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      } else if (event.startDateTime && event.endDateTime) {
+        // For regular events, maintain the time from the original event
+        const startTime = event.startDateTime;
+        const endTime = event.endDateTime;
+        const duration = endTime.getTime() - startTime.getTime();
+        
+        newEvent.startDateTime = new Date(date);
+        newEvent.startDateTime.setHours(startTime.getHours(), startTime.getMinutes(), startTime.getSeconds());
+        
+        newEvent.endDateTime = new Date(newEvent.startDateTime.getTime() + duration);
+      }
+
+      // Adjust reminder time if it exists
+      if (event.reminderTime && newEvent.startDateTime && event.startDateTime) {
+        const reminderOffset = event.reminderTime.getTime() - event.startDateTime.getTime();
+        newEvent.reminderTime = new Date(newEvent.startDateTime.getTime() + reminderOffset);
+      }
+
+      return newEvent;
+    };
+
+    // Generate events based on repeat pattern
+    let currentDate = new Date(baseDate);
+    let eventCount = 0;
+    const maxEvents = 100; // Prevent infinite loops
+
+    while (currentDate <= endDate && eventCount < maxEvents) {
+      events.push(createEventForDate(new Date(currentDate)));
+      eventCount++;
+
+      // Calculate next date based on repeat option
+      const nextDate = new Date(currentDate);
+      switch (event.repeatOption) {
+        case 'Daily':
+          nextDate.setDate(nextDate.getDate() + 1);
+          break;
+        case 'Weekly':
+          nextDate.setDate(nextDate.getDate() + 7);
+          break;
+        case 'Monthly':
+          nextDate.setMonth(nextDate.getMonth() + 1);
+          break;
+        case 'Yearly':
+          nextDate.setFullYear(nextDate.getFullYear() + 1);
+          break;
+        default:
+        break;
+      }
+
+      currentDate = nextDate;
+      }
+
+    console.log('🔄 [Repeat] Generated', events.length, 'events');
+    return events;
+  };
+
+  const removeEventFromLocalState = (eventId: string) => {
+    setEvents(prevEvents => {
+      const newEvents = { ...prevEvents };
+      let removedCount = 0;
+      
+      // For multi-day events, we need to extract the base event ID
+      // Multi-day event IDs have format: originalId_dateKey (e.g., "abc123_2025-01-15")
+      // Regular event IDs are just the original ID
+      const baseEventId = eventId.includes('_') ? eventId.split('_')[0] : eventId;
+      
+      Object.keys(newEvents).forEach(dateKey => {
+        const beforeCount = newEvents[dateKey].length;
+        
+        // Remove all instances of the event
+        // For multi-day events, remove any event that starts with the base event ID
+        newEvents[dateKey] = newEvents[dateKey].filter(event => {
+          const eventBaseId = event.id.includes('_') ? event.id.split('_')[0] : event.id;
+          return eventBaseId !== baseEventId;
+        });
+        
+        const afterCount = newEvents[dateKey].length;
+        removedCount += (beforeCount - afterCount);
+        
+        if (newEvents[dateKey].length === 0) {
+          delete newEvents[dateKey];
+        }
+      });
+
+      console.log('🗑️ [Delete] Removed', removedCount, 'events from local state for base event ID:', baseEventId);
+      return newEvents;
+    });
+  };
 
   const resetEventForm = () => {
     setNewEventTitle('');
     setNewEventDescription('');
     setNewEventLocation('');
-    setStartDateTime(new Date());
-    setEndDateTime(new Date(new Date().getTime() + 60 * 60 * 1000));
+    
+    // Use the currently selected date instead of today's date
+    const selectedDateForEvent = new Date(selectedDate);
+    const selectedDateEndTime = new Date(selectedDate);
+    selectedDateEndTime.setHours(selectedDateEndTime.getHours() + 1); // 1 hour later
+    
+    setStartDateTime(selectedDateForEvent);
+    setEndDateTime(selectedDateEndTime);
+    
     setSelectedCategory(null);
     setReminderTime(null);
     setRepeatOption('None');
@@ -2318,16 +2466,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     setCustomSelectedDates([]);
     setCustomDateTimes({
       default: {
-        start: new Date(),
-        end: new Date(new Date().getTime() + 60 * 60 * 1000),
+        start: selectedDateForEvent,
+        end: selectedDateEndTime,
         reminder: null,
         repeat: 'None',
-        dates: [getLocalDateString(startDateTime)]
+        dates: [getLocalDateString(selectedDateForEvent)]
       }
     });
     setSelectedDateForCustomTime(null);
-    setCustomStartTime(new Date());
-    setCustomEndTime(new Date(new Date().getTime() + 60 * 60 * 1000));
+    setCustomStartTime(selectedDateForEvent);
+    setCustomEndTime(selectedDateEndTime);
     setUserChangedEndTime(false);
     setIsAllDay(false);
     setEventPhotos([]);
@@ -2460,140 +2608,47 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         console.log('🔍 [Calendar] Setting regular event times:', { startDateTime: eventToSave.startDateTime, endDateTime: eventToSave.endDateTime });
       }
 
-      // Generate repeated events if needed
-      const generateRepeatedEvents = (event: CalendarEvent): CalendarEvent[] => {
-        if (!event.repeatOption || event.repeatOption === 'None' || event.repeatOption === 'Custom') {
-          return [event];
-        }
-
-        const events: CalendarEvent[] = [];
-        const baseDate = event.startDateTime || new Date(event.date);
-        const endDate = event.repeatEndDate || new Date(baseDate.getFullYear() + 1, baseDate.getMonth(), baseDate.getDate());
-        
-        console.log('🔄 [Repeat] Generating repeated events:', {
-          title: event.title,
-          repeatOption: event.repeatOption,
-          baseDate: baseDate.toISOString(),
-          endDate: endDate.toISOString(),
-          isAllDay: event.isAllDay
-        });
-
-        // Helper function to create an event for a specific date
-        const createEventForDate = (date: Date): CalendarEvent => {
-          const newEvent: CalendarEvent = {
-            ...event,
-            id: `${event.id}_${date.getTime()}`,
-            date: getLocalDateString(date),
-            isAllDay: event.isAllDay
-          };
-
-          if (event.isAllDay) {
-            // For all-day events, set the date without time
-            newEvent.startDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-            newEvent.endDateTime = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-          } else if (event.startDateTime && event.endDateTime) {
-            // For regular events, maintain the time from the original event
-            const startTime = event.startDateTime;
-            const endTime = event.endDateTime;
-            const duration = endTime.getTime() - startTime.getTime();
-            
-            newEvent.startDateTime = new Date(date);
-            newEvent.startDateTime.setHours(startTime.getHours(), startTime.getMinutes(), startTime.getSeconds());
-            
-            newEvent.endDateTime = new Date(newEvent.startDateTime.getTime() + duration);
-          }
-
-          // Adjust reminder time if it exists
-          if (event.reminderTime && newEvent.startDateTime && event.startDateTime) {
-            const reminderOffset = event.reminderTime.getTime() - event.startDateTime.getTime();
-            newEvent.reminderTime = new Date(newEvent.startDateTime.getTime() + reminderOffset);
-          }
-
-          return newEvent;
-        };
-
-        // Generate events based on repeat pattern
-        let currentDate = new Date(baseDate);
-        let eventCount = 0;
-        const maxEvents = 100; // Prevent infinite loops
-
-        while (currentDate <= endDate && eventCount < maxEvents) {
-          events.push(createEventForDate(new Date(currentDate)));
-          eventCount++;
-
-          // Calculate next date based on repeat option
-          const nextDate = new Date(currentDate);
-          switch (event.repeatOption) {
-            case 'Daily':
-              nextDate.setDate(nextDate.getDate() + 1);
-              break;
-            case 'Weekly':
-              nextDate.setDate(nextDate.getDate() + 7);
-              break;
-            case 'Monthly':
-              nextDate.setMonth(nextDate.getMonth() + 1);
-              break;
-            case 'Yearly':
-              nextDate.setFullYear(nextDate.getFullYear() + 1);
-              break;
-            default:
-            break;
-          }
-
-          currentDate = nextDate;
-          }
-
-        console.log('🔄 [Repeat] Generated', events.length, 'events');
-        return events;
-      };
-
-      // Generate all repeated events
+      // Generate all repeated events for local state
       const allEvents = generateRepeatedEvents(eventToSave);
 
-      // Prepare database data for all events
-      const dbEvents = allEvents.map(event => {
-        const dbEvent = {
-          id: event.id, // Include the generated ID
-          title: event.title,
-          description: event.description,
-          date: event.date,
-          start_datetime: event.isAllDay ? null : (event.startDateTime ? formatDateToUTC(event.startDateTime) : null),
-          end_datetime: event.isAllDay ? null : (event.endDateTime ? formatDateToUTC(event.endDateTime) : null),
-          category_name: event.categoryName || null,
-          category_color: event.categoryColor || null,
-          reminder_time: event.reminderTime ? formatDateToUTC(event.reminderTime) : null,
-          repeat_option: event.repeatOption,
-          repeat_end_date: event.repeatEndDate ? formatDateToUTC(event.repeatEndDate) : null,
-          custom_dates: event.customDates,
-          custom_times: event.customTimes ? 
-            Object.entries(event.customTimes).reduce((acc, [date, times]) => ({
-              ...acc,
-              [date]: {
-                start: formatDateToUTC(times.start),
-                end: formatDateToUTC(times.end),
-                reminder: times.reminder ? formatDateToUTC(times.reminder) : null,
-                repeat: times.repeat
-              }
-            }), {}) : null,
-          is_all_day: event.isAllDay,
-          photos: event.photos || [],
-          private_photos: event.private_photos || [],
-          user_id: currentUser.id // Use the verified current user ID
-        };
-        
-        console.log('🔍 [Calendar] Database event data:', {
-          id: dbEvent.id,
-          title: dbEvent.title,
-          is_all_day: dbEvent.is_all_day,
-          start_datetime: dbEvent.start_datetime,
-          end_datetime: dbEvent.end_datetime,
-          start_datetime_type: typeof dbEvent.start_datetime,
-          end_datetime_type: typeof dbEvent.end_datetime,
-          start_datetime_length: dbEvent.start_datetime?.length,
-          end_datetime_length: dbEvent.end_datetime?.length
-        });
-        
-        return dbEvent;
+      // Prepare database data - only save the original event with repeat information
+      const dbEvent = {
+        id: eventToSave.id,
+        title: eventToSave.title,
+        description: eventToSave.description,
+        date: eventToSave.date,
+        start_datetime: eventToSave.isAllDay ? null : (eventToSave.startDateTime ? formatDateToUTC(eventToSave.startDateTime) : null),
+        end_datetime: eventToSave.isAllDay ? null : (eventToSave.endDateTime ? formatDateToUTC(eventToSave.endDateTime) : null),
+        category_name: eventToSave.categoryName || null,
+        category_color: eventToSave.categoryColor || null,
+        reminder_time: eventToSave.reminderTime ? formatDateToUTC(eventToSave.reminderTime) : null,
+        repeat_option: eventToSave.repeatOption,
+        repeat_end_date: eventToSave.repeatEndDate ? formatDateToUTC(eventToSave.repeatEndDate) : null,
+        custom_dates: eventToSave.customDates,
+        custom_times: eventToSave.customTimes ? 
+          Object.entries(eventToSave.customTimes).reduce((acc, [date, times]) => ({
+            ...acc,
+            [date]: {
+              start: formatDateToUTC(times.start),
+              end: formatDateToUTC(times.end),
+              reminder: times.reminder ? formatDateToUTC(times.reminder) : null,
+              repeat: times.repeat
+            }
+          }), {}) : null,
+        is_all_day: eventToSave.isAllDay,
+        photos: eventToSave.photos || [],
+        private_photos: eventToSave.private_photos || [],
+        user_id: currentUser.id // Use the verified current user ID
+      };
+      
+      console.log('🔍 [Calendar] Database event data:', {
+        id: dbEvent.id,
+        title: dbEvent.title,
+        is_all_day: dbEvent.is_all_day,
+        start_datetime: dbEvent.start_datetime,
+        end_datetime: dbEvent.end_datetime,
+        repeat_option: dbEvent.repeat_option,
+        repeat_end_date: dbEvent.repeat_end_date
       });
 
       let dbError;
@@ -2664,33 +2719,33 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
 
         // Insert the updated event
-        console.log('🔍 [Calendar] About to insert updated events into database:', dbEvents.map(e => ({
-          id: e.id,
-          title: e.title,
-          is_all_day: e.is_all_day,
-          start_datetime: e.start_datetime,
-          end_datetime: e.end_datetime
-        })));
+        console.log('🔍 [Calendar] About to insert updated event into database:', {
+          id: dbEvent.id,
+          title: dbEvent.title,
+          is_all_day: dbEvent.is_all_day,
+          start_datetime: dbEvent.start_datetime,
+          end_datetime: dbEvent.end_datetime
+        });
         
         const { error: insertError } = await supabase
           .from('events')
-          .insert(dbEvents);
+          .insert(dbEvent);
 
         dbError = insertError;
       } else if (selectedFriends.length === 0) {
         // Only insert events to database if not creating a shared event
-        // Insert all new events
-        console.log('🔍 [Calendar] About to insert new events into database:', dbEvents.map(e => ({
-          id: e.id,
-          title: e.title,
-          is_all_day: e.is_all_day,
-          start_datetime: e.start_datetime,
-          end_datetime: e.end_datetime
-        })));
+        // Insert the new event
+        console.log('🔍 [Calendar] About to insert new event into database:', {
+          id: dbEvent.id,
+          title: dbEvent.title,
+          is_all_day: dbEvent.is_all_day,
+          start_datetime: dbEvent.start_datetime,
+          end_datetime: dbEvent.end_datetime
+        });
         
         const { error: insertError } = await supabase
           .from('events')
-          .insert(dbEvents);
+          .insert(dbEvent);
 
         dbError = insertError;
       } else {
@@ -2942,7 +2997,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             {...panResponder.panHandlers}
             style={[
               needsSixRowsThisMonth ? styles.gridSixRows : styles.grid,
-              isMonthCompact && styles.gridCompact,
+              isMonthCompact && {
+                ...styles.gridCompact,
+                height: needsSixRowsThisMonth 
+                  ? (getCellHeight(new Date(year, month), true) * 6) // Add buffer for margins and padding
+                  : (getCellHeight(new Date(year, month), true) * 5), // Add buffer for margins and padding
+              },
             ]}
           >
             {days.map((date, i) => {
@@ -2975,8 +3035,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                     onLongPress={() => {
                       setSelectedDate(date);
                       resetEventForm();
-                      setStartDateTime(date);
-                      setEndDateTime(new Date(date.getTime() + 60 * 60 * 1000));
                       setShowModal(true);
                     }}
                     style={styles.cellContent}
@@ -3050,9 +3108,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     style={[
                                       styles.eventDot,
                                       { 
-                                        backgroundColor: event.sharedStatus === 'pending' ? '#007AFF20' : '#007AFF',
-                                        borderWidth: event.sharedStatus === 'pending' ? 1 : 0,
-                                        borderColor: event.sharedStatus === 'pending' ? '#007AFF' : 'transparent'
+                                                    backgroundColor: event.sharedStatus === 'pending' ? '#00ACC120' : '#00ACC1',
+            borderWidth: event.sharedStatus === 'pending' ? 1 : 0,
+            borderColor: event.sharedStatus === 'pending' ? '#00ACC1' : 'transparent'
                                       }
                                     ]}
                                   />
@@ -3062,7 +3120,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     style={[
                                       styles.eventDot,
                                       { 
-                                        backgroundColor: event.categoryColor || '#6366F1'
+                                        backgroundColor: event.categoryColor || '#00BCD4'
                                       }
                                     ]}
                                   />
@@ -3070,7 +3128,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               </TouchableOpacity>
                             ))}
                           {dayEvents.length > 3 && (
-                            <View style={[styles.eventDot, { backgroundColor: '#6366F1' }]} />
+                            <View style={[styles.eventDot, { backgroundColor: '#00BCD4' }]} />
                           )}
                         </View>
                       ) : (
@@ -3085,8 +3143,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               return a.startDateTime.getTime() - b.startDateTime.getTime();
                             })
                             .map((event, eventIndex) => {
-                              const isMultiDay = isMultiDayEvent(event);
-                              const eventPosition = getMultiDayEventPosition(event, date);
                               
                               return (
                                 <TouchableOpacity
@@ -3111,18 +3167,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   onLongPress={() => handleLongPress(event)}
                                   style={[
                                     calendarStyles.eventBoxText,
-                                    isMultiDay && calendarStyles.multiDayEvent,
-                                    eventPosition === 'start' && calendarStyles.multiDayEventStart,
-                                    eventPosition === 'middle' && calendarStyles.multiDayEventMiddle,
-                                    eventPosition === 'end' && calendarStyles.multiDayEventEnd,
                                     {
                                       backgroundColor: event.isGoogleEvent 
                                         ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
                                         : event.isShared 
-                                          ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${event.categoryColor || '#6366F1'}30`) // Blue for pending, normal for accepted
-                                          : `${event.categoryColor || '#6366F1'}30`, // Lighter background color
+                                                      ? (event.sharedStatus === 'pending' ? '#00ACC120' : `${event.categoryColor || '#00BCD4'}30`) // Cyan for pending, normal for accepted
+            : `${event.categoryColor || '#00BCD4'}30`, // Lighter background color
                                       borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
-                                      borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent')
+                                      borderColor: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent')
                                     }
                                   ]}
                                 >
@@ -3131,12 +3183,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                     style={[
                                       calendarStyles.eventText,
                                       { 
-                                        color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#333',
+                                        color: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : '#333',
                                         fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : 'normal'
                                       }
                                     ]}
                                   >
-                                    {eventPosition === 'start' || eventPosition === 'single' ? event.title : ''}
+                                    {event.title}
                                   </Text>
                                 </TouchableOpacity>
                               );
@@ -3249,9 +3301,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   };
 
 
-  // Add these state variables near the top of the component
-  const [isTimePickerVisible, setIsTimePickerVisible] = useState(false);
-  const [currentEditingField, setCurrentEditingField] = useState<'start' | 'end'>('start');
+
 
   // Add this function to handle time selection
   const handleTimeSelection = (selectedDate: Date | null | undefined, field: 'start' | 'end'): void => {
@@ -3547,9 +3597,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         // Restore original selected friends
         setSelectedFriends(originalSelectedFriends);
         
-        // If sharing was successful, refresh events to show the shared event
+        // If sharing was successful, we don't need to refresh since we've already updated local state
+        // The shared event will be visible in the UI through the local state update
         if (shareResult) {
-          await refreshEvents();
+          console.log('🔍 [Edit Event] Sharing successful, local state already updated');
         }
         
         // Clear edit selected friends after sharing
@@ -3602,8 +3653,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          // Refresh events when there are changes
-          refreshEvents();
+          // Only refresh for INSERT operations (new events) or UPDATE operations
+          // Skip DELETE operations to avoid bringing back deleted events
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            console.log('🔄 [Real-time] Event change detected:', payload.eventType, 'refreshing events');
+            refreshEvents();
+          } else if (payload.eventType === 'DELETE') {
+            console.log('🔄 [Real-time] Event deletion detected, skipping refresh to preserve local state');
+          }
         }
       )
       .subscribe();
@@ -3767,8 +3824,15 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   useFocusEffect(
     useCallback(() => {
-      refreshEvents();
-    }, [])
+      // Only refresh events if we don't have any events loaded yet
+      // This prevents overwriting local state changes like deletions
+      if (Object.keys(events).length === 0) {
+        console.log('🔄 [Calendar] No events loaded, refreshing on focus');
+        refreshEvents();
+      } else {
+        console.log('🔄 [Calendar] Events already loaded, skipping refresh on focus');
+      }
+    }, [events])
   );
 
   // Remove automatic rescheduling to prevent duplicate notifications
@@ -4168,7 +4232,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         await removePhotoFromFriendsFeed(user.id, 'event', eventId, photoUrlToRemove);
       }
 
-      // Update local state - co                                                                                                            mbine both arrays for display
+      // Update local state - combine both arrays for display
       const allUpdatedPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
       setEvents(prev => {
         const updated = { ...prev };
@@ -4759,6 +4823,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             flex: 0.6, 
             backgroundColor: 'white',
             minHeight: 300, // Ensure stable height
+            marginTop: 20, // Add top margin to move it lower
           }}>
             <View style={styles.dateHeader}>
               <Text style={styles.dateHeaderText}>
@@ -4819,7 +4884,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         renderLeftActions={() => (
                           <View
                             style={{
-                              backgroundColor: '#007AFF',
+                              backgroundColor: '#00BCD4',
                               width: 80,
                               height: '100%',
                               alignItems: 'center',
@@ -4843,7 +4908,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             paddingVertical: 8,
                             paddingHorizontal: 16,
                             borderWidth: event.isShared && event.sharedStatus === 'pending' ? 2 : (event.isGoogleEvent ? 1 : 0),
-                            borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
+                            borderColor: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
                             borderStyle: 'solid',
                           }}
                           onPress={() => handleSharedEventPress(event)}
@@ -4855,7 +4920,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               width: 5.5,
                               height: 46,
                               borderRadius: 3,
-                              backgroundColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : (event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.categoryColor || '#6366F1')),
+                              backgroundColor: event.isGoogleEvent ? (event.calendarColor || '#4285F4') : (event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : (event.categoryColor || '#00BCD4')),
                               marginRight: 14,
                             }}
                           />
@@ -4865,7 +4930,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               <Text style={{ 
                                 fontSize: 17, 
                                 fontWeight: 'bold', 
-                                color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#222', 
+                                color: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : '#222', 
                                 marginBottom: 0 
                               }}>
                                 {event.title}
@@ -4874,7 +4939,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               {event.isShared && !event.isGoogleEvent && (
                                 <View style={{ 
                                   marginLeft: 8, 
-                                  backgroundColor: '#007AFF', 
+                                  backgroundColor: '#00ACC1', 
                                   borderRadius: 8, 
                                   paddingHorizontal: 6, 
                                   paddingVertical: 2 
@@ -4946,7 +5011,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               </Text>
                             ) : null}
                             {event.isShared && (
-                              <Text style={{ fontSize: 11, color: '#007AFF', marginTop: 2 }}>
+                              <Text style={{ fontSize: 11, color: '#00ACC1', marginTop: 2 }}>
                                 Shared by {event.sharedByFullName || event.sharedByUsername || 'Unknown'}
                               </Text>
                             )}
@@ -5169,6 +5234,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     onPress={() => {
       resetEventForm();
       setShowModal(true);
+      // The resetEventForm now uses selectedDate, so we don't need to override it
       const currentDateStr = getLocalDateString(startDateTime);
       setCustomSelectedDates([currentDateStr]);
       setCustomDateTimes({
@@ -5186,6 +5252,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       // Set up for custom event
       setCustomModalTitle('');
       setCustomModalDescription('');
+      // The resetEventForm now uses selectedDate, so we don't need to override it
       const currentDateStr = getLocalDateString(startDateTime);
       setCustomSelectedDates([currentDateStr]);
       setCustomDateTimes({
@@ -5245,7 +5312,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   disabled={!newEventTitle.trim()}
                   style={[
                     styles.modalHeaderButton,
-                    { backgroundColor: newEventTitle.trim() ? '#667eea' : '#ffffff' }
+                    { backgroundColor: newEventTitle.trim() ? '#00BCD4' : '#ffffff' }
                   ]}
                 >
                   <Ionicons 
@@ -5347,7 +5414,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                               console.log('🔍 [Calendar] All-day switch toggled to:', value);
                               setIsAllDay(value);
                             }}
-                            trackColor={{ false: 'white', true: '#007AFF' }}
+                            trackColor={{ false: 'white', true: '#00BCD4' }}
                             thumbColor={isAllDay ? 'white' : '#f4f3f4'}
                           />
                         </View>
@@ -5807,7 +5874,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 {option}
                               </Text>
                               {(option === 'Does not repeat' ? repeatOption === 'None' : repeatOption === option) && (
-                                <Ionicons name="checkmark" size={16} color="#007AFF" />
+                                <Ionicons name="checkmark" size={16} color="#00BCD4" />
                               )}
                             </TouchableOpacity>
                           ))}
@@ -5835,7 +5902,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 {repeatEndDate ? `Ends ${repeatEndDate.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}` : 'Set end date'}
                               </Text>
                               {repeatEndDate ? (
-                                <Ionicons name="checkmark" size={16} color="#007AFF" />
+                                <Ionicons name="checkmark" size={16} color="#00BCD4" />
                               ) : (
                                 <Ionicons name="calendar-outline" size={16} color="#666" />
                               )}
@@ -6109,7 +6176,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 <View key={friendId} style={{
                                   flexDirection: 'row',
                                   alignItems: 'center',
-                                  backgroundColor: '#007AFF',
+                                  backgroundColor: '#00ACC1',
                                   paddingHorizontal: 10,
                                   paddingVertical: 6,
                                   borderRadius: 16,
@@ -6207,7 +6274,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                 borderRadius: 6,
                                 backgroundColor: 'transparent',
                                 borderWidth: selectedFriends.includes(item.friend_id) ? 1 : 0,
-                                borderColor: '#007AFF',
+                                borderColor: '#00BCD4',
                               }}
                               onPress={() => {
                                 setSelectedFriends(prev =>
@@ -6305,7 +6372,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   disabled={!editedEventTitle.trim()}
                   style={[
                     styles.modalHeaderButton,
-                    { backgroundColor: editedEventTitle.trim() ? '#667eea' : '#ffffff' }
+                    { backgroundColor: editedEventTitle.trim() ? '#00BCD4' : '#ffffff' }
                   ]}
                 >
                   <Ionicons 
@@ -6372,7 +6439,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                       <Switch 
                         value={isEditedAllDay} 
                         onValueChange={setIsEditedAllDay}
-                        trackColor={{ false: 'white', true: '#007AFF' }}
+                        trackColor={{ false: 'white', true: '#00BCD4' }}
                         thumbColor={isEditedAllDay ? 'white' : '#f4f3f4'}
                       />
                     </View>
@@ -6844,7 +6911,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             <View key={friendId} style={{
                               flexDirection: 'row',
                               alignItems: 'center',
-                              backgroundColor: '#007AFF',
+                              backgroundColor: '#00BCD4',
                               paddingHorizontal: 10,
                               paddingVertical: 6,
                               borderRadius: 16,
@@ -6951,7 +7018,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                             borderRadius: 6,
                             backgroundColor: 'transparent',
                             borderWidth: editSelectedFriends.includes(item.friend_id) ? 1 : 0,
-                            borderColor: '#007AFF',
+                            borderColor: '#00BCD4',
                           }}
                           onPress={() => {
                             setEditSelectedFriends(prev =>
@@ -7258,7 +7325,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                         borderRadius: 6,
                         overflow: 'hidden',
                         borderWidth: isSelected ? 2 : 1,
-                        borderColor: isSelected ? '#007AFF' : '#E5E5E7',
+                        borderColor: isSelected ? '#00BCD4' : '#E5E5E7',
                         backgroundColor: '#F2F2F7',
                       }}
                     >
@@ -7306,8 +7373,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   height: 28,
                   justifyContent: 'center',
                   alignItems: 'center',
-                  borderRadius: 14,
-                  backgroundColor: Colors.light.surface,
                 }}
               >
                 <Ionicons name="close" size={16} color={Colors.light.icon} />
@@ -7357,13 +7422,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   paddingVertical: 12,
                   alignItems: 'center',
                   borderBottomWidth: 2,
-                  borderBottomColor: activeSharedEventsTab === 'received' ? '#3b82f6' : 'transparent',
+                  borderBottomColor: activeSharedEventsTab === 'received' ? '#00ACC1' : 'transparent',
                 }}
               >
                 <Text style={{
                   fontSize: 14,
                   fontWeight: activeSharedEventsTab === 'received' ? '600' : '400',
-                  color: activeSharedEventsTab === 'received' ? '#3b82f6' : '#64748b',
+                  color: activeSharedEventsTab === 'received' ? '#00ACC1' : '#64748b',
                   fontFamily: 'Onest',
                 }}>
                   Received ({receivedSharedEvents.length})
@@ -7392,13 +7457,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   paddingVertical: 12,
                   alignItems: 'center',
                   borderBottomWidth: 2,
-                  borderBottomColor: activeSharedEventsTab === 'sent' ? '#3b82f6' : 'transparent',
+                  borderBottomColor: activeSharedEventsTab === 'sent' ? '#00ACC1' : 'transparent',
                 }}
               >
                 <Text style={{
                   fontSize: 14,
                   fontWeight: activeSharedEventsTab === 'sent' ? '600' : '400',
-                  color: activeSharedEventsTab === 'sent' ? '#3b82f6' : '#64748b',
+                  color: activeSharedEventsTab === 'sent' ? '#00ACC1' : '#64748b',
                   fontFamily: 'Onest',
                 }}>
                   Sent ({sentSharedEvents.length})

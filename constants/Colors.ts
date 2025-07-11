@@ -7,14 +7,14 @@
 const primaryColor = '#0f172a'; // Modern slate-900
 const primaryDark = '#020617'; // Modern slate-950
 const primaryLight = '#334155'; // Modern slate-700
-const accentColor = '#3b82f6'; // Modern blue-500
+const accentColor = '#00ACC1'; // Modern cyan
 const accentLight = '#60a5fa'; // Modern blue-400
 const successColor = '#10b981'; // Modern emerald-500
 const warningColor = '#f59e0b'; // Modern amber-500
 const errorColor = '#ef4444'; // Modern red-500
 
-const tintColorLight = primaryColor;
-const tintColorDark = accentColor;
+const tintColorLight = accentColor; // #00ACC1
+const tintColorDark = accentColor; // #00ACC1
 
 export const Colors = {
   light: {
@@ -23,7 +23,7 @@ export const Colors = {
     tint: tintColorLight,
     icon: '#64748b',
     tabIconDefault: '#94a3b8',
-    tabIconSelected: tintColorLight,
+    tabIconSelected: '#00ACC1',
     primary: primaryColor,
     primaryDark: primaryDark,
     primaryLight: primaryLight,
@@ -43,7 +43,7 @@ export const Colors = {
     tint: tintColorDark,
     icon: '#94a3b8',
     tabIconDefault: '#64748b',
-    tabIconSelected: tintColorDark,
+    tabIconSelected: '#00ACC1',
     primary: accentColor,
     primaryDark: primaryColor,
     primaryLight: accentLight,

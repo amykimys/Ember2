@@ -455,10 +455,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                       backgroundColor: event.isGoogleEvent 
                         ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
                         : event.isShared 
-                          ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${getEventColor(event.categoryColor, event.categoryName)}30`) // Blue for pending, normal for accepted
+                          ? (event.sharedStatus === 'pending' ? '#00ACC120' : `${getEventColor(event.categoryColor, event.categoryName)}30`) // Blue for pending, normal for accepted
                           : `${getEventColor(event.categoryColor, event.categoryName)}30`, // Lighter background like monthly calendar
                       borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
-                      borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
+                      borderColor: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
                       width: '100%', // Full width to fit snugly
                     }
                   ]}
@@ -466,7 +466,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                   <Text style={[
                     styles.allDayEventText,
                     { 
-                      color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#3A3A3A',
+                      color: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : '#3A3A3A',
                       fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : '400'
                     }
                   ]} numberOfLines={1}>{event.title}</Text>
@@ -630,7 +630,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                                   backgroundColor: event.isGoogleEvent 
                                     ? `${event.calendarColor || '#4285F4'}10` // More transparent calendar color background
                                     : event.isShared 
-                                      ? (event.sharedStatus === 'pending' ? '#007AFF20' : `${event.categoryColor || '#6366F1'}30`) // Blue for pending, normal for accepted
+                                      ? (event.sharedStatus === 'pending' ? '#00ACC120' : `${event.categoryColor || '#6366F1'}30`) // Blue for pending, normal for accepted
                                       : `${event.categoryColor || '#6366F1'}30`, // Lighter background like monthly calendar
                                   position: 'absolute',
                                   left: leftPosition,
@@ -639,7 +639,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                                   paddingVertical: 2,
                                   paddingHorizontal: 0,
                                   borderWidth: event.isShared && event.sharedStatus === 'pending' ? 1 : (event.isGoogleEvent ? 1 : 0),
-                                  borderColor: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
+                                  borderColor: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : (event.isGoogleEvent ? (event.calendarColor || '#4285F4') : 'transparent'),
                                 },
                               ]}
                           onPress={() => {
@@ -675,7 +675,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                             <Text style={[
                               styles.eventText,
                               { 
-                                color: event.isShared && event.sharedStatus === 'pending' ? '#007AFF' : '#3A3A3A',
+                                color: event.isShared && event.sharedStatus === 'pending' ? '#00ACC1' : '#3A3A3A',
                                 fontWeight: event.isShared && event.sharedStatus === 'pending' ? '600' : '400'
                               }
                             ]} numberOfLines={2}>
