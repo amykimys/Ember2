@@ -440,12 +440,17 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                       index: i
                     };
                     
+                    // Check if this is a multi-day event instance and get original dates
+                    const originalDates = getOriginalMultiDayDates(event);
+                    const startDateToUse = originalDates ? originalDates.startDate : event.startDateTime;
+                    const endDateToUse = originalDates ? originalDates.endDate : event.endDateTime;
+                    
                     // Batch all the state updates together
                     setSelectedEvent(eventData);
                     setEditedEventTitle(event.title);
                     setEditedEventDescription(event.description ?? '');
-                    setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
-                    setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
+                    setEditedStartDateTime(getLocalDateForEdit(startDateToUse, event.isAllDay)!);
+                    setEditedEndDateTime(getLocalDateForEdit(endDateToUse, event.isAllDay)!);
                     setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                     setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                     setEditedRepeatOption(event.repeatOption || 'None');
@@ -666,12 +671,17 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                               index: eventIndex
                             };
                             
+                            // Check if this is a multi-day event instance and get original dates
+                            const originalDates = getOriginalMultiDayDates(event);
+                            const startDateToUse = originalDates ? originalDates.startDate : event.startDateTime;
+                            const endDateToUse = originalDates ? originalDates.endDate : event.endDateTime;
+                            
                             // Batch all the state updates together
                             setSelectedEvent(eventData);
                             setEditedEventTitle(event.title);
                             setEditedEventDescription(event.description ?? '');
-                            setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
-                            setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
+                            setEditedStartDateTime(getLocalDateForEdit(startDateToUse, event.isAllDay)!);
+                            setEditedEndDateTime(getLocalDateForEdit(endDateToUse, event.isAllDay)!);
                             setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                             setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                             setEditedRepeatOption(event.repeatOption || 'None');
@@ -764,6 +774,37 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
   };
 
   // Helper function to properly handle date conversion for all-day events
+  // Helper function to get original multi-day event dates
+  const getOriginalMultiDayDates = (event: CalendarEvent): { startDate: Date; endDate: Date } | null => {
+    // Check if this is a multi-day event instance (ID contains date suffix)
+    const eventParts = event.id.split('_');
+    const eventIsMultiDayInstance = eventParts.length >= 3 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+    
+    if (eventIsMultiDayInstance) {
+      // This is a multi-day event instance, extract the base event ID
+      const baseEventId = eventParts.slice(0, -1).join('_');
+      
+      // Find the original event in the events state
+      for (const dateKey in events) {
+        const dayEvents = events[dateKey];
+        for (const dayEvent of dayEvents) {
+          // Check if this is the original event (not an instance)
+          if (dayEvent.id === baseEventId && !dayEvent.id.match(/_\d{4}-\d{2}-\d{2}$/)) {
+            if (dayEvent.startDateTime && dayEvent.endDateTime) {
+              return {
+                startDate: new Date(dayEvent.startDateTime),
+                endDate: new Date(dayEvent.endDateTime)
+              };
+            }
+          }
+        }
+      }
+    }
+    
+    // If not a multi-day instance or original not found, return null
+    return null;
+  };
+
   const getLocalDateForEdit = (date: Date | undefined, isAllDay: boolean = false): Date | undefined => {
     if (!date) return undefined;
     

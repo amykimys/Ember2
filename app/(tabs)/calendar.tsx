@@ -481,6 +481,43 @@ const CalendarScreen: React.FC = () => {
     setShowCustomTimeInline(false);
   };
 
+  // Helper function to get original multi-day event dates
+  const getOriginalMultiDayDates = (event: CalendarEvent): { startDate: Date; endDate: Date } | null => {
+    // Check if this is a multi-day event instance (ID contains date suffix)
+    const eventParts = event.id.split('_');
+    const eventIsMultiDayInstance = eventParts.length >= 2 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);    
+    if (eventIsMultiDayInstance) {
+      // This is a multi-day event instance, extract the base event ID
+      const baseEventId = eventParts.slice(0, -1).join('_');
+      
+      // Find the original event in the events state
+      for (const dateKey in events) {
+        const dayEvents = events[dateKey];
+        for (const dayEvent of dayEvents) {
+          // Check if this is the original event (not an instance)
+          if (dayEvent.id === baseEventId && !dayEvent.id.match(/_\d{4}-\d{2}-\d{2}$/)) {
+            if (dayEvent.startDateTime && dayEvent.endDateTime) {
+              return {
+                startDate: new Date(dayEvent.startDateTime),
+                endDate: new Date(dayEvent.endDateTime)
+              };
+            }
+          }
+        }
+      }
+      
+      // If not found in events, check originalEvents
+      if (originalEvents[baseEventId]) {
+        const orig = originalEvents[baseEventId];
+        if (orig.startDateTime && orig.endDateTime) {
+          return { startDate: new Date(orig.startDateTime), endDate: new Date(orig.endDateTime) };
+        }
+      }
+    }
+    
+    return null;
+  };
+
   // Helper function to properly handle date conversion for all-day events
   const getLocalDateForEdit = (date: Date | undefined, isAllDay: boolean = false): Date | undefined => {
     if (!date) return undefined;
@@ -665,6 +702,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const swipeAnimation = useRef(new Animated.Value(0)).current;
   const [currentEditingField, setCurrentEditingField] = useState<'start' | 'end'>('start');
   const [isTimePickerVisible, setIsTimePickerVisible] = useState(false);
+
+  const [originalEvents, setOriginalEvents] = useState<{ [id: string]: CalendarEvent }>({});
   
   // Shared event details modal state
   const [showSharedEventDetailsView, setShowSharedEventDetailsView] = useState(false);
@@ -1340,6 +1379,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         }
 
         // Transform the events data into our local format
+        const originals: { [id: string]: CalendarEvent } = {};
         const transformedEvents = allEvents.reduce((acc, event) => {
           
           // Parse UTC dates with better error handling
@@ -1470,6 +1510,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           if (isMultiDayEvent(transformedEvent)) {
             // Handle multi-day events by creating separate instances for each day
             console.log('🔍 [Calendar] Processing multi-day event:', transformedEvent.title);
+            originals[transformedEvent.id] = transformedEvent;
+
             const startDate = new Date(transformedEvent.startDateTime!);
             const endDate = new Date(transformedEvent.endDateTime!);
             
@@ -1496,13 +1538,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 endDateTime: new Date(currentDate),
               };
               
-              // If it's not an all-day event, preserve the time from the original event
-              if (!transformedEvent.isAllDay && transformedEvent.startDateTime && transformedEvent.endDateTime) {
+              // Preserve the time from the original event
+              if (transformedEvent.startDateTime && transformedEvent.endDateTime) {
                 const originalStart = new Date(transformedEvent.startDateTime);
                 const originalEnd = new Date(transformedEvent.endDateTime);
                 
-                eventInstance.startDateTime.setHours(originalStart.getHours(), originalStart.getMinutes(), originalStart.getSeconds());
-                eventInstance.endDateTime.setHours(originalEnd.getHours(), originalEnd.getMinutes(), originalEnd.getSeconds());
+                if (transformedEvent.isAllDay) {
+                  // For all-day events, set to 12:00 PM and 1:00 PM UTC respectively
+                  eventInstance.startDateTime.setUTCHours(12, 0, 0, 0);
+                  eventInstance.endDateTime.setUTCHours(13, 0, 0, 0);
+                } else {
+                  // For regular events, preserve the original time
+                  eventInstance.startDateTime.setHours(originalStart.getHours(), originalStart.getMinutes(), originalStart.getSeconds());
+                  eventInstance.endDateTime.setHours(originalEnd.getHours(), originalEnd.getMinutes(), originalEnd.getSeconds());
+                }
               }
               
               acc[dateKey].push(eventInstance);
@@ -1512,7 +1561,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               currentDate.setDate(currentDate.getDate() + 1);
             }
           } else if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
-            // For custom events, add to all custom dates
+            // For custom events (that are NOT multi-day), add to all custom dates
             transformedEvent.customDates.forEach((date: string) => {
               if (!acc[date]) {
                 acc[date] = [];
@@ -1546,6 +1595,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         console.log('🔍 [Calendar] Events with date 2025-01-15 before transformation:', eventsForJan15.map(e => ({ id: e.id, title: e.title, isShared: e.isShared })));
 
         setEvents(transformedEvents);
+        setOriginalEvents(originals);
         
       } catch (error) {
         console.error('🔍 [Calendar] Error in fetchEvents:', error);
@@ -2099,7 +2149,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       const parts = eventId.split('_');
-      const isMultiDayInstance = parts.length >= 3 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+      const isMultiDayInstance = parts.length >= 2 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
       const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
       
       console.log('🗑️ [Delete] Event ID analysis:', {
@@ -2211,31 +2261,35 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       // The baseEventId passed here is already the base event ID (extracted in handleDeleteEvent)
       // No need to extract again
 
-      // Check if event exists and user owns it
-      const { data: existingEvent, error: checkError } = await supabase
+      // Find all events that match the base event ID (including multi-day instances)
+      const { data: existingEvents, error: checkError } = await supabase
         .from('events')
         .select('id, title, user_id, start_datetime, end_datetime, category_id')
-        .eq('id', baseEventId)
-        .single();
+        .or(`id.eq.${baseEventId},id.like.${baseEventId}_%`);
 
-      if (checkError && checkError.code !== 'PGRST116') {
+      if (checkError) {
         throw checkError;
       }
 
-      if (!existingEvent) {
-        console.warn('🗑️ [Delete Regular] Event not found in database:', baseEventId);
+      if (!existingEvents || existingEvents.length === 0) {
+        console.warn('🗑️ [Delete Regular] No events found in database for base ID:', baseEventId);
         // Still remove from local state even if not in database
-        // We need to pass the original event ID (with date suffix) to remove all instances
         removeEventFromLocalState(originalEventId || baseEventId);
         return;
       }
 
-      if (existingEvent.user_id !== user.id) {
+      // Check if user owns all the events
+      const unauthorizedEvents = existingEvents.filter(event => event.user_id !== user.id);
+      if (unauthorizedEvents.length > 0) {
         throw new Error('You can only delete your own events');
       }
 
-      // Cancel notifications for this event
-      await cancelEventNotification(baseEventId);
+      console.log('🗑️ [Delete Regular] Found events to delete:', existingEvents.map(e => e.id));
+
+      // Cancel notifications for all events
+      for (const event of existingEvents) {
+        await cancelEventNotification(event.id);
+      }
 
       // Delete shared events first
       const { error: sharedDeleteError } = await supabase
@@ -2247,16 +2301,16 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         console.error('🗑️ [Delete Regular] Error deleting shared events:', sharedDeleteError);
       }
 
-      // Delete the main event
+      // Delete all matching events
+      const eventIds = existingEvents.map(e => e.id);
       const { error: deleteError } = await supabase
         .from('events')
         .delete()
-        .eq('id', baseEventId);
+        .in('id', eventIds);
 
       if (deleteError) {
         throw deleteError;
       }
-      console.log('🗑️ [Delete Regular] Database deletion successful, now removing from local state with ID:', originalEventId || baseEventId);
       // Remove from local state
       removeEventFromLocalState(originalEventId || baseEventId);
     } catch (error) {
@@ -2353,7 +2407,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         let removedCount = 0;
       
       const parts = eventId.split('_');
-      const isMultiDayInstance = parts.length >= 3 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+      const isMultiDayInstance = parts.length >= 2 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
       const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
       
       console.log('🗑️ [removeEventFromLocalState] Analysis:', {
@@ -2369,8 +2423,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           
             newEvents[dateKey] = newEvents[dateKey].filter(event => {
           const eventParts = event.id.split('_');
-          const eventIsMultiDayInstance = eventParts.length >= 3 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
-          const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') : event.id;
+          const eventIsMultiDayInstance = eventParts.length >= 2 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);          const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') : event.id;
           
           const shouldKeep = eventBaseId !== baseEventId;
           if (!shouldKeep) {
@@ -2508,10 +2561,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       };
       
       if (eventToSave.isAllDay) {
-        // For all-day events, create UTC dates with 12pm-1pm times to avoid timezone issues
-        const [year, month, day] = eventToSave.date.split('-').map(Number);
-        const startDate = new Date(Date.UTC(year, month - 1, day, 12, 0, 0, 0)); // 12:00 PM UTC
-        const endDate = new Date(Date.UTC(year, month - 1, day, 13, 0, 0, 0));   // 1:00 PM UTC
+        // For all-day events, preserve the actual start and end dates but set times to 12pm-1pm UTC
+        const startDate = new Date(eventToSave.startDateTime || startDateTime);
+        const endDate = new Date(eventToSave.endDateTime || endDateTime);
+        
+        // Set times to 12:00 PM and 1:00 PM UTC respectively
+        startDate.setUTCHours(12, 0, 0, 0);
+        endDate.setUTCHours(13, 0, 0, 0);
+        
         eventToSave.startDateTime = startDate;
         eventToSave.endDateTime = endDate;
       } else {
@@ -2520,6 +2577,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         eventToSave.endDateTime = new Date(endDateTime);
       }
 
+      // Store original multi-day events for edit modal reference
+      const isMultiDayEvent = (event: CalendarEvent): boolean => {
+        if (!event.startDateTime || !event.endDateTime) return false;
+        const startDate = new Date(event.startDateTime);
+        const endDate = new Date(event.endDateTime);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(0, 0, 0, 0);
+        return startDate.getTime() !== endDate.getTime();
+      };
+      
+      if (isMultiDayEvent(eventToSave)) {
+        setOriginalEvents(prev => ({ ...prev, [eventToSave.id]: eventToSave }));
+      }
       // Generate all repeated events for local state
       const allEvents = generateRepeatedEvents(eventToSave);
 
@@ -2643,8 +2713,78 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           const updated = { ...prev };
           console.log('🔄 [Repeat] Updating local state with', allEvents.length, 'events');
           
+          // Helper function to check if event is multi-day
+          const isMultiDayEvent = (event: CalendarEvent): boolean => {
+            if (!event.startDateTime || !event.endDateTime) return false;
+            const startDate = new Date(event.startDateTime);
+            const endDate = new Date(event.endDateTime);
+            startDate.setHours(0, 0, 0, 0);
+            endDate.setHours(0, 0, 0, 0);
+            return startDate.getTime() !== endDate.getTime();
+          };
+          
           allEvents.forEach(event => {
-            if (event.customDates && event.customDates.length > 0) {
+            // Check if this is a multi-day event first
+            if (isMultiDayEvent(event)) {
+              console.log('🔍 [Calendar] Processing multi-day event in local state update:', event.title);
+              const startDate = new Date(event.startDateTime!);
+              const endDate = new Date(event.endDateTime!);
+              
+              // Reset times to compare only dates
+              startDate.setHours(0, 0, 0, 0);
+              endDate.setHours(0, 0, 0, 0);
+              
+              // Create separate event instances for each day in the range
+              const currentDate = new Date(startDate);
+              while (currentDate <= endDate) {
+                const dateKey = getLocalDateString(currentDate);
+                
+                if (!updated[dateKey]) {
+                  updated[dateKey] = [];
+                }
+                
+                // Remove any existing instances of this event
+                updated[dateKey] = updated[dateKey].filter(e => {
+                  const eventParts = e.id.split('_');
+const eventIsMultiDayInstance = eventParts.length >= 2 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);                  
+const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') : e.id;
+                  return eventBaseId !== event.id;
+                });
+                
+                // Create a separate event instance for this specific date
+                const eventInstance = {
+                  ...event,
+                  id: `${event.id}_${dateKey}`, // Unique ID for each day
+                  date: dateKey,
+                  // Adjust start/end times for this specific day
+                  startDateTime: new Date(currentDate),
+                  endDateTime: new Date(currentDate),
+                };
+                
+                // Preserve the time from the original event
+                if (event.startDateTime && event.endDateTime) {
+                  const originalStart = new Date(event.startDateTime);
+                  const originalEnd = new Date(event.endDateTime);
+                  
+                  if (event.isAllDay) {
+                    // For all-day events, set to 12:00 PM and 1:00 PM UTC respectively
+                    eventInstance.startDateTime.setUTCHours(12, 0, 0, 0);
+                    eventInstance.endDateTime.setUTCHours(13, 0, 0, 0);
+                  } else {
+                    // For regular events, preserve the original time
+                    eventInstance.startDateTime.setHours(originalStart.getHours(), originalStart.getMinutes(), originalStart.getSeconds());
+                    eventInstance.endDateTime.setHours(originalEnd.getHours(), originalEnd.getMinutes(), originalEnd.getSeconds());
+                  }
+                }
+                
+                updated[dateKey].push(eventInstance);
+                console.log('🔍 [Calendar] Added multi-day event to date:', dateKey, 'Event:', event.title);
+                
+                // Move to next day
+                currentDate.setDate(currentDate.getDate() + 1);
+              }
+            } else if (event.customDates && event.customDates.length > 0) {
+              // For custom events (that are NOT multi-day), add to all custom dates
               event.customDates.forEach(date => {
                 if (!updated[date]) {
                   updated[date] = [];
@@ -2653,6 +2793,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 updated[date].push(event);
               });
             } else {
+              // For regular single-day events, add to the primary date
               const dateKey = event.date;
               if (!updated[dateKey]) {
                 updated[dateKey] = [];
@@ -2950,19 +3091,26 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   const selectedEventData = { event, dateKey: event.date, index };
                                   const hasValidStart = event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime());
                                   const hasValidEnd = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
+                                  
+                                  // Check if this is a multi-day event instance and get original dates
+                                  const originalDates = getOriginalMultiDayDates(event);
+                                  const startDateToUse = originalDates ? originalDates.startDate : event.startDateTime;
+                                  const endDateToUse = originalDates ? originalDates.endDate : event.endDateTime;
+                                  
                                   setSelectedEvent(selectedEventData);
                                   setEditingEvent(event);
                                   setEditedEventTitle(event.title);
                                   setEditedEventDescription(event.description ?? '');
                                   setEditedEventLocation(event.location ?? '');
-                                  setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
-                                  setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
+                                  setEditedStartDateTime(getLocalDateForEdit(startDateToUse, event.isAllDay)!);
+                                  setEditedEndDateTime(getLocalDateForEdit(endDateToUse, event.isAllDay)!);
                                   setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                                   setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                                   setEditedRepeatOption(event.repeatOption || 'None');
                                   setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
                                   setCustomSelectedDates(event.customDates || []);
-                                  setIsEditedAllDay(event.isAllDay || false);                                  setEditedEventPhotos([...(event.photos || []), ...(event.private_photos || [])]);
+                                  setIsEditedAllDay(event.isAllDay || false);
+                                  setEditedEventPhotos([...(event.photos || []), ...(event.private_photos || [])]);
                                   setShowEditEventModal(true);
                                 }}
                                 onLongPress={() => handleLongPress(event)}
@@ -3025,13 +3173,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                                   onPress={() => {
                                     // Since multi-day events are now unified, use the event directly
                                     const selectedEventData = { event, dateKey: event.date, index: eventIndex };
+                                    
+                                    // Check if this is a multi-day event instance and get original dates
+                                    const originalDates = getOriginalMultiDayDates(event);
+                                    const startDateToUse = originalDates ? originalDates.startDate : event.startDateTime;
+                                    const endDateToUse = originalDates ? originalDates.endDate : event.endDateTime;
+                                    
                                     setSelectedEvent(selectedEventData);
                                     setEditingEvent(event);
                                     setEditedEventTitle(event.title);
                                     setEditedEventDescription(event.description ?? '');
                                     setEditedEventLocation(event.location ?? '');
-                                    setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
-                                    setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
+                                    setEditedStartDateTime(getLocalDateForEdit(startDateToUse, event.isAllDay)!);
+                                    setEditedEndDateTime(getLocalDateForEdit(endDateToUse, event.isAllDay)!);
                                     setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
                                     setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
                                     setEditedRepeatOption(event.repeatOption || 'None');
@@ -3114,8 +3268,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEditedEventTitle(event.title);
       setEditedEventDescription(event.description ?? '');
       setEditedEventLocation(event.location ?? '');
-      setEditedStartDateTime(getLocalDateForEdit(event.startDateTime, event.isAllDay)!);
-      setEditedEndDateTime(getLocalDateForEdit(event.endDateTime, event.isAllDay)!);
+      
+      // Check if this is a multi-day event instance and get original dates
+      const originalDates = getOriginalMultiDayDates(event);
+      const startDateToUse = originalDates ? originalDates.startDate : event.startDateTime;
+      const endDateToUse = originalDates ? originalDates.endDate : event.endDateTime;
+      
+      setEditedStartDateTime(getLocalDateForEdit(startDateToUse, event.isAllDay)!);
+      setEditedEndDateTime(getLocalDateForEdit(endDateToUse, event.isAllDay)!);
       setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
       setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
       setEditedRepeatOption(event.repeatOption || 'None');
@@ -3337,13 +3497,23 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       await new Promise(resolve => setTimeout(resolve, 100));
       const originalEvent = selectedEvent.event;
       
+      // Extract the base event ID if this is a multi-day event instance
+      let baseEventId = originalEvent.id;
+      const eventParts = originalEvent.id.split('_');
+      const eventIsMultiDayInstance = eventParts.length >= 2 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+      if (eventIsMultiDayInstance) {
+        baseEventId = eventParts.slice(0, -1).join('_');
+        console.log('🔍 [Edit Event] Multi-day instance detected. Original ID:', originalEvent.id, 'Base ID:', baseEventId);
+      }
+      
       // Step 1: Find the event in database by title and date (more reliable than ID)
+      // For multi-day events, we need to find the original event, not the instance
       const { data: existingEvents, error: findError } = await supabase
         .from('events')
         .select('*')
         .eq('title', originalEvent.title)
-        .eq('date', originalEvent.date)
-        .eq('user_id', user?.id);
+        .eq('user_id', user?.id)
+        .or(`id.eq.${baseEventId},date.eq.${originalEvent.date}`);
 
       if (findError) {
         throw new Error('Failed to find event in database');
@@ -3442,15 +3612,123 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         photos: insertedEvent.photos || []
       };
 
+      // Helper function to check if event is multi-day
+      const isMultiDayEvent = (event: CalendarEvent): boolean => {
+        if (!event.startDateTime || !event.endDateTime) return false;
+        const startDate = new Date(event.startDateTime);
+        const endDate = new Date(event.endDateTime);
+        startDate.setHours(0, 0, 0, 0);
+        endDate.setHours(0, 0, 0, 0);
+        return startDate.getTime() !== endDate.getTime();
+      };
+
       setEvents(prev => {
         const updated = { ...prev };
-        const dateKey = newEvent.date;
-        if (!updated[dateKey]) {
-          updated[dateKey] = [];
+        
+        // Check if this is a multi-day event first
+        if (isMultiDayEvent(newEvent)) {
+          console.log('🔍 [Edit Event] Processing multi-day event in local state update:', newEvent.title);
+          
+          // FIRST: Remove ALL instances of the original event from ALL dates
+          console.log('🗑️ [Edit Event] Removing all instances of original event. Base ID:', baseEventId);
+          Object.keys(updated).forEach(dateKey => {
+            updated[dateKey] = updated[dateKey].filter(e => {
+              // Check if this is the original event we're editing
+              if (e.id === baseEventId) {
+                console.log('🗑️ [Edit Event] Removing original event from date:', dateKey);
+                return false; // Remove the original event
+              }
+              
+              // Check if this is an instance of the original event
+              const eventParts = e.id.split('_');
+              const eventIsMultiDayInstance = eventParts.length >= 2 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
+              if (eventIsMultiDayInstance) {
+                const eventBaseId = eventParts.slice(0, -1).join('_');
+                if (eventBaseId === baseEventId) {
+                  console.log('🗑️ [Edit Event] Removing instance of original event from date:', dateKey, 'Instance ID:', e.id);
+                  return false; // Remove instances of the original event
+                }
+              }
+              
+              return true; // Keep other events
+            });
+          });
+          
+          // SECOND: Add new instances for the new date range
+          const startDate = new Date(newEvent.startDateTime!);
+          const endDate = new Date(newEvent.endDateTime!);
+          
+          // Reset times to compare only dates
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(0, 0, 0, 0);
+          
+          // Create separate event instances for each day in the range
+          const currentDate = new Date(startDate);
+          while (currentDate <= endDate) {
+            const dateKey = getLocalDateString(currentDate);
+            
+            if (!updated[dateKey]) {
+              updated[dateKey] = [];
+            }
+            
+            // Create a separate event instance for this specific date
+            const eventInstance = {
+              ...newEvent,
+              id: `${newEvent.id}_${dateKey}`, // Unique ID for each day
+              date: dateKey,
+              // Adjust start/end times for this specific day
+              startDateTime: new Date(currentDate),
+              endDateTime: new Date(currentDate),
+            };
+            
+            // Preserve the time from the original event
+            if (newEvent.startDateTime && newEvent.endDateTime) {
+              const originalStart = new Date(newEvent.startDateTime);
+              const originalEnd = new Date(newEvent.endDateTime);
+              
+              if (newEvent.isAllDay) {
+                // For all-day events, set to 12:00 PM and 1:00 PM UTC respectively
+                eventInstance.startDateTime.setUTCHours(12, 0, 0, 0);
+                eventInstance.endDateTime.setUTCHours(13, 0, 0, 0);
+              } else {
+                // For regular events, preserve the original time
+                eventInstance.startDateTime.setHours(originalStart.getHours(), originalStart.getMinutes(), originalStart.getSeconds());
+                eventInstance.endDateTime.setHours(originalEnd.getHours(), originalEnd.getMinutes(), originalEnd.getSeconds());
+              }
+            }
+            
+            updated[dateKey].push(eventInstance);
+            console.log('✅ [Edit Event] Added new multi-day event instance to date:', dateKey, 'Event:', newEvent.title);
+            
+            // Move to next day
+            currentDate.setDate(currentDate.getDate() + 1);
+          }
+        } else if (newEvent.customDates && newEvent.customDates.length > 0) {
+          // For custom events (that are NOT multi-day), add to all custom dates
+          newEvent.customDates.forEach(date => {
+            if (!updated[date]) {
+              updated[date] = [];
+            }
+            updated[date] = updated[date].filter(e => e.id !== newEvent.id);
+            updated[date].push(newEvent);
+          });
+        } else {
+          // For regular single-day events, add to the primary date
+          const dateKey = newEvent.date;
+          if (!updated[dateKey]) {
+            updated[dateKey] = [];
+          }
+          updated[dateKey] = updated[dateKey].filter(e => e.id !== newEvent.id);
+          updated[dateKey].push(newEvent);
         }
-        updated[dateKey].push(newEvent);
+        
         return updated;
       });
+
+      // Update originalEvents state for the new multi-day event
+      if (isMultiDayEvent(newEvent)) {
+        setOriginalEvents(prev => ({ ...prev, [newEvent.id]: newEvent }));
+      }
 
       // Step 9: Cancel old notifications and schedule new ones
       await cancelEventNotification(originalEvent.id);
