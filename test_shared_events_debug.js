@@ -1,158 +1,126 @@
-// Test script to debug shared events not showing on calendar
 const { createClient } = require('@supabase/supabase-js');
 
-// Initialize Supabase client (replace with your actual credentials)
-const supabaseUrl = 'YOUR_SUPABASE_URL';
-const supabaseKey = 'YOUR_SUPABASE_ANON_KEY';
+// Initialize Supabase client
+const supabaseUrl = 'https://ogwuamsvucvtfbxjxwqq.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nd3VhbXN2dWN2dGZieGp4d3FxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUwMzgxMjksImV4cCI6MjA2MDYxNDEyOX0.X1n5-XzGhq4zi_ciQe2BoVIhqwHDXzoI3bPKDUrK_88';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-async function testSharedEventsDebug() {
-  console.log('🧪 Debugging shared events not showing on calendar...');
+async function debugSharedEvents() {
+  console.log('🔍 [Debug] Starting shared events debug...');
   
   try {
-    // Get current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      console.error('❌ Authentication failed:', authError);
+    // First, let's see what's in the shared_events table
+    console.log('\n📋 Step 1: Check all shared events in database');
+    const { data: allSharedEvents, error: allError } = await supabase
+      .from('shared_events')
+      .select('*');
+    
+    if (allError) {
+      console.error('❌ Error querying shared events:', allError);
       return;
     }
     
-    console.log('✅ User authenticated:', user.id);
+    console.log('✅ All shared events:', allSharedEvents);
+    console.log(`📊 Total shared events: ${allSharedEvents?.length || 0}`);
     
-    // Test 1: Check user's own events
-    console.log('\n📋 Test 1: User\'s own events');
-    const { data: userEvents, error: userEventsError } = await supabase
-      .from('events')
-      .select('id, title, date, user_id')
-      .eq('user_id', user.id);
-    
-    if (userEventsError) {
-      console.error('❌ Error fetching user events:', userEventsError);
-    } else {
-      console.log('✅ User\'s own events:', userEvents?.length || 0);
-      userEvents?.forEach(event => {
-        console.log(`  - Event ID: ${event.id}, Title: ${event.title}, Date: ${event.date}`);
+    if (allSharedEvents && allSharedEvents.length > 0) {
+      console.log('\n📋 Shared events details:');
+      allSharedEvents.forEach((event, index) => {
+        console.log(`\n--- Event ${index + 1} ---`);
+        console.log('ID:', event.id);
+        console.log('Status:', event.status);
+        console.log('Shared by:', event.shared_by);
+        console.log('Shared with:', event.shared_with);
+        console.log('Has event_data:', !!event.event_data);
+        console.log('Event data keys:', event.event_data ? Object.keys(event.event_data) : 'None');
+        console.log('Created at:', event.created_at);
       });
     }
     
-    // Test 2: Check shared events where user is sender
-    console.log('\n📋 Test 2: Shared events where user is sender');
-    const { data: sharedAsSender, error: sharedAsSenderError } = await supabase
+    // Step 2: Check for pending events specifically
+    console.log('\n📋 Step 2: Check pending shared events');
+    const { data: pendingEvents, error: pendingError } = await supabase
       .from('shared_events')
       .select('*')
-      .eq('shared_by', user.id)
-      .in('status', ['pending', 'accepted']);
+      .eq('status', 'pending');
     
-    if (sharedAsSenderError) {
-      console.error('❌ Error fetching shared events as sender:', sharedAsSenderError);
-    } else {
-      console.log('✅ Shared events where user is sender:', sharedAsSender?.length || 0);
-      sharedAsSender?.forEach(se => {
-        console.log(`  - Shared Event ID: ${se.id}, Original Event ID: ${se.original_event_id}, Status: ${se.status}`);
-      });
+    if (pendingError) {
+      console.error('❌ Error querying pending events:', pendingError);
+      return;
     }
     
-    // Test 3: Check shared events where user is recipient
-    console.log('\n📋 Test 3: Shared events where user is recipient');
-    const { data: sharedAsRecipient, error: sharedAsRecipientError } = await supabase
-      .from('shared_events')
-      .select('*')
-      .eq('shared_with', user.id)
-      .in('status', ['pending', 'accepted']);
+    console.log('✅ Pending shared events:', pendingEvents);
+    console.log(`📊 Total pending events: ${pendingEvents?.length || 0}`);
     
-    if (sharedAsRecipientError) {
-      console.error('❌ Error fetching shared events as recipient:', sharedAsRecipientError);
-    } else {
-      console.log('✅ Shared events where user is recipient:', sharedAsRecipient?.length || 0);
-      sharedAsRecipient?.forEach(se => {
-        console.log(`  - Shared Event ID: ${se.id}, Original Event ID: ${se.original_event_id}, Status: ${se.status}`);
-      });
+    // Step 3: Simulate the fetchPendingSharedEvents function
+    if (pendingEvents && pendingEvents.length > 0) {
+      console.log('\n📋 Step 3: Simulate fetchPendingSharedEvents function');
+      
+      // Get the first pending event's shared_with user ID
+      const testUserId = pendingEvents[0].shared_with;
+      console.log('🔍 Testing with user ID:', testUserId);
+      
+      // Simulate the exact query from fetchPendingSharedEvents
+      const { data: simulatedData, error: simulatedError } = await supabase
+        .from('shared_events')
+        .select(`
+          id,
+          original_event_id,
+          shared_by,
+          shared_with,
+          status,
+          created_at,
+          event_data
+        `)
+        .eq('shared_with', testUserId)
+        .eq('status', 'pending');
+      
+      if (simulatedError) {
+        console.error('❌ Error in simulated query:', simulatedError);
+        return;
+      }
+      
+      console.log('✅ Simulated query result:', simulatedData);
+      console.log(`📊 Simulated query count: ${simulatedData?.length || 0}`);
+      
+      // Step 4: Check if event_data exists and has required fields
+      if (simulatedData && simulatedData.length > 0) {
+        console.log('\n📋 Step 4: Check event_data structure');
+        simulatedData.forEach((event, index) => {
+          console.log(`\n--- Event ${index + 1} ---`);
+          console.log('Has event_data:', !!event.event_data);
+          if (event.event_data) {
+            console.log('Event data keys:', Object.keys(event.event_data));
+            console.log('Title:', event.event_data.title);
+            console.log('Date:', event.event_data.date);
+            console.log('Has required fields:', {
+              hasTitle: !!event.event_data.title,
+              hasDate: !!event.event_data.date,
+              hasId: !!event.event_data.id
+            });
+          }
+        });
+      }
+      
+      // Step 5: Check profiles
+      console.log('\n📋 Step 5: Check profiles');
+      const userIds = pendingEvents.map(se => se.shared_by);
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, username, full_name, avatar_url')
+        .in('id', userIds);
+      
+      if (profilesError) {
+        console.error('❌ Error fetching profiles:', profilesError);
+      } else {
+        console.log('✅ Profiles found:', profilesData);
+        console.log(`📊 Profiles count: ${profilesData?.length || 0}`);
+      }
     }
-    
-    // Test 4: Simulate fetchSharedEvents function
-    console.log('\n📋 Test 4: Simulating fetchSharedEvents function');
-    
-    // This should return events where user is either sender or recipient
-    const { data: allSharedEvents, error: allSharedError } = await supabase
-      .from('shared_events')
-      .select(`
-        id,
-        original_event_id,
-        shared_by,
-        shared_with,
-        status,
-        created_at
-      `)
-      .or(`shared_with.eq.${user.id},shared_by.eq.${user.id}`)
-      .in('status', ['pending', 'accepted']);
-    
-    if (allSharedError) {
-      console.error('❌ Error simulating fetchSharedEvents:', allSharedError);
-    } else {
-      console.log('✅ All shared events (sender or recipient):', allSharedEvents?.length || 0);
-      allSharedEvents?.forEach(se => {
-        const isSender = se.shared_by === user.id;
-        const isRecipient = se.shared_with === user.id;
-        console.log(`  - Shared Event ID: ${se.id}, Original Event ID: ${se.original_event_id}, Status: ${se.status}`);
-        console.log(`    Role: ${isSender ? 'Sender' : 'Recipient'}`);
-      });
-    }
-    
-    // Test 5: Check which events should be excluded from regular display
-    console.log('\n📋 Test 5: Events that should be excluded from regular display');
-    
-    // Get original event IDs that are shared with the user (as recipient only)
-    const sharedOriginalEventIds = new Set();
-    if (sharedAsRecipient) {
-      sharedAsRecipient.forEach(se => {
-        sharedOriginalEventIds.add(se.original_event_id);
-      });
-    }
-    
-    console.log('✅ Original event IDs shared with user (as recipient):', Array.from(sharedOriginalEventIds));
-    
-    // Check if any of the user's own events are in the shared events (as recipient)
-    const eventsToExclude = (userEvents || []).filter(event => {
-      return sharedOriginalEventIds.has(event.id);
-    });
-    
-    console.log('✅ Events to exclude from regular display:', eventsToExclude.length);
-    eventsToExclude.forEach(event => {
-      console.log(`  - Event ID: ${event.id}, Title: ${event.title}, Date: ${event.date}`);
-    });
-    
-    // Test 6: Final result - what should be displayed
-    console.log('\n📋 Test 6: Final result - what should be displayed');
-    
-    // User's own events (excluding any that are shared with them as recipient)
-    const userOwnEvents = (userEvents || []).filter(event => {
-      return !sharedOriginalEventIds.has(event.id);
-    });
-    
-    console.log('✅ User\'s own events to display:', userOwnEvents.length);
-    userOwnEvents.forEach(event => {
-      console.log(`  - Event ID: ${event.id}, Title: ${event.title}, Date: ${event.date}`);
-    });
-    
-    // Shared events to display (both sent and received)
-    console.log('✅ Shared events to display:', allSharedEvents?.length || 0);
-    allSharedEvents?.forEach(se => {
-      const isSender = se.shared_by === user.id;
-      const isRecipient = se.shared_with === user.id;
-      console.log(`  - Shared Event ID: ${se.id}, Original Event ID: ${se.original_event_id}, Status: ${se.status}`);
-      console.log(`    Role: ${isSender ? 'Sender' : 'Recipient'}`);
-    });
-    
-    // Total events to display
-    const totalEventsToDisplay = userOwnEvents.length + (allSharedEvents?.length || 0);
-    console.log('✅ Total events to display:', totalEventsToDisplay);
-    
-    console.log('\n✅ Shared events debug test completed!');
     
   } catch (error) {
-    console.error('❌ Error in test:', error);
+    console.error('❌ Unexpected error:', error);
   }
 }
 
-// Run the test
-testSharedEventsDebug(); 
+debugSharedEvents(); 

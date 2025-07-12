@@ -302,16 +302,26 @@ export const createAndShareEvent = async (
   friendIds: string[],
   message?: string
 ): Promise<{ success: boolean; error?: string; eventId?: string }> => {
+  console.log('🔍 [createAndShareEvent] Starting with:', { eventData, friendIds, message });
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       return { success: false, error: 'User not authenticated' };
     }
 
-    // First, create the event in the events table
-    const { error: eventError } = await supabase
-      .from('events')
-      .insert({
+    // For shared events, only create records in shared_events table with pending status
+    // The event will be moved to events table only when accepted
+    console.log('🔍 [createAndShareEvent] Creating shared event records only...');
+    const sharedEvents = friendIds.map(friendId => ({
+      original_event_id: eventData.id,
+      shared_by: user.id,
+      shared_with: friendId,
+      status: 'pending',
+      message: message || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      // Store event data in the shared_events table for pending events
+      event_data: {
         id: eventData.id,
         title: eventData.title,
         description: eventData.description,
@@ -322,34 +332,21 @@ export const createAndShareEvent = async (
         category_name: eventData.categoryName,
         category_color: eventData.categoryColor,
         is_all_day: eventData.isAllDay,
-        photos: eventData.photos || [],
-        user_id: user.id
-      });
-
-    if (eventError) {
-      console.error('Error creating event:', eventError);
-      return { success: false, error: eventError.message };
-    }
-
-    // Then create shared event records
-    const sharedEvents = friendIds.map(friendId => ({
-      original_event_id: eventData.id,
-      shared_by: user.id,
-      shared_with: friendId,
-      status: 'pending',
-      message: message || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+        photos: eventData.photos || []
+      }
     }));
+    
+    console.log('🔍 [createAndShareEvent] Shared events to create:', sharedEvents);
 
     const { error: shareError } = await supabase
       .from('shared_events')
       .insert(sharedEvents);
 
     if (shareError) {
-      console.error('Error creating shared events:', shareError);
+      console.error('🔍 [createAndShareEvent] Error creating shared events:', shareError);
       return { success: false, error: shareError.message };
     }
+    console.log('🔍 [createAndShareEvent] Shared events created successfully');
 
     // Send notifications to all friends
     for (const friendId of friendIds) {
@@ -366,9 +363,10 @@ export const createAndShareEvent = async (
       }
     }
 
+    console.log('🔍 [createAndShareEvent] Successfully completed - returning success');
     return { success: true, eventId: eventData.id };
   } catch (error) {
-    console.error('Error in createAndShareEvent:', error);
+    console.error('🔍 [createAndShareEvent] Error in createAndShareEvent:', error);
     return { success: false, error: 'Failed to create and share event' };
   }
 };
@@ -438,19 +436,7 @@ export const fetchSharedEvents = async (): Promise<{
         message,
         created_at,
         updated_at,
-        events (
-          id,
-          title,
-          description,
-          location,
-          date,
-          start_datetime,
-          end_datetime,
-          category_name,
-          category_color,
-          is_all_day,
-          photos
-        )
+        event_data
       `)
       .or(`shared_with.eq.${user.id},shared_by.eq.${user.id}`)
       .in('status', ['pending', 'accepted'])
@@ -491,9 +477,9 @@ export const fetchSharedEvents = async (): Promise<{
 
     // Transform the data
     const transformedEvents: SharedEvent[] = sharedEventsData
-      .filter(sharedEvent => sharedEvent.events) // Filter out events that don't exist
+      .filter(sharedEvent => sharedEvent.event_data) // Filter out events that don't have event_data
       .map(sharedEvent => {
-        const event = sharedEvent.events as any; // Type assertion for the joined event data
+        const event = sharedEvent.event_data as any; // Type assertion for the event_data
         
         // Determine if current user is the sender or recipient
         const isCurrentUserSender = sharedEvent.shared_by === user.id;
@@ -648,10 +634,7 @@ export const acceptSharedEvent = async (
     console.log('🔍 [AcceptSharedEvent] Fetching shared event details...');
     const { data: sharedEvent, error: fetchError } = await supabase
       .from('shared_events')
-      .select(`
-        *,
-        events(*)
-      `)
+      .select('*')
       .eq('id', sharedEventId)
       .eq('shared_with', user.id)
       .single();
@@ -667,18 +650,16 @@ export const acceptSharedEvent = async (
     }
     
     console.log('✅ [AcceptSharedEvent] Shared event found:', sharedEvent);
-    console.log('🔍 [AcceptSharedEvent] Events data:', sharedEvent.events);
 
-    // Create a new event in the user's events table
-    // Note: We do NOT copy photos to keep them with the original event owner
+    // Create a new event in the user's events table using the event_data from shared_events
     console.log('🔍 [AcceptSharedEvent] Creating new event in user\'s events table...');
     
-    if (!sharedEvent.events || sharedEvent.events.length === 0) {
-      console.error('❌ [AcceptSharedEvent] No events data found in shared event');
+    if (!sharedEvent.event_data) {
+      console.error('❌ [AcceptSharedEvent] No event_data found in shared event');
       return { success: false, error: 'No event data found' };
     }
     
-    const eventData = sharedEvent.events[0];
+    const eventData = sharedEvent.event_data;
     console.log('🔍 [AcceptSharedEvent] Event data to copy:', eventData);
     
     const { error: insertError } = await supabase
@@ -694,7 +675,7 @@ export const acceptSharedEvent = async (
         category_name: eventData.category_name,
         category_color: eventData.category_color,
         is_all_day: eventData.is_all_day,
-        photos: [], // Don't copy photos - keep them with original event owner
+        photos: eventData.photos || [], // Copy photos from the shared event
         user_id: user.id,
         created_at: new Date().toISOString()
       });
