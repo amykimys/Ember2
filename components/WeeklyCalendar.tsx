@@ -103,6 +103,7 @@ interface WeeklyCalendarViewProps {
     visibleWeekMonthText: string;
     isRefreshing?: boolean;
     onRefresh?: () => void;
+    handleLongPress?: (event: CalendarEvent) => void; // Add unified handler prop
 }
 
 const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalendarViewProps>(({
@@ -132,6 +133,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     visibleWeekMonthText,
     isRefreshing = false,
     onRefresh,
+    handleLongPress,
 }, ref) => {
     const baseDate = new Date(selectedDate);
     const flatListRef = useRef<FlatList>(null);
@@ -433,34 +435,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                 <TouchableOpacity
                   key={event.id + '-' + i}
                   onPress={() => {
-                    // Set all the event data at once to minimize re-renders
-                    const eventData = {
-                      event,
-                      dateKey,
-                      index: i
-                    };
-                    
-                    // Check if this is a multi-day event instance and get original dates
-                    const originalDates = getOriginalMultiDayDates(event);
-                    const startDateToUse = originalDates ? originalDates.startDate : event.startDateTime;
-                    const endDateToUse = originalDates ? originalDates.endDate : event.endDateTime;
-                    
-                    // Batch all the state updates together
-                    setSelectedEvent(eventData);
-                    setEditedEventTitle(event.title);
-                    setEditedEventDescription(event.description ?? '');
-                    setEditedStartDateTime(getLocalDateForEdit(startDateToUse, event.isAllDay)!);
-                    setEditedEndDateTime(getLocalDateForEdit(endDateToUse, event.isAllDay)!);
-                    setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                    setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                    setEditedRepeatOption(event.repeatOption || 'None');
-                    setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                    setEditedEventPhotos(event.photos || []);
-
-                    setEditedAllDay(event.isAllDay || false);
-                    
-                    // Show the modal immediately after setting the data
-                    setShowEditEventModal(true);
+                    handleLongPress?.(event);
                   }}
                   style={[
                     styles.allDayEventBox,
@@ -664,37 +639,10 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
                                 },
                               ]}
                           onPress={() => {
-                            // Set all the event data at once to minimize re-renders
-                            const eventData = {
-                              event,
-                              dateKey,
-                              index: eventIndex
-                            };
-                            
-                            // Check if this is a multi-day event instance and get original dates
-                            const originalDates = getOriginalMultiDayDates(event);
-                            const startDateToUse = originalDates ? originalDates.startDate : event.startDateTime;
-                            const endDateToUse = originalDates ? originalDates.endDate : event.endDateTime;
-                            
-                            // Batch all the state updates together
-                            setSelectedEvent(eventData);
-                            setEditedEventTitle(event.title);
-                            setEditedEventDescription(event.description ?? '');
-                            setEditedStartDateTime(getLocalDateForEdit(startDateToUse, event.isAllDay)!);
-                            setEditedEndDateTime(getLocalDateForEdit(endDateToUse, event.isAllDay)!);
-                            setEditedSelectedCategory(event.categoryName ? { name: event.categoryName, color: event.categoryColor! } : null);
-                            setEditedReminderTime(event.reminderTime ? new Date(event.reminderTime) : null);
-                            setEditedRepeatOption(event.repeatOption || 'None');
-                            setEditedRepeatEndDate(event.repeatEndDate ? new Date(event.repeatEndDate) : null);
-                            setEditedEventPhotos(event.photos || []);
-
-                            setEditedAllDay(event.isAllDay || false);
-                            
-                            // Show the modal immediately after setting the data
-                            setShowEditEventModal(true);
+                            handleLongPress?.(event);
                           }}
                           onLongPress={() => {
-                            // your long press logic...
+                            handleLongPress?.(event);
                           }}
                         >
                           <View style={styles.eventTextContainer}>
