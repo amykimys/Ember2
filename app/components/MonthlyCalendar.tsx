@@ -124,7 +124,7 @@ const MonthlyCalendar: React.FC<MonthlyCalendarProps> = ({ selectedDate, onDayPr
               justifyContent: 'space-between',
               alignItems: 'center',
               paddingHorizontal: 12,
-              paddingVertical: 8,
+              paddingVertical: 4,
               marginBottom: 0,
             },
             monthText: {
@@ -219,7 +219,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderRadius: 20,
     paddingHorizontal: 8,
-    paddingTop: 4,
+    paddingTop: 0,
     paddingBottom: 8,
   },
   calendar: {

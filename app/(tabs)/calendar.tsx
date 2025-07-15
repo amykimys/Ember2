@@ -976,12 +976,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         console.error('🔍 [Calendar] Error fetching profiles:', profilesError);
       } else if (__DEV__) {
         console.log('🔍 [Calendar] Fetched profiles:', profilesData?.map(p => ({
-          id: p.id,
-          username: p.username,
-          full_name: p.full_name,
+        id: p.id,
+        username: p.username,
+        full_name: p.full_name,
           avatar_url: p.avatar_url ? 'Yes' : 'No',
           avatar_url_value: p.avatar_url
-        })));
+      })));
       }
 
       // Create a map of user ID to profile data
@@ -1021,7 +1021,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           // Debug: Check profile lookup
           if (__DEV__) {
             console.log('🔍 [Calendar] Profile lookup for shared event:', {
-              sharedEventId: sharedEvent.id,
+            sharedEventId: sharedEvent.id,
               profileToShowId,
               profileFound: !!profileToShow,
               profileAvatar: profileToShow?.avatar_url ? 'Yes' : 'No',
@@ -1242,7 +1242,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 endDateTime.setHours(0, 0, 0, 0);
               } else {
                 // Fallback: create dates from the date string
-                const [year, month, day] = event.date.split('-').map(Number);
+            const [year, month, day] = event.date.split('-').map(Number);
                 startDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
                 endDateTime = new Date(year, month - 1, day, 0, 0, 0, 0);
               }
@@ -1700,20 +1700,20 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             }
           } else if (transformedEvent.customDates && transformedEvent.customDates.length > 0) {
             // For custom events (that are NOT multi-day), add to all custom dates
-            transformedEvent.customDates.forEach((date: string) => {
-              if (!acc[date]) {
-                acc[date] = [];
-              }
-              acc[date].push(transformedEvent);
-              console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
-            });
-          } else {
+              transformedEvent.customDates.forEach((date: string) => {
+                if (!acc[date]) {
+                  acc[date] = [];
+                }
+                acc[date].push(transformedEvent);
+                console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
+              });
+            } else {
             // For regular single-day events, add to the primary date
-            if (!acc[transformedEvent.date]) {
-              acc[transformedEvent.date] = [];
-            }
-            acc[transformedEvent.date].push(transformedEvent);
-            console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
+              if (!acc[transformedEvent.date]) {
+                acc[transformedEvent.date] = [];
+              }
+              acc[transformedEvent.date].push(transformedEvent);
+              console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
           }
 
           return acc;
@@ -2597,7 +2597,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setEvents(prevEvents => {
         const newEvents = { ...prevEvents };
         let removedCount = 0;
-      
+        
       const parts = eventId.split('_');
       const isMultiDayInstance = parts.length >= 2 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
       const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
@@ -3129,11 +3129,11 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           ).length;
           
           if (publicPhotoCount > 0) {
-            Toast.show({
-              type: 'success',
+      Toast.show({
+        type: 'success',
               text1: `${publicPhotoCount} photo${publicPhotoCount > 1 ? 's' : ''} shared with friends!`,
-              position: 'bottom',
-            });
+        position: 'bottom',
+      });
           }
         } catch (error) {
           console.error('Error sharing photos to friends feed:', error);
@@ -3318,7 +3318,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                       styles.eventDot,
                                       { 
                                                     backgroundColor: event.sharedStatus === 'pending' ? '#00ACC120' : '#00ACC1',
-            borderWidth: event.sharedStatus === 'pending' ? 1 : 0,
+                                        borderWidth: event.sharedStatus === 'pending' ? 1 : 0,
             borderColor: event.sharedStatus === 'pending' ? '#00ACC1' : 'transparent'
                                       }
                                     ]}
@@ -4564,12 +4564,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               });
               setShowCaptionModal(true);
             } else {
-              Toast.show({
-                type: 'success',
-                text1: `Photo added to event${privacyText}`,
+            Toast.show({
+              type: 'success',
+              text1: `Photo added to event${privacyText}`,
                 text2: 'This photo is private and only visible to you',
-                position: 'bottom',
-              });
+              position: 'bottom',
+            });
             }
           } else {
             Toast.show({
@@ -5678,7 +5678,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             <MaterialIcons name="calendar-view-week" size={24} color="#333" />
           </TouchableOpacity>
           {/* Always show shared events button, not just when there are pending events */}
-          <TouchableOpacity
+            <TouchableOpacity
             onPress={async () => {
               console.log('🔍 [Calendar] Opening shared events modal');
               console.log('🔍 [Calendar] Pending events count:', pendingSharedEvents.length);
@@ -5696,12 +5696,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               
               setShowSharedEventsModal(true);
             }}
-            style={{
-              padding: 8,
-              marginLeft: 12,
-              position: 'relative',
-            }}
-          >
+              style={{
+                padding: 8,
+                marginLeft: 12,
+                position: 'relative',
+              }}
+            >
             <Ionicons name="people-outline" size={20} color="#333" />
             {pendingSharedEvents.length > 0 && (
               <View style={{
@@ -5724,7 +5724,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                   {pendingSharedEvents.length > 9 ? '9+' : pendingSharedEvents.length}
                 </Text>
               </View>
-            )}
+          )}
           </TouchableOpacity>
         </View>
       </View>
@@ -5753,6 +5753,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             keyExtractor={(item) => item.key}
             horizontal
             pagingEnabled
+            directionalLockEnabled={true}
             initialScrollIndex={currentMonthIndex}
             contentContainerStyle={{ flexGrow: 1, paddingBottom: 0 }}
             renderItem={renderMonth}
@@ -6142,12 +6143,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               
               setShowSharedEventsModal(true);
             }}
-            style={{
-              padding: 8,
-              marginLeft: 12,
-              position: 'relative',
-            }}
-          >
+              style={{
+                padding: 8,
+                marginLeft: 12,
+                position: 'relative',
+              }}
+            >
             <Ionicons name="people-outline" size={20} color="#333" />
             {pendingSharedEvents.length > 0 && (
               <View style={{
@@ -6170,7 +6171,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                   {pendingSharedEvents.length > 9 ? '9+' : pendingSharedEvents.length}
                 </Text>
               </View>
-            )}
+          )}
           </TouchableOpacity>
         </View>
       </View>
@@ -8397,13 +8398,13 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               })()}
 
             {/* Tab Navigation */}
-              <View style={{
-                flexDirection: 'row',
+            <View style={{
+              flexDirection: 'row',
                 backgroundColor: Colors.light.surfaceVariant,
                 borderRadius: 8,
                 padding: 4,
-                marginBottom: 20,
-              }}>
+              marginBottom: 20,
+            }}>
               <TouchableOpacity
                 style={{
                   flex: 1,

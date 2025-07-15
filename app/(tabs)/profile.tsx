@@ -166,6 +166,7 @@ export default function ProfileScreen() {
   const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
   const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<PhotoShare | null>(null);
   const [photoDimensions, setPhotoDimensions] = useState<{[key: string]: {width: number, height: number}}>({});
+  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
 
   // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -2361,6 +2362,19 @@ export default function ProfileScreen() {
             data={memories.flatMap(group => group.memories)}
             keyExtractor={(item) => item.id}
             numColumns={4}
+            refreshControl={
+              <RefreshControl
+                refreshing={isLoadingMemories}
+                onRefresh={() => {
+                  if (user?.id) {
+                    console.log('🔄 Pull-to-refresh triggered for memories...');
+                    loadMemories(user.id);
+                  }
+                }}
+                colors={['#6B9BD1']}
+                tintColor="#6B9BD1"
+              />
+            }
             renderItem={({ item: memory }) => (
               <TouchableOpacity
                 style={styles.memoryItem}
@@ -2418,19 +2432,6 @@ export default function ProfileScreen() {
                 </View>
               </TouchableOpacity>
             )}
-            refreshControl={
-              <RefreshControl
-                refreshing={isLoadingMemories}
-                onRefresh={async () => {
-                  if (user?.id) {
-                    console.log('🔄 Pull-to-refresh triggered');
-                    await loadMemories(user.id);
-                  }
-                }}
-                            colors={['#6B9BD1']}
-            tintColor="#6B9BD1"
-              />
-            }
             contentContainerStyle={styles.memoriesList}
           />
         )}
@@ -2572,7 +2573,11 @@ export default function ProfileScreen() {
                       }}
                       style={{ marginLeft: 12 }}
                     >
-                      <Ionicons name="trash-outline" size={20} color="#FF3B30" />
+                      <Ionicons 
+                        name="trash-outline" 
+                        size={16} 
+                        color={deletingPhotoId === item.update_id ? "#FF3B30" : "#8E8E93"} 
+                      />
                     </TouchableOpacity>
                   )}
                 </View>
@@ -2583,7 +2588,7 @@ export default function ProfileScreen() {
                 {/* Photo */}
                 <TouchableOpacity 
                   style={{
-                    borderRadius: 16,
+                    borderRadius: 8,
                     overflow: 'hidden',
                   }}
                   onPress={() => {
@@ -3783,7 +3788,7 @@ export default function ProfileScreen() {
 
       console.log('🔄 Loading photo shares for user:', user.id);
 
-      // Try the main function first
+            // Try the main function first
       let { data, error } = await supabase.rpc('get_friends_photo_shares_with_privacy', {
         current_user_id: user.id,
         limit_count: limit
@@ -3802,6 +3807,7 @@ export default function ProfileScreen() {
             photo_url,
             caption,
             source_type,
+            source_id,
             created_at
           `)
           .eq('type', 'photo_share')
@@ -3816,16 +3822,16 @@ export default function ProfileScreen() {
         }
 
         // Get user profiles separately to avoid join issues
-        const userIds = [...new Set(fallbackData?.map(item => item.user_id) || [])];
+        const userIds = [...new Set(fallbackData?.map((item: any) => item.user_id) || [])];
         const { data: profilesData } = await supabase
           .from('profiles')
           .select('id, full_name, avatar_url, username')
           .in('id', userIds);
 
-        const profilesMap = new Map(profilesData?.map(p => [p.id, p]) || []);
+        const profilesMap = new Map(profilesData?.map((p: any) => [p.id, p]) || []);
 
         // Transform fallback data to match expected format
-        data = fallbackData?.map(item => {
+        data = fallbackData?.map((item: any) => {
           const profile = profilesMap.get(item.user_id);
           return {
             update_id: item.id,
@@ -3836,20 +3842,138 @@ export default function ProfileScreen() {
             photo_url: item.photo_url,
             caption: item.caption || '',
             source_type: item.source_type || 'unknown',
-            source_title: item.caption || 'Photo Share',
-            created_at: item.created_at
+            source_title: item.caption || 'Photo Share', // Will be updated below
+            created_at: item.created_at,
+            source_id: item.source_id // Add source_id for title lookup
           };
         }) || [];
       }
 
+      // Always fetch event and habit titles separately (more reliable)
+      if (data && data.length > 0) {
+        console.log('🔄 Fetching titles for posts...');
+        
+        // Get event titles
+        const eventIds = data
+          .filter((item: any) => item.source_type === 'event' && item.source_id)
+          .map((item: any) => item.source_id);
+
+        if (eventIds.length > 0) {
+          console.log('🔄 Fetching event titles for:', eventIds);
+          
+          // Try multiple approaches to fetch event titles
+          let eventsData = null;
+          let eventsError = null;
+          
+          // First try: direct ID match
+          const { data: directData, error: directError } = await supabase
+            .from('events')
+            .select('id, title')
+            .in('id', eventIds);
+
+          if (directError) {
+            console.error('❌ Direct ID match failed:', directError);
+            
+            // Second try: cast to text
+            const { data: castData, error: castError } = await supabase
+              .from('events')
+              .select('id, title')
+              .in('id', eventIds.map((id: any) => id.toString()));
+            
+            if (castError) {
+              console.error('❌ Cast to text failed:', castError);
+              eventsError = castError;
+            } else {
+              eventsData = castData;
+              console.log('✅ Cast to text worked:', eventsData);
+            }
+          } else {
+            eventsData = directData;
+            console.log('✅ Direct ID match worked:', eventsData);
+          }
+
+          if (eventsError) {
+            console.error('❌ Error fetching event titles:', eventsError);
+          } else if (eventsData && eventsData.length > 0) {
+            console.log('✅ Event titles fetched:', eventsData);
+            const eventsMap = new Map(eventsData?.map((e: any) => [e.id, e.title]) || []);
+
+            // Update source_title for events
+            data = data.map((item: any) => {
+              if (item.source_type === 'event' && item.source_id) {
+                const eventTitle = eventsMap.get(item.source_id);
+                console.log(`🔄 Event ${item.source_id}: found title = "${eventTitle}"`);
+                
+                if (!eventTitle) {
+                  console.log(`⚠️ No title found for event ${item.source_id}, trying alternative lookup...`);
+                  
+                  // Try to find by string comparison
+                  const altMatch = eventsData.find((e: any) => e.id.toString() === item.source_id.toString());
+                  if (altMatch) {
+                    console.log(`✅ Alternative match found: "${altMatch.title}"`);
+                    return {
+                      ...item,
+                      source_title: altMatch.title || 'Event'
+                    };
+                  }
+                }
+                
+                return {
+                  ...item,
+                  source_title: eventTitle || 'Event'
+                };
+              }
+              return item;
+            });
+          } else {
+            console.log('⚠️ No events data found, keeping default titles');
+          }
+        }
+
+        // Get habit titles
+        const habitIds = data
+          .filter((item: any) => item.source_type === 'habit' && item.source_id)
+          .map((item: any) => item.source_id);
+
+        if (habitIds.length > 0) {
+          console.log('🔄 Fetching habit titles for:', habitIds);
+          const { data: habitsData, error: habitsError } = await supabase
+            .from('habits')
+            .select('id, text')
+            .in('id', habitIds);
+
+          if (habitsError) {
+            console.error('❌ Error fetching habit titles:', habitsError);
+          } else {
+            console.log('✅ Habit titles fetched:', habitsData);
+            const habitsMap = new Map(habitsData?.map((h: any) => [h.id, h.text]) || []);
+
+            // Update source_title for habits
+            data = data.map((item: any) => {
+              if (item.source_type === 'habit' && item.source_id) {
+                const habitTitle = habitsMap.get(item.source_id);
+                console.log(`🔄 Habit ${item.source_id}: ${habitTitle || 'Habit'}`);
+                return {
+                  ...item,
+                  source_title: habitTitle || 'Habit'
+                };
+              }
+              return item;
+            });
+          }
+        }
+      }
+
       console.log('✅ Photo shares loaded:', data?.length || 0);
-      
+
       // Log the first few posts to see their structure
       if (data && data.length > 0) {
         console.log('📋 Sample posts:', data.slice(0, 3).map((post: any) => ({
           update_id: post.update_id,
           user_id: post.user_id,
           user_username: post.user_username,
+          source_type: post.source_type,
+          source_title: post.source_title,
           photo_url: post.photo_url?.substring(0, 50) + '...'
         })));
       }
@@ -4209,6 +4333,9 @@ export default function ProfileScreen() {
   // Add this handler near other handlers
   const handleDeletePhotoShare = async (updateId: string) => {
     try {
+      // Set the deleting state to show red color
+      setDeletingPhotoId(updateId);
+      
       console.log('🗑️ Attempting to delete post with ID:', updateId);
       console.log('🗑️ Current user ID:', user?.id);
       
@@ -4294,13 +4421,20 @@ export default function ProfileScreen() {
           text1: 'Post deleted',
           position: 'bottom',
         });
+        
+        // Reset the deleting state after a short delay
+        setTimeout(() => {
+          setDeletingPhotoId(null);
+        }, 1000);
       } else {
         console.log('⚠️ No rows were deleted');
         Alert.alert('Error', 'Post not found or already deleted');
+        setDeletingPhotoId(null);
       }
     } catch (err) {
       console.error('❌ Exception in delete:', err);
       Alert.alert('Error', 'Failed to delete post.');
+      setDeletingPhotoId(null);
     }
   };
 
@@ -5193,7 +5327,7 @@ const styles = StyleSheet.create({
     gap: 6, // Reduced from 8
   },
   acceptRequestButton: {
-    backgroundColor: '#34C759',
+    backgroundColor: '#00ACC1',
     paddingHorizontal: 12, // Reduced from 16
     paddingVertical: 6, // Reduced from 8
     borderRadius: 12, // Reduced from 16

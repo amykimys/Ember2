@@ -9,6 +9,7 @@ import { User } from '@supabase/supabase-js';
 import { checkAndMoveTasksIfNeeded, forceCheckAndMoveTasks } from '../../utils/taskUtils';
 import { Session } from '@supabase/supabase-js';
 import { useState, useEffect} from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 
 import {
   View,
@@ -420,7 +421,7 @@ export default function TodoScreen() {
     }
   };
 
-  const { data: appData } = useData();
+  const { data: appData, updateData } = useData();
   const [categories, setCategories] = useState<Category[]>([]);
   
   // Debug function to compare preloaded vs fetched data
@@ -933,7 +934,11 @@ export default function TodoScreen() {
       }
       
       // Update local state with new task
-      setTodos(prev => [...prev, newTodoItem]);
+      const updatedTodos = [...todos, newTodoItem];
+      setTodos(updatedTodos);
+      
+      // Update DataContext with new task
+      updateData('todos', updatedTodos);
       
       // Schedule reminder if set
       if (reminderTime) {
@@ -1034,9 +1039,11 @@ export default function TodoScreen() {
           autoMove: modalAutoMove,
         };
     
-        setTodos(prev =>
-          prev.map(todo => (todo.id === editingTodo.id ? updatedTodo : todo))
-        );
+        const updatedTodos = todos.map(todo => (todo.id === editingTodo.id ? updatedTodo : todo));
+        setTodos(updatedTodos);
+        
+        // Update DataContext with edited task
+        updateData('todos', updatedTodos);
     
         // If a new category was added
         if (showNewCategoryInput && newCategoryName.trim()) {
@@ -1277,9 +1284,13 @@ export default function TodoScreen() {
       }
 
       // Update local state
-      setTodos(prev => prev.map(todo => 
+      const updatedTodos = todos.map(todo => 
         todo.id === id ? { ...todo, completed: !todo.completed } : todo
-      ));
+      );
+      setTodos(updatedTodos);
+      
+      // Update DataContext with toggled task
+      updateData('todos', updatedTodos);
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
@@ -1580,27 +1591,41 @@ export default function TodoScreen() {
       // Force a re-render to ensure all UI elements update
       setCurrentDate(new Date());
 
-      // Prompt for photo sharing
+      // Automatically share photo to friends feed (like events do)
       if (user?.id) {
-        promptPhotoSharing(
-          {
-            photoUrl: uploadedPhotoUrl,
-            sourceType: 'habit',
-            sourceId: habitId,
-            sourceTitle: habitToToggle.text,
-            userId: user.id
-          },
-          () => {
-            // Success callback - photo already added above
-          },
-          () => {
-            // Cancel callback - photo already added above
-            Alert.alert('Success', 'Habit completed with photo!');
+        try {
+          // Create social update for this habit photo
+          const { error: socialError } = await supabase
+            .from('social_updates')
+            .insert({
+              user_id: user.id,
+              type: 'photo_share',
+              photo_url: uploadedPhotoUrl,
+              caption: '', // Let the friends feed fetch the actual habit title
+              source_type: 'habit',
+              source_id: habitId,
+              is_public: true,
+              content: {
+                title: habitToToggle.text,
+                photo_url: uploadedPhotoUrl
+              }
+            });
+
+          if (socialError) {
+            console.error('Error creating social update for habit photo:', socialError);
+          } else {
+            Toast.show({
+              type: 'success',
+              text1: 'Photo shared with friends!',
+              position: 'bottom',
+            });
           }
-        );
-      } else {
-        Alert.alert('Success', 'Habit completed with photo!');
+        } catch (error) {
+          console.error('Error sharing habit photo to friends feed:', error);
+        }
       }
+      
+      Alert.alert('Success', 'Habit completed with photo!');
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
@@ -1980,10 +2005,11 @@ export default function TodoScreen() {
       }
 
       // Update local state
-      setTodos(prev => {
-        const newTodos = prev.filter(t => t.id !== todo.id);
-        return newTodos;
-      });
+      const updatedTodos = todos.filter(t => t.id !== todo.id);
+      setTodos(updatedTodos);
+      
+      // Update DataContext with deleted task
+      updateData('todos', updatedTodos);
 
       Toast.show({
         type: 'success',
@@ -3280,15 +3306,19 @@ export default function TodoScreen() {
           console.log('🔄 [Todo] Task with shared friends:', todo.id, 'Friends:', todo.sharedFriends?.length);
         });
         
-        const mappedTodos = appData.todos.map(todo => ({
+        // Process todos to ensure they have the correct format and latest data
+        const processedTodos = appData.todos.map(todo => ({
           ...todo,
           date: new Date(todo.date),
           reminderTime: todo.reminderTime ? new Date(todo.reminderTime) : null,
           repeatEndDate: todo.repeatEndDate ? new Date(todo.repeatEndDate) : null,
           customRepeatDates: todo.customRepeatDates?.map(date => new Date(date)) || [],
+          deletedInstances: todo.deletedInstances || [],
+          autoMove: todo.autoMove || false,
+          photo: todo.photo || undefined,
         }));
         
-        setTodos(mappedTodos);
+        setTodos(processedTodos);
         
         // Populate taskSharedFriends from preloaded data
         const sharedFriendsMap: Record<string, Array<{
@@ -3298,19 +3328,41 @@ export default function TodoScreen() {
           friend_username: string;
         }>> = {};
         
-        mappedTodos.forEach(todo => {
+        processedTodos.forEach(todo => {
           if (todo.sharedFriends && todo.sharedFriends.length > 0) {
             sharedFriendsMap[todo.id] = todo.sharedFriends;
           }
         });
         
         setTaskSharedFriends(sharedFriendsMap);
+        console.log('🔄 [Todo] Processed todos with latest data:', processedTodos.length);
         console.log('🔄 [Todo] Populated taskSharedFriends from preloaded data:', Object.keys(sharedFriendsMap).length, 'tasks');
       }
       
       if (appData.habits) {
         console.log('🔄 [Todo] Setting habits from DataContext:', appData.habits.length);
-        setHabits(appData.habits);
+        
+        // Process habits to ensure they have the correct format and calculated streaks
+        const processedHabits = appData.habits.map((habit: any) => {
+          const completedDays = habit.completed_days || habit.completedDays || [];
+          const calculatedStreak = calculateCurrentStreak(completedDays);
+          
+          return {
+            ...habit,
+            completedDays: completedDays,
+            notes: habit.notes || {},
+            photos: habit.photos || {},
+            targetPerWeek: habit.target_per_week || habit.targetPerWeek || 7,
+            requirePhoto: habit.require_photo || habit.requirePhoto || false,
+            reminderTime: habit.reminder_time || habit.reminderTime || null,
+            category_id: habit.category_id,
+            streak: calculatedStreak,
+            completedToday: completedDays.includes(moment().format('YYYY-MM-DD')),
+          };
+        });
+        
+        setHabits(processedHabits);
+        console.log('🔄 [Todo] Processed habits with streaks:', processedHabits.length);
       }
       
       if (appData.categories) {
@@ -3341,6 +3393,9 @@ export default function TodoScreen() {
       fetchData(user);
     }
   }, [user, appData.isPreloaded, appData.todos, appData.habits, appData.categories, isLoading]);
+
+
+
 
 
   
@@ -3379,7 +3434,7 @@ export default function TodoScreen() {
         }
 
         // Update local state
-        setHabits(prev => prev.map(habit => 
+        const updatedHabits = habits.map(habit => 
           habit.id === editingHabit.id 
             ? {
                 ...habit,
@@ -3392,7 +3447,11 @@ export default function TodoScreen() {
                 category_id: null,
               }
             : habit
-        ));
+        );
+        setHabits(updatedHabits);
+        
+        // Update DataContext with edited habit
+        updateData('habits', updatedHabits);
 
         // Update reminder notification (for editing)
         await updateHabitReminderNotification(editingHabit.id, newHabit.trim(), habitReminderTime);
@@ -3446,6 +3505,10 @@ export default function TodoScreen() {
       
       // Update local state with new habit
       setHabits(prev => [...prev, newHabitItem]);
+      
+      // Update DataContext with new habit
+      const updatedHabits = [...habits, newHabitItem];
+      updateData('habits', updatedHabits);
 
       // Schedule reminder if set (for new habit)
       if (habitReminderTime) {
@@ -3531,7 +3594,11 @@ export default function TodoScreen() {
       console.log('🗑️ [Delete Habit] Successfully deleted from database');
 
       // Update local state
-      setHabits(prev => prev.filter(habit => habit.id !== habitId));
+      const updatedHabits = habits.filter(habit => habit.id !== habitId);
+      setHabits(updatedHabits);
+      
+      // Update DataContext with deleted habit
+      updateData('habits', updatedHabits);
 
       console.log('🗑️ [Delete Habit] Updated local state');
 
@@ -3658,6 +3725,44 @@ export default function TodoScreen() {
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+
+      // Automatically share photo to friends feed (like events do)
+      if (user?.id) {
+        try {
+          // Get habit details for sharing
+          const habitToShare = habits.find(habit => habit.id === habitId);
+          if (habitToShare) {
+            // Create social update for this habit photo
+            const { error: socialError } = await supabase
+              .from('social_updates')
+              .insert({
+                user_id: user.id,
+                type: 'photo_share',
+                photo_url: uploadedPhotoUrl,
+                caption: '', // Let the friends feed fetch the actual habit title
+                source_type: 'habit',
+                source_id: habitId,
+                is_public: true,
+                content: {
+                  title: habitToShare.text,
+                  photo_url: uploadedPhotoUrl
+                }
+              });
+
+            if (socialError) {
+              console.error('Error creating social update for habit photo:', socialError);
+            } else {
+              Toast.show({
+                type: 'success',
+                text1: 'Photo shared with friends!',
+                position: 'bottom',
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error sharing habit photo to friends feed:', error);
+        }
       }
 
       // Show appropriate success message
@@ -5467,21 +5572,22 @@ export default function TodoScreen() {
               </View>
 
               {/* Content */}
-              <ScrollView 
-                ref={modalScrollViewRef}
-                style={{ flex: 1 }}
-                contentContainerStyle={{ 
-                  padding: 16, 
-                  paddingBottom: 150, // Increased bottom padding for better scrolling with keyboard
-                  minHeight: '100%' // Ensures content is scrollable even when short
-                }}
-                keyboardShouldPersistTaps="handled"
-                showsVerticalScrollIndicator={true} // Show scroll indicator
-                bounces={true} // Enable bounce effect
-                alwaysBounceVertical={true} // Always allow vertical bounce
-                scrollEventThrottle={16} // Smooth scrolling
-                keyboardDismissMode="interactive" // Allow keyboard to be dismissed by scrolling
-              >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                <ScrollView 
+                  ref={modalScrollViewRef}
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ 
+                    padding: 16, 
+                    paddingBottom: 150, // Increased bottom padding for better scrolling with keyboard
+                    minHeight: '100%' // Ensures content is scrollable even when short
+                  }}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={true} // Show scroll indicator
+                  bounces={true} // Enable bounce effect
+                  alwaysBounceVertical={true} // Always allow vertical bounce
+                  scrollEventThrottle={16} // Smooth scrolling
+                  keyboardDismissMode="interactive" // Allow keyboard to be dismissed by scrolling
+                >
                 {/* Task Title Card */}
                 <View style={{
                   backgroundColor: Colors.light.background,
@@ -6502,6 +6608,7 @@ export default function TodoScreen() {
                   )}
                 </View>
               </ScrollView>
+              </TouchableWithoutFeedback>
             </View>
           </KeyboardAvoidingView>
         </SafeAreaView>
@@ -6737,12 +6844,13 @@ export default function TodoScreen() {
             </View>
 
             {/* Content */}
-            <ScrollView 
-              style={{ flex: 1 }}
-              contentContainerStyle={{ padding: 16, paddingBottom: 100, minHeight: '100%' }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={true}
-            >
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <ScrollView 
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: 16, paddingBottom: 100, minHeight: '100%' }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={true}
+              >
               {/* Habit Title Card */}
               <View style={{
                 backgroundColor: Colors.light.background,
@@ -7091,6 +7199,7 @@ export default function TodoScreen() {
                 </View>
               </View>
             </ScrollView>
+            </TouchableWithoutFeedback>
           </View>
         </SafeAreaView>
       </Modal>
