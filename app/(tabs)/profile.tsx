@@ -1954,7 +1954,7 @@ export default function ProfileScreen() {
             <RefreshControl
               refreshing={isRefreshingFriends}
               onRefresh={handleFriendsRefresh}
-              tintColor="#6B9BD1"
+              tintColor="#00ACC1"
             />
           }
         >
@@ -1985,9 +1985,12 @@ export default function ProfileScreen() {
         </View>
       </View>
               <TouchableOpacity
-        style={styles.removeFriendButton}
+        style={{
+          backgroundColor: 'transparent', // Remove any background
+          padding: 0, // Remove any padding
+        }}
         onPress={() => removeFriend(friend.friendship_id)}
-              >
+      >
         <Ionicons name="close" size={16} color="#999" />
       </TouchableOpacity>
                 </View>
@@ -2093,7 +2096,7 @@ export default function ProfileScreen() {
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
-                {isSearching && <ActivityIndicator size="small" color="#6B9BD1" style={styles.searchLoading} />}
+                {isSearching && <ActivityIndicator size="small" color="#00ACC1" style={styles.searchLoading} />}
               </View>
 
               {searchResults.length === 0 && searchTerm.trim() ? (
@@ -2125,7 +2128,7 @@ export default function ProfileScreen() {
                           styles.actionButton,
                           result.is_friend 
                             ? { backgroundColor: '#34C759' }
-                            : { backgroundColor: '#6B9BD1' }
+                            : { backgroundColor: '#00ACC1' }
                         ]}
                       onPress={() => {
                         if (result.is_friend) {
@@ -2146,8 +2149,7 @@ export default function ProfileScreen() {
                 ))
               ) : (
                 <View style={styles.emptyContainer}>
-                  <Ionicons name="search-outline" size={64} color="#ccc" />
-                  <Text style={styles.emptyText}>Search for friends</Text>
+                
                 </View>
               )}
             </>
@@ -2179,7 +2181,7 @@ export default function ProfileScreen() {
             <RefreshControl
               refreshing={isRefreshingFriends}
               onRefresh={handleFriendsRefresh}
-              tintColor="#6B9BD1"
+              tintColor="#00ACC1"
             />
           }
         >
@@ -2208,7 +2210,10 @@ export default function ProfileScreen() {
                   </View>
                 </View>
           <TouchableOpacity
-                  style={styles.removeFriendButton}
+                  style={{
+                    backgroundColor: 'transparent', // Remove any background
+                    padding: 0, // Remove any padding
+                  }}
                   onPress={() => removeFriend(friend.friendship_id)}
                 >
                   <Ionicons name="close" size={16} color="#999" />
@@ -2273,7 +2278,7 @@ export default function ProfileScreen() {
                   onPress={toggleMultiSelectMode}
                   disabled={isDeletingMemories}
                 >
-                  <Text style={[styles.cancelText, { color: isDeletingMemories ? "#ccc" : "#6B9BD1" }]}>
+                  <Text style={[styles.cancelText, { color: isDeletingMemories ? "#ccc" : "#00ACC1" }]}>
                     Cancel
                   </Text>
                 </TouchableOpacity>
@@ -2292,7 +2297,7 @@ export default function ProfileScreen() {
 
         {isLoadingMemories ? (
           <View style={styles.minimalLoadingContainer}>
-            <ActivityIndicator size="small" color="#6B9BD1" />
+            <ActivityIndicator size="small" color="#00ACC1" />
           </View>
         ) : memories.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -2359,7 +2364,7 @@ export default function ProfileScreen() {
               <Text style={styles.debugButtonText}>Comprehensive Check</Text>
             </TouchableOpacity>
             <TouchableOpacity 
-              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#6B9BD1' }]} 
+              style={[styles.debugButton, { marginTop: 12, backgroundColor: '#00ACC1' }]} 
               onPress={async () => {
                 if (user?.id) {
                   Alert.alert('Force Refresh', 'This will completely reset and reload memories. Continue?', [
@@ -2412,8 +2417,8 @@ export default function ProfileScreen() {
                     loadMemories(user.id);
                   }
                 }}
-                colors={['#6B9BD1']}
-                tintColor="#6B9BD1"
+                colors={['#00ACC1']}
+                tintColor="#00ACC1"
               />
             }
             renderItem={({ item: memory }) => (
@@ -2564,7 +2569,7 @@ export default function ProfileScreen() {
 
         {isLoadingPhotoShares ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6B9BD1" />
+            <ActivityIndicator size="large" color="#00ACC1" />
             <Text style={styles.loadingText}>Loading friends feed...</Text>
           </View>
         ) : photoShares.length === 0 ? (
@@ -2629,7 +2634,7 @@ export default function ProfileScreen() {
                 {/* Photo */}
                 <TouchableOpacity 
                   style={{
-                    borderRadius: 8,
+                    borderRadius: 6,
                     overflow: 'hidden',
                   }}
                   onPress={() => {
@@ -2676,8 +2681,8 @@ export default function ProfileScreen() {
               <RefreshControl
                 refreshing={isRefreshingPhotoShares}
                 onRefresh={handlePhotoSharesRefresh}
-                colors={['#6B9BD1']}
-                tintColor="#6B9BD1"
+                colors={['#00ACC1']}
+                tintColor="#00ACC1"
               />
             }
             onEndReached={handlePhotoSharesLoadMore}
@@ -2848,7 +2853,7 @@ export default function ProfileScreen() {
                   <Ionicons 
                     name={screen.icon as any} 
                     size={20} 
-                    color={preferences.default_screen === screen.key ? '#6B9BD1' : '#666'} 
+                    color={preferences.default_screen === screen.key ? '#00ACC1' : '#666'} 
                   />
                   <Text style={[
                     styles.screenOptionLabel,
@@ -2858,7 +2863,7 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
                 {preferences.default_screen === screen.key && (
-                  <Ionicons name="checkmark" size={20} color="#6B9BD1" />
+                  <Ionicons name="checkmark" size={20} color="#00ACC1" />
                 )}
               </TouchableOpacity>
             ))}
@@ -5028,7 +5033,7 @@ const styles = StyleSheet.create({
   },
   activeTab: {
     borderBottomWidth: 2,
-    borderBottomColor: '#6B9BD1',
+    borderBottomColor: '#00ACC1',
   },
   tabText: {
     fontSize: 15,
@@ -5037,7 +5042,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   activeTabText: {
-    color: '#6B9BD1',
+    color: '#00ACC1',
     fontWeight: '600',
   },
   loadingContainer: {
@@ -5057,7 +5062,7 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: 14,
-    color: '#6B9BD1',
+    color: '#00ACC1',
     marginLeft: 8,
     fontWeight: '500',
     fontFamily: 'Onest',
@@ -5618,18 +5623,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   memoryCheckboxSelected: {
-    backgroundColor: '#6B9BD1',
-    borderColor: '#6B9BD1',
+    backgroundColor: '#00ACC1',
+    borderColor: '#00ACC1',
   },
   selectText: {
     fontSize: 16,
-    color: '#6B9BD1',
+    color: '#00ACC1',
     fontWeight: '600',
     fontFamily: 'Onest',
   },
   cancelText: {
     fontSize: 16,
-    color: '#6B9BD1',
+    color: '#00ACC1',
     fontWeight: '600',
     fontFamily: 'Onest',
   },
