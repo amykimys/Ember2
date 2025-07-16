@@ -1766,6 +1766,19 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     fetchEvents();
   }, [user]);
 
+  // Add focus effect to refresh data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        console.log('🔄 [Calendar] Screen focused - refreshing data...');
+        // Force refresh data when screen comes into focus
+        fetchEvents();
+        fetchFriends();
+        fetchSharedEvents(user.id);
+      }
+    }, [user])
+  );
+
   useEffect(() => {
     const fetchCategories = async () => {
       try {

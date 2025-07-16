@@ -65,6 +65,7 @@ function AppContent() {
       { name: 'Shared Events', fn: () => preloadSharedEvents(userId) },
       { name: 'Notes', fn: () => preloadNotes(userId) },
       { name: 'Shared Notes', fn: () => preloadSharedNotes(userId) },
+      { name: 'Shared Note IDs', fn: () => preloadSharedNoteIds(userId) },
       { name: 'Friends & Requests', fn: () => preloadFriendsAndRequests(userId) },
       { name: 'Social Updates', fn: () => preloadSocialUpdates(userId) },
       { name: 'Final Data Refresh', fn: async () => {
@@ -113,6 +114,12 @@ function AppContent() {
           setData(prev => ({ ...prev, notes: result || [] }));
         } else if (task.name === 'Shared Notes') {
           setData(prev => ({ ...prev, sharedNotes: result || [] }));
+        } else if (task.name === 'Shared Note IDs') {
+          setData(prev => ({ 
+            ...prev, 
+            sharedNoteIds: result.sharedNoteIds || [], 
+            sharedNoteDetails: result.sharedNoteDetails || {} 
+          }));
         } else if (task.name === 'Friends & Requests') {
           setData(prev => ({ 
             ...prev, 
@@ -769,6 +776,75 @@ function AppContent() {
     }
   };
 
+  // Preload shared note IDs and details
+  const preloadSharedNoteIds = async (userId: string) => {
+    try {
+      console.log('🔄 Preloading shared note IDs for user:', userId);
+      
+      // Get shared notes where user is the sharer
+      const { data, error } = await supabase
+        .from('shared_notes')
+        .select(`
+          original_note_id,
+          shared_with
+        `)
+        .eq('shared_by', userId);
+
+      if (error) {
+        console.log('⚠️ Shared notes table might not exist');
+        return { sharedNoteIds: [], sharedNoteDetails: {} };
+      }
+
+      if (!data || data.length === 0) {
+        return { sharedNoteIds: [], sharedNoteDetails: {} };
+      }
+
+      const sharedIds = new Set<string>();
+      const sharedDetails: { [noteId: string]: string[] } = {};
+
+      // Get unique friend IDs to fetch their names
+      const friendIds = Array.from(new Set(data.map(item => item.shared_with)));
+      
+      if (friendIds.length > 0) {
+        // Fetch friend names
+        const { data: friendData, error: friendError } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', friendIds);
+
+        if (!friendError && friendData) {
+          // Create a map of friend ID to name
+          const friendNameMap = new Map(
+            friendData.map(friend => [friend.id, friend.full_name])
+          );
+
+          // Process shared notes data
+          data.forEach(item => {
+            const noteId = item.original_note_id;
+            const friendName = friendNameMap.get(item.shared_with) || 'Unknown';
+            
+            sharedIds.add(noteId);
+            
+            if (sharedDetails[noteId]) {
+              sharedDetails[noteId].push(friendName);
+            } else {
+              sharedDetails[noteId] = [friendName];
+            }
+          });
+        }
+      }
+
+      console.log('✅ Preloaded shared note IDs:', sharedIds.size);
+      return { 
+        sharedNoteIds: Array.from(sharedIds), 
+        sharedNoteDetails: sharedDetails 
+      };
+    } catch (error) {
+      console.error('❌ Error preloading shared note IDs:', error);
+      return { sharedNoteIds: [], sharedNoteDetails: {} };
+    }
+  };
+
   useEffect(() => {
     async function loadFonts() {
       try {
@@ -889,6 +965,30 @@ function AppContent() {
     }, 60 * 60 * 1000); // Check every hour
 
     return () => clearInterval(checkInterval);
+  }, [session?.user]);
+
+  // Add app state listener to refresh data when app comes to foreground
+  useEffect(() => {
+    if (!session?.user) return;
+
+    const handleAppStateChange = async (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        console.log('🔄 App came to foreground - refreshing data...');
+        try {
+          // Force refresh all data when app becomes active
+          await preloadAppData(session.user.id);
+          console.log('✅ Data refreshed successfully');
+        } catch (error) {
+          console.error('❌ Error refreshing data on app foreground:', error);
+        }
+      }
+    };
+
+    // Import AppState dynamically to avoid issues
+    const { AppState } = require('react-native');
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => subscription?.remove();
   }, [session?.user]);
 
   const listener = Linking.addEventListener('url', (event) => {

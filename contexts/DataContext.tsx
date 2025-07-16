@@ -180,6 +180,8 @@ interface AppData {
   sharedEvents: SharedEvent[];
   notes: Note[];
   sharedNotes: SharedNote[];
+  sharedNoteIds: string[];
+  sharedNoteDetails: { [noteId: string]: string[] };
   friends: Friend[];
   friendRequests: FriendRequest[];
   categories: Category[];
@@ -205,6 +207,8 @@ const defaultData: AppData = {
   sharedEvents: [],
   notes: [],
   sharedNotes: [],
+  sharedNoteIds: [],
+  sharedNoteDetails: {},
   friends: [],
   friendRequests: [],
   categories: [],

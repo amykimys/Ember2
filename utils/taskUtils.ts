@@ -79,21 +79,38 @@ export const checkAndMoveTasksIfNeeded = async (userId: string): Promise<void> =
     
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
     
-    // If we already checked today, skip
+    // Check if it's exactly midnight (12:00 AM) - hour 0, minute 0-5 (give a small window)
+    const isMidnight = currentHour === 0 && currentMinute <= 5;
+    const isFirstCheckOfDay = lastCheckTime !== todayStr;
+    
+    console.log('🕐 Current time:', `${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
+    console.log('🌙 Is midnight (12:00-12:05 AM):', isMidnight);
+    console.log('📅 Is first check of day:', isFirstCheckOfDay);
+    console.log('📅 Last check time:', lastCheckTime);
+    console.log('📅 Today:', todayStr);
+    
+    // Only move tasks if it's exactly midnight AND we haven't checked today yet
+    if (!isMidnight) {
+      console.log('⏭️ Not midnight, skipping auto-move...');
+      return;
+    }
+    
     if (lastCheckTime === todayStr) {
       console.log('⏭️ Already checked today, skipping...');
       return;
     }
 
-    // Always move tasks if we haven't checked today yet
-    // This ensures tasks from previous days are moved to today regardless of time
-    console.log(`📅 Checking for tasks to move to today (${todayStr})...`);
+    // Move tasks only if it's exactly midnight and we haven't checked today yet
+    console.log(`📅 At midnight and first check of day - moving tasks to today (${todayStr})...`);
     await moveUncompletedTasksToNextDay(userId);
     
     // Mark that we've checked today
     try {
       await AsyncStorage.setItem(lastCheckKey, todayStr);
+      console.log('✅ Marked today as checked for auto-move');
     } catch (storageError) {
       console.warn('⚠️ Could not save to AsyncStorage:', storageError);
     }
@@ -239,12 +256,12 @@ export const debugAutoMoveStatus = async (userId: string): Promise<void> => {
     console.log('📅 Today:', todayStr);
     console.log('⏰ Current hour:', currentHour);
     
-    // Check if it's after midnight
-    const isAfterMidnight = currentHour >= 0 && currentHour < 6;
+    // Check if it's exactly midnight
+    const isMidnight = currentHour === 0;
     const isFirstCheckOfDay = lastCheckTime !== todayStr;
-    console.log('🌙 Is after midnight (0-6 AM):', isAfterMidnight);
+    console.log('🌙 Is midnight (12:00 AM):', isMidnight);
     console.log('📅 Is first check of day:', isFirstCheckOfDay);
-    console.log('✅ Would trigger auto-move:', isAfterMidnight || isFirstCheckOfDay);
+    console.log('✅ Would trigger auto-move:', isMidnight && isFirstCheckOfDay);
     
     // Check yesterday's tasks
     const yesterday = new Date();

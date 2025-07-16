@@ -594,8 +594,6 @@ export default function TodoScreen() {
 
   // Add state for monthly progress chart modal
   const [isMonthlyProgressModalVisible, setIsMonthlyProgressModalVisible] = useState(false);
-  const [progressView, setProgressView] = useState<'weekly' | 'monthly'>('monthly');
-  const [selectedWeekForProgress, setSelectedWeekForProgress] = useState(moment().startOf('week'));
   const [selectedMonthForProgress, setSelectedMonthForProgress] = useState(moment().startOf('month'));
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isQuickAddFocused, setIsQuickAddFocused] = useState(false);
@@ -3379,17 +3377,6 @@ export default function TodoScreen() {
     }
   }, [user, appData.isPreloaded, appData.todos, appData.habits, appData.categories, isLoading]);
 
-  // Add focus effect to refresh data when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      if (user) {
-        console.log('🔄 [Todo] Screen focused - refreshing data...');
-        // Force refresh data when screen comes into focus
-        fetchData(user);
-      }
-    }, [user])
-  );
-
 
 
 
@@ -4427,47 +4414,19 @@ export default function TodoScreen() {
   };
 
   // Add function to calculate habit progress for a specific month
-  const calculateHabitProgressForWeek = (habit: Habit, targetWeek: moment.Moment) => {
-    const weekStart = targetWeek.clone().startOf('week');
-    const weekEnd = targetWeek.clone().endOf('week');
-    const completedDays = habit.completedDays || [];
-    const notes = habit.notes || {};
-    const photos = habit.photos || {};
-    
-    let completedCount = 0;
-    let totalDays = 0;
-    
-    for (let i = 0; i < 7; i++) {
-      const currentDate = weekStart.clone().add(i, 'days');
-      const dateStr = currentDate.format('YYYY-MM-DD');
-      const hasNote = notes[dateStr];
-      const hasPhoto = photos[dateStr];
-      const isCompleted = completedDays.includes(dateStr) || !!hasNote || !!hasPhoto;
-      
-      if (currentDate.isSameOrBefore(moment(), 'day')) {
-        totalDays++;
-        if (isCompleted) {
-          completedCount++;
-        }
-      }
-    }
-    
-    const percentage = totalDays > 0 ? (completedCount / totalDays) * 100 : 0;
-    
-    return {
-      completed: completedCount,
-      total: totalDays,
-      percentage,
-      weekStart,
-      weekEnd,
-    };
-  };
-
   const calculateHabitProgressForMonth = (habit: Habit, targetMonth: moment.Moment) => {
     const completedDays = habit.completedDays || [];
     const today = moment();
+    
     const monthStart = targetMonth.clone().startOf('month');
     const monthEnd = targetMonth.clone().endOf('month');
+    
+    console.log('📊 Monthly Progress Debug for', habit.text);
+    console.log('  - Target month:', targetMonth.format('MMMM YYYY'));
+    console.log('  - Month start:', monthStart.format('YYYY-MM-DD'));
+    console.log('  - Month end:', monthEnd.format('YYYY-MM-DD'));
+    console.log('  - All completed days:', completedDays);
+    
     const completedThisMonth = completedDays.filter(date => {
       const habitDate = moment(date, 'YYYY-MM-DD');
       return habitDate.isBetween(monthStart, monthEnd, 'day', '[]');
@@ -4476,7 +4435,11 @@ export default function TodoScreen() {
     // Fix: Use daysInMonth() method instead of diff calculation
     const daysInMonth = targetMonth.daysInMonth();
     const percentage = Math.min((completedThisMonth / daysInMonth) * 100, 100);
-
+    
+    console.log('  - Completed this month:', completedThisMonth);
+    console.log('  - Days in month (using daysInMonth):', daysInMonth);
+    console.log('  - Percentage calculation:', `${completedThisMonth} / ${daysInMonth} * 100 = ${percentage.toFixed(1)}%`);
+    
     return {
       completed: completedThisMonth,
       target: daysInMonth,
@@ -4503,7 +4466,12 @@ export default function TodoScreen() {
             <TouchableOpacity 
               style={styles.menuButton}>              
             </TouchableOpacity>
+            
+
+            
           </View>
+
+
 
           {/* Network Status Indicator */}
           {!isOnline && (
@@ -7711,22 +7679,24 @@ export default function TodoScreen() {
         }}
         presentationStyle="pageSheet"
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fafafa' }}>
           <KeyboardAvoidingView 
             style={{ flex: 1 }}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
           >
             <View style={{ flex: 1 }}>
-              {/* Minimalistic Header */}
+              {/* Professional Header */}
               <View style={{ 
                 flexDirection: 'row', 
                 justifyContent: 'space-between', 
                 alignItems: 'center', 
-                paddingHorizontal: 24,
-                paddingVertical: 20,
-                paddingTop: 24,
+                paddingHorizontal: 20,
+                paddingVertical: 16,
+                paddingTop: 40,
                 backgroundColor: '#ffffff',
+                borderBottomWidth: 1,
+                borderBottomColor: '#f0f0f0',
               }}>
                 <TouchableOpacity 
                   onPress={() => {
@@ -7736,32 +7706,32 @@ export default function TodoScreen() {
                     setLogDate(moment().format('YYYY-MM-DD'));
                   }}
                   style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 14,
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
                     justifyContent: 'center',
                     alignItems: 'center',
-                    backgroundColor: '#f8fafc',
+                    backgroundColor: '#f8f9fa',
                   }}
                 >
-                  <Ionicons name="close" size={16} color="#64748b" />
+                  <Ionicons name="close" size={16} color="#666" />
                 </TouchableOpacity>
                 
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={{ 
-                    fontSize: 16, 
-                    fontWeight: '600', 
-                    color: '#1e293b',
+                    fontSize: 18, 
+                    fontWeight: '700', 
+                    color: '#1a1a1a',
                     fontFamily: 'Onest',
                     textAlign: 'center',
                   }}>
                     {selectedHabitForLog?.text}
                   </Text>
                   <Text style={{ 
-                    fontSize: 13, 
-                    color: '#64748b',
+                    fontSize: 14, 
+                    color: '#666',
                     fontFamily: 'Onest',
-                    marginTop: 4,
+                    marginTop: 2,
                   }}>
                     {moment(logDate).format('MMMM D, YYYY')}
                   </Text>
@@ -7783,17 +7753,17 @@ export default function TodoScreen() {
                   }}
                   disabled={!logNoteText.trim()}
                   style={{
-                    backgroundColor: logNoteText.trim() ? '#00ACC1' : '#f1f5f9',
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 16,
-                    minWidth: 50,
+                    backgroundColor: logNoteText.trim() ? '#00ACC1' : '#f0f0f0',
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                    minWidth: 60,
                     alignItems: 'center',
                   }}
                 >
                   <Text style={{ 
-                    color: logNoteText.trim() ? '#ffffff' : '#94a3b8', 
-                    fontSize: 14, 
+                    color: logNoteText.trim() ? '#ffffff' : '#999', 
+                    fontSize: 16, 
                     fontWeight: '600', 
                     fontFamily: 'Onest' 
                   }}>
@@ -7805,18 +7775,38 @@ export default function TodoScreen() {
               {/* Content */}
               <ScrollView 
                 style={{ flex: 1 }}
-                contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+                contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
                 showsVerticalScrollIndicator={false}
               >
                 {/* Photo Display Section */}
                 {selectedHabitForLog?.photos?.[logDate] && (
                   <View style={{ 
-                    marginBottom: 20,
-                    backgroundColor: '#f8fafc',
-                    borderRadius: 12,
+                    marginBottom: 24,
+                    backgroundColor: '#ffffff',
+                    borderRadius: 16,
                     padding: 16,
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 8,
+                    elevation: 4,
                   }}>
-
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      marginBottom: 12,
+                    }}>
+                      <Ionicons name="camera" size={16} color="#666" />
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: '#333',
+                        fontFamily: 'Onest',
+                        marginLeft: 6,
+                      }}>
+                        Photo
+                      </Text>
+                    </View>
                     <TouchableOpacity
                       onPress={() => {
                         if (selectedHabitForLog?.photos?.[logDate]) {
@@ -7848,17 +7838,22 @@ export default function TodoScreen() {
 
                 {/* Note Input Section */}
                 <View style={{ 
-                  marginBottom: 20,
-                  backgroundColor: '#f8fafc',
-                  borderRadius: 12,
+                  marginBottom: 24,
+                  backgroundColor: '#ffffff',
+                  borderRadius: 16,
                   padding: 16,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 8,
+                  elevation: 4,
                 }}>
                   <TextInput
                     style={{
-                      fontSize: 15,
-                      color: '#1e293b',
+                      fontSize: 14,
+                      color: '#333',
                       padding: 0,
-                      borderRadius: 8,
+                      borderRadius: 12,
                       fontFamily: 'Onest',
                       minHeight: 120,
                       textAlignVertical: 'top',
@@ -7866,7 +7861,7 @@ export default function TodoScreen() {
                     value={logNoteText}
                     onChangeText={setLogNoteText}
                     placeholder="Share your thoughts, progress, or insights for this day..."
-                    placeholderTextColor="#94a3b8"
+                    placeholderTextColor="#999"
                     multiline
                     numberOfLines={6}
                   />
@@ -7874,14 +7869,19 @@ export default function TodoScreen() {
 
                 {/* Photo Actions Section */}
                 <View style={{
-                  backgroundColor: '#f8fafc',
-                  borderRadius: 12,
-                  padding: 16,
+                  backgroundColor: '#ffffff',
+                  borderRadius: 16,
+                  padding: 20,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 8,
+                  elevation: 4,
                 }}>
                   
                   <View style={{
                     flexDirection: 'row',
-                    gap: 16,
+                    gap: 12,
                   }}>
                     <TouchableOpacity
                       onPress={async () => {
@@ -7909,18 +7909,17 @@ export default function TodoScreen() {
                       }}
                       style={{
                         flex: 1,
-                        padding: 12,
-                        borderRadius: 10,
+                        padding: 16,
+                        borderRadius: 12,
                         alignItems: 'center',
-                        backgroundColor: '#ffffff',
                       }}
                     >
-                      <Ionicons name="camera" size={20} color="#00ACC1" />
+                      <Ionicons name="camera" size={24} color="#00ACC1" />
                       <Text style={{
-                        fontSize: 13,
-                        color: '#475569',
+                        fontSize: 14,
+                        color: '#333',
                         fontFamily: 'Onest',
-                        marginTop: 6,
+                        marginTop: 8,
                         fontWeight: '500',
                       }}>
                         Camera
@@ -7954,18 +7953,17 @@ export default function TodoScreen() {
                       }}
                       style={{
                         flex: 1,
-                        padding: 12,
-                        borderRadius: 10,
+                        padding: 16,
+                        borderRadius: 12,
                         alignItems: 'center',
-                        backgroundColor: '#ffffff',
                       }}
                     >
-                      <Ionicons name="images" size={20} color="#00ACC1" />
+                      <Ionicons name="images" size={24} color="#00ACC1" />
                       <Text style={{
-                        fontSize: 13,
-                        color: '#475569',
+                        fontSize: 14,
+                        color: '#333',
                         fontFamily: 'Onest',
-                        marginTop: 6,
+                        marginTop: 8,
                         fontWeight: '500',
                       }}>
                         Gallery
@@ -7987,160 +7985,102 @@ export default function TodoScreen() {
         onRequestClose={() => setIsMonthlyProgressModalVisible(false)}
         presentationStyle="pageSheet"
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#ffffff' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#f8fafc' }}>
           {/* Clean Header */}
           <View style={{
-            flexDirection: 'column',
-            paddingHorizontal: 24,
-            paddingVertical: 20,
-            paddingTop: 24,
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 20,
+            paddingVertical: 16,
+            paddingTop: 20,
             backgroundColor: '#ffffff',
+            borderBottomWidth: 1,
+            borderBottomColor: '#e2e8f0',
           }}>
-            {/* Top Row with Close Button and Toggle */}
-            <View style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 25,
-              marginTop: 10,
-            }}>
-              <TouchableOpacity
-                onPress={() => setIsMonthlyProgressModalVisible(false)}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="close" size={16} color="#64748b" />
-              </TouchableOpacity>
-              
-              {/* Toggle Button */}
-              <View style={{
-                flexDirection: 'row',
-                backgroundColor: '#f8fafc',
-                borderRadius: 12,
-                padding: 3,
-              }}>
-                <TouchableOpacity
-                  onPress={() => setProgressView('weekly')}
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    borderRadius: 9,
-                    backgroundColor: progressView === 'weekly' ? '#00ACC1' : 'transparent',
-                  }}
-                >
-                  <Text style={{
-                    fontSize: 13,
-                    fontWeight: '600',
-                    color: progressView === 'weekly' ? 'white' : '#64748b',
-                    fontFamily: 'Onest',
-                  }}>
-                    Weekly
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => setProgressView('monthly')}
-                  style={{
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    borderRadius: 9,
-                    backgroundColor: progressView === 'monthly' ? '#00ACC1' : 'transparent',
-                  }}
-                >
-                  <Text style={{
-                    fontSize: 13,
-                    fontWeight: '600',
-                    color: progressView === 'monthly' ? 'white' : '#64748b',
-                    fontFamily: 'Onest',
-                  }}>
-                    Monthly
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              
-              <View style={{ width: 32 }} />
-            </View>
+            <TouchableOpacity
+              onPress={() => setIsMonthlyProgressModalVisible(false)}
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: '#f1f5f9',
+              }}
+            >
+              <Ionicons name="close" size={18} color="#64748b" />
+            </TouchableOpacity>
             
-            {/* Date Navigation Row */}
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 16,
-            }}>
-              <TouchableOpacity
-                onPress={() => {
-                  if (progressView === 'weekly') {
-                    setSelectedWeekForProgress(prev => prev.clone().subtract(1, 'week'));
-                  } else {
-                    setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'));
-                  }
-                }}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: '#f8fafc',
-                }}
-              >
-                <Ionicons name="chevron-back" size={18} color="#64748b" />
-              </TouchableOpacity>
-              
+            <View style={{ alignItems: 'center' }}>
               <Text style={{
-                fontSize: 16,
+                fontSize: 18,
                 fontWeight: '600',
                 color: '#1e293b',
                 fontFamily: 'Onest',
-                minWidth: 120,
-                textAlign: 'center',
+                marginBottom: 4,
               }}>
-                {progressView === 'weekly' 
-                  ? `${selectedWeekForProgress.format('MMM D')} - ${selectedWeekForProgress.clone().endOf('week').format('MMM D')}`
-                  : selectedMonthForProgress.format('MMMM YYYY')
-                }
+                Monthly Progress
               </Text>
-              
-              <TouchableOpacity
-                onPress={() => {
-                  if (progressView === 'weekly') {
-                    const nextWeek = selectedWeekForProgress.clone().add(1, 'week');
-                    if (nextWeek.isSameOrBefore(moment(), 'week')) {
-                      setSelectedWeekForProgress(nextWeek);
-                    }
-                  } else {
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 12,
+              }}>
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedMonthForProgress(prev => prev.clone().subtract(1, 'month'));
+                  }}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="chevron-back" size={14} color="#64748b" />
+                </TouchableOpacity>
+                
+                <Text style={{
+                  fontSize: 14,
+                  fontWeight: '500',
+                  color: '#64748b',
+                  fontFamily: 'Onest',
+                  minWidth: 80,
+                  textAlign: 'center',
+                }}>
+                  {selectedMonthForProgress.format('MMMM YYYY')}
+                </Text>
+                
+                <TouchableOpacity
+                  onPress={() => {
                     const nextMonth = selectedMonthForProgress.clone().add(1, 'month');
                     if (nextMonth.isSameOrBefore(moment(), 'month')) {
                       setSelectedMonthForProgress(nextMonth);
                     }
-                  }
-                }}
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  backgroundColor: '#f8fafc',
-                  opacity: progressView === 'weekly' 
-                    ? (selectedWeekForProgress.clone().add(1, 'week').isAfter(moment(), 'week') ? 0.5 : 1)
-                    : (selectedMonthForProgress.clone().add(1, 'month').isAfter(moment(), 'month') ? 0.5 : 1),
-                }}
-              >
-                <Ionicons name="chevron-forward" size={18} color="#64748b" />
-              </TouchableOpacity>
+                  }}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    opacity: selectedMonthForProgress.clone().add(1, 'month').isAfter(moment(), 'month') ? 0.5 : 1,
+                  }}
+                >
+                  <Ionicons name="chevron-forward" size={14} color="#64748b" />
+                </TouchableOpacity>
+              </View>
             </View>
+            
+            <View style={{ width: 36 }} />
           </View>
 
           {/* Organized Content */}
           <ScrollView 
             style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 0 }}
+            contentContainerStyle={{ padding: 16 }}
             showsVerticalScrollIndicator={false}
           >
             {habits.length === 0 ? (
@@ -8167,211 +8107,14 @@ export default function TodoScreen() {
                   marginTop: 8,
                   textAlign: 'center',
                 }}>
-                  Create some habits to see your {progressView === 'weekly' ? 'weekly' : 'monthly'} progress
+                  Create some habits to see your monthly progress
                 </Text>
               </View>
-                        ) : progressView === 'weekly' ? (
-              // Weekly view - all habits in one container
-              <View style={{
-                backgroundColor: '#ffffff',
-                borderRadius: 16,
-                marginHorizontal: 16,
-                marginTop: 4,
-              }}>
-                {/* Weekday Header Row */}
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'flex-start',
-                  paddingVertical: 12,
-                  paddingHorizontal: 20,
-                  borderBottomWidth: 1,
-                  borderBottomColor: '#f1f5f9',
-                }}>
-                  {/* Empty space for habit title alignment */}
-                  <View style={{ width: 70, marginRight: 4 }} />
-                  
-                  {/* Weekday Labels */}
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}>
-                    {(() => {
-                      const weekStart = selectedWeekForProgress.clone().startOf('week');
-                      const headers = [];
-                      
-                      for (let i = 0; i < 7; i++) {
-                        const currentDate = weekStart.clone().add(i, 'days');
-                        headers.push(
-                          <View key={i} style={{ alignItems: 'center', width: 36 }}>
-                            <Text style={{
-                              fontSize: 12,
-                              fontWeight: '600',
-                              color: '#475569',
-                              fontFamily: 'Onest',
-                              textTransform: 'uppercase',
-                              letterSpacing: 0.8,
-                            }}>
-                              {currentDate.format('ddd')[0]}
-                            </Text>
-                          </View>
-                        );
-                      }
-                      return headers;
-                    })()}
-                  </View>
-                </View>
-                
-                {/* Habit Rows */}
-                {habits.map((habit, index) => {
-                  const progress = calculateHabitProgressForWeek(habit, selectedWeekForProgress);
-                  const completedDays = habit.completedDays || [];
-                  const notes = habit.notes || {};
-                  const photos = habit.photos || {};
-                  return (
-                    <View key={habit.id} style={{
-                      paddingVertical: 12,
-                      paddingHorizontal: 20,
-                      borderBottomWidth: index < habits.length - 1 ? 1 : 0,
-                      borderBottomColor: '#f1f5f9',
-                    }}>
-                      {/* Habit Row */}
-                      <View style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'flex-start',
-                      }}>
-                        {/* Habit Title */}
-                        <View style={{
-                          width: 70,
-                          alignItems: 'flex-start',
-                          marginRight: 4,
-                        }}>
-                          <Text style={{
-                            fontSize: 14,
-                            fontWeight: '600',
-                            color: '#1e293b',
-                            fontFamily: 'Onest',
-                            lineHeight: 18,
-                          }}>
-                            {habit.text}
-                          </Text>
-                          {habit.description && (
-                            <Text style={{
-                              fontSize: 12,
-                              color: '#64748b',
-                              fontFamily: 'Onest',
-                              lineHeight: 16,
-                              marginTop: 4,
-                            }}>
-                              {habit.description}
-                            </Text>
-                          )}
-                        </View>
-
-                        {/* Calendar Section */}
-                        <View style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          gap: 8,
-                        }}>
-                          {(() => {
-                            // Weekly view - show 7 days
-                            const weekStart = selectedWeekForProgress.clone().startOf('week');
-                            const days = [];
-                            
-                            for (let i = 0; i < 7; i++) {
-                              const currentDate = weekStart.clone().add(i, 'days');
-                              const dateStr = currentDate.format('YYYY-MM-DD');
-                              const hasNote = habit.notes?.[dateStr];
-                              const hasPhoto = habit.photos?.[dateStr];
-                              const isCompleted = completedDays.includes(dateStr) || !!hasNote || !!hasPhoto;
-                              const isToday = currentDate.isSame(moment(), 'day');
-                              const isFuture = currentDate.isAfter(moment(), 'day');
-                              
-                              let backgroundColor = '#f8fafc';
-                              let borderColor = '#e2e8f0';
-                              let textColor = '#64748b';
-                              
-                              if (isCompleted) {
-                                backgroundColor = `${habit.color}20`;
-                                borderColor = habit.color;
-                                textColor = '#1e293b';
-                              } else if (isToday) {
-                                backgroundColor = '#fef3c7';
-                                borderColor = '#f59e0b';
-                                textColor = '#92400e';
-                              }
-                              
-                              days.push(
-                                <TouchableOpacity
-                                  key={dateStr}
-                                  onPress={() => {
-                                    setSelectedDateData({
-                                      habit,
-                                      date: dateStr,
-                                      formattedDate: currentDate.format('MMMM D, YYYY'),
-                                      note: hasNote || undefined,
-                                      photo: hasPhoto || undefined,
-                                      isCompleted
-                                    });
-                                    setIsMonthlyProgressModalVisible(false);
-                                    setIsDetailModalVisible(true);
-                                  }}
-                                  style={{
-                                    width: 36,
-                                    height: 36,
-                                    borderRadius: 10,
-                                    backgroundColor,
-                                    borderWidth: 1,
-                                    borderColor,
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    position: 'relative',
-                                  }}
-                                >
-                                                                      {hasNote ? (
-                                      <Text style={{
-                                        fontSize: 9,
-                                        color: textColor,
-                                        fontFamily: 'Onest',
-                                        textAlign: 'center',
-                                        lineHeight: 11,
-                                        maxWidth: '100%',
-                                      }}
-                                      numberOfLines={2}
-                                      >
-                                        {notes[dateStr]}
-                                      </Text>
-                                    ) : (
-                                      <Text style={{
-                                        fontSize: 13,
-                                        fontWeight: '600',
-                                        color: textColor,
-                                        fontFamily: 'Onest',
-                                      }}>
-                                        {currentDate.format('D')}
-                                      </Text>
-                                    )}
-                                  
-
-                                </TouchableOpacity>
-                              );
-                            }
-                            
-                            return days;
-                          })()}
-                        </View>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
             ) : (
-              // Monthly view - separate containers for each habit
               habits.map((habit) => {
-                const progress = calculateHabitProgressForMonth(habit, selectedMonthForProgress);
+                const monthProgress = calculateHabitProgressForMonth(habit, selectedMonthForProgress);
+                const monthStart = selectedMonthForProgress.clone().startOf('month');
+                const monthEnd = selectedMonthForProgress.clone().endOf('month');
                 const completedDays = habit.completedDays || [];
                 const notes = habit.notes || {};
                 const photos = habit.photos || {};
@@ -8392,6 +8135,8 @@ export default function TodoScreen() {
                     <View style={{
                       padding: 20,
                       paddingBottom: 16,
+                      borderBottomWidth: 1,
+                      borderBottomColor: '#f1f5f9',
                     }}>
                       <View style={{
                         flexDirection: 'row',
@@ -8435,25 +8180,92 @@ export default function TodoScreen() {
                             color: habit.color,
                             fontFamily: 'Onest',
                           }}>
-                            {progress.percentage.toFixed(0)}%
+                            {monthProgress.percentage.toFixed(0)}%
                           </Text>
+                        </View>
+                      </View>
+
+                      {/* Progress Stats */}
+                      <View style={{
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                      }}>
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{
+                              fontSize: 20,
+                              fontWeight: '700',
+                              color: '#1e293b',
+                              fontFamily: 'Onest',
+                            }}>
+                              {monthProgress.completed}
+                            </Text>
+                            <Text style={{
+                              fontSize: 12,
+                              color: '#64748b',
+                              fontFamily: 'Onest',
+                            }}>
+                              Completed
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{
+                              fontSize: 20,
+                              fontWeight: '700',
+                              color: '#1e293b',
+                              fontFamily: 'Onest',
+                            }}>
+                              {habit.targetPerWeek}
+                            </Text>
+                            <Text style={{
+                              fontSize: 12,
+                              color: '#64748b',
+                              fontFamily: 'Onest',
+                            }}>
+                              Target
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'center' }}>
+                            <Text style={{
+                              fontSize: 20,
+                              fontWeight: '700',
+                              color: '#1e293b',
+                              fontFamily: 'Onest',
+                            }}>
+                              {habit.streak}
+                            </Text>
+                            <Text style={{
+                              fontSize: 12,
+                              color: '#64748b',
+                              fontFamily: 'Onest',
+                            }}>
+                              Streak
+                            </Text>
+                          </View>
                         </View>
                       </View>
                     </View>
 
                     {/* Calendar Section */}
-                    <View style={{ padding: 20, paddingTop: 0 }}>
+                    <View style={{ padding: 20 }}>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: '#374151',
+                        fontFamily: 'Onest',
+                        marginBottom: 12,
+                      }}>
+                        {selectedMonthForProgress.format('MMMM YYYY')} Activity
+                      </Text>
+                      
                       <View style={{
                         flexDirection: 'row',
                         flexWrap: 'wrap',
                         gap: 3,
                         justifyContent: 'flex-start',
-                        alignItems: 'flex-start',
-                        width: '100%',
-                        maxWidth: 330, // Limit width to ensure proper wrapping
                       }}>
                         {(() => {
-                          // Monthly view - show all days of the month
                           const monthStart = selectedMonthForProgress.clone().startOf('month');
                           const daysInMonth = selectedMonthForProgress.daysInMonth();
                           const days = [];
@@ -8463,7 +8275,7 @@ export default function TodoScreen() {
                             const dateStr = currentDate.format('YYYY-MM-DD');
                             const hasNote = habit.notes?.[dateStr];
                             const hasPhoto = habit.photos?.[dateStr];
-                            const isCompleted = completedDays.includes(dateStr) || !!hasNote || !!hasPhoto;
+                            const isCompleted = completedDays.includes(dateStr) || !!hasNote;
                             const isToday = currentDate.isSame(moment(), 'day');
                             const isFuture = currentDate.isAfter(moment(), 'day');
                             
@@ -8506,8 +8318,6 @@ export default function TodoScreen() {
                                   justifyContent: 'center',
                                   alignItems: 'center',
                                   position: 'relative',
-                                  flex: 0,
-                                  maxWidth: 30,
                                 }}
                               >
                                 <Text style={{
@@ -8575,7 +8385,442 @@ export default function TodoScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+              {habits.map((habit) => {
+                const monthProgress = calculateHabitProgressForMonth(habit, selectedMonthForProgress);
+                const monthStart = selectedMonthForProgress.clone().startOf('month');
+                const monthEnd = selectedMonthForProgress.clone().endOf('month');
+                const completedDays = habit.completedDays || [];
+                const notes = habit.notes || {};
+                const photos = habit.photos || {};
+                
+                // Get notes and photos for this month
+                const monthNotes = Object.entries(notes).filter(([date]) => {
+                  const noteDate = moment(date, 'YYYY-MM-DD');
+                  return noteDate.isBetween(monthStart, monthEnd, 'day', '[]');
+                });
+                
+                const monthPhotos = Object.entries(photos).filter(([date]) => {
+                  const photoDate = moment(date, 'YYYY-MM-DD');
+                  return photoDate.isBetween(monthStart, monthEnd, 'day', '[]');
+                });
+
+
+                
+                return (
+                <View key={habit.id} style={{ 
+                  marginBottom: 28,
+                  backgroundColor: '#ffffff',
+                  borderRadius: 20,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.08,
+                  shadowRadius: 12,
+                  elevation: 6,
+                  overflow: 'hidden',
+                }}>
+                  {/* Enhanced Header Section */}
+                  <View style={{
+                  }}>
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingTop: 16,
+                      paddingHorizontal: 16,
+                      marginBottom: 0,
+                    }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{
+                          fontSize: 20,
+                          fontWeight: '700',
+                          color: '#1e293b',
+                          fontFamily: 'Onest',
+                          marginBottom: 4,
+                        }}>
+                          {habit.text}
+                        </Text>
+                        {habit.description && (
+                          <Text style={{
+                            fontSize: 14,
+                            color: '#64748b',
+                            fontFamily: 'Onest',
+                            lineHeight: 20,
+                          }}>
+                            {habit.description}
+                          </Text>
+                        )}
+                      </View>
+                      
+                      <View style={{
+                        paddingHorizontal: 10,
+                        paddingVertical: 4,
+                        borderRadius: 10,
+                      }}>
+                        <Text style={{
+                          fontSize: 16,
+                          fontWeight: '700',
+                          color: habit.color,
+                          fontFamily: 'Onest',
+                        }}>
+                          {monthProgress.percentage.toFixed(0)}%
+                        </Text>
+                      </View>
+                    </View>
+
+
+
+
+                  </View>
+
+                  {/* Enhanced Stats Section */}
+                  <View style={{
+                    padding: 24,
+                    paddingTop: 8,
+                  }}>
+
+                    {/* Enhanced Calendar */}
+                    <View>
+                                             {/* Calendar Grid */}
+                       <View style={{
+                         borderRadius: 16,
+                       }}>
+                         <View style={{
+                           flexDirection: 'row',
+                           flexWrap: 'wrap',
+                           gap: 2,
+                           justifyContent: 'flex-start',
+                         }}>
+                          {(() => {
+                            const monthStart = selectedMonthForProgress.clone().startOf('month');
+                            const daysInMonth = selectedMonthForProgress.daysInMonth();
+                            const completedDays = habit.completedDays || [];
+                            const days = [];
+                            
+                            
+                            // Add days of the month
+                            for (let i = 0; i < daysInMonth; i++) {
+                              const currentDate = monthStart.clone().add(i, 'days');
+                              const dateStr = currentDate.format('YYYY-MM-DD');
+                              const hasNote = habit.notes?.[dateStr];
+                              const hasPhoto = habit.photos?.[dateStr];
+                              const isCompleted = completedDays.includes(dateStr) || !!hasNote;
+                              const isToday = currentDate.isSame(moment(), 'day');
+                              const isFuture = currentDate.isAfter(moment(), 'day');
+                              
+                              let backgroundColor = '#f1f5f9';
+                              let borderColor = '#e2e8f0';
+                              
+                              if (isCompleted) {
+                                backgroundColor = `${habit.color}40`;
+                                borderColor = habit.color;
+                              }
+                              
+                              days.push(
+                                <TouchableOpacity
+                                  key={dateStr}
+                                  onPress={() => {
+                                    setSelectedDateData({
+                                      habit,
+                                      date: dateStr,
+                                      formattedDate: currentDate.format('MMMM D, YYYY'),
+                                      note: hasNote || undefined,
+                                      photo: hasPhoto || undefined,
+                                      isCompleted
+                                    });
+                                    setIsMonthlyProgressModalVisible(false);
+                                    setIsDetailModalVisible(true);
+                                  }}
+                                  onLongPress={() => {
+                                    if (!isCompleted && !isFuture) {
+                                      Alert.alert(
+                                        'Complete Habit',
+                                        `Mark "${habit.text}" as completed for ${currentDate.format('MMMM D, YYYY')}?`,
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          { 
+                                            text: 'Complete', 
+                                            onPress: () => completeHabit(habit.id, dateStr, false)
+                                          }
+                                        ]
+                                      );
+                                    } else if (isCompleted) {
+                                      Alert.alert(
+                                        'Remove Completion',
+                                        `Remove completion for "${habit.text}" on ${currentDate.format('MMMM D, YYYY')}?`,
+                                        [
+                                          { text: 'Cancel', style: 'cancel' },
+                                          { 
+                                            text: 'Remove', 
+                                            style: 'destructive',
+                                            onPress: () => {
+                                              const updatedCompletedDays = completedDays.filter(d => d !== dateStr);
+                                              supabase
+                                                .from('habits')
+                                                .update({
+                                                  completed_days: updatedCompletedDays,
+                                                  streak: calculateCurrentStreak(updatedCompletedDays)
+                                                })
+                                                .eq('id', habit.id)
+                                                .then(() => {
+                                                  setHabits(prev => prev.map(h => 
+                                                    h.id === habit.id 
+                                                      ? { ...h, completedDays: updatedCompletedDays, streak: calculateCurrentStreak(updatedCompletedDays) }
+                                                      : h
+                                                  ));
+                                                });
+                                            }
+                                          }
+                                        ]
+                                      );
+                                    }
+                                  }}
+                                  style={{
+                                    width: 36,
+                                    height: 36,
+                                    borderRadius: 8,
+                                    backgroundColor,
+                                    borderWidth: isToday ? 1 : 0,
+                                    borderColor: isToday ? '#00ACC1' : 'transparent',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    position: 'relative',
+                                    shadowColor: 'transparent',
+                                    shadowOffset: { width: 0, height: 0 },
+                                    shadowOpacity: 0,
+                                    shadowRadius: 0,
+                                    elevation: 0,
+                                  }}
+                                >
+                                                                     <View style={{
+                                     flexDirection: 'column',
+                                     alignItems: 'center',
+                                     justifyContent: 'center',
+                                     width: '100%',
+                                     height: '100%',
+                                   }}>
+                                     {hasNote ? (
+                                       /* Show note content when there's a note */
+                                       <Text style={{
+                                         fontSize: 9,
+                                         color: isCompleted ? '#000000' : '#10b981',
+                                         fontFamily: 'Onest',
+                                         textAlign: 'center',
+                                         lineHeight: 11,
+                                         paddingHorizontal: 2,
+                                         maxWidth: 28,
+                                       }}
+                                       numberOfLines={3}
+                                       ellipsizeMode="tail"
+                                       >
+                                         {hasNote}
+                                       </Text>
+                                     ) : (
+                                       /* Show date number when there's no note */
+                                       <Text style={{
+                                         fontSize: 13,
+                                         fontWeight: '600',
+                                         color: isCompleted ? '#000000' : (isFuture ? '#cbd5e1' : '#475569'),
+                                         fontFamily: 'Onest',
+                                       }}>
+                                         {currentDate.format('D')}
+                                       </Text>
+                                     )}
+                                   </View>
+                                  
+                                  {/* Photo indicator */}
+                                  {hasPhoto && (
+                                    <View style={{
+                                      position: 'absolute',
+                                      bottom: -2,
+                                      right: -2,
+                                      width: 14,
+                                      height: 14,
+                                      borderRadius: 7,
+                                      backgroundColor: '#f59e0b',
+                                      borderWidth: 1.5,
+                                      borderColor: '#ffffff',
+                                      justifyContent: 'center',
+                                      alignItems: 'center',
+                                    }}
+                                    pointerEvents="none"
+                                    >
+                                      <Ionicons name="camera" size={8} color="#ffffff" />
+                                    </View>
+                                  )}
+                                </TouchableOpacity>
+                              );
+                            }
+                            
+                            return days;
+                          })()}
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </Modal>
+      
+      {/* Detail Modal for Heatmap Dates */}
+      <Modal
+        visible={isDetailModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsDetailModalVisible(false)}
+      >
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+          <View style={{
+            backgroundColor: '#ffffff',
+            borderRadius: 20,
+            padding: 0,
+            margin: 20,
+            width: '90%',
+            maxHeight: '85%',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.15,
+            shadowRadius: 20,
+            elevation: 10,
+            overflow: 'hidden',
+          }}>
+            {selectedDateData && (
+              <>
+                {/* Header */}
+                <View style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingHorizontal: 24,
+                  paddingTop: 24,
+                  paddingBottom: 20,
+                }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{
+                      fontSize: 20,
+                      fontWeight: '700',
+                      color: '#1e293b',
+                      fontFamily: 'Onest',
+                      marginBottom: 6,
+                    }}>
+                      {selectedDateData.habit.text}
+                    </Text>
+                    <Text style={{
+                      fontSize: 15,
+                      color: '#64748b',
+                      fontFamily: 'Onest',
+                      fontWeight: '500',
+                    }}>
+                      {selectedDateData.formattedDate}
+                    </Text>
+                  </View>
+                  
+                  <TouchableOpacity
+                    onPress={() => {
+                      setIsDetailModalVisible(false);
+                      setIsMonthlyProgressModalVisible(true);
+                    }}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 18,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginTop: -8,
+                    }}
+                  >
+                    <Ionicons name="close" size={18} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                
+                {/* Content Container */}
+                <View style={{ paddingHorizontal: 24, paddingVertical: 20 }}>
+
+                
+                  {/* Photo */}
+                  {selectedDateData.photo && (
+                    <View style={{ marginBottom: 16 }}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          // Show photo in full screen
+                          if (selectedDateData.photo) {
+                            setAllPhotosForViewing([{
+                              habit: selectedDateData.habit,
+                              photoUrl: selectedDateData.photo,
+                              date: selectedDateData.date,
+                              formattedDate: selectedDateData.formattedDate,
+                            }]);
+                            setCurrentPhotoIndex(0);
+                            setIsDetailModalVisible(false);
+                            setIsPhotoViewerVisible(true);
+                          }
+                        }}
+                        style={{
+                          borderRadius: 16,
+                          overflow: 'hidden',
+                          backgroundColor: '#f8fafc',
+                        }}
+                      >
+                        <Image
+                          source={{ uri: selectedDateData.photo }}
+                          style={{
+                            width: '100%',
+                            height: 220,
+                            borderRadius: 16,
+                          }}
+                          resizeMode="cover"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                
+                  {/* Note */}
+                  {selectedDateData.note && (
+                    <View style={{ marginBottom: 30 }}>
+                      <View style={{
+                        borderRadius: 16,
+                        paddingLeft: 5,
+                      }}>
+                        <Text style={{
+                          fontSize: 15,
+                          color: '#334155',
+                          fontFamily: 'Onest',
+                          lineHeight: 20,
+                        }}>
+                          {selectedDateData.note}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* If no data, show a message */}
+                  {!selectedDateData.isCompleted && !selectedDateData.note && !selectedDateData.photo && (
+                    <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                      <Text style={{
+                        fontSize: 16,
+                        color: '#94a3b8',
+                        fontFamily: 'Onest',
+                        textAlign: 'center',
+                        fontWeight: '500',
+                      }}>
+                        No activity, note, or photo for this date.
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </GestureHandlerRootView>
   );
 }
-

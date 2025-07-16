@@ -21,7 +21,6 @@ interface LoadingScreenProps {
 
 export default function LoadingScreen({ onLoadingComplete, progress }: LoadingScreenProps) {
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const progressAnim = useRef(new Animated.Value(0)).current;
   const [startTime] = useState(Date.now());
   const [hasCompleted, setHasCompleted] = useState(false);
 
@@ -37,17 +36,7 @@ export default function LoadingScreen({ onLoadingComplete, progress }: LoadingSc
     }).start();
   }, []);
 
-  useEffect(() => {
-    if (progress) {
-      // Animate progress bar
-      const progressValue = progress.total > 0 ? progress.current / progress.total : 0;
-      Animated.timing(progressAnim, {
-        toValue: progressValue,
-        duration: 300,
-        useNativeDriver: false,
-      }).start();
-    }
-  }, [progress]);
+
 
   useEffect(() => {
     // Call completion callback when progress is complete
@@ -89,55 +78,12 @@ export default function LoadingScreen({ onLoadingComplete, progress }: LoadingSc
         {/* App Name */}
         <Text style={styles.appName}>Jaani</Text>
         
-        {/* Progress Section */}
-        {progress && (
-          <View style={styles.progressSection}>
-            <Text style={styles.currentTask}>
-              {isSimpleLoading ? 'Welcome to Jaani' : progress.currentTask}
-            </Text>
-            
-            {/* Progress Bar */}
-            <View style={styles.progressBarContainer}>
-              <Animated.View 
-                style={[
-                  styles.progressBar,
-                  {
-                    width: progressAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ['0%', '100%'],
-                    }),
-                  },
-                ]}
-              />
-            </View>
-            
-            {/* Progress Text */}
-            <Text style={styles.progressText}>
-              {hasCompleted 
-                ? 'Ready!' 
-                : isSimpleLoading 
-                  ? 'Loading...'
-                  : `${progress.current} of ${progress.total} (${progressPercentage}%)`
-              }
-            </Text>
-            
-            {/* Completion Message */}
-            {hasCompleted && (
-              <Text style={styles.completionMessage}>
-                {isSimpleLoading ? 'Welcome to Jaani!' : 'Welcome back!'}
-              </Text>
-            )}
-          </View>
-        )}
-        
-        {/* Loading Indicator (only show if no progress) */}
-        {!progress && (
-          <View style={styles.loadingIndicator}>
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-          </View>
-        )}
+        {/* Loading Indicator */}
+        <View style={styles.loadingIndicator}>
+          <View style={styles.dot} />
+          <View style={styles.dot} />
+          <View style={styles.dot} />
+        </View>
       </Animated.View>
     </View>
   );
@@ -171,36 +117,6 @@ const styles = StyleSheet.create({
     width: '100%',
     letterSpacing: -1,
   },
-  progressSection: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  currentTask: {
-    fontSize: 16,
-    color: '#64748b',
-    fontFamily: 'Onest-Medium',
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  progressBarContainer: {
-    width: '100%',
-    height: 6,
-    backgroundColor: '#e2e8f0',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginBottom: 10,
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#3b82f6',
-    borderRadius: 3,
-  },
-  progressText: {
-    fontSize: 14,
-    color: '#94a3b8',
-    fontFamily: 'Onest-Regular',
-  },
   loadingIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -212,12 +128,5 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: '#3b82f6',
     marginHorizontal: 3,
-  },
-  completionMessage: {
-    fontSize: 18,
-    color: '#3b82f6',
-    fontFamily: 'Onest-Bold',
-    marginTop: 10,
-    textAlign: 'center',
   },
 }); 

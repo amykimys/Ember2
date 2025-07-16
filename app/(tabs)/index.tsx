@@ -70,5 +70,12 @@ export default function InitialRouting() {
   }
 
   console.log('🎯 Redirecting to:', defaultScreen);
+  console.log('🎯 Full redirect URL:', `/(tabs)/${defaultScreen}`);
+  
+  // Add a small delay to make the redirect more visible in logs
+  setTimeout(() => {
+    console.log('🎯 Executing redirect now...');
+  }, 100);
+  
   return <Redirect href={`/(tabs)/${defaultScreen}`} />;
 }

@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
       paddingVertical: 8,
       paddingHorizontal: 12,
       borderWidth: 1,
-      borderColor: '#3b82f6',
+      borderColor: '#00ACC1',
     },
     modalTimeText: {
       fontSize: 14,
@@ -241,8 +241,10 @@ const styles = StyleSheet.create({
     modalPickerContainer: {
       backgroundColor: '#f8fafc',
       borderRadius: 8,
-      padding: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 2,
       marginTop: 4,
+      marginLeft: -6,
       borderWidth: 1,
       borderColor: '#e2e8f0',
     },

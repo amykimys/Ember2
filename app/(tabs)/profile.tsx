@@ -233,12 +233,18 @@ export default function ProfileScreen() {
     };
   }, []);
 
-  // Add focus effect to reload memories when screen is focused
+  // Add focus effect to reload data when screen is focused
   useFocusEffect(
     useCallback(() => {
       if (user?.id) {
-        console.log('🔄 Profile screen focused, reloading memories...');
+        console.log('🔄 Profile screen focused, refreshing all data...');
+        // Refresh all profile data when screen comes into focus
+        loadUserProfile(user.id);
+        loadUserPreferences(user.id);
+        loadFriends(user.id);
+        loadFriendRequests(user.id);
         loadMemories(user.id);
+        loadPhotoShares(true);
       }
     }, [user?.id])
   );
@@ -1312,35 +1318,70 @@ export default function ProfileScreen() {
   };
 
   const handlePreferenceChange = async (key: keyof UserPreferences, value: any) => {
-    if (!user) return;
+    if (!user) {
+      console.error('❌ No user found, cannot update preference');
+      return;
+    }
 
     // Store the previous value in case we need to revert
     const previousValue = preferences[key];
     
-    console.log(`🔄 Updating preference: ${key} = ${value}`);
+    console.log(`🔄 Updating preference: ${key} = ${value} for user: ${user.id}`);
     
     // Optimistically update the UI immediately
     setPreferences(prev => ({ ...prev, [key]: value }));
 
     try {
-      // Simple upsert without complex error handling
-      const { error } = await supabase
+      // Log the data being sent
+      const updateData = {
+        user_id: user.id,
+        [key]: value,
+        updated_at: new Date().toISOString()
+      };
+      console.log('📤 Sending update data:', updateData);
+      
+      // First try to update existing record, if it fails, insert new one
+      let { data, error } = await supabase
         .from('user_preferences')
-        .upsert({
-          user_id: user.id,
-          [key]: value,
-          updated_at: new Date().toISOString()
-        });
+        .update(updateData)
+        .eq('user_id', user.id)
+        .select();
+
+      // If update fails (no existing record), try insert
+      if (error && error.code === 'PGRST116') {
+        console.log('📝 No existing preferences found, creating new record...');
+        const { data: insertData, error: insertError } = await supabase
+          .from('user_preferences')
+          .insert(updateData)
+          .select();
+        
+        if (insertError) {
+          console.error('❌ Error inserting preference:', insertError);
+          data = null;
+          error = insertError;
+        } else {
+          console.log('✅ Successfully inserted new preferences');
+          data = insertData;
+          error = null;
+        }
+      }
 
       if (error) {
         console.error('❌ Error updating preference:', error);
+        console.error('❌ Error details:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code
+        });
         // Revert to the previous value if the update failed
         setPreferences(prev => ({ ...prev, [key]: previousValue }));
-        Alert.alert('Error', 'Failed to update preference');
+        Alert.alert('Error', `Failed to update preference: ${error.message}`);
         return;
       }
       
       console.log(`✅ Successfully updated preference: ${key} = ${value}`);
+      console.log('✅ Response data:', data);
       
       // Clear the preferences cache so other screens get the updated setting
       clearPreferencesCache();
@@ -1355,10 +1396,10 @@ export default function ProfileScreen() {
         });
       }
     } catch (error) {
-      console.error('❌ Error updating preference:', error);
+      console.error('❌ Exception updating preference:', error);
       // Revert to the previous value if the update failed
       setPreferences(prev => ({ ...prev, [key]: previousValue }));
-      Alert.alert('Error', 'Failed to update preference');
+      Alert.alert('Error', `Failed to update preference: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
