@@ -10,6 +10,20 @@ export interface SharedNote {
   can_edit: boolean;
   created_at: string;
   updated_at: string;
+  profiles?: {
+    id: string;
+    full_name: string;
+    username: string;
+    avatar_url?: string;
+  };
+  notes?: {
+    id: string;
+    title: string;
+    content: string;
+    user_id: string;
+    created_at: string;
+    updated_at: string;
+  };
 }
 
 export interface NoteCollaborator {
@@ -131,7 +145,17 @@ export const getSharedNotes = async (): Promise<{ success: boolean; data?: Share
 
     const { data, error } = await supabase
       .from('shared_notes')
-      .select('*')
+      .select(`
+        *,
+        notes!shared_notes_original_note_id_fkey(
+          id,
+          title,
+          content,
+          user_id,
+          created_at,
+          updated_at
+        )
+      `)
       .eq('shared_with', user.id);
 
     if (error) {
@@ -141,6 +165,31 @@ export const getSharedNotes = async (): Promise<{ success: boolean; data?: Share
 
     console.log('🔍 [GetSharedNotes] Raw query result:', data);
     console.log('✅ [GetSharedNotes] Found shared notes:', data?.length || 0);
+
+    // Fetch friend profiles separately
+    if (data && data.length > 0) {
+      const friendIds = [...new Set(data.map(item => item.shared_by))];
+      
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, username, avatar_url')
+        .in('id', friendIds);
+
+      if (profilesError) {
+        console.error('❌ [GetSharedNotes] Error fetching profiles:', profilesError);
+      } else {
+        // Create a map of user ID to profile
+        const profileMap = new Map();
+        profilesData?.forEach(profile => {
+          profileMap.set(profile.id, profile);
+        });
+
+        // Attach profile data to shared notes
+        data.forEach(sharedNote => {
+          sharedNote.profiles = profileMap.get(sharedNote.shared_by);
+        });
+      }
+    }
 
     return { success: true, data: data || [] };
   } catch (error) {

@@ -935,7 +935,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   todayText: {
-    color: '#667eea',
+    color: '#00ACC1',
     fontWeight: '600',
   },
   timeColumn: {
@@ -1097,7 +1097,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   todayDateText: {
-    color: '#667eea',
+    color: '#00ACC1',
     fontWeight: '600',
   },
   // Google Calendar Event styles

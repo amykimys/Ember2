@@ -109,9 +109,9 @@ const styles = StyleSheet.create({
   },
   appName: {
     fontSize: 36,
-    fontWeight: '900',
+    fontWeight: '400',
     color: '#0f172a',
-    fontFamily: 'Onest-Bold',
+    fontFamily: 'Onest',
     marginBottom: 40,
     textAlign: 'center',
     width: '100%',

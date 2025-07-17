@@ -106,20 +106,22 @@ export default function NotesScreen() {
   const combineNotes = useCallback((notesData: Note[], sharedNotesData: SharedNote[], sharedNoteIdsData: Set<string>, sharedNoteDetailsData: Map<string, string[]>) => {
     const combined: Note[] = [...notesData];
     for (const sharedNote of sharedNotesData) {
-      // Derive sharedBy from shared_by or fallback
-      const sharedByName = (sharedNote as any).sharedBy || (sharedNote as any).shared_by || 'Unknown User';
-      // Derive title/content from sharedNote.notes if available, else fallback
-      let title = (sharedNote as any).title;
-      let content = (sharedNote as any).content;
-      if (!title && (sharedNote as any).notes) title = (sharedNote as any).notes.title;
-      if (!content && (sharedNote as any).notes) content = (sharedNote as any).notes.content;
+      // Get friend's name from the joined profiles data
+      const friendProfile = sharedNote.profiles;
+      const sharedByName = friendProfile?.full_name || friendProfile?.username || 'Unknown User';
+      
+      // Get note content from the joined notes data
+      const noteData = sharedNote.notes;
+      const title = noteData?.title || `Shared Note from ${sharedByName}`;
+      const content = noteData?.content || '';
+      
       const sharedNoteItem: Note = {
         id: sharedNote.original_note_id,
-        title: title || `Shared Note from ${sharedByName}`,
-        content: content || '',
+        title: title,
+        content: content,
         user_id: sharedNote.shared_by,
-        created_at: sharedNote.created_at,
-        updated_at: sharedNote.updated_at,
+        created_at: noteData?.created_at || sharedNote.created_at,
+        updated_at: noteData?.updated_at || sharedNote.updated_at,
         isShared: true,
         sharedBy: sharedByName,
         canEdit: sharedNote.can_edit,
