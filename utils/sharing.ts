@@ -103,15 +103,17 @@ export const shareTaskWithFriend = async (taskId: string, friendId: string, user
 
     console.log('✅ shareTaskWithFriend: Task shared successfully');
 
-    // Send notification to the friend (optional, don't fail if it doesn't work)
+    // Send notification to the friend via Edge Function (optional, don't fail if it doesn't work)
     // Don't send notification if sharing with yourself
     if (taskData?.text && friendId !== userId) {
       try {
-        await sendTaskSharedNotification(
+        await sendShareNotificationViaEdgeFunction(
+          'task_shared',
           friendId,
           userId,
+          taskId,
           taskData.text,
-          taskId
+          'task'
         );
       } catch (notificationError) {
         console.error('Error sending task shared notification:', notificationError);
@@ -181,14 +183,16 @@ export const addFriendToSharedTask = async (taskId: string, friendId: string, us
 
     console.log('✅ addFriendToSharedTask: Friend added to shared task successfully');
 
-    // Send notification to the friend (optional, don't fail if it doesn't work)
+    // Send notification to the friend via Edge Function (optional, don't fail if it doesn't work)
     if (taskData?.text && friendId !== userId) {
       try {
-        await sendTaskSharedNotification(
+        await sendShareNotificationViaEdgeFunction(
+          'task_shared',
           friendId,
           userId,
+          taskId,
           taskData.text,
-          taskId
+          'task'
         );
       } catch (notificationError) {
         console.error('Error sending task shared notification:', notificationError);
@@ -870,6 +874,49 @@ export const getPendingSharedTasks = async (userId: string) => {
     return data || [];
   } catch (error) {
     console.error('Error in getPendingSharedTasks:', error);
+    throw error;
+  }
+};
+
+// Send share notification via Edge Function
+export const sendShareNotificationViaEdgeFunction = async (
+  type: 'task_shared' | 'event_shared' | 'note_shared',
+  recipientId: string,
+  senderId: string,
+  itemId: string,
+  itemTitle: string,
+  itemType: 'task' | 'event' | 'note'
+) => {
+  try {
+    console.log('🔔 [Edge Function] Sending share notification:', {
+      type,
+      recipientId,
+      senderId,
+      itemId,
+      itemTitle,
+      itemType
+    });
+
+    const { data, error } = await supabase.functions.invoke('send-share-notification', {
+      body: {
+        type,
+        recipientId,
+        senderId,
+        itemId,
+        itemTitle,
+        itemType
+      }
+    });
+
+    if (error) {
+      console.error('❌ [Edge Function] Error sending notification:', error);
+      throw error;
+    }
+
+    console.log('✅ [Edge Function] Notification sent successfully:', data);
+    return data;
+  } catch (error) {
+    console.error('❌ [Edge Function] Failed to send notification:', error);
     throw error;
   }
 }; 

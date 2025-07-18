@@ -164,6 +164,11 @@ export default function ProfileScreen() {
   // Friends modal refresh state
   const [isRefreshingFriends, setIsRefreshingFriends] = useState(false);
   
+  // Instagram-like refresh state
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
+  const [refreshCount, setRefreshCount] = useState(0);
+  
   // Photo zoom state
   const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
   const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<PhotoShare | null>(null);
@@ -295,14 +300,9 @@ export default function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       if (user?.id) {
-        console.log('🔄 Profile screen focused, refreshing all data...');
-        // Refresh all profile data when screen comes into focus
-        loadUserProfile(user.id);
-        loadUserPreferences(user.id);
-        loadFriends(user.id);
-        loadFriendRequests(user.id);
-        loadMemories(user.id);
-        loadPhotoShares(true);
+        console.log('🔄 Profile screen focused, checking if refresh is needed...');
+        // Use smart refresh to avoid unnecessary API calls
+        handleSmartRefresh();
       }
     }, [user?.id])
   );
@@ -508,6 +508,8 @@ export default function ProfileScreen() {
   // Friends functions
   const loadFriends = async (userId: string) => {
     try {
+      console.log('🔍 Loading friends for user:', userId);
+      
       // Get all accepted friendships where the current user is involved
       const { data: friendshipsData, error: friendshipsError } = await supabase
         .from('friendships')
@@ -520,15 +522,25 @@ export default function ProfileScreen() {
             return;
           }
 
+      console.log('🔍 Found friendships:', friendshipsData?.length || 0);
+
       if (!friendshipsData || friendshipsData.length === 0) {
         setFriends([]);
         return;
       }
 
-      // Get the friend IDs (the other user in each friendship)
-      const friendIds = friendshipsData.map(friendship => 
-        friendship.user_id === userId ? friendship.friend_id : friendship.user_id
-      );
+      // Get the friend IDs (the other user in each friendship) and filter out self-friendships
+      const friendIds = friendshipsData
+        .map(friendship => friendship.user_id === userId ? friendship.friend_id : friendship.user_id)
+        .filter(friendId => friendId !== userId); // Explicitly exclude current user
+
+      console.log('🔍 Friend IDs after filtering:', friendIds);
+
+      if (friendIds.length === 0) {
+        console.log('🔍 No valid friends found after filtering');
+        setFriends([]);
+        return;
+      }
 
       // Fetch the friend profiles
       const { data: profilesData, error: profilesError } = await supabase
@@ -541,6 +553,8 @@ export default function ProfileScreen() {
         return;
       }
 
+      console.log('🔍 Found profiles:', profilesData?.length || 0);
+
       // Create a map of profiles by ID for quick lookup
       const profilesMap = new Map();
       if (profilesData) {
@@ -549,9 +563,17 @@ export default function ProfileScreen() {
         }
       }
 
-      // Combine the data
-      const friends: Friend[] = friendshipsData.map(friendship => {
+      // Combine the data and filter out any remaining self-references
+      const friends: Friend[] = friendshipsData
+        .map(friendship => {
         const friendId = friendship.user_id === userId ? friendship.friend_id : friendship.user_id;
+          
+          // Double-check: skip if this is still the current user
+          if (friendId === userId) {
+            console.log('🔍 Skipping self-friendship:', friendship.id);
+            return null;
+          }
+          
         const profile = profilesMap.get(friendId);
         return {
           friend_id: friendId,
@@ -562,7 +584,19 @@ export default function ProfileScreen() {
           status: friendship.status,
           created_at: friendship.created_at
         };
-      });
+        })
+        .filter(friend => friend !== null) as Friend[]; // Remove null entries
+
+      console.log('🔍 Final friends list:', friends.length, 'friends');
+      console.log('🔍 Friends:', friends.map(f => ({ id: f.friend_id, name: f.friend_name })));
+      
+      // Additional debugging: check if any friend has the same ID as current user
+      const selfInFriends = friends.find(f => f.friend_id === userId);
+      if (selfInFriends) {
+        console.log('🚨 SELF FOUND IN FRIENDS LIST!', selfInFriends);
+      } else {
+        console.log('✅ No self found in friends list');
+      }
 
       setFriends(friends);
     } catch (error) {
@@ -1257,6 +1291,80 @@ export default function ProfileScreen() {
       console.error('Error refreshing friends:', error);
     } finally {
       setIsRefreshingFriends(false);
+    }
+  };
+
+  // Instagram-like comprehensive refresh function
+  const handleProfileRefresh = async () => {
+    if (!user?.id) return;
+    
+    console.log('🔄 [Profile Refresh] Starting comprehensive refresh...');
+    setIsRefreshing(true);
+    const startTime = Date.now();
+    
+    try {
+      // Refresh all profile data in parallel for better performance
+      const refreshPromises = [
+        loadUserProfile(user.id),
+        loadUserPreferences(user.id),
+        loadFriends(user.id),
+        loadFriendRequests(user.id),
+        loadMemories(user.id),
+        loadPhotoShares(true)
+      ];
+      
+      await Promise.all(refreshPromises);
+      
+      const endTime = Date.now();
+      const refreshDuration = endTime - startTime;
+      
+      // Update refresh tracking
+      setLastRefreshTime(endTime);
+      setRefreshCount(prev => prev + 1);
+      
+      console.log(`✅ [Profile Refresh] Completed in ${refreshDuration}ms`);
+      
+      // Show success feedback
+      Toast.show({
+        type: 'success',
+        text1: 'Profile refreshed',
+        text2: `Updated ${friends.length} friends, ${memories.flatMap(group => group.memories).length} memories`,
+        position: 'bottom',
+        visibilityTime: 2000,
+      });
+      
+    } catch (error) {
+      console.error('❌ [Profile Refresh] Error:', error);
+      
+      Toast.show({
+        type: 'error',
+        text1: 'Refresh failed',
+        text2: 'Some data may be outdated',
+        position: 'bottom',
+        visibilityTime: 3000,
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Smart refresh function that only refreshes if data is stale
+  const handleSmartRefresh = async () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshTime;
+    const isDataStale = timeSinceLastRefresh > 30000; // 30 seconds
+    
+    if (isDataStale || friends.length === 0) {
+      console.log('🔄 [Smart Refresh] Data is stale or empty, refreshing...');
+      await handleProfileRefresh();
+    } else {
+      console.log('✅ [Smart Refresh] Data is fresh, skipping refresh');
+      Toast.show({
+        type: 'info',
+        text1: 'Data is up to date',
+        position: 'bottom',
+        visibilityTime: 1500,
+      });
     }
   };
 
@@ -3908,7 +4016,7 @@ export default function ProfileScreen() {
 
       const limit = 10;
       const offset = refresh ? 0 : photoSharesPage * limit;
-      
+
       // For pagination, we need to fetch more data than the limit since the DB function doesn't support offset
       const fetchLimit = refresh ? limit : (photoSharesPage + 1) * limit;
 
@@ -3923,8 +4031,32 @@ export default function ProfileScreen() {
       if (error) {
         console.error('❌ Error with main friends feed function:', error);
         
-        // Fallback: try to get basic photo shares directly
-        console.log('🔄 Trying fallback approach...');
+        // Fallback: try to get basic photo shares directly with friendship filtering
+        console.log('🔄 Trying fallback approach with friendship filtering...');
+        
+        // First, get the user's friends
+        const { data: friendshipsData, error: friendshipsError } = await supabase
+          .from('friendships')
+          .select('user_id, friend_id')
+          .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
+          .eq('status', 'accepted');
+
+        if (friendshipsError) {
+          console.error('❌ Error fetching friendships for fallback:', friendshipsError);
+          Alert.alert('Error', 'Failed to load friends feed. Please try again.');
+          return;
+        }
+
+        // Get friend IDs (the other user in each friendship)
+        const friendIds = friendshipsData?.map(friendship => 
+          friendship.user_id === user.id ? friendship.friend_id : friendship.user_id
+        ) || [];
+
+        // Add current user to the list (so they can see their own posts)
+        const allowedUserIds = [...friendIds, user.id];
+
+        console.log('🔍 Allowed user IDs for fallback:', allowedUserIds);
+
         const { data: fallbackData, error: fallbackError } = await supabase
           .from('social_updates')
           .select(`
@@ -3938,6 +4070,7 @@ export default function ProfileScreen() {
           `)
           .eq('type', 'photo_share')
           .not('photo_url', 'is', null)
+          .in('user_id', allowedUserIds)
           .order('created_at', { ascending: false })
           .range(0, fetchLimit - 1);
 
@@ -4000,7 +4133,7 @@ export default function ProfileScreen() {
 
       // Handle pagination on client side since DB function doesn't support offset
       let currentPageData = data || [];
-      
+
       if (refresh) {
         // For refresh, take the first page
         currentPageData = data?.slice(0, limit) || [];
@@ -4482,13 +4615,38 @@ export default function ProfileScreen() {
             <Ionicons name="person-add-outline" size={20} color="#000" />
           </TouchableOpacity>
           <View style={styles.headerSpacer} />
+          <TouchableOpacity 
+            style={[styles.refreshButton, isRefreshing && styles.refreshButtonDisabled]} 
+            onPress={handleProfileRefresh}
+            disabled={isRefreshing}
+          >
+            <Ionicons 
+              name={isRefreshing ? "refresh" : "refresh-outline"} 
+              size={20} 
+              color={isRefreshing ? "#999" : "#000"} 
+            />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.settingsButton} onPress={() => setShowSettingsModal(true)}>
             <Ionicons name="settings-outline" size={20} color="#000" />
       </TouchableOpacity>
     </View>
       )}
       
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={handleProfileRefresh}
+            tintColor="#00ACC1"
+            colors={["#00ACC1"]}
+            progressBackgroundColor="#ffffff"
+            title="Pull to refresh"
+            titleColor="#666666"
+          />
+        }
+      >
         {user && renderProfileHeader()}
 
         {user && (
@@ -5404,6 +5562,13 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 20,
   },
+  refreshButton: {
+    padding: 12,
+    borderRadius: 20,
+  },
+  refreshButtonDisabled: {
+    opacity: 0.5,
+  },
   friendCountContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -5414,6 +5579,13 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     marginLeft: 4,
     fontFamily: 'Onest',
+  },
+  lastRefreshText: {
+    fontSize: 12,
+    color: '#8E8E93',
+    marginLeft: 8,
+    fontFamily: 'Onest',
+    opacity: 0.7,
   },
   dangerActionItem: {
     flexDirection: 'row',

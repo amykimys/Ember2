@@ -550,6 +550,25 @@ const CalendarScreen: React.FC = () => {
   const [calendarMode, setCalendarMode] = useState<'month' | 'week'>('month');
   const [isMonthCompact, setIsMonthCompact] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [isSmartRefreshing, setIsSmartRefreshing] = useState(false);
+
+  // Simple refresh function for the calendar
+  const handleCalendarRefresh = async () => {
+    if (!user) return;
+    setIsRefreshing(true);
+    try {
+      await fetchEvents();
+      setLastRefreshTime(Date.now());
+      setRefreshCount(prev => prev + 1);
+    } catch (error) {
+      console.error('❌ [Calendar Refresh] Error:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
 const [showCustomTimePicker, setShowCustomTimePicker] = useState(false);
 const [editingTimeBoxId, setEditingTimeBoxId] = useState<string | null>(null);
 const [editingField, setEditingField] = useState<'start' | 'end'>('start');
@@ -725,6 +744,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
     }, 60000); // 2 minute delay
   };
+
+
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -2043,6 +2064,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       return [];
     }
   };
+
+
 
   // Update category deletion
   const handleCategoryLongPress = (cat: { id: string; name: string; color: string }) => {
@@ -5391,7 +5414,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               !isMonthCompact ? (
                 <RefreshControl
                   refreshing={isRefreshing}
-                  onRefresh={onRefresh}
+                  onRefresh={handleCalendarRefresh}
+                  tintColor="#00ACC1"
+                  colors={["#00ACC1"]}
+                  progressBackgroundColor="#ffffff"
+                  title="Pull to refresh"
+                  titleColor="#666666"
                 />
               ) : undefined
             }
@@ -5694,7 +5722,10 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             const today = new Date();
             setSelectedDate(today);
             setVisibleWeekMonth(today);
-            weeklyCalendarRef.current?.scrollToWeek?.(today);
+            // Add a small delay to ensure state updates are processed before scrolling
+            setTimeout(() => {
+              weeklyCalendarRef.current?.scrollToWeek?.(today);
+            }, 50);
           }}
         >
           <Text style={styles.monthLabel}>

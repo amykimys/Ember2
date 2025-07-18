@@ -41,6 +41,7 @@ import {
 } from '../../utils/sharedNotes';
 import CustomToast from '../../components/CustomToast';
 import { useData } from '../../contexts/DataContext';
+import Toast from 'react-native-toast-message';
 
 interface Note {
   id: string;
@@ -88,6 +89,10 @@ export default function NotesScreen() {
   const [lastFetchTime, setLastFetchTime] = useState<number>(0);
   const [cachedUser, setCachedUser] = useState<any>(null);
   const lastFetchRef = useRef<number>(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [isSmartRefreshing, setIsSmartRefreshing] = useState(false);
 
   // Memoize user
   const user = useMemo(() => cachedUser, [cachedUser]);
@@ -132,6 +137,71 @@ export default function NotesScreen() {
     combined.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     setCombinedNotes(combined);
   }, []);
+
+  // Instagram-like comprehensive refresh function
+  const handleNotesRefresh = async () => {
+    if (!user) return;
+    
+    console.log('🔄 [Notes Refresh] Starting comprehensive refresh...');
+    setIsRefreshing(true);
+    const startTime = Date.now();
+    
+    try {
+      // Refresh all notes data
+      await fetchAllNotesData(true);
+      
+      const endTime = Date.now();
+      const refreshDuration = endTime - startTime;
+      
+      // Update refresh tracking
+      setLastRefreshTime(endTime);
+      setRefreshCount(prev => prev + 1);
+      
+      console.log(`✅ [Notes Refresh] Completed in ${refreshDuration}ms`);
+      
+      // Show success feedback
+      Toast.show({
+        type: 'success',
+        text1: 'Notes refreshed',
+        text2: `Updated ${combinedNotes.length} notes`,
+        position: 'bottom',
+        visibilityTime: 2000,
+      });
+      
+    } catch (error) {
+      console.error('❌ [Notes Refresh] Error:', error);
+      
+      Toast.show({
+        type: 'error',
+        text1: 'Refresh failed',
+        text2: 'Some data may be outdated',
+        position: 'bottom',
+        visibilityTime: 3000,
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Smart refresh function that only refreshes if data is stale
+  const handleSmartRefresh = async () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshTime;
+    const isDataStale = timeSinceLastRefresh > 30000; // 30 seconds
+    
+    if (isDataStale || combinedNotes.length === 0) {
+      console.log('🔄 [Smart Refresh] Data is stale or empty, refreshing...');
+      await handleNotesRefresh();
+    } else {
+      console.log('✅ [Smart Refresh] Data is fresh, skipping refresh');
+      Toast.show({
+        type: 'info',
+        text1: 'Data is up to date',
+        position: 'bottom',
+        visibilityTime: 1500,
+      });
+    }
+  };
 
   // Centralized data fetching
   const fetchAllNotesData = useCallback(async (forceRefresh = false) => {
@@ -1030,11 +1100,13 @@ export default function NotesScreen() {
               showsVerticalScrollIndicator={false}
               refreshControl={
                 <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor="#666"
+                  refreshing={isRefreshing}
+                  onRefresh={handleNotesRefresh}
+                  tintColor="#00ACC1"
+                  colors={["#00ACC1"]}
+                  progressBackgroundColor="#ffffff"
                   title="Pull to refresh"
-                  titleColor="#666"
+                  titleColor="#666666"
                 />
               }
               ListEmptyComponent={isLoading ? (
@@ -1542,7 +1614,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    paddingTop: 12,
+    paddingTop: 20,
   },
   headerButtons: {
     flexDirection: 'row',

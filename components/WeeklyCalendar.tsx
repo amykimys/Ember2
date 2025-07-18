@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo, useImperativeHandle } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Alert, RefreshControl } from 'react-native';
 import { Swipeable, Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -807,36 +807,6 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     }
   };
 
-  // Update scrollToWeek to handle any target date
-  const scrollToWeek = useCallback((targetDate: Date) => {
-    // Calculate the week start for the target date
-    const weekStart = new Date(targetDate);
-    weekStart.setDate(targetDate.getDate() - targetDate.getDay());
-    
-    // Find the index of this week in our current array
-    const weekIndex = weeks.findIndex(date => {
-      const diff = Math.abs(date.getTime() - weekStart.getTime());
-      return diff < 7 * 24 * 60 * 60 * 1000; // Within 7 days
-    });
-
-    if (weekIndex !== -1) {
-      // If we found the week, scroll to it directly
-      flatListRef.current?.scrollToIndex({
-        index: weekIndex,
-        animated: true
-      });
-    } else {
-      // If we can't find the week, update selectedDate and scroll to center
-      setSelectedDate(targetDate);
-      setTimeout(() => {
-        flatListRef.current?.scrollToIndex({
-          index: 50,
-          animated: true
-        });
-      }, 100);
-    }
-  }, [weeks, setSelectedDate]);
-
   // Simple function to scroll to current time and center it
   const scrollToCurrentTime = useCallback(() => {
     const now = new Date();
@@ -861,6 +831,49 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     });
     }
   }, [currentWeekScrollViewRef]);
+
+  // Update scrollToWeek to handle any target date - optimized for speed
+  const scrollToWeek = useCallback((targetDate: Date) => {
+    // Calculate the week start for the target date
+    const weekStart = new Date(targetDate);
+    weekStart.setDate(targetDate.getDate() - targetDate.getDay());
+    
+    // Calculate the week index directly instead of searching
+    const baseDate = new Date(selectedDate);
+    const baseWeekStart = new Date(baseDate);
+    baseWeekStart.setDate(baseDate.getDate() - baseDate.getDay());
+    
+    // Calculate the difference in weeks
+    const weekDiff = Math.floor((weekStart.getTime() - baseWeekStart.getTime()) / (7 * 24 * 60 * 60 * 1000));
+    const targetIndex = 50 + weekDiff; // 50 is the center index
+    
+    // Ensure the index is within bounds
+    const safeIndex = Math.max(0, Math.min(99, targetIndex));
+    
+    // Scroll directly to the calculated index
+    flatListRef.current?.scrollToIndex({
+      index: safeIndex,
+      animated: true
+    });
+    
+    // Also scroll to current time if it's today's week
+    const today = new Date();
+    const todayWeekStart = new Date(today);
+    todayWeekStart.setDate(today.getDate() - today.getDay());
+    
+    if (weekStart.getTime() === todayWeekStart.getTime()) {
+      setTimeout(() => {
+        scrollToCurrentTime();
+      }, 300);
+    }
+  }, [selectedDate, scrollToCurrentTime]);
+
+  // Expose scrollToWeek method through ref
+  useImperativeHandle(ref, () => ({
+    scrollToWeek: (date: Date) => {
+      scrollToWeek(date);
+    }
+  }), [scrollToWeek]);
 
   // Reset the scroll flag when selectedDate changes
   useEffect(() => {

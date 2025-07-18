@@ -44,7 +44,7 @@ export const calendarStyles = StyleSheet.create({
     marginVertical: 1,
     backgroundColor: 'white',
     zIndex: 1,
-    marginTop: -10,
+    marginTop: -5,
     marginBottom: 0
   },
 

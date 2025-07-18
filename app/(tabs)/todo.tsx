@@ -376,24 +376,22 @@ export default function TodoScreen() {
   };
 
   const { data: appData, updateData } = useData();
-  const [categories, setCategories] = useState<Category[]>([]);
-  
-  // Debug function to compare preloaded vs fetched data
-  const compareData = (preloadedTodos: any[], fetchedTodos: any[]) => {
-    
-    const preloadedIds = new Set(preloadedTodos.map(t => t.id));
-    const fetchedIds = new Set(fetchedTodos.map(t => t.id));
-    
-    const onlyInPreloaded = preloadedTodos.filter(t => !fetchedIds.has(t.id));
-    const onlyInFetched = fetchedTodos.filter(t => !preloadedIds.has(t.id));
-    
-    if (onlyInPreloaded.length > 0) {
-    }
-    if (onlyInFetched.length > 0) {
-    }
-  };
+  const [user, setUser] = useState<User | null>(null);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [friends, setFriends] = useState<any[]>([]);
+  const [taskSharedFriends, setTaskSharedFriends] = useState<{[key: string]: Array<{friend_id: string; friend_name: string; friend_avatar: string; friend_username: string}>}>({});
+  const [habitSharedFriends, setHabitSharedFriends] = useState<{[key: string]: Array<{friend_id: string; friend_name: string; friend_avatar: string; friend_username: string}>}>({});
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState<number>(0);
+  const [refreshCount, setRefreshCount] = useState(0);
+  const [isSmartRefreshing, setIsSmartRefreshing] = useState(false);
+
+  // Add state for selected friends in Add Task modal
+  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
+
   const [activeTab, setActiveTab] = useState<'tasks' | 'habits'>('tasks');
   const [newTodo, setNewTodo] = useState('');
   const [newDescription, setNewDescription] = useState('');
@@ -466,15 +464,12 @@ export default function TodoScreen() {
   const [showTaskDatePicker, setShowTaskDatePicker] = useState(false);
   const [dateButtonLayout, setDateButtonLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const dateButtonRef = useRef<View>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastRefreshTime, setLastRefreshTime] = useState<Date>(new Date());
-  const [user, setUser] = useState<User | null>(null);
   const [showInlineEndDatePicker, setShowInlineEndDatePicker] = useState(false);
   const [showRepeatPicker, setShowRepeatPicker] = useState(false);
 
   const [showReminderOptions, setShowReminderOptions] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
-  const [modalAutoMove, setModalAutoMove] = useState(false);
+
 
   // Add timeout refs for debouncing picker closes
   const timeoutRefs = {
@@ -559,7 +554,7 @@ export default function TodoScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isQuickAddFocused, setIsQuickAddFocused] = useState(false);
   const [showQuickAddBox, setShowQuickAddBox] = useState(false);
-  const [quickAddAutoMove, setQuickAddAutoMove] = useState(false);
+
   
   // Habit quick add state
   const [quickAddHabitText, setQuickAddHabitText] = useState('');
@@ -609,32 +604,10 @@ export default function TodoScreen() {
   const [editingNoteText, setEditingNoteText] = useState('');
 
   // Add friends state for sharing
-  const [friends, setFriends] = useState<Array<{
-    friend_id: string;
-    friend_name: string;
-    friend_avatar: string;
-    friend_username: string;
-    friendship_id: string;
-    status: string;
-    created_at: string;
-  }>>([]);
-
-  // Add state for selected friends in Add Task modal
-  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
-
-  // Add state for searching friends
   const [searchFriend, setSearchFriend] = useState('');
   
   // Add state for search input focus
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-
-  // Add state to track shared friends for each task
-  const [taskSharedFriends, setTaskSharedFriends] = useState<Record<string, Array<{
-    friend_id: string;
-    friend_name: string;
-    friend_avatar: string;
-    friend_username: string;
-  }>>>({});
 
   // Add state to track who shared each task with the current user
   const [taskSharedBy, setTaskSharedBy] = useState<Record<string, {
@@ -720,7 +693,7 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
-    setModalAutoMove(false);
+
   };
 
   async function scheduleReminderNotification(taskTitle: string, reminderTime: Date, taskId?: string) {
@@ -840,7 +813,7 @@ export default function TodoScreen() {
           ? customSelectedDates.map((str) => new Date(str))
           : undefined,
         reminderTime: reminderTime || null,
-        autoMove: modalAutoMove,
+        autoMove: false,
       };
       
       // Save task to Supabase
@@ -860,7 +833,7 @@ export default function TodoScreen() {
           custom_repeat_dates: selectedRepeat === 'custom'
             ? customSelectedDates
             : null,
-          auto_move: modalAutoMove,
+          auto_move: false,
         });
       
       if (taskError) {
@@ -875,6 +848,11 @@ export default function TodoScreen() {
       
       // Update DataContext with new task
       updateData('todos', updatedTodos);
+      
+      // No need to re-fetch shared friends for existing tasks
+      // The new task won't have shared friends initially anyway
+      
+
       
       // Schedule reminder if set
       if (reminderTime) {
@@ -956,7 +934,7 @@ export default function TodoScreen() {
             ? customSelectedDates.map((str) => new Date(str))
             : undefined,
           reminderTime: reminderTime || null,
-          autoMove: modalAutoMove,
+          autoMove: false,
         };
     
         const updatedTodos = todos.map(todo => (todo.id === editingTodo.id ? updatedTodo : todo));
@@ -964,6 +942,8 @@ export default function TodoScreen() {
         
         // Update DataContext with edited task
         updateData('todos', updatedTodos);
+        
+
     
         // If a new category was added
         if (showNewCategoryInput && newCategoryName.trim()) {
@@ -1011,7 +991,7 @@ export default function TodoScreen() {
               custom_repeat_dates: selectedRepeat === 'custom'
                 ? customSelectedDates
                 : null,
-              auto_move: modalAutoMove,
+              auto_move: false,
             })
             .eq('id', updatedTodo.id)
             .eq('user_id', user.id);
@@ -1115,7 +1095,7 @@ export default function TodoScreen() {
                       custom_repeat_dates: selectedRepeat === 'custom'
                         ? customSelectedDates
                         : null,
-                      auto_move: modalAutoMove,
+                      auto_move: false,
                     })
                     .eq('id', copiedTaskId);
                 } catch (updateError) {
@@ -1142,6 +1122,10 @@ export default function TodoScreen() {
 
         // Update reminder notification
         await updateTaskReminderNotification(updatedTodo.id, updatedTodo.text, reminderTime);
+        
+        // Refresh shared friends for all tasks to ensure consistency
+        const allTaskIds = todos.map(todo => todo.id);
+        await fetchSharedFriendsForTasks(allTaskIds, user);
     
         hideModal();
         // Delay resetForm to prevent title change during modal closing animation
@@ -1195,6 +1179,9 @@ export default function TodoScreen() {
       
       // Update DataContext with toggled task
       updateData('todos', updatedTodos);
+      
+      // Preserve existing shared friends data - no need to re-fetch
+      // The shared friends data is already in the task objects and state maps
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
@@ -1745,6 +1732,17 @@ export default function TodoScreen() {
     );
   };
 
+  const isTaskOverdue = (todo: Todo) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const taskDate = new Date(todo.date);
+    taskDate.setHours(0, 0, 0, 0);
+    
+    // Task is overdue if it's from yesterday or earlier and not completed
+    return taskDate < today && !todo.completed;
+  };
+
   const doesTodoBelongToday = (todo: Todo, date: Date) => {
     const taskDate = new Date(todo.date);
     const endDate = todo.repeatEndDate ? new Date(todo.repeatEndDate) : null;
@@ -1768,6 +1766,11 @@ export default function TodoScreen() {
     }
   
     if (isSameDay(taskDate, date)) return true; // normal case
+  
+    // Show overdue tasks on today's date if they have autoMove enabled
+    if (todo.autoMove && isTaskOverdue(todo) && isSameDay(compareDate, new Date())) {
+      return true;
+    }
   
     if (todo.repeat === 'daily') {
       return date >= taskDate;
@@ -1900,12 +1903,25 @@ export default function TodoScreen() {
         return;
       }
 
-      // Update local state
+      // Update local state - preserve shared friends data for remaining tasks
       const updatedTodos = todos.filter(t => t.id !== todo.id);
       setTodos(updatedTodos);
       
       // Update DataContext with deleted task
       updateData('todos', updatedTodos);
+      
+      // Remove the deleted task from shared friends maps without re-fetching
+      setTaskSharedFriends(prev => {
+        const newMap = { ...prev };
+        delete newMap[todo.id];
+        return newMap;
+      });
+      
+      setTaskSharedBy(prev => {
+        const newMap = { ...prev };
+        delete newMap[todo.id];
+        return newMap;
+      });
 
       Toast.show({
         type: 'success',
@@ -2005,7 +2021,7 @@ export default function TodoScreen() {
         if (todo.repeat === 'custom' && todo.customRepeatDates) {
           setCustomSelectedDates(todo.customRepeatDates.map(date => date.toISOString().split('T')[0]));
         }
-        setModalAutoMove(todo.autoMove || false);
+    
         
         // Fetch existing shared friends for this task BEFORE opening the modal
         try {
@@ -2212,16 +2228,7 @@ export default function TodoScreen() {
               </View>
             </View>
           )}
-          {/* Bookmark icon - always at the very right when autoMove is enabled */}
-          {todo.autoMove && (
-            <View style={{ marginLeft: 'auto' }}>
-              <Ionicons 
-                name="bookmark-outline" 
-                size={14} 
-                color="#00ACC1" 
-              />
-            </View>
-          )}
+
         </View>
       </TouchableOpacity>
     );
@@ -2295,12 +2302,16 @@ export default function TodoScreen() {
 
       // Update local state
       setCategories(prev => prev.filter(cat => cat.id !== categoryId));
-      setTodos(prev => prev.map(todo => {
+      const updatedTodos = todos.map(todo => {
         if (todo.categoryId === categoryId) {
           return { ...todo, categoryId: null };
         }
         return todo;
-      }));
+      });
+      setTodos(updatedTodos);
+      
+      // Preserve existing shared friends data - no need to re-fetch
+      // The shared friends data is already in the task objects and state maps
 
       if (selectedCategoryId === categoryId) {
         setSelectedCategoryId('');
@@ -2340,6 +2351,71 @@ export default function TodoScreen() {
     
     return result;
   }, [filteredTodos, categories]);
+
+  // Instagram-like comprehensive refresh function
+  const handleTodoRefresh = async () => {
+    if (!user) return;
+    
+    console.log('🔄 [Todo Refresh] Starting comprehensive refresh...');
+    setIsRefreshing(true);
+    const startTime = Date.now();
+    
+    try {
+      // Refresh all todo data in parallel for better performance
+      await fetchData(user);
+      
+      const endTime = Date.now();
+      const refreshDuration = endTime - startTime;
+      
+      // Update refresh tracking
+      setLastRefreshTime(endTime);
+      setRefreshCount(prev => prev + 1);
+      
+      console.log(`✅ [Todo Refresh] Completed in ${refreshDuration}ms`);
+      
+      // Show success feedback
+      Toast.show({
+        type: 'success',
+        text1: 'Todo refreshed',
+        text2: `Updated ${todos.length} tasks, ${habits.length} habits`,
+        position: 'bottom',
+        visibilityTime: 2000,
+      });
+      
+    } catch (error) {
+      console.error('❌ [Todo Refresh] Error:', error);
+      
+      Toast.show({
+        type: 'error',
+        text1: 'Refresh failed',
+        text2: 'Some data may be outdated',
+        position: 'bottom',
+        visibilityTime: 3000,
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Smart refresh function that only refreshes if data is stale
+  const handleSmartRefresh = async () => {
+    const now = Date.now();
+    const timeSinceLastRefresh = now - lastRefreshTime;
+    const isDataStale = timeSinceLastRefresh > 30000; // 30 seconds
+    
+    if (isDataStale || todos.length === 0 || habits.length === 0) {
+      console.log('🔄 [Smart Refresh] Data is stale or empty, refreshing...');
+      await handleTodoRefresh();
+    } else {
+      console.log('✅ [Smart Refresh] Data is fresh, skipping refresh');
+      Toast.show({
+        type: 'info',
+        text1: 'Data is up to date',
+        position: 'bottom',
+        visibilityTime: 1500,
+      });
+    }
+  };
 
   // Add fetchData function to centralize data fetching
   const fetchData = async (currentUser?: User | null) => {
@@ -2417,30 +2493,46 @@ export default function TodoScreen() {
             const originalTaskId = sharedTask.original_task_id;
             const copiedTaskId = sharedTask.copied_task_id;
             
+            console.log('🔍 Processing shared task:', {
+              originalTaskId,
+              copiedTaskId,
+              sharedBy: sharedTask.shared_by,
+              sharedWith: sharedTask.shared_with,
+              currentUser: userToUse.id
+            });
+            
             if (sharedTask.shared_by === userToUse.id) {
               // You're the sender - show the original task
               tasksToShow.add(originalTaskId);
               if (copiedTaskId) {
                 tasksToHide.add(copiedTaskId);
               }
+              console.log('🔍 Sender: Showing original, hiding copied');
             } else if (sharedTask.shared_with === userToUse.id) {
               // You're the recipient - show the copied task, hide the original
               if (copiedTaskId) {
                 tasksToShow.add(copiedTaskId);
+                console.log('🔍 Recipient: Adding copied task to show:', copiedTaskId);
+              } else {
+                console.log('🔍 Recipient: No copied task ID found!');
               }
               tasksToHide.add(originalTaskId);
+              console.log('🔍 Recipient: Hiding original task');
             }
           });
 
           // Filter tasks to only show the appropriate ones
           const filteredTasks = result.filter((task: any) => {
             if (tasksToHide.has(task.id)) {
+              console.log('❌ Hiding task:', task.id, task.text);
               return false; // Hide this task
             }
             if (tasksToShow.has(task.id)) {
+              console.log('✅ Showing task:', task.id, task.text);
               return true; // Show this task
             }
             // For tasks not involved in sharing, show them normally
+            console.log('📝 Showing normal task:', task.id, task.text);
             return true;
           });
 
@@ -2593,10 +2685,7 @@ export default function TodoScreen() {
     
     await fetchData(user);
     
-    // Compare preloaded vs fetched data
-    if (appData.todos && currentTodos.length > 0) {
-      compareData(appData.todos, currentTodos);
-    }
+    // Data fetched successfully
         setRefreshing(false);
   }, [user, appData.todos, todos]);
 
@@ -2886,22 +2975,22 @@ export default function TodoScreen() {
     
     setIsQuickAdding(true);
     try {
-      const newTodoItem: Todo = {
-        id: uuidv4(),
-        text: quickAddText.trim(),
-        description: '',
-        completed: false,
-        categoryId: null,
-        date: currentDate,
-        repeat: 'none',
-        customRepeatDates: [],
-        repeatEndDate: null,
-        reminderTime: null,
-        photo: undefined,
-        deletedInstances: [],
-        autoMove: quickAddAutoMove,
-        sharedFriends: [],
-      };
+          const newTodoItem: Todo = {
+      id: uuidv4(),
+      text: quickAddText.trim(),
+      description: '',
+      completed: false,
+      categoryId: null,
+      date: currentDate,
+      repeat: 'none',
+      customRepeatDates: [],
+      repeatEndDate: null,
+      reminderTime: null,
+      photo: undefined,
+      deletedInstances: [],
+      autoMove: false,
+      sharedFriends: [],
+    };
 
       // Save to Supabase
       const { error } = await supabase
@@ -2939,6 +3028,11 @@ export default function TodoScreen() {
       setTimeout(() => {
         quickAddInputRef.current?.focus();
       }, 100);
+      
+      // No need to re-fetch shared friends for existing tasks
+      // The new task won't have shared friends initially anyway
+      
+
       
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -3148,7 +3242,13 @@ export default function TodoScreen() {
           }
         });
         
-        setTaskSharedFriends(sharedFriendsMap);
+        // Preserve existing shared friends data and only add new ones from preloaded data
+        setTaskSharedFriends(prev => {
+          const newMap = { ...prev };
+          // Add shared friends from preloaded data
+          Object.assign(newMap, sharedFriendsMap);
+          return newMap;
+        });
       }
       
       if (appData.habits) {
@@ -3193,7 +3293,7 @@ export default function TodoScreen() {
         setFriends(transformedFriends);
       }
       
-      setLastRefreshTime(new Date());
+              setLastRefreshTime(Date.now());
       setIsLoading(false);
     } else if (user && !appData.isPreloaded && !isLoading) {
       // Only fetch as a last resort if data is not preloaded and we're not already loading
@@ -3418,6 +3518,22 @@ export default function TodoScreen() {
       console.error('🗑️ [Delete Habit] Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
+  };
+
+  const confirmDeleteHabit = (habitId: string) => {
+    const habit = habits.find(h => h.id === habitId);
+    Alert.alert(
+      'Delete Habit',
+      `Are you sure you want to delete "${habit?.text || 'this habit'}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteHabit(habitId),
+        },
+      ]
+    );
   };
 
   const viewHabitNotes = (habit: Habit) => {
@@ -3748,13 +3864,15 @@ export default function TodoScreen() {
       }
 
       // Update local state
-      setTodos(prevTodos => 
-        prevTodos.map(todo => 
-          todo.id === taskId 
-            ? { ...todo, date: tomorrow }
-            : todo
-        )
+      const updatedTodos = todos.map(todo => 
+        todo.id === taskId 
+          ? { ...todo, date: tomorrow }
+          : todo
       );
+      setTodos(updatedTodos);
+      
+      // Preserve existing shared friends data - no need to re-fetch
+      // The shared friends data is already in the task objects and state maps
 
       Toast.show({
         type: 'success',
@@ -4363,14 +4481,11 @@ export default function TodoScreen() {
                   justifyContent: 'center',
                 }}
               >
-                <Text style={{
-                  fontSize: 16,
-                  fontWeight: '600',
-                  color: activeTab === 'tasks' ? 'white' : Colors.light.icon,
-                  fontFamily: 'Onest',
-                }}>
-                  T
-                </Text>
+                <Ionicons 
+                  name="clipboard-outline" 
+                  size={18} 
+                  color={activeTab === 'tasks' ? 'white' : Colors.light.icon} 
+                />
               </TouchableOpacity>
               
               {/* Habits Button */}
@@ -4394,14 +4509,11 @@ export default function TodoScreen() {
                   justifyContent: 'center',
                 }}
               >
-                <Text style={{
-                  fontSize: 15,
-                  fontWeight: '600',
-                  color: activeTab === 'habits' ? 'white' : Colors.light.icon,
-                  fontFamily: 'Onest',
-                }}>
-                  H
-                </Text>
+                <Ionicons 
+                  name="flame" 
+                  size={16} 
+                  color={activeTab === 'habits' ? 'white' : Colors.light.icon} 
+                />
               </TouchableOpacity>
   </View>
 </View>
@@ -4475,11 +4587,13 @@ export default function TodoScreen() {
             showsVerticalScrollIndicator={false}
             refreshControl={
               <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor="#FF9A8B"
+                refreshing={isRefreshing}
+                onRefresh={handleTodoRefresh}
+                tintColor="#00ACC1"
+                colors={["#00ACC1"]}
+                progressBackgroundColor="#ffffff"
                 title="Pull to refresh"
-                titleColor="#666"
+                titleColor="#666666"
               />
             }
           >
@@ -4558,7 +4672,7 @@ export default function TodoScreen() {
                               if (swipeableRefs.current[habit.id]) {
                                 swipeableRefs.current[habit.id].close();
                               }
-                              deleteHabit(habit.id);
+                              confirmDeleteHabit(habit.id);
                             }}
                           >
                             <View style={styles.trashIconContainer}>
@@ -4568,8 +4682,8 @@ export default function TodoScreen() {
                         </View>
                       )}
                       renderLeftActions={() => (
-                        <View style={[habitStyles.leftAction, {
-                          backgroundColor: `${habit.color}90`,
+                        <View style={[styles.rightAction, {
+                          backgroundColor: `${darkenColor(habit.color, 0.2)}90`,
                         }]}>
                           <TouchableOpacity
                             onPress={() => {
@@ -4589,7 +4703,7 @@ export default function TodoScreen() {
                               setIsHabitLogModalVisible(true);
                             }}
                           >
-                            <View style={habitStyles.noteIconContainer}>
+                            <View style={styles.trashIconContainer}>
                               <Ionicons name="create-outline" size={24} color="#FFF8E8" />
                             </View>
                           </TouchableOpacity>
@@ -4605,7 +4719,7 @@ export default function TodoScreen() {
                             swipeableRefs.current[habit.id].close();
                           }
                         }, 100);
-                        deleteHabit(habit.id);
+                        confirmDeleteHabit(habit.id);
                       }}
                       onSwipeableLeftOpen={() => {
                         if (Platform.OS !== 'web') {
@@ -4789,7 +4903,8 @@ export default function TodoScreen() {
                                               completeHabit(habit.id, today, false);
                                               if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                                             }
-                                          } else {
+                                          } else if (hasNote || hasPhoto || isCompleted) {
+                                            // Only show detail modal if there's a note, photo, or completion
                                             setSelectedDateData({
                                               habit,
                                               date: dateStr,
@@ -5096,31 +5211,6 @@ export default function TodoScreen() {
                 />
                 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  {/* Priority toggle - task must get done regardless of date */}
-                  <TouchableOpacity
-                    onPress={() => {
-                      setQuickAddAutoMove(!quickAddAutoMove);
-                      if (Platform.OS !== 'web') {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }
-                    }}
-                    style={{
-                      paddingHorizontal: 8,
-                      paddingVertical: 6,
-                      backgroundColor: quickAddAutoMove ? '#00ACC1' : 'transparent',
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: quickAddAutoMove ? '#00ACC1' : Colors.light.border,
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons 
-                      name="bookmark-outline" 
-                      size={16} 
-                      color={quickAddAutoMove ? 'white' : '#666666'} 
-                />
-                  </TouchableOpacity>
-                  
                   {/* More options button */}
                 <TouchableOpacity
                     onPress={() => {
@@ -6022,53 +6112,7 @@ export default function TodoScreen() {
                 }}>
                   <View style={{ gap: 8 }}>
 
-                    {/* Auto-move Toggle */}
-                    <View>
-                      <View style={{ 
-                        flexDirection: 'row', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between',
-                        marginBottom: 10,
-                      }}>
-                        <Text style={{ 
-                          fontSize: 14, 
-                          color: '#333', 
-                          fontFamily: 'Onest',
-                          fontWeight: '500'
-                        }}>
-                          Auto-move
-                        </Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setModalAutoMove(prev => !prev);
-                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          }}
-                          style={{
-                            backgroundColor: modalAutoMove ? '#00ACC1' : '#e2e8f0',
-                            borderRadius: 20,
-                            width: 44,
-                            height: 24,
-                            paddingHorizontal: 2,
-                            justifyContent: 'center',
-                            borderWidth: 1,
-                            borderColor: modalAutoMove ? '#00ACC1' : '#cbd5e1',
-                          }}
-                        >
-                          <View style={{
-                            backgroundColor: 'white',
-                            borderRadius: 10,
-                            width: 20,
-                            height: 20,
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 1 },
-                            shadowOpacity: 0.2,
-                            shadowRadius: 2,
-                            elevation: 2,
-                            transform: [{ translateX: modalAutoMove ? 20 : 0 }],
-                          }} />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
+
                     {/* Reminder */}
                     <View>
                       <View style={styles.modalTimeRow}>
@@ -8251,7 +8295,6 @@ export default function TodoScreen() {
                   <TouchableOpacity
                     onPress={() => {
                       setIsDetailModalVisible(false);
-                      setIsMonthlyProgressModalVisible(true);
                     }}
                     style={{
                       width: 36,
