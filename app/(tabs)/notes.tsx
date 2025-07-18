@@ -541,6 +541,19 @@ export default function NotesScreen() {
 
 
 
+  // Helper function to get the first non-empty line from note content
+  const getFirstNonEmptyLine = (content: string): string => {
+    if (!content) return '';
+    const lines = content.split('\n');
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.length > 0) {
+        return trimmedLine;
+      }
+    }
+    return '';
+  };
+
   // Memoized note item renderer for better performance
   const renderNoteItem = useCallback(({ item: note }: { item: Note }) => {
     // Debug logging for shared notes
@@ -642,7 +655,7 @@ export default function NotesScreen() {
             </View>
             {note.content ? (
               <Text style={styles.notePreviewContent} numberOfLines={1}>
-                {note.content.split('\n')[0]}
+                {getFirstNonEmptyLine(note.content)}
               </Text>
             ) : null}
             {note.isShared && (
@@ -1528,7 +1541,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 12,
+    paddingTop: 12,
   },
   headerButtons: {
     flexDirection: 'row',
@@ -1673,7 +1687,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
-    marginBottom: 4,
+    marginBottom: 0,
     fontFamily: 'Onest',
   },
   notePreviewContent: {

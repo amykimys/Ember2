@@ -21,6 +21,10 @@ export default function InitialRouting() {
           console.log('👤 User authenticated:', session.user.email);
           
           // Use preloaded preferences if available
+          console.log('🔍 Debug - appData.isPreloaded:', appData.isPreloaded);
+          console.log('🔍 Debug - appData.userPreferences:', appData.userPreferences);
+          console.log('🔍 Debug - appData.userPreferences?.default_screen:', appData.userPreferences?.default_screen);
+          
           if (appData.isPreloaded && appData.userPreferences?.default_screen) {
             console.log('📱 Using preloaded default screen preference:', appData.userPreferences.default_screen);
             if (['calendar', 'todo', 'notes', 'profile'].includes(appData.userPreferences.default_screen)) {
@@ -34,6 +38,7 @@ export default function InitialRouting() {
             // Fallback to fetching preferences if not preloaded
             console.log('📱 Fetching user preferences...');
             const preferences = await getUserPreferences(session.user.id);
+            console.log('🔍 Debug - fetched preferences:', preferences);
             
             if (preferences?.default_screen) {
               console.log('📱 Default screen preference found:', preferences.default_screen);

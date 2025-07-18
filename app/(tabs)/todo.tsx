@@ -228,21 +228,17 @@ export default function TodoScreen() {
   // Initialize notifications for todo screen
   useEffect(() => {
     const initializeNotifications = async () => {
-      try {
-        console.log('🔔 [Todo Notifications] Initializing notifications...');
-        
+      try {        
         // Request permissions
         const { status: existingStatus } = await Notifications.getPermissionsAsync();
         let finalStatus = existingStatus;
         
         if (existingStatus !== 'granted') {
-          console.log('🔔 [Todo Notifications] Requesting notification permissions...');
           const { status } = await Notifications.requestPermissionsAsync();
           finalStatus = status;
         }
         
         if (finalStatus !== 'granted') {
-          console.log('🔔 [Todo Notifications] Permission not granted');
           Toast.show({
             type: 'info',
             text1: 'Notifications Disabled',
@@ -251,18 +247,13 @@ export default function TodoScreen() {
           });
           return;
         }
-        
-        console.log('🔔 [Todo Notifications] Permission granted');
-        
+              
         // Set up notification handler
         Notifications.setNotificationHandler({
           handleNotification: async (notification) => {
-            console.log('🔔 [Todo Notifications] Notification handler called for:', notification.request.content.title);
-            console.log('🔔 [Todo Notifications] Notification data:', notification.request.content.data);
-            
+          
             // Handle todo reminder notifications
             if (notification.request.content.data?.type === 'todo_reminder') {
-              console.log('🔔 [Todo Notifications] Processing todo reminder notification');
               return {
                 shouldShowAlert: true,
                 shouldPlaySound: true,
@@ -278,25 +269,14 @@ export default function TodoScreen() {
             };
           },
         });
-        
-        console.log('🔔 [Todo Notifications] Notification handler set up');
-        
+              
         // Check current scheduled notifications
         const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
-        console.log('🔔 [Todo Notifications] Current scheduled notifications:', scheduledNotifications.length);
         
         // Filter and log only todo reminders
         const todoReminders = scheduledNotifications.filter(n => n.content.data?.type === 'todo_reminder');
-        console.log('🔔 [Todo Notifications] Todo reminders found:', todoReminders.length);
         
         todoReminders.forEach((notification, index) => {
-          console.log(`🔔 [Todo Notifications] Todo reminder ${index + 1}:`, {
-            id: notification.identifier,
-            title: notification.content.title,
-            body: notification.content.body,
-            data: notification.content.data,
-            trigger: notification.trigger,
-          });
         });
         
       } catch (error) {
@@ -310,14 +290,9 @@ export default function TodoScreen() {
   // Add notification listeners for todo screen
   useEffect(() => {
     const notificationListener = Notifications.addNotificationReceivedListener(notification => {
-      console.log('🔔 [Todo Notifications] Notification received:', notification);
-      console.log('🔔 [Todo Notifications] Notification title:', notification.request.content.title);
-      console.log('🔔 [Todo Notifications] Notification body:', notification.request.content.body);
-      console.log('🔔 [Todo Notifications] Notification data:', notification.request.content.data);
     });
 
     const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('🔔 [Todo Notifications] Notification response received:', response);
     });
 
     return () => {
@@ -330,29 +305,17 @@ export default function TodoScreen() {
   useEffect(() => {
     const checkNotifications = async () => {
       try {
-        console.log('🔔 [Todo Notifications] Screen focused - checking notifications...');
-        const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
-        console.log('🔔 [Todo Notifications] Scheduled notifications on focus:', scheduledNotifications.length);
-        
+        const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();        
         // Check if we have any todo reminders that should be active
         const todoReminders = scheduledNotifications.filter(n => 
           n.content.data?.type === 'todo_reminder'
         );
-        console.log('🔔 [Todo Notifications] Todo reminders found:', todoReminders.length);
-        
         todoReminders.forEach((notification, index) => {
-          console.log(`🔔 [Todo Notifications] Todo reminder ${index + 1}:`, {
-            id: notification.identifier,
-            title: notification.content.title,
-            body: notification.content.body,
-            trigger: notification.trigger,
-          });
         });
       } catch (error) {
         console.error('🔔 [Todo Notifications] Error checking notifications on focus:', error);
       }
     };
-
     checkNotifications();
   }, []);
 
@@ -361,7 +324,6 @@ export default function TodoScreen() {
   // Add function to update task reminder notifications
   const updateTaskReminderNotification = async (taskId: string, taskTitle: string, reminderTime: Date | null) => {
     try {
-      console.log('🔔 [Todo Notifications] Updating reminder for task:', taskId, taskTitle);
       
       // Cancel any existing notifications for this task
       const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
@@ -372,17 +334,13 @@ export default function TodoScreen() {
       
       for (const notification of existingNotifications) {
         await Notifications.cancelScheduledNotificationAsync(notification.identifier);
-        console.log('🔔 [Todo Notifications] Cancelled existing notification:', notification.identifier);
       }
       
       // Schedule new notification if reminder time is set
       if (reminderTime) {
-        console.log('🔔 [Todo Notifications] Scheduling new reminder for task:', taskTitle);
-        console.log('🔔 [Todo Notifications] Reminder time:', reminderTime.toISOString());
         
         await scheduleReminderNotification(taskTitle, reminderTime, taskId);
       } else {
-        console.log('🔔 [Todo Notifications] No reminder time set, notifications cleared for task:', taskTitle);
       }
       
     } catch (error) {
@@ -393,7 +351,6 @@ export default function TodoScreen() {
   // Add function to update habit reminder notifications
   const updateHabitReminderNotification = async (habitId: string, habitTitle: string, reminderTime: Date | null) => {
     try {
-      console.log('🔔 [Todo Notifications] Updating reminder for habit:', habitId, habitTitle);
       
       // Cancel any existing notifications for this habit
       const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
@@ -404,17 +361,13 @@ export default function TodoScreen() {
       
       for (const notification of existingNotifications) {
         await Notifications.cancelScheduledNotificationAsync(notification.identifier);
-        console.log('🔔 [Todo Notifications] Cancelled existing notification:', notification.identifier);
       }
       
       // Schedule new notification if reminder time is set
       if (reminderTime) {
-        console.log('🔔 [Todo Notifications] Scheduling new reminder for habit:', habitTitle);
-        console.log('🔔 [Todo Notifications] Reminder time:', reminderTime.toISOString());
         
         await scheduleReminderNotification(habitTitle, reminderTime, habitId);
       } else {
-        console.log('🔔 [Todo Notifications] No reminder time set, notifications cleared for habit:', habitTitle);
       }
       
     } catch (error) {
@@ -427,9 +380,6 @@ export default function TodoScreen() {
   
   // Debug function to compare preloaded vs fetched data
   const compareData = (preloadedTodos: any[], fetchedTodos: any[]) => {
-    console.log('🔍 [Todo] Comparing preloaded vs fetched data:');
-    console.log('🔍 [Todo] Preloaded todos count:', preloadedTodos.length);
-    console.log('🔍 [Todo] Fetched todos count:', fetchedTodos.length);
     
     const preloadedIds = new Set(preloadedTodos.map(t => t.id));
     const fetchedIds = new Set(fetchedTodos.map(t => t.id));
@@ -437,14 +387,9 @@ export default function TodoScreen() {
     const onlyInPreloaded = preloadedTodos.filter(t => !fetchedIds.has(t.id));
     const onlyInFetched = fetchedTodos.filter(t => !preloadedIds.has(t.id));
     
-    console.log('🔍 [Todo] Only in preloaded:', onlyInPreloaded.length);
-    console.log('🔍 [Todo] Only in fetched:', onlyInFetched.length);
-    
     if (onlyInPreloaded.length > 0) {
-      console.log('🔍 [Todo] Items only in preloaded:', onlyInPreloaded.map(t => ({ id: t.id, text: t.text, updated_at: t.updated_at })));
     }
     if (onlyInFetched.length > 0) {
-      console.log('🔍 [Todo] Items only in fetched:', onlyInFetched.map(t => ({ id: t.id, text: t.text, updated_at: t.updated_at })));
     }
   };
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -495,6 +440,29 @@ export default function TodoScreen() {
   const [customSelectedDates, setCustomSelectedDates] = useState<string[]>([]);
   const [isSwiping, setIsSwiping] = useState(false);
   const [showHeaderDatePicker, setShowHeaderDatePicker] = useState(false);
+  const headerDatePickerOpacity = useSharedValue(0);
+  const headerDatePickerScale = useSharedValue(0.95);
+
+  const headerDatePickerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: headerDatePickerOpacity.value,
+      transform: [{ scale: headerDatePickerScale.value }],
+    };
+  });
+
+  const showHeaderDatePickerPanel = () => {
+    setShowHeaderDatePicker(true);
+    headerDatePickerOpacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+    headerDatePickerScale.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.cubic) });
+  };
+
+  const hideHeaderDatePickerPanel = () => {
+    headerDatePickerOpacity.value = withTiming(0, { duration: 150, easing: Easing.in(Easing.cubic) });
+    headerDatePickerScale.value = withTiming(0.95, { duration: 150, easing: Easing.in(Easing.cubic) });
+    setTimeout(() => {
+      setShowHeaderDatePicker(false);
+    }, 150);
+  };
   const [showTaskDatePicker, setShowTaskDatePicker] = useState(false);
   const [dateButtonLayout, setDateButtonLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const dateButtonRef = useRef<View>(null);
@@ -563,16 +531,6 @@ export default function TodoScreen() {
   
   // Add ref for habit title input
   const newHabitInputRef = useRef<TextInput>(null);
-
-  // Add state for notes modal
-  // const [isNotesModalVisible, setIsNotesModalVisible] = useState(false);
-  // const [selectedHabitForNotes, setSelectedHabitForNotes] = useState<Habit | null>(null);
-  // const [noteText, setNoteText] = useState('');
-
-  // Add state for editing existing notes
-  // const [editingNoteDate, setEditingNoteDate] = useState<string | null>(null);
-  // const [isEditingNote, setIsEditingNote] = useState(false);
-
   // Add state for photo modal
   const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false);
   const [selectedHabitForPhoto, setSelectedHabitForPhoto] = useState<Habit | null>(null);
@@ -689,15 +647,11 @@ export default function TodoScreen() {
   // Add notification listeners for shared task notifications
   useEffect(() => {
     const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('🔔 [Todo Notifications] Notification response received:', response);
       
       // Handle shared task notifications
       const notificationData = response.notification.request.content.data;
       if (notificationData?.type === 'task_shared') {
-        console.log('🔔 [Todo Notifications] Handling shared task notification:', notificationData);
-        // Don't fetch data here - shared tasks should be handled by the DataContext
-        // The DataContext will handle real-time updates for shared tasks
-        console.log('🔔 [Todo Notifications] Shared task notification received, but not fetching data (using DataContext)');
+      
       }
     });
 
@@ -740,8 +694,7 @@ export default function TodoScreen() {
 
   // Add useEffect to monitor detail modal state
   useEffect(() => {
-    console.log('Detail modal visibility changed:', isDetailModalVisible);
-    console.log('Selected date data:', selectedDateData);
+    
   }, [isDetailModalVisible, selectedDateData]);
 
   const resetForm = () => {
@@ -775,7 +728,6 @@ export default function TodoScreen() {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.log('🔔 [Todo Notifications] No user logged in, skipping notification');
         return;
       }
 
@@ -789,37 +741,25 @@ export default function TodoScreen() {
       }
       
       if (finalStatus !== 'granted') {
-        console.log('🔔 [Todo Notifications] Notification permission not granted');
         return;
       }
 
       // Check if push notifications are enabled for this user
       const notificationsEnabled = await arePushNotificationsEnabled(user.id);
-      console.log('🔔 [Todo Notifications] Push notifications enabled:', notificationsEnabled);
       
       if (!notificationsEnabled) {
-        console.log('🔔 [Todo Notifications] Push notifications disabled for user, skipping notification');
         return;
       }
-
       const now = new Date();
-      
-      console.log('🔔 [Todo Notifications] Scheduling reminder for task:', taskTitle);
-      console.log('🔔 [Todo Notifications] Reminder time:', reminderTime.toISOString());
-      console.log('🔔 [Todo Notifications] Current time:', now.toISOString());
-      console.log('🔔 [Todo Notifications] Time difference (minutes):', (reminderTime.getTime() - now.getTime()) / (1000 * 60));
-      
+    
       // Allow scheduling notifications up to 1 minute in the past (for edge cases)
       if (reminderTime.getTime() < now.getTime() - 60000) {
-        console.log('🔔 [Todo Notifications] Reminder time has passed (more than 1 minute ago)');
         return;
       }
   
       // Create a unique identifier for this notification
       const notificationId = `todo_reminder_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      console.log('🔔 [Todo Notifications] Creating notification with ID:', notificationId);
-      
+          
               const scheduledNotification = await Notifications.scheduleNotificationAsync({
           identifier: notificationId,
           content: {
@@ -834,24 +774,12 @@ export default function TodoScreen() {
           } as Notifications.DateTriggerInput,
         });
       
-      console.log('🔔 [Todo Notifications] Scheduled notification with ID:', scheduledNotification);
       
       // Verify the notification was scheduled
       const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
       const ourNotification = scheduledNotifications.find(n => n.identifier === scheduledNotification);
-      console.log('🔔 [Todo Notifications] Verification - found our notification:', !!ourNotification);
-      console.log('🔔 [Todo Notifications] Our notification details:', ourNotification);
-      console.log('🔔 [Todo Notifications] Total scheduled notifications:', scheduledNotifications.length);
       
-      // Log all scheduled notifications for debugging
       scheduledNotifications.forEach((notification, index) => {
-        console.log(`🔔 [Todo Notifications] Notification ${index + 1}:`, {
-          id: notification.identifier,
-          title: notification.content.title,
-          body: notification.content.body,
-          data: notification.content.data,
-          trigger: notification.trigger,
-        });
       });
 
       // Show success message to user
@@ -874,8 +802,6 @@ export default function TodoScreen() {
       });
     }
   }
-
-
 
   const handleSave = async () => {
     if (!newTodo.trim()) return;
@@ -952,21 +878,12 @@ export default function TodoScreen() {
       
       // Schedule reminder if set
       if (reminderTime) {
-        console.log('🔔 [Todo Notifications] Creating task with reminder:', newTodo.trim());
-        console.log('🔔 [Todo Notifications] Reminder time from state:', reminderTime);
-        console.log('🔔 [Todo Notifications] Reminder time type:', typeof reminderTime);
-        console.log('🔔 [Todo Notifications] Is reminder time a Date object:', reminderTime instanceof Date);
         await scheduleReminderNotification(newTodo.trim(), reminderTime, newTodoItem.id);
       } else {
-        console.log('🔔 [Todo Notifications] No reminder time set for task:', newTodo.trim());
       }
 
       // Share with selected friends BEFORE resetting the form
       if (selectedFriends.length > 0 && newTodoItem.id && user?.id) {
-        console.log('🔍 handleSave: Sharing task with friends:', selectedFriends);
-        console.log('🔍 handleSave: Task ID:', newTodoItem.id);
-        console.log('🔍 handleSave: User ID:', user.id);
-        
         // Fetch friend profiles to immediately update the UI
         const { data: friendProfiles, error: profilesError } = await supabase
           .from('profiles')
@@ -994,19 +911,12 @@ export default function TodoScreen() {
         // Share with each friend
         for (const friendId of selectedFriends) {
           try {
-            console.log('🔍 handleSave: Sharing with friend ID:', friendId);
             await shareTaskWithFriend(newTodoItem.id, friendId, user.id);
-            console.log('🔍 handleSave: Successfully shared with friend:', friendId);
           } catch (error) {
             console.error('❌ handleSave: Error sharing with friend:', friendId, error);
           }
         }
       } else {
-        console.log('🔍 handleSave: No friends selected or missing data:', {
-          selectedFriendsLength: selectedFriends.length,
-          taskId: newTodoItem.id,
-          userId: user?.id
-        });
       }
 
       // Reset form and close modal
@@ -1119,7 +1029,6 @@ export default function TodoScreen() {
             
             // If this is a copied shared task (starts with 'shared-'), we need to find the original
             if (editingTodo.id.startsWith('shared-')) {
-              console.log('🔍 [Edit Save] This is a copied shared task, finding original...');
               
               // Find the original task ID by looking for shared_tasks where this user is the recipient
               const { data: sharedTaskData, error: findError } = await supabase
@@ -1130,9 +1039,7 @@ export default function TodoScreen() {
                 
               if (!findError && sharedTaskData) {
                 originalTaskId = sharedTaskData.original_task_id;
-                console.log('🔍 [Edit Save] Found original task ID:', originalTaskId);
               } else {
-                console.log('🔍 [Edit Save] Could not find original task for copied task');
                 return;
               }
             }
@@ -1146,12 +1053,8 @@ export default function TodoScreen() {
               .single();
               
             if (ownerError || !taskOwner || taskOwner.user_id !== user.id) {
-              console.log('🔍 [Edit Save] User is not the owner of this task, skipping sharing updates');
               return;
-            }
-            
-            console.log('🔍 [Edit Save] User is the owner, updating sharing...');
-            
+            }            
             // Get current friends this task is shared with and their copied task IDs
             const { data: existingShares, error: sharesError } = await supabase
               .from('shared_tasks')
@@ -1167,14 +1070,10 @@ export default function TodoScreen() {
             const existingShareMap = new Map(
               existingShares?.map(share => [share.shared_with, share.copied_task_id]) || []
             );
-            
-            console.log('🔍 [Edit Save] Existing friend IDs:', existingFriendIds);
-            console.log('🔍 [Edit Save] Selected friend IDs:', selectedFriends);
-            
+          
             // Remove shares for friends no longer selected
             const friendsToRemove = existingFriendIds.filter(friendId => !selectedFriends.includes(friendId));
             if (friendsToRemove.length > 0) {
-              console.log('🔍 [Edit Save] Removing shares for friends:', friendsToRemove);
               
               // Delete the shared task records
               await supabase
@@ -1202,7 +1101,6 @@ export default function TodoScreen() {
             for (const friendId of friendsToUpdate) {
               const copiedTaskId = existingShareMap.get(friendId);
               if (copiedTaskId) {
-                console.log('🔍 [Edit Save] Updating existing shared task for friend:', friendId);
                 try {
                   await supabase
                     .from('todos')
@@ -1220,7 +1118,6 @@ export default function TodoScreen() {
                       auto_move: modalAutoMove,
                     })
                     .eq('id', copiedTaskId);
-                  console.log('🔍 [Edit Save] Successfully updated shared task for friend:', friendId);
                 } catch (updateError) {
                   console.error('🔍 [Edit Save] Error updating shared task for friend:', friendId, updateError);
                 }
@@ -1230,18 +1127,15 @@ export default function TodoScreen() {
             // Add shares for new friends only (create new copies)
             const newFriends = selectedFriends.filter(friendId => !existingFriendIds.includes(friendId));
             if (newFriends.length > 0) {
-              console.log('🔍 [Edit Save] Adding shares for new friends:', newFriends);
               for (const friendId of newFriends) {
                 try {
                   // Use the new function that only adds friends without creating duplicates
                   await addFriendToSharedTask(originalTaskId, friendId, user.id);
-                  console.log('🔍 [Edit Save] Successfully added friend to shared task:', friendId);
                 } catch (shareError) {
                   console.error('🔍 [Edit Save] Error adding friend to shared task:', friendId, shareError);
                 }
               }
             } else {
-              console.log('🔍 [Edit Save] No new friends to add');
             }
           }
         }
@@ -1318,16 +1212,11 @@ export default function TodoScreen() {
       if (!habitToToggle) return;
 
       const today = moment().format('YYYY-MM-DD');
-      console.log('🔍 Toggle Habit Debug:');
-      console.log('  - Current date (today):', today);
-      console.log('  - Selected month for progress:', selectedMonthForProgress.format('MMMM YYYY'));
-      console.log('  - Habit completedDays:', habitToToggle.completedDays);
       
       const isCompletedToday = habitToToggle.completedDays.some(date => date.startsWith(today));
 
       if (isCompletedToday) {
         // If already completed today, undo the completion
-        console.log('🔍 Habit already completed today, undoing completion');
         await undoHabitCompletion(habitId, today);
         return;
       }
@@ -1358,7 +1247,6 @@ export default function TodoScreen() {
       // Check if already completed today (handle both old and new formats)
       const isAlreadyCompleted = currentCompletedDays.some(date => date.startsWith(today));
       if (isAlreadyCompleted) {
-        console.log('🔍 Habit already completed today, skipping');
         return;
       }
       
@@ -1535,7 +1423,6 @@ export default function TodoScreen() {
       // Check if already completed today (handle both old and new formats)
       const isAlreadyCompleted = currentCompletedDays.some(date => date.startsWith(today));
       if (isAlreadyCompleted) {
-        console.log('🔍 Habit already completed today, skipping completion but adding photo');
         // Still update the photo even if already completed
         const { error } = await supabase
           .from('habits')
@@ -1657,7 +1544,6 @@ export default function TodoScreen() {
       // Check if already completed today (handle both old and new formats)
       const isAlreadyCompleted = currentCompletedDays.some(date => date.startsWith(today));
       if (isAlreadyCompleted) {
-        console.log('🔍 Habit already completed today, skipping completion but adding note');
         // Still update the note even if already completed
         const currentNotes = habitToToggle.notes || {};
         const updatedNotes = {
@@ -2128,9 +2014,6 @@ export default function TodoScreen() {
             showModal();
             return;
           }
-
-          console.log('🔍 [Edit Task] Fetching shared friends for task:', todo.id);
-
           // Get all shared tasks where the current user is involved (either as sender or recipient)
           const { data: allSharedTasks, error: allError } = await supabase
             .from('shared_tasks')
@@ -2142,16 +2025,12 @@ export default function TodoScreen() {
             showModal();
             return;
           }
-
-          console.log('🔍 [Edit Task] All shared tasks for user:', allSharedTasks);
-
           // Find the specific shared task that matches this todo
           let relevantSharedTask = null;
           let originalTaskId = todo.id;
 
           // If this is a copied task (starts with 'shared-'), find the original
           if (todo.id.startsWith('shared-')) {
-            console.log('🔍 [Edit Task] This is a copied shared task, finding original...');
             
             // Look for a shared task where this user is the recipient
             relevantSharedTask = allSharedTasks?.find(st => 
@@ -2160,7 +2039,6 @@ export default function TodoScreen() {
             
             if (relevantSharedTask) {
               originalTaskId = relevantSharedTask.original_task_id;
-              console.log('🔍 [Edit Task] Found original task ID:', originalTaskId);
             }
           } else {
             // This is an original task, look for shared tasks where this user is the sender
@@ -2170,15 +2048,10 @@ export default function TodoScreen() {
           }
 
           if (relevantSharedTask) {
-            console.log('🔍 [Edit Task] Relevant shared task found:', relevantSharedTask);
 
             // Determine if user is sender or recipient
             const isRecipient = relevantSharedTask.shared_with === user.id;
             const taskOwnerId = relevantSharedTask.shared_by;
-
-            console.log('🔍 [Edit Task] User role:', isRecipient ? 'recipient' : 'sender');
-            console.log('🔍 [Edit Task] Task owner ID:', taskOwnerId);
-
             // Fetch all friends involved in this shared task
             const { data: sharedTasks, error } = await supabase
               .from('shared_tasks')
@@ -2189,7 +2062,6 @@ export default function TodoScreen() {
             if (error) {
               console.error('🔍 [Edit Task] Error fetching shared friends:', error);
             } else if (sharedTasks && sharedTasks.length > 0) {
-              console.log('🔍 [Edit Task] Shared tasks found:', sharedTasks);
 
               // Extract the friend IDs and include the task owner
               let sharedFriendIds = sharedTasks.map((st: { shared_with: string }) => st.shared_with);
@@ -2198,14 +2070,10 @@ export default function TodoScreen() {
               if (!sharedFriendIds.includes(taskOwnerId)) {
                 sharedFriendIds = [...sharedFriendIds, taskOwnerId];
               }
-              
-              console.log('🔍 [Edit Task] Final friend IDs:', sharedFriendIds);
-              setSelectedFriends(sharedFriendIds);
+                            setSelectedFriends(sharedFriendIds);
             } else {
-              console.log('🔍 [Edit Task] No shared tasks found');
             }
           } else {
-            console.log('🔍 [Edit Task] No relevant shared task found');
           }
         } catch (error) {
           console.error('🔍 [Edit Task] Error fetching shared friends, continuing without them:', error);
@@ -2518,7 +2386,6 @@ export default function TodoScreen() {
       };
 
       const fetchTasks = async () => {
-        console.log('🔄 [Todo] fetchTasks: Starting to fetch tasks for user:', userToUse.id);
         const result = await retryRequest(async () => {
           const { data, error } = await supabase
             .from('todos')
@@ -2527,7 +2394,6 @@ export default function TodoScreen() {
             .order('updated_at', { ascending: false }); // Use updated_at for consistency
 
           if (error) throw error;
-          console.log('🔄 [Todo] fetchTasks: Fetched', data?.length || 0, 'tasks');
           return data || [];
         });
 
@@ -2594,19 +2460,16 @@ export default function TodoScreen() {
           
           // Fetch shared friends for these tasks
           const taskIds = mappedTasks.map((task: any) => task.id);
-          console.log('🔍 fetchTasks: About to fetch shared friends for', taskIds.length, 'tasks');
           await fetchSharedFriendsForTasks(taskIds, userToUse);
         }
       };
 
   // Check and move auto-move tasks if needed
   if (userToUse) {
-    console.log('🔄 Checking for auto-move tasks...');
     await checkAndMoveTasksIfNeeded(userToUse.id);
   }
 
       const fetchHabits = async () => {
-        console.log('🔄 [Todo] fetchHabits: Starting to fetch habits for user:', userToUse.id);
         const result = await retryRequest(async () => {
           const { data, error } = await supabase
             .from('habits')
@@ -2615,7 +2478,6 @@ export default function TodoScreen() {
             .order('text', { ascending: true }); // Sort by habit text
 
           if (error) throw error;
-          console.log('🔄 [Todo] fetchHabits: Fetched', data?.length || 0, 'habits');
           return data || [];
         });
 
@@ -2641,7 +2503,6 @@ export default function TodoScreen() {
       };
 
       const fetchFriends = async () => {
-        console.log('🔍 fetchFriends: Starting to fetch friends for user:', userToUse.id);
         const result = await retryRequest(async () => {
           const { data: friendships, error: friendshipsError } = await supabase
             .from('friendships')
@@ -2660,11 +2521,7 @@ export default function TodoScreen() {
             throw friendshipsError;
           }
 
-          console.log('🔍 fetchFriends: Found friendships:', friendships?.length || 0);
-          console.log('🔍 fetchFriends: Friendships data:', friendships);
-
           if (!friendships || friendships.length === 0) {
-            console.log('🔍 fetchFriends: No friendships found');
             return [];
           }
 
@@ -2685,7 +2542,6 @@ export default function TodoScreen() {
               
               // Only include friends that have valid profiles
               if (!profileData) {
-                console.log('🔍 fetchFriends: Skipping friend without profile:', friendUserId);
                 return null;
               }
               
@@ -2704,15 +2560,12 @@ export default function TodoScreen() {
           // Filter out null values (friends without profiles)
           const validFriends = friendsWithProfiles.filter(friend => friend !== null);
 
-          console.log('🔍 fetchFriends: Final friends with profiles:', validFriends);
           return validFriends;
         });
 
         if (result) {
-          console.log('🔍 fetchFriends: Setting friends state with:', result.length, 'friends');
           setFriends(result);
         } else {
-          console.log('🔍 fetchFriends: No result from retryRequest');
         }
       };
 
@@ -2732,9 +2585,7 @@ export default function TodoScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
-    console.log('🔄 [Todo] Pull-to-refresh triggered');
-    console.log('🔄 [Todo] Current preloaded todos count:', appData.todos?.length || 0);
-    
+   
     setRefreshing(true);
     
     // Store current todos before fetching
@@ -2746,9 +2597,7 @@ export default function TodoScreen() {
     if (appData.todos && currentTodos.length > 0) {
       compareData(appData.todos, currentTodos);
     }
-    
-    console.log('🔄 [Todo] Pull-to-refresh completed');
-    setRefreshing(false);
+        setRefreshing(false);
   }, [user, appData.todos, todos]);
 
   // Manual trigger for auto-move tasks (for testing)
@@ -2756,7 +2605,6 @@ export default function TodoScreen() {
     if (!user) return;
     
     try {
-      console.log('🔧 Manually triggering auto-move...');
       await forceCheckAndMoveTasks(user.id);
       
       // Refresh the data to show the moved tasks
@@ -3087,18 +2935,11 @@ export default function TodoScreen() {
 
       // Add to local state
       setTodos(prev => [newTodoItem, ...prev]);
-      
-      // Clear input and show success
       setQuickAddText('');
-      // Keep auto-move setting for next task
-      // setQuickAddAutoMove(false); // Don't reset auto-move toggle
-      
-      // Refocus the input for the next task
       setTimeout(() => {
         quickAddInputRef.current?.focus();
       }, 100);
       
-      // Provide haptic feedback
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
@@ -3238,7 +3079,6 @@ export default function TodoScreen() {
       if (session?.user) {
         setUser(session.user);
         // Don't fetch data here - it should be preloaded
-        console.log('🔄 [Todo] Session found, user set but not fetching data (should be preloaded)');
       }
       } catch (error) {
         console.error('[Todo] Error in checkSession:', error);
@@ -3251,7 +3091,6 @@ export default function TodoScreen() {
       if (session?.user) {
         setUser(session.user);
         // Don't fetch data here - it should be preloaded
-        console.log('🔄 [Todo] Auth state changed, user set but not fetching data (should be preloaded)');
       } else {
         setUser(null);
         // Clear data when user signs out
@@ -3271,26 +3110,14 @@ export default function TodoScreen() {
 
   // Use preloaded data from DataContext instead of fetching on focus
   useEffect(() => {
-    console.log('🔄 [Todo] DataContext useEffect triggered');
-    console.log('🔄 [Todo] User:', user?.id);
-    console.log('🔄 [Todo] isPreloaded:', appData.isPreloaded);
-    console.log('🔄 [Todo] todos count:', appData.todos?.length || 0);
-    console.log('🔄 [Todo] habits count:', appData.habits?.length || 0);
-    console.log('🔄 [Todo] categories count:', appData.categories?.length || 0);
-    console.log('🔄 [Todo] lastUpdated:', appData.lastUpdated);
-    
     if (user && appData.isPreloaded) {
-      console.log('🔄 [Todo] Using preloaded data from DataContext');
       
       // Update local state with preloaded data
       if (appData.todos) {
-        console.log('🔄 [Todo] Setting todos from DataContext:', appData.todos.length);
         
         // Debug: Check for shared friends in preloaded data
         const todosWithSharedFriends = appData.todos.filter(todo => todo.sharedFriends && todo.sharedFriends.length > 0);
-        console.log('🔄 [Todo] Todos with shared friends in preloaded data:', todosWithSharedFriends.length);
         todosWithSharedFriends.forEach(todo => {
-          console.log('🔄 [Todo] Task with shared friends:', todo.id, 'Friends:', todo.sharedFriends?.length);
         });
         
         // Process todos to ensure they have the correct format and latest data
@@ -3322,12 +3149,9 @@ export default function TodoScreen() {
         });
         
         setTaskSharedFriends(sharedFriendsMap);
-        console.log('🔄 [Todo] Processed todos with latest data:', processedTodos.length);
-        console.log('🔄 [Todo] Populated taskSharedFriends from preloaded data:', Object.keys(sharedFriendsMap).length, 'tasks');
       }
       
       if (appData.habits) {
-        console.log('🔄 [Todo] Setting habits from DataContext:', appData.habits.length);
         
         // Process habits to ensure they have the correct format and calculated streaks
         const processedHabits = appData.habits.map((habit: any) => {
@@ -3349,16 +3173,13 @@ export default function TodoScreen() {
         });
         
         setHabits(processedHabits);
-        console.log('🔄 [Todo] Processed habits with streaks:', processedHabits.length);
       }
       
       if (appData.categories) {
-        console.log('🔄 [Todo] Setting categories from DataContext:', appData.categories.length);
         setCategories(appData.categories);
       }
       
       if (appData.friends) {
-        console.log('🔄 [Todo] Setting friends from DataContext:', appData.friends.length);
         // Transform DataContext friends to match todo screen format
         const transformedFriends = appData.friends.map(friend => ({
           friend_id: friend.profiles.id,
@@ -3376,7 +3197,6 @@ export default function TodoScreen() {
       setIsLoading(false);
     } else if (user && !appData.isPreloaded && !isLoading) {
       // Only fetch as a last resort if data is not preloaded and we're not already loading
-      console.log('🔄 [Todo] Data not preloaded and not loading, fetching data as fallback...');
       fetchData(user);
     }
   }, [user, appData.isPreloaded, appData.todos, appData.habits, appData.categories, isLoading]);
@@ -3385,17 +3205,11 @@ export default function TodoScreen() {
   useFocusEffect(
     useCallback(() => {
       if (user) {
-        console.log('🔄 [Todo] Screen focused - refreshing data...');
         // Force refresh data when screen comes into focus
         fetchData(user);
       }
     }, [user])
   );
-
-
-
-
-
   
   const handleHabitSave = async () => {
     if (!newHabit.trim()) return;
@@ -3533,9 +3347,7 @@ export default function TodoScreen() {
   };
 
   const deleteHabit = async (habitId: string) => {
-    try {
-      console.log('🗑️ [Delete Habit] Starting deletion for habit ID:', habitId);
-      
+    try {      
       // Get the current user
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       
@@ -3550,10 +3362,6 @@ export default function TodoScreen() {
         Alert.alert('Error', 'You must be logged in to delete habits.');
         return;
       }
-
-      console.log('🗑️ [Delete Habit] User ID:', user.id);
-      console.log('🗑️ [Delete Habit] Habit ID to delete:', habitId);
-
       // First, verify the habit exists and belongs to the user
       const { data: habitData, error: fetchError } = await supabase
         .from('habits')
@@ -3573,9 +3381,6 @@ export default function TodoScreen() {
         Alert.alert('Error', 'Habit not found or you do not have permission to delete it.');
         return;
       }
-
-      console.log('🗑️ [Delete Habit] Habit found, proceeding with deletion');
-
       // Delete from Supabase
       const { error: deleteError } = await supabase
         .from('habits')
@@ -3589,16 +3394,12 @@ export default function TodoScreen() {
         return;
       }
 
-      console.log('🗑️ [Delete Habit] Successfully deleted from database');
-
       // Update local state
       const updatedHabits = habits.filter(habit => habit.id !== habitId);
       setHabits(updatedHabits);
       
       // Update DataContext with deleted habit
       updateData('habits', updatedHabits);
-
-      console.log('🗑️ [Delete Habit] Updated local state');
 
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
@@ -3874,8 +3675,6 @@ export default function TodoScreen() {
       [{ text: 'OK', style: 'default' }]
     );
   };
-
-
   
   // Add this function to view habit photos
   const viewHabitPhotos = (habit: Habit) => {
@@ -3916,8 +3715,6 @@ export default function TodoScreen() {
       ]
     );
   };
-
-
 
   // Add function to move task to tomorrow
   const moveTaskToTomorrow = async (taskId: string) => {
@@ -4029,7 +3826,6 @@ export default function TodoScreen() {
         const habitDate = moment(date, 'YYYY-MM-DD');
         const isInMonth = habitDate.isBetween(monthStart, monthEnd, 'day', '[]');
         if (isInMonth) {
-          console.log('  - Found completed day in month:', date);
         }
         return isInMonth;
       }).length;
@@ -4037,10 +3833,6 @@ export default function TodoScreen() {
       // Fix: Use daysInMonth() method instead of diff calculation
       const daysInMonth = monthStart.daysInMonth();
       const percentage = Math.min((completedThisMonth / daysInMonth) * 100, 100);
-      
-      console.log('  - Completed this month:', completedThisMonth);
-      console.log('  - Days in month (using daysInMonth):', daysInMonth);
-      console.log('  - Percentage calculation:', `${completedThisMonth} / ${daysInMonth} * 100 = ${percentage.toFixed(1)}%`);
       
       // Calculate weekly breakdown for the month
       const weeklyBreakdown = [];
@@ -4175,19 +3967,12 @@ export default function TodoScreen() {
     return () => unsubscribe();
   }, []);
 
-  // Add functions to handle shared tasks
-  // Removed accept/decline functions - tasks are now auto-accepted
-
   // Add function to fetch shared friends for tasks
   const fetchSharedFriendsForTasks = async (taskIds: string[], currentUser?: User | null) => {
     const userToUse = currentUser || user;
     if (!userToUse || taskIds.length === 0) {
-      console.log('🔍 fetchSharedFriendsForTasks: No user or no task IDs');
       return;
     }
-
-    console.log('🔍 fetchSharedFriendsForTasks: Starting for', taskIds.length, 'tasks');
-    console.log('🔍 Task IDs:', taskIds);
 
     try {
       // First, get all shared tasks where you are involved (either as sender or recipient)
@@ -4207,11 +3992,6 @@ export default function TodoScreen() {
         return;
       }
 
-      console.log('🔍 All shared tasks for user:', sharedTasks?.length || 0);
-      console.log('🔍 All shared tasks data:', sharedTasks);
-
-      // For tasks you received, we need to find the actual copied task IDs
-      // Let's query the todos table to get the mapping between original_task_id and copied task IDs
       const { data: copiedTasks, error: copiedTasksError } = await supabase
         .from('todos')
         .select('id, text')
@@ -4223,10 +4003,6 @@ export default function TodoScreen() {
         console.error('❌ Error fetching copied tasks:', copiedTasksError);
         return;
       }
-
-      console.log('🔍 Copied tasks found:', copiedTasks?.length || 0);
-      console.log('🔍 Copied tasks:', copiedTasks);
-
       // Filter to only include tasks that are in the current user's task list
       const relevantSharedTasks = sharedTasks?.filter(sharedTask => {
         // If you're the sender, check if the original task is in your current task list
@@ -4241,25 +4017,12 @@ export default function TodoScreen() {
         return false;
       }) || [];
 
-      console.log('🔍 Relevant shared tasks after filtering:', relevantSharedTasks.length);
-      console.log('🔍 Relevant shared tasks:', relevantSharedTasks);
-
       if (error) {
         console.error('❌ Error fetching shared tasks:', error);
         return;
       }
 
-      console.log('🔍 Current user ID:', userToUse.id);
-      console.log('🔍 Relevant shared tasks breakdown:', relevantSharedTasks?.map(st => ({
-        original_task_id: st.original_task_id,
-        shared_by: st.shared_by,
-        shared_with: st.shared_with,
-        is_sender: st.shared_by === userToUse.id,
-        is_recipient: st.shared_with === userToUse.id
-      })));
-
       if (!relevantSharedTasks || relevantSharedTasks.length === 0) {
-        console.log('🔍 No relevant shared tasks found');
         return;
       }
 
@@ -4274,8 +4037,6 @@ export default function TodoScreen() {
         }
       });
 
-      console.log('🔍 Friend IDs found:', Array.from(friendIds));
-
       // Fetch friend profiles
       const { data: friendProfiles, error: profilesError } = await supabase
         .from('profiles')
@@ -4286,9 +4047,6 @@ export default function TodoScreen() {
         console.error('❌ Error fetching friend profiles:', profilesError);
         return;
       }
-
-      console.log('🔍 Friend profiles found:', friendProfiles?.length || 0);
-
       // Create a map of friend profiles
       const friendProfilesMap = new Map();
       friendProfiles?.forEach(profile => {
@@ -4373,11 +4131,9 @@ export default function TodoScreen() {
                 friend_avatar: senderProfile.friend_avatar,
                 friend_username: senderProfile.friend_username,
               }];
-              console.log('🔍 [Shared Tasks] Mapped friend info for copied task:', sharedTask.copied_task_id, 'from sender:', senderProfile.friend_name);
             }
           } else if (senderProfile && !sharedTask.copied_task_id) {
             // Fallback for tasks shared before the copied_task_id field was added
-            console.log('🔍 [Shared Tasks] No copied_task_id found for shared task, using fallback mapping');
             copiedTasks?.forEach(copiedTask => {
               if (taskIds.includes(copiedTask.id) && !taskFriendsMap[copiedTask.id]) {
                 taskFriendsMap[copiedTask.id] = [{
@@ -4417,10 +4173,6 @@ export default function TodoScreen() {
           }
         }
       });
-
-      console.log('🔍 Final task friends map:', taskFriendsMap);
-      console.log('🔍 Task shared by map:', taskSharedByMap);
-      console.log('🔍 Task participants map:', taskParticipantsMap);
       setTaskSharedFriends(taskFriendsMap);
       setTaskSharedBy(taskSharedByMap);
     } catch (error) {
@@ -4557,8 +4309,8 @@ export default function TodoScreen() {
             flexDirection: 'row',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginHorizontal: 22,
-            marginTop: 15, // Reduced from 15 to move header up
+            marginHorizontal: 20,
+            marginTop: 6, // Aligned with Notes header
             marginBottom: 10,
           }}>
             <View style={{
@@ -4574,7 +4326,7 @@ export default function TodoScreen() {
               }}
             >
               <Text style={{
-                fontSize: 25,
+                fontSize: 28,
                 fontWeight: '700',
                 color: Colors.light.text,
                 fontFamily: 'Onest',
@@ -4583,7 +4335,7 @@ export default function TodoScreen() {
               </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => setShowHeaderDatePicker(true)}
+                onPress={showHeaderDatePickerPanel}
                 style={{
                   padding: 4,
                 }}
@@ -4596,23 +4348,23 @@ export default function TodoScreen() {
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
-              gap: 15,
+              gap: 19,
             }}>
 
               {/* Tasks Button */}
               <TouchableOpacity
                 onPress={() => setActiveTab('tasks')}
                 style={{
-                  width: 23,
-                  height: 23,
-                  borderRadius: 12,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
                   backgroundColor: activeTab === 'tasks' ? '#00ACC1' : 'transparent',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
                 <Text style={{
-                  fontSize: 14,
+                  fontSize: 16,
                   fontWeight: '600',
                   color: activeTab === 'tasks' ? 'white' : Colors.light.icon,
                   fontFamily: 'Onest',
@@ -4634,16 +4386,16 @@ export default function TodoScreen() {
                   }
                 }}
                 style={{
-                  width: 23,
-                  height: 23,
-                  borderRadius: 12,
+                  width: 26,
+                  height: 26,
+                  borderRadius: 13,
                   backgroundColor: activeTab === 'habits' ? '#00ACC1' : 'transparent',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
                 <Text style={{
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: '600',
                   color: activeTab === 'habits' ? 'white' : Colors.light.icon,
                   fontFamily: 'Onest',
@@ -4654,18 +4406,17 @@ export default function TodoScreen() {
   </View>
 </View>
 
-          {/* Date Picker Modal */}
+          {/* Date Picker Floating Panel */}
           {showHeaderDatePicker && (
-            <Modal
-              animationType="fade"
-              transparent={true}
-              visible={showHeaderDatePicker}
-              onRequestClose={() => setShowHeaderDatePicker(false)}
-            >
-            <View style={{
-                flex: 1,
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
-            }}>
+            <Animated.View style={[{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 1000,
+            }, headerDatePickerAnimatedStyle]}>
+              {/* Transparent overlay to close the panel */}
               <TouchableOpacity
                 style={{
                   position: 'absolute',
@@ -4673,53 +4424,51 @@ export default function TodoScreen() {
                   left: 0,
                   right: 0,
                   bottom: 0,
+                  zIndex: 1000,
                 }}
                 activeOpacity={1}
-                onPress={() => setShowHeaderDatePicker(false)}
+                onPress={hideHeaderDatePickerPanel}
               />
-              <View style={{
+              {/* Floating Panel */}
+              <Animated.View style={[{
                 position: 'absolute',
                 top: 110,
-                  left: 22,
-                  backgroundColor: Colors.light.background,
-                  borderRadius: 16,
-                  width: 320,
+                left: 22,
+                width: 320,
+                backgroundColor: Colors.light.background,
+                borderRadius: 16,
                 shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.15,
-                  shadowRadius: 12,
-                  elevation: 8,
-                  overflow: 'hidden',
-                }}>
-                  {/* Date Picker */}
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.15,
+                shadowRadius: 12,
+                elevation: 8,
+                overflow: 'hidden',
+                zIndex: 1001,
+              }, headerDatePickerAnimatedStyle]}>
                 <View style={{
-                    paddingHorizontal: 0,
-                    paddingVertical: 0,
-                  }}>
-                <DateTimePicker
-                  value={currentDate}
-                  mode="date"
-                  display="spinner"
-                  onChange={(event, selectedDate) => {
-                    if (selectedDate) {
-                      setCurrentDate(selectedDate);
-                    }
-                  }}
-                  style={{
-                        height: 70,
-                    width: '100%',
-                  }}
-                  textColor={Colors.light.text}
-                      themeVariant="light"
-                />
-              </View>
-            </View>
-              </View>
-            </Modal>
+                  paddingHorizontal: 0,
+                  paddingVertical: 0,
+                }}>
+                  <DateTimePicker
+                    value={currentDate}
+                    mode="date"
+                    display="spinner"
+                    onChange={(event, selectedDate) => {
+                      if (selectedDate) {
+                        setCurrentDate(selectedDate);
+                      }
+                    }}
+                    style={{
+                      height: 70,
+                      width: '100%',
+                    }}
+                    textColor={Colors.light.text}
+                    themeVariant="light"
+                  />
+                </View>
+              </Animated.View>
+            </Animated.View>
           )}
-
-
-          
           {/* TASK LIST */}
           <ScrollView 
             style={styles.todoList} 
@@ -5062,9 +4811,9 @@ export default function TodoScreen() {
                                         }}
                                         delayLongPress={500}
                                         style={{
-                                          width: 38,
-                                          height: 38,
-                                          borderRadius: 10,
+                                          width: 35,
+                                          height: 35,
+                                          borderRadius: 9,
                                           backgroundColor: hasPhoto ? 'transparent' : backgroundColor,
                                           borderWidth: hasPhoto ? 0 : 1,
                                           borderColor,
@@ -5679,20 +5428,6 @@ export default function TodoScreen() {
             </TouchableWithoutFeedback>
           )}
           
-          {/* Legacy Add button for habits tab - now hidden since we have quick add */}
-          {/* {activeTab === 'habits' && (
-            <TouchableOpacity
-              style={styles.addButton}
-              onPress={() => {
-                  setIsNewHabitModalVisible(true);
-                if (Platform.OS !== 'web') {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                }
-              }}
-            >
-              <Ionicons name="add" size={22} color="white" />
-            </TouchableOpacity>
-          )} */}
         </View>
       </PanGestureHandler>
 
@@ -6121,7 +5856,7 @@ export default function TodoScreen() {
                             gap: 4,
                           }}
                         >
-                          <Ionicons name="add" size={12} color="#64748b" />
+                          <Ionicons name="add" size={14} color="#64748b" />
                         </TouchableOpacity>
                       </View>
                     )}
@@ -6131,7 +5866,7 @@ export default function TodoScreen() {
                         backgroundColor: Colors.light.surface,
                         padding: 12,
                         borderRadius: 8,
-                        marginTop: 8,
+                        marginTop: 3,
                       }}>
                         <Text style={{
                           fontSize: 14,
@@ -6165,7 +5900,7 @@ export default function TodoScreen() {
                           color: Colors.light.icon,
                           fontFamily: 'Onest',
                           fontWeight: '500',
-                          marginBottom: 6,
+                          marginTop: 6,
                         }}>
                           Color
                         </Text>
@@ -6173,19 +5908,17 @@ export default function TodoScreen() {
                           flexDirection: 'row',
                           flexWrap: 'wrap',
                           gap: 6,
-                          marginBottom: 12,
+                          marginTop: 7,
                         }}>
                           {['#BF9264', '#6F826A', '#BBD8A3', '#F0F1C5', '#FFCFCF', '#FF9A8B', '#A0C3B2', '#E4D6A7', '#D8BFD8', '#B0E0E6', '#FFE5B4', '#FADADD', '#C1E1C1', '#F0D9FF', '#D0F0C0', '#FFFACD'].map((color) => (
                             <TouchableOpacity
                               key={color}
                               onPress={() => setNewCategoryColor(color)}
                               style={{
-                                width: 22,
-                                height: 22,
-                                borderRadius: 11,
+                                width: 24,
+                                height: 24,
+                                borderRadius: 12,
                                 backgroundColor: color,
-                                borderWidth: newCategoryColor === color ? 1 : 0,
-                                borderColor: '#333',
                                 justifyContent: 'center',
                                 alignItems: 'center',
                               }}
@@ -6205,14 +5938,12 @@ export default function TodoScreen() {
                               setNewCategoryColor('#E3F2FD');
                             }}
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
+                             marginRight: 10,
                               justifyContent: 'center',
                               alignItems: 'center',
                             }}
                           >
-                            <Ionicons name="close" size={16} color="#64748b" />
+                            <Ionicons name="close" size={18} color="#64748b" />
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={async () => {
@@ -6261,15 +5992,15 @@ export default function TodoScreen() {
                               }
                             }}
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 16,
+                              width: 28,
+                              height: 28,
+                              borderRadius: 14,
                               backgroundColor: '#00ACC1',
                               justifyContent: 'center',
                               alignItems: 'center',
                             }}
                           >
-                            <Ionicons name="checkmark" size={16} color="white" />
+                            <Ionicons name="checkmark" size={18} color="white" />
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -6376,9 +6107,6 @@ export default function TodoScreen() {
                             display="spinner"
                             onChange={(event, selectedDate) => {
                               if (selectedDate) {
-                                console.log('🔔 [Todo Notifications] Reminder picker selected date:', selectedDate);
-                                console.log('🔔 [Todo Notifications] Selected date type:', typeof selectedDate);
-                                console.log('🔔 [Todo Notifications] Selected date is Date object:', selectedDate instanceof Date);
                                 setReminderTime(selectedDate);
                                 debouncePickerClose('reminder');
                               }
@@ -6753,9 +6481,6 @@ export default function TodoScreen() {
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       ListEmptyComponent={() => {
-                        console.log('🔍 Friends list: No friends to display. Total friends:', (friends || []).length);
-                        console.log('🔍 Friends list: Search term:', searchFriend);
-                        console.log('🔍 Friends list: Selected friends:', selectedFriends);
                         return (
                           <View style={{ 
                             alignItems: 'center', 
@@ -6891,7 +6616,7 @@ export default function TodoScreen() {
                   placeholderTextColor="#999"
                 />
 
-                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
+                <Text style={{ fontSize: 16, fontWeight: '600', marginBottom: 12, marginTop: 8, fontFamily: 'Onest', marginLeft: 2 }}>Choose a color</Text>
                 
                 <ScrollView
                   horizontal

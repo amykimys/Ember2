@@ -14,6 +14,7 @@ import { GoogleCalendarSyncNew } from '../../components/GoogleCalendarSyncNew';
 import { Colors } from '../../constants/Colors';
 import Toast from 'react-native-toast-message';
 import PhotoZoomViewer from '../../components/PhotoZoomViewer';
+import { useData } from '../../contexts/DataContext';
 
 interface UserPreferences {
   theme: 'light' | 'dark' | 'system';
@@ -96,6 +97,7 @@ interface PhotoShare {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { data: appData, updateData } = useData();
   const [user, setUser] = useState<User | null>(null);
   const dotAnimations = useRef([
     new Animated.Value(0),
@@ -175,6 +177,35 @@ export default function ProfileScreen() {
   // Google Calendar sync state
   const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
 
+  // Use preloaded data from DataContext when available
+  useEffect(() => {
+    if (user && appData.isPreloaded) {
+      // Update profile from preloaded data
+      if (appData.userProfile && !profile) {
+        setProfile(appData.userProfile);
+        setEditForm({
+          full_name: appData.userProfile.full_name || '',
+          bio: appData.userProfile.bio || '',
+          avatar_url: appData.userProfile.avatar_url || '',
+          username: appData.userProfile.username || ''
+        });
+      }
+      
+      // Update preferences from preloaded data
+      if (appData.userPreferences) {
+        setPreferences({
+          theme: appData.userPreferences.theme || 'system',
+          notifications_enabled: appData.userPreferences.notifications_enabled ?? true,
+          default_view: appData.userPreferences.default_view || 'day',
+          email_notifications: appData.userPreferences.email_notifications ?? true,
+          push_notifications: appData.userPreferences.push_notifications ?? true,
+          default_screen: appData.userPreferences.default_screen || 'calendar',
+          auto_move_uncompleted_tasks: appData.userPreferences.auto_move_uncompleted_tasks ?? false
+        });
+      }
+    }
+  }, [user, appData.isPreloaded, appData.userProfile, appData.userPreferences, profile]);
+
   // Configure Google Sign-In
   useEffect(() => {
     GoogleSignin.configure({
@@ -196,8 +227,35 @@ export default function ProfileScreen() {
 
       if (session?.user) {
         setUser(session.user);
+        
+        // Use preloaded data if available, otherwise fetch it
+        if (appData.isPreloaded) {
+          if (appData.userProfile) {
+            setProfile(appData.userProfile);
+            setEditForm({
+              full_name: appData.userProfile.full_name || '',
+              bio: appData.userProfile.bio || '',
+              avatar_url: appData.userProfile.avatar_url || '',
+              username: appData.userProfile.username || ''
+            });
+          }
+          
+          if (appData.userPreferences) {
+            setPreferences({
+              theme: appData.userPreferences.theme || 'system',
+              notifications_enabled: appData.userPreferences.notifications_enabled ?? true,
+              default_view: appData.userPreferences.default_view || 'day',
+              email_notifications: appData.userPreferences.email_notifications ?? true,
+              push_notifications: appData.userPreferences.push_notifications ?? true,
+              default_screen: appData.userPreferences.default_screen || 'calendar',
+              auto_move_uncompleted_tasks: appData.userPreferences.auto_move_uncompleted_tasks ?? false
+            });
+          }
+        } else {
+          // Fallback to fetching data if not preloaded
           await loadUserProfile(session.user.id);
           await loadUserPreferences(session.user.id);
+        }
           await loadFriends(session.user.id);
           
           // Initialize notifications and save push token
@@ -1317,6 +1375,8 @@ export default function ProfileScreen() {
     }
   };
 
+
+
   const handlePreferenceChange = async (key: keyof UserPreferences, value: any) => {
     if (!user) {
       console.error('❌ No user found, cannot update preference');
@@ -1327,23 +1387,25 @@ export default function ProfileScreen() {
     const previousValue = preferences[key];
     
     console.log(`🔄 Updating preference: ${key} = ${value} for user: ${user.id}`);
+    console.log(`🔍 Previous value was: ${previousValue}`);
+    console.log(`🔍 New value will be: ${value}`);
     
     // Optimistically update the UI immediately
     setPreferences(prev => ({ ...prev, [key]: value }));
 
     try {
       // Log the data being sent
-      const updateData = {
+      const preferenceUpdateData = {
         user_id: user.id,
         [key]: value,
         updated_at: new Date().toISOString()
       };
-      console.log('📤 Sending update data:', updateData);
+      console.log('📤 Sending update data:', preferenceUpdateData);
       
       // First try to update existing record, if it fails, insert new one
       let { data, error } = await supabase
         .from('user_preferences')
-        .update(updateData)
+        .update(preferenceUpdateData)
         .eq('user_id', user.id)
         .select();
 
@@ -1352,7 +1414,7 @@ export default function ProfileScreen() {
         console.log('📝 No existing preferences found, creating new record...');
         const { data: insertData, error: insertError } = await supabase
           .from('user_preferences')
-          .insert(updateData)
+          .insert(preferenceUpdateData)
           .select();
         
         if (insertError) {
@@ -1382,6 +1444,11 @@ export default function ProfileScreen() {
       
       console.log(`✅ Successfully updated preference: ${key} = ${value}`);
       console.log('✅ Response data:', data);
+      
+      // Update DataContext with the new preferences
+      if (data && data[0]) {
+        updateData('userPreferences', data[0]);
+      }
       
       // Clear the preferences cache so other screens get the updated setting
       clearPreferencesCache();
@@ -1467,13 +1534,20 @@ export default function ProfileScreen() {
       if (error) throw error;
 
       // Update local state
-      setProfile(prev => prev ? {
-        ...prev,
+      const updatedProfile = profile ? {
+        ...profile,
         full_name: editForm.full_name.trim(),
         bio: editForm.bio.trim(),
         avatar_url: editForm.avatar_url.trim(),
         username: editForm.username.trim()
-      } : null);
+      } : null;
+      
+      setProfile(updatedProfile);
+      
+      // Update DataContext with the new profile
+      if (updatedProfile) {
+        updateData('userProfile', updatedProfile);
+      }
 
       setIsEditingProfile(false);
       Alert.alert('Success', 'Profile updated successfully!');
@@ -1643,10 +1717,16 @@ export default function ProfileScreen() {
       console.log('✅ Profile updated successfully');
       
       // Update local state
-      setProfile(prev => prev ? { ...prev, avatar_url: avatarUrl } : null);
+      const updatedProfile = profile ? { ...profile, avatar_url: avatarUrl } : null;
+      setProfile(updatedProfile);
       setEditForm(prev => ({ ...prev, avatar_url: avatarUrl }));
       
-      console.log('✅ Local state updated successfully');
+      // Update DataContext with the new profile
+      if (updatedProfile) {
+        updateData('userProfile', updatedProfile);
+      }
+      
+      console.log('✅ Local state and DataContext updated successfully');
       
       Alert.alert('Success', 'Profile photo updated successfully!');
       
@@ -2737,7 +2817,6 @@ export default function ProfileScreen() {
         <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Preferences</Text>
-            <Text style={styles.sectionSubtitle}>Customize your app experience</Text>
             {renderSettingsItem('color-palette-outline', 'Theme', preferences.theme)}
             {renderSettingsItem('notifications-outline', 'Push Notifications', undefined, undefined, true, preferences.push_notifications, (value) => handlePreferenceChange('push_notifications', value))}
             {renderSettingsItem('home-outline', 'Default Screen', getDefaultScreenLabel((preferences.default_screen || 'calendar') as 'calendar' | 'todo' | 'notes' | 'profile'), () => {
@@ -2753,7 +2832,6 @@ export default function ProfileScreen() {
 
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Account</Text>
-            <Text style={styles.sectionSubtitle}>Manage your account settings</Text>
             {renderSettingsItem('shield-outline', 'Privacy & Security')}
             {renderSettingsItem('cloud-download-outline', 'Export Data')}
             {renderSettingsItem('help-circle-outline', 'Help & Support')}
@@ -2762,7 +2840,6 @@ export default function ProfileScreen() {
 
           <View style={styles.settingsSection}>
             <Text style={styles.sectionTitle}>Actions</Text>
-            <Text style={styles.sectionSubtitle}>Account management options</Text>
             
             {renderSettingsItem('notifications-outline', 'Test Sharing Notifications', undefined, async () => {
               try {
@@ -3831,13 +3908,16 @@ export default function ProfileScreen() {
 
       const limit = 10;
       const offset = refresh ? 0 : photoSharesPage * limit;
+      
+      // For pagination, we need to fetch more data than the limit since the DB function doesn't support offset
+      const fetchLimit = refresh ? limit : (photoSharesPage + 1) * limit;
 
-      console.log('🔄 Loading photo shares for user:', user.id);
+      console.log('🔄 Loading photo shares for user:', user.id, 'limit:', limit, 'offset:', offset);
 
-            // Try the main function first
+      // Try the main function first (without offset since it's not supported)
       let { data, error } = await supabase.rpc('get_friends_photo_shares_with_privacy', {
         current_user_id: user.id,
-        limit_count: limit
+        limit_count: fetchLimit
       });
           
       if (error) {
@@ -3859,7 +3939,7 @@ export default function ProfileScreen() {
           .eq('type', 'photo_share')
           .not('photo_url', 'is', null)
           .order('created_at', { ascending: false })
-          .limit(limit);
+          .range(0, fetchLimit - 1);
 
         if (fallbackError) {
           console.error('❌ Fallback also failed:', fallbackError);
@@ -3895,119 +3975,13 @@ export default function ProfileScreen() {
         }) || [];
       }
 
-      // Always fetch event and habit titles separately (more reliable)
+      // The database function already provides titles, so we don't need to fetch them separately
+      // Just log what we got for debugging
       if (data && data.length > 0) {
-        console.log('🔄 Fetching titles for posts...');
-        
-        // Get event titles
-        const eventIds = data
-          .filter((item: any) => item.source_type === 'event' && item.source_id)
-          .map((item: any) => item.source_id);
-
-        if (eventIds.length > 0) {
-          console.log('🔄 Fetching event titles for:', eventIds);
-          
-          // Try multiple approaches to fetch event titles
-          let eventsData = null;
-          let eventsError = null;
-          
-          // First try: direct ID match
-          const { data: directData, error: directError } = await supabase
-            .from('events')
-            .select('id, title')
-            .in('id', eventIds);
-
-          if (directError) {
-            console.error('❌ Direct ID match failed:', directError);
-            
-            // Second try: cast to text
-            const { data: castData, error: castError } = await supabase
-              .from('events')
-              .select('id, title')
-              .in('id', eventIds.map((id: any) => id.toString()));
-            
-            if (castError) {
-              console.error('❌ Cast to text failed:', castError);
-              eventsError = castError;
-            } else {
-              eventsData = castData;
-              console.log('✅ Cast to text worked:', eventsData);
-            }
-          } else {
-            eventsData = directData;
-            console.log('✅ Direct ID match worked:', eventsData);
-          }
-
-          if (eventsError) {
-            console.error('❌ Error fetching event titles:', eventsError);
-          } else if (eventsData && eventsData.length > 0) {
-            console.log('✅ Event titles fetched:', eventsData);
-            const eventsMap = new Map(eventsData?.map((e: any) => [e.id, e.title]) || []);
-
-            // Update source_title for events
-            data = data.map((item: any) => {
-              if (item.source_type === 'event' && item.source_id) {
-                const eventTitle = eventsMap.get(item.source_id);
-                console.log(`🔄 Event ${item.source_id}: found title = "${eventTitle}"`);
-                
-                if (!eventTitle) {
-                  console.log(`⚠️ No title found for event ${item.source_id}, trying alternative lookup...`);
-                  
-                  // Try to find by string comparison
-                  const altMatch = eventsData.find((e: any) => e.id.toString() === item.source_id.toString());
-                  if (altMatch) {
-                    console.log(`✅ Alternative match found: "${altMatch.title}"`);
-                    return {
-                      ...item,
-                      source_title: altMatch.title || 'Event'
-                    };
-                  }
-                }
-                
-                return {
-                  ...item,
-                  source_title: eventTitle || 'Event'
-                };
-              }
-              return item;
-            });
-          } else {
-            console.log('⚠️ No events data found, keeping default titles');
-          }
-        }
-
-        // Get habit titles
-        const habitIds = data
-          .filter((item: any) => item.source_type === 'habit' && item.source_id)
-          .map((item: any) => item.source_id);
-
-        if (habitIds.length > 0) {
-          console.log('🔄 Fetching habit titles for:', habitIds);
-          const { data: habitsData, error: habitsError } = await supabase
-            .from('habits')
-            .select('id, text')
-            .in('id', habitIds);
-
-          if (habitsError) {
-            console.error('❌ Error fetching habit titles:', habitsError);
-          } else {
-            console.log('✅ Habit titles fetched:', habitsData);
-            const habitsMap = new Map(habitsData?.map((h: any) => [h.id, h.text]) || []);
-
-            // Update source_title for habits
-            data = data.map((item: any) => {
-              if (item.source_type === 'habit' && item.source_id) {
-                const habitTitle = habitsMap.get(item.source_id);
-                console.log(`🔄 Habit ${item.source_id}: ${habitTitle || 'Habit'}`);
-                return {
-                  ...item,
-                  source_title: habitTitle || 'Habit'
-                };
-              }
-              return item;
-            });
-          }
-        }
+        console.log('✅ Photo shares loaded with titles from database function');
+        data.forEach((item: any, index: number) => {
+          console.log(`${index + 1}. ${item.source_type}: "${item.source_title}"`);
+        });
       }
 
       console.log('✅ Photo shares loaded:', data?.length || 0);
@@ -4024,18 +3998,31 @@ export default function ProfileScreen() {
         })));
       }
 
+      // Handle pagination on client side since DB function doesn't support offset
+      let currentPageData = data || [];
+      
       if (refresh) {
-        setPhotoShares(data || []);
+        // For refresh, take the first page
+        currentPageData = data?.slice(0, limit) || [];
+        setPhotoShares(currentPageData);
         // Count unread photo shares (created after last viewed time)
-        const unreadCount = (data || []).filter((share: PhotoShare) => 
+        const unreadCount = currentPageData.filter((share: PhotoShare) => 
           new Date(share.created_at).getTime() > lastViewedPhotoShareTime
         ).length;
         setUnreadPhotoShares(unreadCount);
       } else {
-        setPhotoShares(prev => [...prev, ...(data || [])]);
+        // For load more, take the new items (skip what we already have)
+        const existingCount = photoShares.length;
+        const newItems = data?.slice(existingCount, existingCount + limit) || [];
+        setPhotoShares(prev => [...prev, ...newItems]);
+        currentPageData = newItems;
       }
 
-      setHasMorePhotoShares((data || []).length === limit);
+      // Set hasMorePhotoShares based on whether we got a full page of results
+      // If we got fewer items than the limit, we've reached the end
+      const hasMore = (data || []).length > (refresh ? limit : photoShares.length + limit);
+      console.log(`📊 Pagination: got ${(data || []).length} total items, current page: ${currentPageData.length}, hasMore: ${hasMore}`);
+      setHasMorePhotoShares(hasMore);
       setPhotoSharesPage(prev => refresh ? 1 : prev + 1);
     } catch (error) {
       console.error('❌ Error in loadPhotoShares:', error);
@@ -4771,7 +4758,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: Colors.light.text,
-    marginBottom: 4,
+    marginBottom: 10,
     fontFamily: 'Onest',
   },
   sectionHeader: {

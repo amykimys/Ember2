@@ -67,12 +67,21 @@ export default function PhotoCaptionModal({
             style={[styles.saveButton, isLoading && styles.saveButtonDisabled]}
           >
             <Text style={[styles.saveButtonText, isLoading && styles.saveButtonTextDisabled]}>
-              {isLoading ? 'Saving...' : 'Share'}
+              {isLoading ? 'Saving...' : 'Save'}
             </Text>
           </TouchableOpacity>
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+
+           {/* Event Info */}
+           {eventTitle && (
+            <View style={styles.eventInfo}>
+              <Ionicons name="calendar" size={16} color={Colors.light.accent} />
+              <Text style={styles.eventTitle}>{eventTitle}</Text>
+            </View>
+          )}
+
           {/* Photo Preview */}
           {photoUrl && (
             <View style={styles.photoContainer}>
@@ -84,39 +93,19 @@ export default function PhotoCaptionModal({
             </View>
           )}
 
-          {/* Event Info */}
-          {eventTitle && (
-            <View style={styles.eventInfo}>
-              <Ionicons name="calendar" size={16} color={Colors.light.accent} />
-              <Text style={styles.eventTitle}>{eventTitle}</Text>
-            </View>
-          )}
-
           {/* Caption Input */}
           <View style={styles.captionContainer}>
-            <Text style={styles.captionLabel}>Write a caption for your photo</Text>
             <TextInput
               style={styles.captionInput}
               value={caption}
               onChangeText={setCaption}
-              placeholder="Share what's happening in this photo..."
+              placeholder="Caption (optional)"
               placeholderTextColor={Colors.light.icon}
               multiline
               maxLength={500}
               textAlignVertical="top"
               autoFocus
             />
-            <Text style={styles.characterCount}>
-              {caption.length}/500
-            </Text>
-          </View>
-
-          {/* Preview Info */}
-          <View style={styles.previewInfo}>
-            <Ionicons name="information-circle-outline" size={16} color={Colors.light.icon} />
-            <Text style={styles.previewText}>
-              This photo will be shared with your friends in the friends feed
-            </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -134,10 +123,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    paddingTop: 30,
     paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
   },
   closeButton: {
     padding: 8,

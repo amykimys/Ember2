@@ -224,11 +224,11 @@ export const arePushNotificationsEnabled = async (userId: string): Promise<boole
 };
 
 /**
- * Test function to verify sharing notifications are working
+ * Test function to verify sharing push notifications are working
  */
 export const testSharingNotifications = async (): Promise<void> => {
   try {
-    console.log('🔔 [Test] Testing sharing notifications...');
+    console.log('🔔 [Test] Testing sharing push notifications...');
     
     // Get current user
     const { data: { user } } = await supabase.auth.getUser();
@@ -237,7 +237,7 @@ export const testSharingNotifications = async (): Promise<void> => {
       return;
     }
 
-    // Test event shared notification
+    // Test event shared push notification
     await sendEventSharedNotification(
       user.id, // recipient (same as sender for test)
       user.id, // sender
@@ -245,7 +245,7 @@ export const testSharingNotifications = async (): Promise<void> => {
       'test-event-id'
     );
 
-    // Test task shared notification
+    // Test task shared push notification
     await sendTaskSharedNotification(
       user.id, // recipient (same as sender for test)
       user.id, // sender
@@ -253,7 +253,7 @@ export const testSharingNotifications = async (): Promise<void> => {
       'test-task-id'
     );
 
-    // Test note shared notification
+    // Test note shared push notification
     await sendNoteSharedNotification(
       user.id, // recipient (same as sender for test)
       user.id, // sender
@@ -261,14 +261,14 @@ export const testSharingNotifications = async (): Promise<void> => {
       'test-note-id'
     );
 
-    console.log('🔔 [Test] All sharing notification tests completed');
+    console.log('🔔 [Test] All sharing push notification tests completed');
   } catch (error) {
-    console.error('🔔 [Test] Error testing sharing notifications:', error);
+    console.error('🔔 [Test] Error testing sharing push notifications:', error);
   }
 };
 
 /**
- * Send a notification when an event is shared with a user
+ * Send a push notification when an event is shared with a user
  */
 export const sendEventSharedNotification = async (
   recipientUserId: string,
@@ -277,12 +277,24 @@ export const sendEventSharedNotification = async (
   eventId: string
 ): Promise<void> => {
   try {
-    console.log('🔔 [Event Shared Notification] Sending notification to user:', recipientUserId);
+    console.log('🔔 [Event Shared Notification] Sending push notification to user:', recipientUserId);
     
     // Check if push notifications are enabled for the recipient
     const notificationsEnabled = await arePushNotificationsEnabled(recipientUserId);
     if (!notificationsEnabled) {
       console.log('🔔 [Event Shared Notification] Push notifications disabled for user, skipping');
+      return;
+    }
+
+    // Get recipient's push token
+    const { data: recipientProfile, error: recipientError } = await supabase
+      .from('profiles')
+      .select('expo_push_token')
+      .eq('id', recipientUserId)
+      .single();
+
+    if (recipientError || !recipientProfile?.expo_push_token) {
+      console.log('🔔 [Event Shared Notification] No push token found for recipient:', recipientUserId);
       return;
     }
 
@@ -300,23 +312,35 @@ export const sendEventSharedNotification = async (
 
     const senderName = senderProfile?.full_name || senderProfile?.username || 'A friend';
 
-    // Schedule the notification
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
+    // Send push notification via Expo
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: recipientProfile.expo_push_token,
         title: 'Event Shared with You',
         body: `${senderName} shared "${eventTitle}" with you`,
-        sound: 'default',
         data: { 
           type: 'event_shared',
           eventId: eventId,
           senderId: senderUserId,
           senderName: senderName
         },
-      },
-      trigger: null, // Send immediately
+        sound: 'default',
+        priority: 'high',
+      }),
     });
 
-    console.log('🔔 [Event Shared Notification] Notification scheduled with ID:', notificationId);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('🔔 [Event Shared Notification] Push notification failed:', errorText);
+      return;
+    }
+
+    const result = await response.json();
+    console.log('🔔 [Event Shared Notification] Push notification sent successfully:', result);
     
   } catch (error) {
     console.error('🔔 [Event Shared Notification] Error sending notification:', error);
@@ -324,7 +348,7 @@ export const sendEventSharedNotification = async (
 };
 
 /**
- * Send a notification when a task is shared with a user
+ * Send a push notification when a task is shared with a user
  */
 export const sendTaskSharedNotification = async (
   recipientUserId: string,
@@ -333,12 +357,24 @@ export const sendTaskSharedNotification = async (
   taskId: string
 ): Promise<void> => {
   try {
-    console.log('🔔 [Task Shared Notification] Sending notification to user:', recipientUserId);
+    console.log('🔔 [Task Shared Notification] Sending push notification to user:', recipientUserId);
     
     // Check if push notifications are enabled for the recipient
     const notificationsEnabled = await arePushNotificationsEnabled(recipientUserId);
     if (!notificationsEnabled) {
       console.log('🔔 [Task Shared Notification] Push notifications disabled for user, skipping');
+      return;
+    }
+
+    // Get recipient's push token
+    const { data: recipientProfile, error: recipientError } = await supabase
+      .from('profiles')
+      .select('expo_push_token')
+      .eq('id', recipientUserId)
+      .single();
+
+    if (recipientError || !recipientProfile?.expo_push_token) {
+      console.log('🔔 [Task Shared Notification] No push token found for recipient:', recipientUserId);
       return;
     }
 
@@ -356,23 +392,35 @@ export const sendTaskSharedNotification = async (
 
     const senderName = senderProfile?.full_name || senderProfile?.username || 'A friend';
 
-    // Schedule the notification
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
+    // Send push notification via Expo
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: recipientProfile.expo_push_token,
         title: 'Task Shared with You',
         body: `${senderName} shared "${taskTitle}" with you`,
-        sound: 'default',
         data: { 
           type: 'task_shared',
           taskId: taskId,
           senderId: senderUserId,
           senderName: senderName
         },
-      },
-      trigger: null, // Send immediately
+        sound: 'default',
+        priority: 'high',
+      }),
     });
 
-    console.log('🔔 [Task Shared Notification] Notification scheduled with ID:', notificationId);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('🔔 [Task Shared Notification] Push notification failed:', errorText);
+      return;
+    }
+
+    const result = await response.json();
+    console.log('🔔 [Task Shared Notification] Push notification sent successfully:', result);
     
   } catch (error) {
     console.error('🔔 [Task Shared Notification] Error sending notification:', error);
@@ -380,7 +428,7 @@ export const sendTaskSharedNotification = async (
 };
 
 /**
- * Send a notification when a note is shared with a user
+ * Send a push notification when a note is shared with a user
  */
 export const sendNoteSharedNotification = async (
   recipientUserId: string,
@@ -389,12 +437,24 @@ export const sendNoteSharedNotification = async (
   noteId: string
 ): Promise<void> => {
   try {
-    console.log('🔔 [Note Shared Notification] Sending notification to user:', recipientUserId);
+    console.log('🔔 [Note Shared Notification] Sending push notification to user:', recipientUserId);
     
     // Check if push notifications are enabled for the recipient
     const notificationsEnabled = await arePushNotificationsEnabled(recipientUserId);
     if (!notificationsEnabled) {
       console.log('🔔 [Note Shared Notification] Push notifications disabled for user, skipping');
+      return;
+    }
+
+    // Get recipient's push token
+    const { data: recipientProfile, error: recipientError } = await supabase
+      .from('profiles')
+      .select('expo_push_token')
+      .eq('id', recipientUserId)
+      .single();
+
+    if (recipientError || !recipientProfile?.expo_push_token) {
+      console.log('🔔 [Note Shared Notification] No push token found for recipient:', recipientUserId);
       return;
     }
 
@@ -412,23 +472,35 @@ export const sendNoteSharedNotification = async (
 
     const senderName = senderProfile?.full_name || senderProfile?.username || 'A friend';
 
-    // Schedule the notification
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
+    // Send push notification via Expo
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        to: recipientProfile.expo_push_token,
         title: 'Note Shared with You',
         body: `${senderName} shared "${noteTitle}" with you`,
-        sound: 'default',
         data: { 
           type: 'note_shared',
           noteId: noteId,
           senderId: senderUserId,
           senderName: senderName
         },
-      },
-      trigger: null, // Send immediately
+        sound: 'default',
+        priority: 'high',
+      }),
     });
 
-    console.log('🔔 [Note Shared Notification] Notification scheduled with ID:', notificationId);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('🔔 [Note Shared Notification] Push notification failed:', errorText);
+      return;
+    }
+
+    const result = await response.json();
+    console.log('🔔 [Note Shared Notification] Push notification sent successfully:', result);
     
   } catch (error) {
     console.error('🔔 [Note Shared Notification] Error sending notification:', error);

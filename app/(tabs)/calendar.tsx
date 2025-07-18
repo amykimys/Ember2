@@ -51,14 +51,11 @@ const generateEventId = (): string => {
 // New notification system implementation
 const initializeNotifications = async (): Promise<boolean> => {
   try {
-    console.log('🔔 [Notifications] Initializing notification system...');
     
     // Request permissions
     const { status } = await Notifications.requestPermissionsAsync();
-    console.log('🔔 [Notifications] Permission status:', status);
     
     if (status !== 'granted') {
-      console.log('🔔 [Notifications] Permission denied');
       return false;
     }
     
@@ -71,7 +68,6 @@ const initializeNotifications = async (): Promise<boolean> => {
       }),
     });
     
-    console.log('🔔 [Notifications] Notification system initialized successfully');
     return true;
   } catch (error) {
     console.error('🔔 [Notifications] Error initializing notifications:', error);
@@ -81,24 +77,20 @@ const initializeNotifications = async (): Promise<boolean> => {
 
 const scheduleEventNotification = async (event: CalendarEvent): Promise<void> => {
   try {
-    console.log('🔔 [Notifications] Scheduling notification for event:', event.title);
     
     // Get current user
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
-      console.log('🔔 [Notifications] No user logged in, skipping notification');
       return;
     }
 
     // Check if push notifications are enabled for this user
     const notificationsEnabled = await arePushNotificationsEnabled(user.id);
     if (!notificationsEnabled) {
-      console.log('🔔 [Notifications] Push notifications disabled for user, skipping notification');
       return;
     }
     
     if (!event.reminderTime) {
-      console.log('🔔 [Notifications] No reminder time set');
       return;
     }
     
@@ -108,20 +100,12 @@ const scheduleEventNotification = async (event: CalendarEvent): Promise<void> =>
     // Adjust reminder time to be 10 seconds earlier to account for system delays
     const adjustedReminderTime = new Date(reminderTime.getTime() - 10 * 1000);
     
-    console.log('🔔 [Notifications] Current time:', now.toISOString());
-    console.log('🔔 [Notifications] Original reminder time:', reminderTime.toISOString());
-    console.log('🔔 [Notifications] Adjusted reminder time:', adjustedReminderTime.toISOString());
-    
     if (adjustedReminderTime <= now) {
-      console.log('🔔 [Notifications] Adjusted reminder time has passed');
       return;
     }
     
     const delayMs = adjustedReminderTime.getTime() - now.getTime();
     const delaySeconds = Math.floor(delayMs / 1000);
-    
-    console.log('🔔 [Notifications] Scheduling notification in', delaySeconds, 'seconds');
-    console.log('🔔 [Notifications] Adjusted reminder time (formatted):', adjustedReminderTime.toLocaleString());
     
     // Cancel any existing notifications for this event
     await cancelEventNotification(event.id);
@@ -129,10 +113,8 @@ const scheduleEventNotification = async (event: CalendarEvent): Promise<void> =>
     // Check permissions before scheduling
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') {
-      console.log('🔔 [Notifications] Permission not granted, requesting...');
       const { status: newStatus } = await Notifications.requestPermissionsAsync();
       if (newStatus !== 'granted') {
-        console.log('🔔 [Notifications] Permission denied');
         return;
       }
     }
@@ -149,16 +131,12 @@ const scheduleEventNotification = async (event: CalendarEvent): Promise<void> =>
         date: adjustedReminderTime,
       } as Notifications.DateTriggerInput,
     });
-    
-    console.log('🔔 [Notifications] Notification scheduled with ID:', notificationId);
-    
+        
     // Verify the notification was scheduled
     const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
     const scheduledNotification = scheduledNotifications.find(n => n.identifier === notificationId);
     if (scheduledNotification) {
-      console.log('🔔 [Notifications] Notification verified as scheduled:', scheduledNotification);
     } else {
-      console.log('🔔 [Notifications] Warning: Notification not found in scheduled list');
     }
     
   } catch (error) {
@@ -173,7 +151,6 @@ const cancelEventNotification = async (eventId: string): Promise<void> => {
     for (const notification of scheduledNotifications) {
       if (notification.content.data?.eventId === eventId) {
         await Notifications.cancelScheduledNotificationAsync(notification.identifier);
-        console.log('🔔 [Notifications] Cancelled notification for event:', eventId);
       }
     }
   } catch (error) {
@@ -183,17 +160,12 @@ const cancelEventNotification = async (eventId: string): Promise<void> => {
 
 const testNotification = async (): Promise<void> => {
   try {
-    console.log('🔔 [Notifications] ===== STARTING COMPREHENSIVE TEST =====');
     
     // Step 1: Check permissions
-    console.log('🔔 [Notifications] Step 1: Checking permissions...');
     const { status: currentStatus } = await Notifications.getPermissionsAsync();
-    console.log('🔔 [Notifications] Current permission status:', currentStatus);
     
     if (currentStatus !== 'granted') {
-      console.log('🔔 [Notifications] Requesting permissions...');
       const { status: newStatus } = await Notifications.requestPermissionsAsync();
-      console.log('🔔 [Notifications] New permission status:', newStatus);
       
       if (newStatus !== 'granted') {
         Toast.show({
@@ -205,22 +177,16 @@ const testNotification = async (): Promise<void> => {
         return;
       }
     }
-    
-    // Step 2: Skip setting up notification handler (already done in initializeNotifications)
-    console.log('🔔 [Notifications] Step 2: Notification handler already set up');
-    
+        
     // Step 3: Cancel only test notifications
-    console.log('🔔 [Notifications] Step 3: Cancelling existing test notifications...');
     const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
     for (const notification of scheduledNotifications) {
       if (notification.content.data?.type?.includes('test')) {
         await Notifications.cancelScheduledNotificationAsync(notification.identifier);
-        console.log('🔔 [Notifications] Cancelled test notification:', notification.identifier);
       }
     }
     
     // Step 4: Test immediate notification
-    console.log('🔔 [Notifications] Step 4: Testing immediate notification...');
     const immediateId = await Notifications.scheduleNotificationAsync({
       content: {
         title: 'IMMEDIATE TEST',
@@ -230,10 +196,8 @@ const testNotification = async (): Promise<void> => {
       },
       trigger: null,
     });
-    console.log('🔔 [Notifications] Immediate notification ID:', immediateId);
     
     // Step 5: Test scheduled notification with date trigger
-    console.log('🔔 [Notifications] Step 5: Testing scheduled notification with date trigger...');
     const futureTime = new Date(Date.now() + 10 * 1000); // 10 seconds from now
     const scheduledId = await Notifications.scheduleNotificationAsync({
       content: {
@@ -247,11 +211,9 @@ const testNotification = async (): Promise<void> => {
         date: futureTime,
       } as Notifications.DateTriggerInput,
     });
-    console.log('🔔 [Notifications] Scheduled notification ID:', scheduledId);
-    console.log('🔔 [Notifications] Scheduled for:', futureTime.toLocaleString());
+
     
     // Step 6: Test scheduled notification with timeInterval trigger
-    console.log('🔔 [Notifications] Step 6: Testing scheduled notification with timeInterval trigger...');
     const timeIntervalId = await Notifications.scheduleNotificationAsync({
       content: {
         title: 'SCHEDULED TEST (TimeInterval)',
@@ -265,18 +227,12 @@ const testNotification = async (): Promise<void> => {
         repeats: false,
       } as Notifications.TimeIntervalTriggerInput,
     });
-    console.log('🔔 [Notifications] TimeInterval notification ID:', timeIntervalId);
     
     // Step 7: Verify scheduled notifications
-    console.log('🔔 [Notifications] Step 7: Verifying scheduled notifications...');
     const allScheduled = await Notifications.getAllScheduledNotificationsAsync();
-    console.log('🔔 [Notifications] Total scheduled notifications:', allScheduled.length);
-    console.log('🔔 [Notifications] Scheduled notifications:', allScheduled);
     
     // Step 8: Check presented notifications
-    console.log('🔔 [Notifications] Step 8: Checking presented notifications...');
     const presented = await Notifications.getPresentedNotificationsAsync();
-    console.log('🔔 [Notifications] Presented notifications:', presented.length);
     
     Toast.show({
       type: 'success',
@@ -284,9 +240,7 @@ const testNotification = async (): Promise<void> => {
       text2: `Scheduled: ${allScheduled.length} notifications`,
       position: 'bottom',
     });
-    
-    console.log('🔔 [Notifications] ===== TEST COMPLETE =====');
-    
+        
   } catch (error) {
     console.error('🔔 [Notifications] Test error:', error);
     Toast.show({
@@ -458,13 +412,7 @@ const CalendarScreen: React.FC = () => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const result = `${year}-${month}-${day}`;
-    console.log('🔍 [Calendar] getLocalDateString called with:', {
-      inputDate: date.toISOString(),
-      year,
-      month,
-      day,
-      result
-    });
+    
     return result;
   };
 
@@ -629,7 +577,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   
   // Add debugging for isAllDay changes
   useEffect(() => {
-    console.log('🔍 [Calendar] isAllDay state changed to:', isAllDay);
   }, [isAllDay]);
   // Add state for editedIsAllDay for the edit modal
   const [isEditedAllDay, setIsEditedAllDay] = useState(false);
@@ -657,21 +604,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [photoForCaption, setPhotoForCaption] = useState<{ url: string; eventId: string; eventTitle: string } | null>(null);
   const [isSharingPhoto, setIsSharingPhoto] = useState(false);
   
-  // Add ref for photo viewer FlatList
   const photoViewerFlatListRef = useRef<FlatList>(null);
-  
-  // Add ref for event modal ScrollView
-  const eventModalScrollViewRef = useRef<ScrollView>(null);
-  
-  // Add ref for edit event modal ScrollView
-  const editEventModalScrollViewRef = useRef<ScrollView>(null);
-  
-  // Add ref for Swipeable components
-  const swipeableRefs = useRef<{ [key: string]: any }>({});
+    const eventModalScrollViewRef = useRef<ScrollView>(null);
+    const editEventModalScrollViewRef = useRef<ScrollView>(null);
+    const swipeableRefs = useRef<{ [key: string]: any }>({});
   
   const autoCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Friends-related state variables
   const [friends, setFriends] = useState<Array<{
     friendship_id: string;
     friend_id: string;
@@ -686,8 +624,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [searchFriend, setSearchFriend] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isLoadingFriends, setIsLoadingFriends] = useState(false);
-
-  // Add loading state for calendar data
   const [isLoadingCalendarData, setIsLoadingCalendarData] = useState(false);
 
   // Edit modal friends state variables
@@ -721,10 +657,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     status: string;
     created_at: string;
   }>>([]);
-
-
-
-  // Add PanResponder for photo viewer modal
   const photoViewerPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -849,11 +781,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           }
           
           if (finalStatus !== 'granted') {
-            console.log('Notification permissions not granted');
             return;
-          }
-          
-          console.log('Notification permissions granted');
+          } 
         }
       } catch (error) {
       }
@@ -889,7 +818,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Add a function to fetch shared events
   const fetchSharedEvents = async (userId: string) => {
     try {
-      console.log('🔍 [Calendar] Fetching shared events for user:', userId);
       
       // Fetch shared events where current user is either the sender or recipient
       const { data: sharedEventsData, error } = await supabase
@@ -918,7 +846,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
 
       if (!sharedEventsData || sharedEventsData.length === 0) {
-        console.log('🔍 [Calendar] No shared events found');
         return [];
       }
 
@@ -964,7 +891,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       
       // Debug: Check what user IDs we're collecting
       if (__DEV__) {
-        console.log('🔍 [Calendar] User IDs to fetch profiles for:', Array.from(allUserIds));
       }
       // Fetch profiles for all users involved
       const { data: profilesData, error: profilesError } = await supabase
@@ -975,13 +901,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (profilesError) {
         console.error('🔍 [Calendar] Error fetching profiles:', profilesError);
       } else if (__DEV__) {
-        console.log('🔍 [Calendar] Fetched profiles:', profilesData?.map(p => ({
-        id: p.id,
-        username: p.username,
-        full_name: p.full_name,
-          avatar_url: p.avatar_url ? 'Yes' : 'No',
-          avatar_url_value: p.avatar_url
-      })));
       }
 
       // Create a map of user ID to profile data
@@ -994,11 +913,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       
       // Debug: Check if current user's profile exists
       const currentUserProfile = profilesMap.get(userId);
-      console.log('🔍 [Calendar] Current user profile:', {
-        userId,
-        profileFound: !!currentUserProfile,
-        profileData: currentUserProfile
-      });
 
       // Transform shared events into CalendarEvent format
       const transformedSharedEvents = sharedEventsData
@@ -1020,16 +934,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           
           // Debug: Check profile lookup
           if (__DEV__) {
-            console.log('🔍 [Calendar] Profile lookup for shared event:', {
-            sharedEventId: sharedEvent.id,
-              profileToShowId,
-              profileFound: !!profileToShow,
-              profileAvatar: profileToShow?.avatar_url ? 'Yes' : 'No',
-              profileAvatarValue: profileToShow?.avatar_url,
-              profilesMapSize: profilesMap.size,
-              allProfileIds: Array.from(profilesMap.keys()),
-              profileToShowData: profileToShow
-            });
           }
           
           // Parse dates with better error handling
@@ -1111,19 +1015,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             sharedStatus: sharedEvent.status,
             sharedByAvatarUrl: profileToShow?.avatar_url || null,
           };
-
-          // Debug: Log the final transformed event avatar info
-          console.log('🔍 [Calendar] Final transformed event avatar info:', {
-            eventId: transformedEvent.id,
-            sharedBy: transformedEvent.sharedBy,
-            sharedByAvatarUrl: transformedEvent.sharedByAvatarUrl,
-            profileToShowAvatar: profileToShow?.avatar_url,
-            profileToShowId: profileToShowId,
-            profileToShowData: profileToShow
-          });
-
-
-
           return transformedEvent;
         });
 
@@ -1136,9 +1027,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   // Fetch only ACCEPTED shared events for the calendar (not pending ones)
   const fetchAcceptedSharedEvents = async (userId: string): Promise<CalendarEvent[]> => {
-    try {
-      console.log('🔍 [Calendar] Fetching ACCEPTED shared events for user:', userId);
-      
+    try {      
       // Fetch shared events where current user is either the sender or recipient, but ONLY accepted ones
       const { data: sharedEventsData, error } = await supabase
         .from('shared_events')
@@ -1160,11 +1049,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       if (!sharedEventsData || sharedEventsData.length === 0) {
-        console.log('🔍 [Calendar] No accepted shared events found');
         return [];
       }
-
-      console.log('🔍 [fetchAcceptedSharedEvents] Raw shared events data:', sharedEventsData);
 
       // Get unique user IDs involved in shared events (both senders and recipients)
       const allUserIds = new Set<string>();
@@ -1288,7 +1174,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           return transformedEvent;
         });
 
-      console.log('🔍 [fetchAcceptedSharedEvents] Transformed events:', transformedAcceptedSharedEvents);
       return transformedAcceptedSharedEvents;
     } catch (error) {
       console.error('🔍 [Calendar] Error in fetchAcceptedSharedEvents:', error);
@@ -1299,7 +1184,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   // Fetch SENT PENDING shared events for the calendar (events you shared with friends that are pending)
   const fetchSentPendingSharedEvents = async (userId: string): Promise<CalendarEvent[]> => {
     try {
-      console.log('🔍 [Calendar] Fetching SENT PENDING shared events for user:', userId);
       
       // Fetch shared events where current user is the sender and status is pending
       const { data: sharedEventsData, error } = await supabase
@@ -1322,11 +1206,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       }
 
       if (!sharedEventsData || sharedEventsData.length === 0) {
-        console.log('🔍 [Calendar] No sent pending shared events found');
         return [];
       }
-
-      console.log('🔍 [fetchSentPendingSharedEvents] Raw shared events data:', sharedEventsData);
 
       // Get unique user IDs involved in shared events (recipients only)
       const allUserIds = new Set<string>();
@@ -1449,8 +1330,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
           return transformedEvent;
         });
-
-      console.log('🔍 [fetchSentPendingSharedEvents] Transformed events:', transformedSentPendingSharedEvents);
       return transformedSentPendingSharedEvents;
     } catch (error) {
       console.error('🔍 [Calendar] Error in fetchSentPendingSharedEvents:', error);
@@ -1506,10 +1385,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         // Regular events and accepted shared events should always show on the calendar
         // Sent pending shared events should also show on the calendar with pending design
         const allEvents = [...(eventsData || []), ...acceptedSharedEvents, ...sentPendingSharedEvents];
-        console.log('🔍 [Calendar] Combined events count:', allEvents.length);
-        console.log('🔍 [Calendar] Regular events count:', (eventsData || []).length);
-        console.log('🔍 [Calendar] Accepted shared events count:', acceptedSharedEvents.length);
-        console.log('🔍 [Calendar] Sent pending shared events count:', sentPendingSharedEvents.length);
 
         if (allEvents.length === 0) {
           setEvents({});
@@ -1647,7 +1522,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           // Check if this is a multi-day event first (regardless of customDates)
           if (isMultiDayEvent(transformedEvent)) {
             // Handle multi-day events by creating separate instances for each day
-            console.log('🔍 [Calendar] Processing multi-day event:', transformedEvent.title);
             originals[transformedEvent.id] = transformedEvent;
 
             const startDate = new Date(transformedEvent.startDateTime!);
@@ -1693,7 +1567,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
               }
               
               acc[dateKey].push(eventInstance);
-              console.log('🔍 [Calendar] Added multi-day event to date:', dateKey, 'Event:', transformedEvent.title);
               
               // Move to next day
               currentDate.setDate(currentDate.getDate() + 1);
@@ -1705,7 +1578,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                   acc[date] = [];
                 }
                 acc[date].push(transformedEvent);
-                console.log('🔍 [Calendar] Added custom event to date:', date, 'Event:', transformedEvent.title);
               });
             } else {
             // For regular single-day events, add to the primary date
@@ -1713,24 +1585,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
                 acc[transformedEvent.date] = [];
               }
               acc[transformedEvent.date].push(transformedEvent);
-              console.log('🔍 [Calendar] Added event to date:', transformedEvent.date, 'Event:', transformedEvent.title, 'IsShared:', transformedEvent.isShared);
           }
 
           return acc;
-        }, {} as { [date: string]: CalendarEvent[] });
-
-        console.log('🔍 [Calendar] Final transformed events by date:', Object.keys(transformedEvents));
-        console.log('🔍 [Calendar] Events for 2025-01-15:', transformedEvents['2025-01-15']?.map((e: CalendarEvent) => ({ title: e.title, isShared: e.isShared, id: e.id })) || 'No events');
-        
-
-        
-        // Add detailed debugging for shared events
-        console.log('🔍 [Calendar] All accepted shared events before transformation:', acceptedSharedEvents.map((e: CalendarEvent) => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
-        console.log('🔍 [Calendar] All events before transformation:', allEvents.map((e: CalendarEvent) => ({ id: e.id, title: e.title, date: e.date, isShared: e.isShared })));
+        }, {} as { [date: string]: CalendarEvent[] })
         
         // Check if any events have the date 2025-01-15
         const eventsForJan15 = allEvents.filter(e => e.date === '2025-01-15');
-        console.log('🔍 [Calendar] Events with date 2025-01-15 before transformation:', eventsForJan15.map(e => ({ id: e.id, title: e.title, isShared: e.isShared })));
 
         setEvents(transformedEvents);
         setOriginalEvents(originals);
@@ -1743,7 +1604,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     };
     
   const onRefresh = useCallback(async () => {
-    console.log('🔄 [Calendar] Starting pull-to-refresh...');
     setIsRefreshing(true);
     try {
       // Refresh all data
@@ -1752,7 +1612,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         fetchFriends(),
         fetchSharedEvents(user?.id || '')
       ]);
-      console.log('🔄 [Calendar] Pull-to-refresh completed successfully');
     } catch (error) {
       console.error('🔄 [Calendar] Error during pull-to-refresh:', error);
     } finally {
@@ -1770,7 +1629,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   useFocusEffect(
     useCallback(() => {
       if (user) {
-        console.log('🔄 [Calendar] Screen focused - refreshing data...');
         // Force refresh data when screen comes into focus
         fetchEvents();
         fetchFriends();
@@ -1887,9 +1745,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       setIsLoadingFriends(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-
-      console.log('🔍 [Calendar] Fetching friends for user:', user.id);
-
       // Get friendships where current user is either user_id or friend_id
       const { data: friendships, error: friendshipsError } = await supabase
         .from('friendships')
@@ -1907,9 +1762,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         console.error('Error fetching friendships:', friendshipsError);
         return;
       }
-
-      console.log('🔍 [Calendar] Found friendships:', friendships?.length || 0);
-
       if (!friendships || friendships.length === 0) {
         setFriends([]);
         return;
@@ -1928,9 +1780,7 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         friendships.map(async (friendship) => {
           // Determine which user is the friend (not the current user)
           const friendUserId = friendship.user_id === user.id ? friendship.friend_id : friendship.user_id;
-          
-          console.log('🔍 [Calendar] Fetching profile for friend:', friendUserId);
-          
+                    
           const { data: profileData } = await supabase
             .from('profiles')
             .select('id, full_name, avatar_url, username')
@@ -1950,7 +1800,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         })
       );
 
-      console.log('🔍 [Calendar] Final friends list:', friendsWithProfiles.length);
       setFriends(friendsWithProfiles);
     } catch (error) {
       console.error('Error in fetchFriends:', error);
@@ -2057,15 +1906,11 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const fetchSharedFriendsForEvent = async (eventId: string, isRecipient: boolean = false) => {
     try {
-      console.log('🔍 [Edit Modal] Fetching shared friends for event:', eventId, 'isRecipient:', isRecipient);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.log('🔍 [Edit Modal] No user found');
         return [];
       }
-
-      console.log('🔍 [Edit Modal] User ID:', user.id);
 
       // First, check if the shared_events table exists
       try {
@@ -2075,11 +1920,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .limit(1);
 
         if (tableError) {
-          console.log('🔍 [Edit Modal] Shared events table not accessible:', tableError);
           return [];
         }
       } catch (tableCheckError) {
-        console.log('🔍 [Edit Modal] Error checking shared_events table:', tableCheckError);
         return [];
       }
 
@@ -2106,7 +1949,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             .single();
           
           if (findError || !sharedEventData) {
-            console.log('🔍 [Edit Modal] Could not find shared event for recipient');
             return [];
           }
           
@@ -2129,7 +1971,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           .single();
         
         if (findError || !sharedEventData) {
-          console.log('🔍 [Edit Modal] Could not find shared event for recipient');
           return [];
         }
         
@@ -2156,7 +1997,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             .single();
           
           if (findError || !sharedEventData) {
-            console.log('🔍 [Edit Modal] Could not find shared event for owner');
             return [];
           }
           
@@ -2180,15 +2020,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       const { data: sharedEvents, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
 
-      console.log('🔍 [Edit Modal] Shared events query result:', { sharedEvents, error });
-
       if (error) {
         console.error('🔍 [Edit Modal] Error fetching shared friends:', error);
         return [];
       }
 
       if (!sharedEvents || sharedEvents.length === 0) {
-        console.log('🔍 [Edit Modal] No shared events found');
         return [];
       }
 
@@ -2199,11 +2036,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       // This ensures everyone sees the complete list of involved people
       if (eventOwnerId) {
         friendIds = [...friendIds, eventOwnerId];
-        console.log('🔍 [Edit Modal] Added event owner to friend list:', eventOwnerId);
       }
-      
-      console.log('🔍 [Edit Modal] Found friend IDs:', friendIds);
-      return friendIds;
+            return friendIds;
     } catch (error) {
       console.error('🔍 [Edit Modal] Error in fetchSharedFriendsForEvent:', error);
       return [];
@@ -2344,7 +2178,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleDeleteEvent = async (eventId: string) => {
     try {
-      console.log('🗑️ [Delete] Starting delete for event ID:', eventId);
       
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
@@ -2356,21 +2189,12 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       const parts = eventId.split('_');
       const isMultiDayInstance = parts.length >= 2 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
       const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
-      
-      console.log('🗑️ [Delete] Event ID analysis:', {
-        originalId: eventId,
-        isMultiDayInstance,
-        baseEventId
-      });
-
       // Check if this is a shared event
       const isSharedEvent = baseEventId.startsWith('shared_');
       
       if (isSharedEvent) {
-        console.log('🗑️ [Delete] Calling handleDeleteSharedEvent');
         await handleDeleteSharedEvent(baseEventId);
       } else {
-        console.log('🗑️ [Delete] Calling handleDeleteRegularEvent with baseEventId:', baseEventId, 'and originalEventId:', eventId);
         await handleDeleteRegularEvent(baseEventId, eventId); // Pass both base ID and original ID
       }
     } catch (error) {
@@ -2406,11 +2230,9 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
       if (isOwner) {
         // Owner: delete the original event and all shared instances
-        console.log('🗑️ [Delete Shared] User is owner, deleting original event');
         await handleDeleteRegularEvent(sharedEventData.original_event_id);
       } else if (isRecipient) {
         // Recipient: decline the shared event
-        console.log('🗑️ [Delete Shared] User is recipient, declining shared event');
         
         // Update status to declined
         const { error: updateError } = await supabase
@@ -2456,7 +2278,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
   const handleDeleteRegularEvent = async (baseEventId: string, originalEventId?: string) => {
     try {
-      console.log('🗑️ [Delete Regular] Starting with baseEventId:', baseEventId, 'originalEventId:', originalEventId);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -2488,9 +2309,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (unauthorizedEvents.length > 0) {
         throw new Error('You can only delete your own events');
       }
-
-      console.log('🗑️ [Delete Regular] Found events to delete:', existingEvents.map(e => e.id));
-
       // Cancel notifications for all events
       for (const event of existingEvents) {
         await cancelEventNotification(event.id);
@@ -2534,8 +2352,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
     const events: CalendarEvent[] = [];
     const baseDate = event.startDateTime || new Date(event.date);
     const endDate = event.repeatEndDate || new Date(baseDate.getFullYear() + 1, baseDate.getMonth(), baseDate.getDate());
-
-
     // Helper function to create an event for a specific date
     const createEventForDate = (date: Date): CalendarEvent => {
       const newEvent: CalendarEvent = {
@@ -2605,7 +2421,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   };
 
   const removeEventFromLocalState = (eventId: string) => {
-    console.log('🗑️ [removeEventFromLocalState] Starting removal for eventId:', eventId);
     
       setEvents(prevEvents => {
         const newEvents = { ...prevEvents };
@@ -2615,16 +2430,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       const isMultiDayInstance = parts.length >= 2 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
       const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
       
-      console.log('🗑️ [removeEventFromLocalState] Analysis:', {
-        originalId: eventId,
-        isMultiDayInstance,
-        baseEventId,
-        totalDates: Object.keys(newEvents).length
-      });
-        
         Object.keys(newEvents).forEach(dateKey => {
           const beforeCount = newEvents[dateKey].length;
-        console.log(`🗑️ [removeEventFromLocalState] Processing date ${dateKey}, events before: ${beforeCount}`);
           
             newEvents[dateKey] = newEvents[dateKey].filter(event => {
           const eventParts = event.id.split('_');
@@ -2632,22 +2439,18 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           
           const shouldKeep = eventBaseId !== baseEventId;
           if (!shouldKeep) {
-            console.log(`🗑️ [removeEventFromLocalState] Removing event: ${event.id} (base: ${eventBaseId})`);
           }
           return shouldKeep;
         });
           
           const afterCount = newEvents[dateKey].length;
           removedCount += (beforeCount - afterCount);
-        console.log(`🗑️ [removeEventFromLocalState] Date ${dateKey}, events after: ${afterCount}, removed: ${beforeCount - afterCount}`);
           
           if (newEvents[dateKey].length === 0) {
             delete newEvents[dateKey];
-          console.log(`🗑️ [removeEventFromLocalState] Deleted empty date: ${dateKey}`);
           }
         });
 
-      console.log('🗑️ [removeEventFromLocalState] Total removed:', removedCount);
         return newEvents;
       });
   };
@@ -2880,7 +2683,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
         dbError = insertError;
       } else if (selectedFriends.length === 0) {
-        console.log('🔍 [handleSaveEvent] Creating regular event (no friends selected)');
         
         const { error: insertError } = await supabase
           .from('events')
@@ -2888,7 +2690,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
 
         dbError = insertError;
       } else {
-        console.log('🔍 [handleSaveEvent] Skipping database insertion for shared event');
         // For shared events, we'll handle the database insertion in the sharing function
         dbError = null;
       }
@@ -2918,7 +2719,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (selectedFriends.length === 0) {
         setEvents(prev => {
           const updated = { ...prev };
-          console.log('🔄 [Repeat] Updating local state with', allEvents.length, 'events');
           
           // Helper function to check if event is multi-day
           const isMultiDayEvent = (event: CalendarEvent): boolean => {
@@ -2933,7 +2733,6 @@ const [customModalDescription, setCustomModalDescription] = useState('');
           allEvents.forEach(event => {
             // Check if this is a multi-day event first
             if (isMultiDayEvent(event)) {
-              console.log('🔍 [Calendar] Processing multi-day event in local state update:', event.title);
               const startDate = new Date(event.startDateTime!);
               const endDate = new Date(event.endDateTime!);
               
@@ -2984,9 +2783,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                   }
                 }
                 
-                updated[dateKey].push(eventInstance);
-                console.log('🔍 [Calendar] Added multi-day event to date:', dateKey, 'Event:', event.title);
-                
+                updated[dateKey].push(eventInstance);                
                 // Move to next day
                 currentDate.setDate(currentDate.getDate() + 1);
               }
@@ -3023,17 +2820,9 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         // Update pending shared events after fetching regular events
         updatePendingSharedEvents();
       } else {
-        console.log('🔍 [handleSaveEvent] Not creating shared event - condition not met');
       }
-
-      // Handle shared event creation differently
-      console.log('🔍 [handleSaveEvent] Debugging shared event creation:');
-      console.log('🔍 [handleSaveEvent] selectedFriends.length:', selectedFriends.length);
-      console.log('🔍 [handleSaveEvent] allEvents.length:', allEvents.length);
-      console.log('🔍 [handleSaveEvent] selectedFriends:', selectedFriends);
       
       if (selectedFriends.length > 0 && allEvents.length > 0) {
-        console.log('🔍 [handleSaveEvent] Creating shared event...');
         // For shared events, create them directly as shared events
         const eventToShare = allEvents[0];
         
@@ -3063,9 +2852,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         };
 
         // Create and share the event in one step
-        console.log('🔍 [handleSaveEvent] Calling createAndShareEvent with:', { eventData, selectedFriends });
         const result = await createAndShareEvent(eventData, selectedFriends);
-        console.log('🔍 [handleSaveEvent] createAndShareEvent result:', result);
         
         // Clear selected friends after sharing
         setSelectedFriends([]);
@@ -3174,37 +2961,21 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           // Make vertical gestures much more sensitive when event list is up
           // But still allow horizontal gestures if they're very deliberate
           const shouldRespond = isVertical && Math.abs(gestureState.dy) > Math.abs(gestureState.dx) * 1.2;
-          console.log('🔄 [Calendar] PanResponder in compact mode:', { 
-            isVertical, 
-            isHorizontal, 
-            dy: gestureState.dy, 
-            dx: gestureState.dx, 
-            shouldRespond 
-          });
           return shouldRespond;
         }
         
         // Default behavior for expanded mode
         const shouldRespond = Math.abs(gestureState.dy) > 10;
-        console.log('🔄 [Calendar] PanResponder in expanded mode:', { 
-          dy: gestureState.dy, 
-          shouldRespond 
-        });
         return shouldRespond;
       },
       onPanResponderGrant: () => {
-        console.log('🔄 [Calendar] PanResponder granted');
       },
       onPanResponderMove: (_, gestureState) => {
-        console.log('🔄 [Calendar] PanResponder moving:', { dy: gestureState.dy });
       },
       onPanResponderRelease: (_, gestureState) => {
-        console.log('🔄 [Calendar] PanResponder released:', { dy: gestureState.dy });
         if (gestureState.dy < -20) {
-          console.log('🔄 [Calendar] Swiping up - setting compact mode');
           setIsMonthCompact(true); // Swiped up
         } else if (gestureState.dy > 20) {
-          console.log('🔄 [Calendar] Swiping down - setting expanded mode');
           setIsMonthCompact(false); // Swiped down
         }
       },
@@ -3237,8 +3008,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               isMonthCompact && {
                 ...styles.gridCompact,
                 height: needsSixRowsThisMonth 
-                  ? (getCellHeight(new Date(year, month), true) * 6) // Add buffer for margins and padding
-                  : (getCellHeight(new Date(year, month), true) * 5), // Add buffer for margins and padding
+                  ? (getCellHeight(new Date(year, month), true) * 6)  // Extra buffer for spacing and padding
+                  : (getCellHeight(new Date(year, month), true) * 5), // Extra buffer for spacing and padding
               },
             ]}
           >
@@ -3415,15 +3186,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   };
 
   const handleLongPress = async (event: CalendarEvent) => {
-    try {
-      console.log('🔍 [Edit Modal] Opening edit modal for event:', event.id);
-      
+    try {      
       // Since multi-day events are now unified, use the event directly
       
       // Check if this is a shared event and if the current user is the owner
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.log('🔍 [Edit Modal] No user found');
         return;
       }
       
@@ -3434,7 +3202,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       const hasValidEnd = event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime());
       
       if (isRecipient) {
-        console.log('🔍 [Edit Modal] User is recipient of shared event, showing view-only modal');
         // For recipients, show a view-only modal with shared friends info
         await displaySharedEventDetails(event);
         return;
@@ -3471,16 +3238,13 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       setShowEditEventModal(true);
       
       // Fetch existing shared friends for this event (non-blocking)
-      try {
-        console.log('🔍 [Edit Modal] Fetching shared friends...');
-        
+      try {        
         // For shared events, we need to extract the original event ID
         let eventIdToQuery = event.id;
         if (event.isShared && event.id.startsWith('shared_')) {
           // Extract the original event ID from the shared event ID
           // shared_123456-7890-abcdef -> 123456-7890-abcdef
           const sharedEventId = event.id.replace('shared_', '');
-          console.log('🔍 [Edit Modal] Shared event detected, extracting original event ID:', sharedEventId);
           
           // For shared events, we need to find the original event ID from the shared_events table
           // Check both shared_by (for sent events) and shared_with (for received events)
@@ -3493,11 +3257,9 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           
           if (!error && sharedEventData && sharedEventData.original_event_id) {
             eventIdToQuery = sharedEventData.original_event_id;
-            console.log('🔍 [Edit Modal] Found original event ID:', eventIdToQuery);
           } else {
             // For sent pending events, the original_event_id might be null
             // In this case, we can use the shared event ID itself to find friends
-            console.log('🔍 [Edit Modal] No original event ID found, using shared event ID for friend lookup');
             eventIdToQuery = sharedEventId; // Use the shared event ID directly
           }
         }
@@ -3505,14 +3267,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         // Determine if the current user is the recipient or owner of this shared event
         const isRecipient = event.isShared && event.sharedBy !== user.id;
         const sharedFriendIds = await fetchSharedFriendsForEvent(eventIdToQuery, isRecipient);
-        console.log('🔍 [Edit Modal] Setting shared friends:', sharedFriendIds, 'isRecipient:', isRecipient);
         
         // Set the friends immediately
         setEditSelectedFriends(sharedFriendIds);
         
         // Add a small delay and log to verify the state was updated
         setTimeout(() => {
-          console.log('🔍 [Edit Modal] Friends state should now be updated with:', sharedFriendIds);
         }, 100);
       } catch (error) {
         console.error('🔍 [Edit Modal] Error fetching shared friends, continuing without them:', error);
@@ -3525,9 +3285,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       setShowEditEventModal(true);
     }
   };
-
-
-
 
   // Add this function to handle time selection
   const handleTimeSelection = (selectedDate: Date | null | undefined, field: 'start' | 'end'): void => {
@@ -3676,37 +3433,26 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   )}
 
   const handleEditEvent = async () => {
-    console.log('🔍 [Edit Event] Starting handleEditEvent');
     if (!selectedEvent) {
-      console.log('🔍 [Edit Event] No selectedEvent, returning');
       return;
     }
     if (!editedEventTitle.trim()) {
-      console.log('🔍 [Edit Event] No title, showing alert');
       Alert.alert('Error', 'Please enter a title for the event');
       return;
     }
 
     try {
-      console.log('🔍 [Edit Event] Entering try block');
       // Add a small delay to ensure state updates are processed
       await new Promise(resolve => setTimeout(resolve, 100));
       const originalEvent = selectedEvent.event;
-      console.log('🔍 [Edit Event] Original event:', originalEvent);
       
       // Extract the base event ID if this is a multi-day event instance
       let baseEventId = originalEvent.id;
       const eventParts = originalEvent.id.split('_');
       const eventIsMultiDayInstance = eventParts.length >= 2 && !!eventParts[eventParts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
-      console.log('🔍 [Edit Event] Event ID analysis:', { 
-        originalId: originalEvent.id, 
-        eventParts, 
-        eventIsMultiDayInstance,
-        isShared: originalEvent.isShared 
-      });
+  
       if (eventIsMultiDayInstance) {
         baseEventId = eventParts.slice(0, -1).join('_');
-        console.log('🔍 [Edit Event] Multi-day instance detected. Original ID:', originalEvent.id, 'Base ID:', baseEventId);
       }
       
       // Step 1: Handle shared events differently
@@ -3716,13 +3462,11 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       let sharedEventId: string | null = null;
       
       if (originalEvent.isShared) {
-        console.log('🔍 [Edit Event] Editing shared event:', originalEvent.id);
         
         // For shared events, check if it's in the events table or shared_events table
         if (originalEvent.id.startsWith('shared_')) {
           // This is a shared event ID, extract the actual shared event ID
           sharedEventId = originalEvent.id.replace('shared_', '');
-          console.log('🔍 [Edit Event] Extracted shared event ID:', sharedEventId);
           
           // First, try to find it in the shared_events table
           const { data: sharedEventData, error: sharedError } = await supabase
@@ -3732,15 +3476,11 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             .or(`shared_by.eq.${user?.id},shared_with.eq.${user?.id}`)
             .single();
           
-          console.log('🔍 [Edit Event] Shared event query result:', { sharedEventData, sharedError });
           
           if (!sharedError && sharedEventData) {
-            console.log('🔍 [Edit Event] Found shared event in shared_events table');
-            console.log('🔍 [Edit Event] Shared event data:', sharedEventData);
             
             // If the event has original_event_id, it means it was accepted and moved to events table
             if (sharedEventData.original_event_id) {
-              console.log('🔍 [Edit Event] Accepted shared event, finding in events table');
               // Find the actual event in the events table
               const { data: eventData, error: eventError } = await supabase
                 .from('events')
@@ -3751,20 +3491,16 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               if (!eventError && eventData) {
                 existingEvents = [eventData];
                 originalEventId = eventData.id;
-                console.log('🔍 [Edit Event] Found accepted event in events table:', eventData.id);
               } else {
                 // The original event was deleted but shared event still exists
                 // Treat this as a pending shared event that needs to be updated
-                console.log('🔍 [Edit Event] Original event was deleted, treating as pending shared event');
                 isPendingSharedEvent = true;
               }
             } else {
               // This is a pending shared event - we'll update it in shared_events table
-              console.log('🔍 [Edit Event] Pending shared event detected, will update in shared_events table');
               isPendingSharedEvent = true;
             }
           } else {
-            console.log('🔍 [Edit Event] Could not find shared event in shared_events table:', sharedError);
           }
         } else {
           // This is a regular event ID, find it in the events table
@@ -3800,9 +3536,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       }
 
       // If we still don't have the event and it's not a pending shared event, throw error
-      console.log('🔍 [Edit Event] Final check - existingEvents.length:', existingEvents.length, 'isPendingSharedEvent:', isPendingSharedEvent);
       if (existingEvents.length === 0 && !isPendingSharedEvent) {
-        console.log('🔍 [Edit Event] Throwing error - event not found in database');
         throw new Error('Event not found in database');
       }
 
@@ -3810,7 +3544,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       let existingSharedFriends: string[] = [];
       if (isPendingSharedEvent && sharedEventId) {
         // For pending shared events, fetch friends from the shared_events table
-        console.log('🔍 [Edit Event] Fetching shared friends for pending shared event');
         const { data: sharedEventData, error: sharedError } = await supabase
           .from('shared_events')
           .select('shared_with')
@@ -3819,14 +3552,11 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         
         if (!sharedError && sharedEventData && sharedEventData.length > 0) {
           existingSharedFriends = sharedEventData.map((se: { shared_with: string }) => se.shared_with);
-          console.log('🔍 [Edit Event] Found existing shared friends for pending event:', existingSharedFriends);
         }
       } else if (originalEventId) {
         existingSharedFriends = await fetchSharedFriendsForEvent(originalEventId);
-      console.log('🔍 [Edit Event] Found existing shared friends:', existingSharedFriends);
       } else if (sharedEventId) {
         // Fallback: if we have a shared event ID but no original event ID, fetch friends from shared_events
-        console.log('🔍 [Edit Event] Fallback: fetching friends from shared_events table');
         const { data: sharedEventData, error: sharedError } = await supabase
           .from('shared_events')
           .select('shared_with')
@@ -3835,10 +3565,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         
         if (!sharedError && sharedEventData && sharedEventData.length > 0) {
           existingSharedFriends = sharedEventData.map((se: { shared_with: string }) => se.shared_with);
-          console.log('🔍 [Edit Event] Found existing shared friends via fallback:', existingSharedFriends);
         }
       }
-
       // Step 3: Delete all matching events (only if they exist)
       if (existingEvents.length > 0) {
       const eventIds = existingEvents.map(e => e.id);
@@ -3878,18 +3606,14 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           }
         });
           if (!eventFound) {
-            console.log('🔍 [Edit Event] Event not found in local state, continuing...');
           }
         return updated;
       });
       } else {
-        console.log('🔍 [Edit Event] Skipping local state removal for pending shared event');
       }
 
       // Step 6: Handle pending shared events differently
-      console.log('🔍 [Edit Event] Step 6 - isPendingSharedEvent:', isPendingSharedEvent, 'sharedEventId:', sharedEventId);
       if (isPendingSharedEvent && sharedEventId) {
-        console.log('🔍 [Edit Event] Updating pending shared event in shared_events table');
         
         // Create updated event data for the shared_events table
         const updatedEventData = {
@@ -3920,19 +3644,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           throw new Error('Failed to update pending shared event');
         }
         
-        console.log('🔍 [Edit Event] Successfully updated pending shared event');
-        
-        // Handle friend updates for pending shared events
-        // For pending shared events, we only update the event_data, not the sharing relationships
-        // The sharing relationships should remain as they were when originally created
-        console.log('🔍 [Edit Event] Updating event data for pending shared event, preserving sharing relationships');
-        
-        // Note: We don't modify the sharing relationships here because:
-        // 1. The event is already shared with the intended recipients
-        // 2. Changing recipients would require complex logic to handle acceptances/declines
-        // 3. It's safer to preserve the original sharing intent
-        
-        // Refresh the main calendar events to include the updated pending shared event
         await fetchEvents();
         
         // Update local state for shared events (for the modal)
@@ -4023,15 +3734,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         
         // Check if this is a multi-day event first
         if (isMultiDayEvent(newEvent)) {
-          console.log('🔍 [Edit Event] Processing multi-day event in local state update:', newEvent.title);
           
           // FIRST: Remove ALL instances of the original event from ALL dates
-          console.log('🗑️ [Edit Event] Removing all instances of original event. Base ID:', baseEventId);
           Object.keys(updated).forEach(dateKey => {
             updated[dateKey] = updated[dateKey].filter(e => {
               // Check if this is the original event we're editing
               if (e.id === baseEventId) {
-                console.log('🗑️ [Edit Event] Removing original event from date:', dateKey);
                 return false; // Remove the original event
               }
               
@@ -4041,7 +3749,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               if (eventIsMultiDayInstance) {
                 const eventBaseId = eventParts.slice(0, -1).join('_');
                 if (eventBaseId === baseEventId) {
-                  console.log('🗑️ [Edit Event] Removing instance of original event from date:', dateKey, 'Instance ID:', e.id);
                   return false; // Remove instances of the original event
                 }
               }
@@ -4093,9 +3800,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               }
             }
             
-            updated[dateKey].push(eventInstance);
-            console.log('✅ [Edit Event] Added new multi-day event instance to date:', dateKey, 'Event:', newEvent.title);
-            
+            updated[dateKey].push(eventInstance);            
             // Move to next day
             currentDate.setDate(currentDate.getDate() + 1);
           }
@@ -4135,7 +3840,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       // Step 10: Re-share with existing friends and any newly selected friends
       const allFriendsToShare = [...new Set([...existingSharedFriends, ...editSelectedFriends])];
       if (allFriendsToShare.length > 0) {
-        console.log('🔍 [Edit Event] Sharing with friends:', allFriendsToShare);
         
         // Temporarily set the selected friends to the ones we want to share with
         const originalSelectedFriends = [...selectedFriends];
@@ -4150,7 +3854,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         // If sharing was successful, we don't need to refresh since we've already updated local state
         // The shared event will be visible in the UI through the local state update
         if (shareResult) {
-          console.log('🔍 [Edit Event] Sharing successful, local state already updated');
         }
         
         // Clear edit selected friends after sharing
@@ -4175,9 +3878,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       Alert.alert('Error', 'Failed to edit event. Please try again.');
     }
   };
-
-  // Add new state for the time box calendar picker
-  const [selectedTimeBoxForCalendar, setSelectedTimeBoxForCalendar] = useState<string | null>(null);
 
   // Add function to handle time box save and show calendar
   const handleTimeBoxSave = (timeBoxId: string): void => {
@@ -4207,10 +3907,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           // Only refresh for INSERT operations (new events) or UPDATE operations
           // Skip DELETE operations to avoid bringing back deleted events
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            console.log('🔄 [Real-time] Event change detected:', payload.eventType, 'refreshing events');
             fetchEvents();
           } else if (payload.eventType === 'DELETE') {
-            console.log('🔄 [Real-time] Event deletion detected, skipping refresh to preserve local state');
           }
         }
       )
@@ -4233,17 +3931,14 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   // Add notification listeners (only for logging, no toast messages)
   useEffect(() => {
     const notificationListener = Notifications.addNotificationReceivedListener(notification => {
-      console.log('🔔 [Notifications] Notification received:', notification);
       // No toast message - let the system show the notification banner
     });
 
     const responseListener = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('🔔 [Notifications] Notification response received:', response);
       
       // Handle shared event notifications
       const notificationData = response.notification.request.content.data;
       if (notificationData?.type === 'event_shared') {
-        console.log('🔔 [Notifications] Handling shared event notification:', notificationData);
         // Refresh events to show the new shared event
         fetchEvents();
         // Show shared events modal
@@ -4378,10 +4073,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       // Only refresh events if we don't have any events loaded yet
       // This prevents overwriting local state changes like deletions
       if (Object.keys(events).length === 0) {
-        console.log('🔄 [Calendar] No events loaded, refreshing on focus');
         fetchEvents();
       } else {
-        console.log('🔄 [Calendar] Events already loaded, skipping refresh on focus');
       }
     }, [events])
   );
@@ -4392,30 +4085,18 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   // Add a function to check notification settings
   const checkNotificationSettings = async () => {
     try {
-      console.log('🔔 [Notifications] Checking notification settings...');
       
       // Check permissions
       const { status } = await Notifications.getPermissionsAsync();
-      console.log('🔔 [Notifications] Permission status:', status);
       
       // Get scheduled notifications
       const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
-      console.log('🔔 [Notifications] Scheduled notifications:', scheduledNotifications.length);
       
       // Log each scheduled notification
       scheduledNotifications.forEach((notification, index) => {
-        console.log(`🔔 [Notifications] Notification ${index + 1}:`, {
-          id: notification.identifier,
-          title: notification.content.title,
-          body: notification.content.body,
-          trigger: notification.trigger,
-          data: notification.content.data
-        });
       });
-      
       // Get presented notifications
       const presentedNotifications = await Notifications.getPresentedNotificationsAsync();
-      console.log('🔔 [Notifications] Presented notifications:', presentedNotifications.length);
       
       // Show summary in toast
       Toast.show({
@@ -4461,9 +4142,11 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       }
       
       // Convert base64 to Uint8Array for React Native compatibility
+      // Use a more efficient conversion method
       const binaryString = atob(base64Data);
       const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
+      const len = binaryString.length;
+      for (let i = 0; i < len; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       
@@ -4516,14 +4199,14 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         result = await ImagePicker.launchCameraAsync({
           allowsEditing: false,
           aspect: [4, 3],
-          quality: 0.8,
+          quality: 0.7, // Slightly lower quality for faster processing
         });
       } else {
         result = await ImagePicker.launchImageLibraryAsync({
           mediaTypes: ImagePicker.MediaTypeOptions.Images,
           allowsEditing: false,
           aspect: [4, 3],
-          quality: 0.8,
+          quality: 0.7, // Slightly lower quality for faster processing
         });
       }
 
@@ -4532,7 +4215,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         try {
           const photoData = await uploadEventPhoto(result.assets[0].uri, eventId || 'temp', isPhotoPrivate);
           
-          // Get event details for sharing
+          // Get event details for sharing immediately
           let eventTitle = 'Event';
           let eventIdForSharing: string;
           
@@ -4542,7 +4225,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             if (event) {
               eventTitle = event.title;
             }
-            await updateEventPhoto(eventId, photoData.url, photoData.isPrivate);
           } else {
             // For new events, we need to save the event first to get a proper ID
             // For now, we'll skip sharing for new events until they're saved
@@ -4563,13 +4245,9 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           if (user?.id && eventId) {
             const privacyText = photoData.isPrivate ? ' (Private)' : '';
             
-            // If the photo is not private, show caption modal for sharing
+            // If the photo is not private, show caption modal immediately for sharing
             if (!photoData.isPrivate) {
-              // Get event details for sharing
-              const event = Object.values(events).flat().find(e => e.id === eventId);
-              const eventTitle = event?.title || 'Event';
-              
-              // Set up photo for caption modal
+              // Set up photo for caption modal immediately
               setPhotoForCaption({
                 url: photoData.url,
                 eventId: eventId,
@@ -4577,18 +4255,26 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               });
               setShowCaptionModal(true);
             } else {
-            Toast.show({
-              type: 'success',
-              text1: `Photo added to event${privacyText}`,
+              Toast.show({
+                type: 'success',
+                text1: `Photo added to event${privacyText}`,
                 text2: 'This photo is private and only visible to you',
-              position: 'bottom',
-            });
+                position: 'bottom',
+              });
             }
           } else {
             Toast.show({
               type: 'success',
               text1: 'Photo added successfully',
               position: 'bottom',
+            });
+          }
+          
+          // Update the database in the background for saved events
+          if (eventId) {
+            updateEventPhoto(eventId, photoData.url, photoData.isPrivate).catch(error => {
+              console.error('Error updating event photo in database:', error);
+              // Don't show error to user since photo was uploaded successfully
             });
           }
           
@@ -4615,6 +4301,15 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
     
     setIsSharingPhoto(true);
     try {
+      // Ensure the photo is properly saved to the event first
+      // This handles the case where the background update might still be in progress
+      try {
+        await updateEventPhoto(photoForCaption.eventId, photoForCaption.url, false);
+      } catch (error) {
+        console.error('Error ensuring photo is saved to event:', error);
+        // Continue anyway since the photo was uploaded successfully
+      }
+      
       // Create social update with caption
       const { error: socialError } = await supabase
         .from('social_updates')
@@ -4912,7 +4607,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             animated: false,
           });
         } catch (error) {
-          console.log('Error scrolling to photo index:', error);
           // Fallback: try to scroll to the first photo
           try {
             photoViewerFlatListRef.current?.scrollToIndex({
@@ -4920,7 +4614,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               animated: false,
             });
           } catch (fallbackError) {
-            console.log('Fallback scroll also failed:', fallbackError);
           }
         }
       }, 100);
@@ -4938,7 +4631,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
   const handleAcceptSharedEvent = async (event: CalendarEvent) => {
     try {
-      console.log('🔍 [Accept] Starting accept process for event:', event.id);
       
       // Extract the shared event ID from the event ID
       let sharedEventId = event.id;
@@ -4946,12 +4638,9 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         sharedEventId = event.id.replace('shared_', '');
       }
       
-      console.log('🔍 [Accept] Extracted shared event ID:', sharedEventId);
-      
       // Use the imported sharing utility function
       const result = await acceptSharedEventUtil(sharedEventId);
       
-      console.log('🔍 [Accept] Accept result:', result);
       
       if (!result.success) {
         throw new Error(result.error || 'Failed to accept event');
@@ -4975,21 +4664,16 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
   const handleDeclineSharedEvent = async (event: CalendarEvent) => {
     try {
-      console.log('🔍 [Decline] Starting decline process for event:', event.id);
       
       // Extract the shared event ID from the event ID
       let sharedEventId = event.id;
       if (event.id.startsWith('shared_')) {
         sharedEventId = event.id.replace('shared_', '');
       }
-      
-      console.log('🔍 [Decline] Extracted shared event ID:', sharedEventId);
-      
+            
       // Use the imported sharing utility function
       const result = await declineSharedEventUtil(sharedEventId);
-      
-      console.log('🔍 [Decline] Decline result:', result);
-      
+            
       if (!result.success) {
         throw new Error(result.error || 'Failed to decline event');
       }
@@ -5011,9 +4695,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   };
 
   const handleCancelSharedEvent = async (event: CalendarEvent) => {
-    try {
-      console.log('🔍 [Cancel] Starting cancel process for event:', event.id);
-      
+    try {      
       // Show confirmation dialog
       Alert.alert(
         'Cancel Shared Event',
@@ -5030,9 +4712,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                 if (event.id.startsWith('shared_')) {
                   sharedEventId = event.id.replace('shared_', '');
                 }
-                
-                console.log('🔍 [Cancel] Extracted shared event ID:', sharedEventId);
-                
+                                
                 // Delete the shared event from the database
                 const { error } = await supabase
                   .from('shared_events')
@@ -5148,7 +4828,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   // Test function to create a shared event for debugging
   const createTestSharedEvent = async () => {
     try {
-      console.log('🔍 [Test] Creating test shared event...');
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -5167,7 +4846,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       if (profileError) {
         console.error('❌ [Test] Error updating profile:', profileError);
       } else {
-        console.log('✅ [Test] Avatar URL added to profile');
       }
 
       // Create a test event
@@ -5194,9 +4872,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         console.error('❌ [Test] Error creating test event:', eventError);
         return;
       }
-
-      console.log('✅ [Test] Created test event:', eventData);
-
       // Create a shared event (share with yourself for testing)
       const { data: sharedEventData, error: sharedEventError } = await supabase
         .from('shared_events')
@@ -5213,8 +4888,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         console.error('❌ [Test] Error creating shared event:', sharedEventError);
         return;
       }
-
-      console.log('✅ [Test] Created shared event:', sharedEventData);
       
       // Refresh events to show the new shared event
       await fetchEvents();
@@ -5226,7 +4899,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
   const fetchPendingSharedEvents = async (userId: string): Promise<CalendarEvent[]> => {
     try {
-      console.log('🔍 [Calendar] Fetching PENDING shared events for user:', userId);
       
       // Fetch shared events where current user is the recipient and status is pending
       const { data: sharedEventsData, error } = await supabase
@@ -5249,11 +4921,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       }
 
       if (!sharedEventsData || sharedEventsData.length === 0) {
-        console.log('🔍 [Calendar] No pending shared events found');
         return [];
       }
-
-      console.log('🔍 [fetchPendingSharedEvents] Raw shared events data:', sharedEventsData);
 
       // Get unique user IDs involved in shared events (senders only)
       const allUserIds = new Set<string>();
@@ -5375,8 +5044,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
           return transformedEvent;
         });
-
-      console.log('🔍 [fetchPendingSharedEvents] Transformed events:', transformedPendingSharedEvents);
       return transformedPendingSharedEvents;
     } catch (error) {
       console.error('🔍 [Calendar] Error in fetchPendingSharedEvents:', error);
@@ -5386,7 +5053,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
   const fetchSentSharedEvents = async (userId: string): Promise<CalendarEvent[]> => {
     try {
-      console.log('🔍 [Calendar] Fetching SENT shared events for user:', userId);
       
       // Fetch shared events where current user is the sender
       const { data: sharedEventsData, error } = await supabase
@@ -5408,11 +5074,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       }
 
       if (!sharedEventsData || sharedEventsData.length === 0) {
-        console.log('🔍 [Calendar] No sent shared events found');
         return [];
       }
-
-      console.log('🔍 [fetchSentSharedEvents] Raw shared events data:', sharedEventsData);
 
       // Get unique user IDs involved in shared events (recipients only)
       const allUserIds = new Set<string>();
@@ -5536,7 +5199,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           return transformedEvent;
         });
 
-      console.log('🔍 [fetchSentSharedEvents] Transformed events:', transformedSentSharedEvents);
       return transformedSentSharedEvents;
     } catch (error) {
       console.error('🔍 [Calendar] Error in fetchSentSharedEvents:', error);
@@ -5547,15 +5209,12 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   const updatePendingSharedEvents = useCallback(async () => {
     if (!user?.id) return;
     
-    console.log('🔍 [updatePendingSharedEvents] Starting update for user:', user.id);
     
     // Fetch pending shared events from database
     const pendingEvents = await fetchPendingSharedEvents(user.id);
-    console.log('🔍 [updatePendingSharedEvents] Fetched pending events:', pendingEvents.length);
     
     // Fetch sent shared events from database
     const sentEvents = await fetchSentSharedEvents(user.id);
-    console.log('🔍 [updatePendingSharedEvents] Fetched sent events:', sentEvents.length);
     
     // Sort sent events: declined first, then pending, then accepted
     const sortedSentEvents = sentEvents.sort((a, b) => {
@@ -5572,51 +5231,16 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
     // Combine pending and accepted shared events for received events
     const receivedEvents = [...pendingEvents, ...acceptedSharedEvents];
     
-    // Debug logging for shared events
-    console.log('🔍 [Shared Events] All events count:', allEvents.length);
-    console.log('🔍 [Shared Events] Pending shared events count:', pendingEvents.length);
-    console.log('🔍 [Shared Events] Sent shared events count:', sortedSentEvents.length);
-    console.log('🔍 [Shared Events] Accepted shared events count:', acceptedSharedEvents.length);
-    console.log('🔍 [Shared Events] Received events count:', receivedEvents.length);
-    
     receivedEvents.forEach(event => {
-      console.log('🔍 [Shared Events] Received event details:', {
-        id: event.id,
-        title: event.title,
-        startDateTime: event.startDateTime,
-        endDateTime: event.endDateTime,
-        isAllDay: event.isAllDay,
-        sharedStatus: event.sharedStatus,
-        sharedBy: event.sharedBy,
-        user: user?.id
-      });
     });
     
     sortedSentEvents.forEach(event => {
-      console.log('🔍 [Shared Events] Sent event details:', {
-        id: event.id,
-        title: event.title,
-        startDateTime: event.startDateTime,
-        endDateTime: event.endDateTime,
-        isAllDay: event.isAllDay,
-        sharedStatus: event.sharedStatus,
-        sharedBy: event.sharedBy,
-        sharedWith: event.sharedWith,
-        user: user?.id
-      });
     });
-    
-    console.log('🔍 [Shared Events] Sent events count:', sortedSentEvents.length);
-    console.log('🔍 [Shared Events] Received events count:', receivedEvents.length);
-    console.log('🔍 [Shared Events] User ID:', user?.id);
-    console.log('🔍 [Shared Events] Sent events sharedBy values:', sortedSentEvents.map(e => e.sharedBy));
-    console.log('🔍 [Shared Events] Received events sharedBy values:', receivedEvents.map(e => e.sharedBy));
     
     setPendingSharedEvents(receivedEvents);
     setSentSharedEvents(sortedSentEvents);
     setReceivedSharedEvents(receivedEvents);
     
-    console.log('🔍 [updatePendingSharedEvents] State updated');
   }, [events, user?.id]);
 
   // Update pending events when events change
@@ -5627,7 +5251,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   // Update pending events when component mounts
   useEffect(() => {
     if (user?.id) {
-      console.log('🔍 [Calendar] Component mounted, updating pending shared events for user:', user.id);
       updatePendingSharedEvents();
     }
   }, [user?.id, updatePendingSharedEvents]);
@@ -5649,17 +5272,11 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
     swipeAnimation.setValue(activeSharedEventsTab === 'sent' ? -1 : 0);
   }, []);
 
-
-
-  // Add state for editedIsAllDay for the edit modal
-
-
-
   return (
     <>
       <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
   {calendarMode === 'month' ? (
-    <View style={{ flex: 1, flexDirection: 'column' }}>
+    <View style={{ flex: 1, flexDirection: 'column', paddingTop: 20 }}>
       {/* Fixed Header */}
       <View style={styles.headerRow}>
         <TouchableOpacity
@@ -5693,20 +5310,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           {/* Always show shared events button, not just when there are pending events */}
             <TouchableOpacity
             onPress={async () => {
-              console.log('🔍 [Calendar] Opening shared events modal');
-              console.log('🔍 [Calendar] Pending events count:', pendingSharedEvents.length);
-              console.log('🔍 [Calendar] Sent events count:', sentSharedEvents.length);
-              console.log('🔍 [Calendar] Received events count:', receivedSharedEvents.length);
-              console.log('🔍 [Calendar] User ID:', user?.id);
-              
               // Update shared events before opening modal
               await updatePendingSharedEvents();
-              
-              console.log('🔍 [Calendar] After updatePendingSharedEvents:');
-              console.log('🔍 [Calendar] Pending events count:', pendingSharedEvents.length);
-              console.log('🔍 [Calendar] Sent events count:', sentSharedEvents.length);
-              console.log('🔍 [Calendar] Received events count:', receivedSharedEvents.length);
-              
               setShowSharedEventsModal(true);
             }}
               style={{
@@ -5741,11 +5346,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           </TouchableOpacity>
         </View>
       </View>
-
-
-
-
-
       {/* Calendar and Event List Container */}
       <View 
         {...panResponder.panHandlers}
@@ -5758,7 +5358,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         {/* Calendar Grid */}
         <View style={{ 
           flex: isMonthCompact ? 0.5 : 1,
-          minHeight: isMonthCompact ? 200 : 400, // Ensure stable height
+          minHeight: isMonthCompact ? 240 : 400, // Further increased minHeight to prevent cutoff
         }}>
           <FlatList
             ref={flatListRef}
@@ -5804,7 +5404,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             flex: 0.6, 
             backgroundColor: 'white',
             minHeight: 300, // Ensure stable height
-            marginTop: 20, // Add top margin to move it lower
+            marginTop: 0, // Reduced margin to move event list up while keeping calendar visible
           }}>
             <View style={styles.dateHeader}>
               <Text style={styles.dateHeaderText}>
@@ -5937,13 +5537,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                             </View>
                             <Text style={{ fontSize: 15, color: '#666', marginBottom: event.description ? 2 : 0 }}>
                               {(() => {
-                                console.log('🔍 [Calendar] Event list display check:', {
-                                  title: event.title,
-                                  isAllDay: event.isAllDay,
-                                  startDateTime: event.startDateTime,
-                                  endDateTime: event.endDateTime,
-                                  isShared: event.isShared
-                                });
                                 
                                 // Check if this is an all-day event first
                                 if (event.isAllDay) {
@@ -5954,16 +5547,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                 if (event.startDateTime && event.endDateTime && 
                                     event.startDateTime instanceof Date && !isNaN(event.startDateTime.getTime()) &&
                                     event.endDateTime instanceof Date && !isNaN(event.endDateTime.getTime())) {
-                                  console.log('🔍 [Calendar] Event has valid times, showing times');
                                   const formatTime = (date: Date | undefined) => {
-                                    console.log('🔍 [Calendar] Formatting time for event list:', {
-                                      date,
-                                      dateType: typeof date,
-                                      isDate: date instanceof Date,
-                                      isValid: date instanceof Date && !isNaN(date.getTime()),
-                                      eventTitle: event.title,
-                                      isShared: event.isShared
-                                    });
                                     
                                     if (!date || !(date instanceof Date) || isNaN(date.getTime())) {
                                       console.warn('🔍 [Calendar] Invalid date for formatting in event list:', date);
@@ -5971,7 +5555,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                     }
                                     try {
                                       const formatted = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                                      console.log('🔍 [Calendar] Successfully formatted time in event list:', formatted);
                                       return formatted;
                                     } catch (error) {
                                       console.error('🔍 [Calendar] Error formatting time in event list:', error, date);
@@ -5983,10 +5566,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                   const endTime = formatTime(event.endDateTime);
                                   
                                                                     const result = `${startTime} – ${endTime}`;
-                                  console.log('🔍 [Calendar] Final time string for event list:', result);
                                   return result;
                                 } else {
-                                  console.log('🔍 [Calendar] Event has no valid times, showing all-day');
                                   return 'All day';
                                 }
                               })()}
@@ -6104,7 +5685,10 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   ) : (
     <View style={{ width: SCREEN_WIDTH, flex: 1 }}>
       {/* Fixed Header */}
-      <View style={styles.headerRow}>
+      <View style={[
+        styles.headerRow,
+        calendarMode === 'week' && { marginTop: 10 }
+      ]}>
         <TouchableOpacity
           onPress={() => {
             const today = new Date();
@@ -6146,11 +5730,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           {/* Always show shared events button, not just when there are pending events */}
           <TouchableOpacity
             onPress={async () => {
-              console.log('🔍 [Calendar] Opening shared events modal (week view)');
-              console.log('🔍 [Calendar] Pending events count:', pendingSharedEvents.length);
-              console.log('🔍 [Calendar] Sent events count:', sentSharedEvents.length);
-              console.log('🔍 [Calendar] Received events count:', receivedSharedEvents.length);
-              
               // Update shared events before opening modal
               await updatePendingSharedEvents();
               
@@ -6407,7 +5986,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                           <Switch 
                             value={isAllDay} 
                             onValueChange={(value) => {
-                              console.log('🔍 [Calendar] All-day switch toggled to:', value);
                               setIsAllDay(value);
                             }}
                             trackColor={{ false: 'white', true: '#00BCD4' }}
@@ -6493,12 +6071,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                             onChange={(event, selectedDate) => {
                               if (selectedDate) {
                                 if (showStartPicker) {
-                                  console.log('🔍 [Calendar] Date picker - updating startDateTime:', {
-                                    oldStartDateTime: startDateTime.toISOString(),
-                                    newStartDateTime: selectedDate.toISOString(),
-                                    oldDate: getLocalDateString(startDateTime),
-                                    newDate: getLocalDateString(selectedDate)
-                                  });
+                                  
                                   setStartDateTime(selectedDate);
                                   if (endDateTime < selectedDate) {
                                     const newEnd = new Date(selectedDate);
@@ -6507,10 +6080,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                   }
                                   debouncePickerClose('start');
                                 } else {
-                                  console.log('🔍 [Calendar] Date picker - updating endDateTime:', {
-                                    oldEndDateTime: endDateTime.toISOString(),
-                                    newEndDateTime: selectedDate.toISOString()
-                                  });
+                                  
                                   setEndDateTime(selectedDate);
                                   debouncePickerClose('end');
                                 }
@@ -6639,18 +6209,20 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                               ))}
                             </View>
 
-                            <View style={styles.modalFormActions}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
                               <TouchableOpacity
                                 onPress={() => {
                                   setShowAddCategoryForm(false);
                                   setNewCategoryName('');
-                                setNewCategoryColor(CATEGORY_COLORS[0]);
+                                  setNewCategoryColor(CATEGORY_COLORS[0]);
                                 }}
-                                style={styles.modalFormButton}
+                                style={{
+                                  marginRight: 10,
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                }}
                               >
-                                <Text style={styles.modalFormButtonText}>
-                                  Cancel
-                                </Text>
+                                <Ionicons name="close" size={18} color="#64748b" />
                               </TouchableOpacity>
                               <TouchableOpacity
                                 onPress={async () => {
@@ -6681,15 +6253,20 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                       setSelectedCategory(newCategory);
                                       setShowAddCategoryForm(false);
                                       setNewCategoryName('');
-                                    setNewCategoryColor(CATEGORY_COLORS[0]);
+                                      setNewCategoryColor(CATEGORY_COLORS[0]);
                                     }
                                   }
                                 }}
-                                style={styles.modalFormButtonPrimary}
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: 14,
+                                  backgroundColor: '#00ACC1',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                }}
                               >
-                                <Text style={styles.modalFormButtonTextPrimary}>
-                                  Add
-                                </Text>
+                                <Ionicons name="checkmark" size={18} color="white" />
                               </TouchableOpacity>
                             </View>
                           </View>
@@ -7074,60 +6651,68 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                         ))}
                                       </View>
 
-                            <View style={styles.modalFormActions}>
-                                        <TouchableOpacity
-                                          onPress={() => {
-                                            setShowAddCategoryForm(false);
-                                            setNewCategoryName('');
-                                setNewCategoryColor(CATEGORY_COLORS[0]);
-                                          }}
-                                          style={styles.modalFormButton}
-                                        >
-                                          <Text style={styles.modalFormButtonText}>
-                                            Cancel
-                                          </Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                          onPress={async () => {
-                                            if (newCategoryName.trim()) {
-                                              const { data, error } = await supabase
-                                                .from('categories')
-                                                .insert([
-                                                  {
-                                                    label: newCategoryName.trim(),
-                                                    color: newCategoryColor,
-                                                    user_id: user?.id,
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  setShowAddCategoryForm(false);
+                                  setNewCategoryName('');
+                                  setNewCategoryColor(CATEGORY_COLORS[0]);
+                                }}
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Ionicons name="close" size={16} color="#64748b" />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  if (newCategoryName.trim()) {
+                                    const { data, error } = await supabase
+                                      .from('categories')
+                                      .insert([
+                                        {
+                                          label: newCategoryName.trim(),
+                                          color: newCategoryColor,
+                                          user_id: user?.id,
                                           type: 'calendar'
-                                                  }
-                                                ])
-                                                .select();
+                                        }
+                                      ])
+                                      .select();
 
-                                              if (error) {
-                                                
-                                                return;
-                                              }
+                                    if (error) {
+                                      return;
+                                    }
 
-                                              if (data) {
-                                                const newCategory = {
-                                                  id: data[0].id,
-                                                  name: data[0].label,
-                                                  color: data[0].color,
-                                                };
-                                                setCategories(prev => [...prev, newCategory]);
-                                                setSelectedCategory(newCategory);
-                                                setShowAddCategoryForm(false);
-                                                setNewCategoryName('');
-                                              setNewCategoryColor(CATEGORY_COLORS[0]);
-                                              }
-                                            }
-                                          }}
-                                          style={styles.modalFormButtonPrimary}
-                                        >
-                                          <Text style={styles.modalFormButtonTextPrimary}>
-                                            Add
-                                          </Text>
-                                        </TouchableOpacity>
-                                      </View>
+                                    if (data) {
+                                      const newCategory = {
+                                        id: data[0].id,
+                                        name: data[0].label,
+                                        color: data[0].color,
+                                      };
+                                      setCategories(prev => [...prev, newCategory]);
+                                      setSelectedCategory(newCategory);
+                                      setShowAddCategoryForm(false);
+                                      setNewCategoryName('');
+                                      setNewCategoryColor(CATEGORY_COLORS[0]);
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 16,
+                                  backgroundColor: '#00ACC1',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                }}
+                              >
+                                <Ionicons name="checkmark" size={16} color="white" />
+                              </TouchableOpacity>
+                            </View>
                                 </View>
                               )}
                           </TouchableOpacity>
@@ -7516,12 +7101,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                             onChange={(event, selectedDate) => {
                           if (selectedDate) {
                               if (showStartPicker) {
-                                console.log('🔍 [Calendar] Edit modal date picker - updating editedStartDateTime:', {
-                                  oldEditedStartDateTime: editedStartDateTime.toISOString(),
-                                  newEditedStartDateTime: selectedDate.toISOString(),
-                                  oldDate: getLocalDateString(editedStartDateTime),
-                                  newDate: getLocalDateString(selectedDate)
-                                });
                               setEditedStartDateTime(selectedDate);
                               if (editedEndDateTime < selectedDate) {
                                 const newEnd = new Date(selectedDate);
@@ -7530,10 +7109,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                               }
                                   debouncePickerClose('start');
                               } else {
-                                console.log('🔍 [Calendar] Edit modal date picker - updating editedEndDateTime:', {
-                                  oldEditedEndDateTime: editedEndDateTime.toISOString(),
-                                  newEditedEndDateTime: selectedDate.toISOString()
-                                });
+        
                               setEditedEndDateTime(selectedDate);
                                   debouncePickerClose('end');
                                 }
@@ -7662,18 +7238,22 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                           ))}
                         </View>
 
-                        <View style={styles.modalFormActions}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}>
                           <TouchableOpacity
                             onPress={() => {
                               setShowAddCategoryForm(false);
                               setNewCategoryName('');
                               setNewCategoryColor(CATEGORY_COLORS[0]);
                             }}
-                            style={styles.modalFormButton}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}
                           >
-                            <Text style={styles.modalFormButtonText}>
-                              Cancel
-                            </Text>
+                            <Ionicons name="close" size={16} color="#64748b" />
                           </TouchableOpacity>
                           <TouchableOpacity
                             onPress={async () => {
@@ -7708,11 +7288,16 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                 }
                               }
                             }}
-                            style={styles.modalFormButtonPrimary}
+                            style={{
+                              width: 32,
+                              height: 32,
+                              borderRadius: 16,
+                              backgroundColor: '#00ACC1',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}
                           >
-                            <Text style={styles.modalFormButtonTextPrimary}>
-                              Add
-                            </Text>
+                            <Ionicons name="checkmark" size={16} color="white" />
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -8401,12 +7986,6 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
             {/* Content */}
             <View style={{ flex: 1, padding: 16 }}>
               {(() => {
-                console.log('🔍 [Shared Events Modal] Rendering modal with state:', {
-                  receivedSharedEvents: receivedSharedEvents.length,
-                  sentSharedEvents: sentSharedEvents.length,
-                  pendingSharedEvents: pendingSharedEvents.length,
-                  user: user?.id
-                });
                 return null;
               })()}
 

@@ -30,7 +30,7 @@ const getCellHeight = (date: Date | null, isCompact: boolean = false) => {
 export const calendarStyles = StyleSheet.create({
   // Header styles
   monthLabel: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '700',
     textAlign: 'center',
     color: '#333',
@@ -44,14 +44,15 @@ export const calendarStyles = StyleSheet.create({
     marginVertical: 1,
     backgroundColor: 'white',
     zIndex: 1,
-    marginTop: 6,
-    marginBottom: 8
+    marginTop: -10,
+    marginBottom: 0
   },
 
   // Calendar grid styles
   weekRow: {
     flexDirection: 'row',
     backgroundColor: 'white',
+    marginTop: 20,
   },
   weekday: {
     width: CELL_WIDTH,
@@ -81,6 +82,7 @@ export const calendarStyles = StyleSheet.create({
   },
   gridCompact: {
     paddingTop: 5,
+    paddingBottom: 25, // Increased bottom padding to prevent last row cutoff
     overflow: 'visible',
   },
 
@@ -121,14 +123,14 @@ export const calendarStyles = StyleSheet.create({
   dateContainer: {
     alignItems: 'center',
     marginBottom: 0,
-    height: 25,
-    width: 25,
+    height: 20,
+    width: 20,
     justifyContent: 'center',
     backgroundColor: 'transparent',
-    borderRadius: 12.5,
+    borderRadius: 10,
   },
   dateNumber: {
-    fontSize: 15,
+    fontSize: 13,
     color: '#3A3A3A',
     fontFamily: 'Onest',
     textAlign: 'center',
@@ -490,7 +492,7 @@ export const calendarStyles = StyleSheet.create({
   },
   modalFormActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: 6,
   },
   modalFormButton: {
@@ -500,9 +502,9 @@ export const calendarStyles = StyleSheet.create({
     marginLeft: -8,
   },
   modalFormButtonPrimary: {
-    backgroundColor: '#00BCD4', // Brighter cyan
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    backgroundColor: 'transparent',
+    paddingVertical: 8,
+    paddingHorizontal: 0,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 0,
@@ -515,8 +517,8 @@ export const calendarStyles = StyleSheet.create({
     fontWeight: '500',
   },
   modalFormButtonTextPrimary: {
-    color: 'white',
-    fontSize: 14,
+    color: '#00ACC1',
+    fontSize: 12,
     fontFamily: 'Onest',
     fontWeight: '600',
   },

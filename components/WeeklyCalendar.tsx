@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { View, Text, FlatList, ScrollView, StyleSheet, TouchableOpacity, Dimensions, Alert, RefreshControl } from 'react-native';
-import { Swipeable } from 'react-native-gesture-handler';
+import { Swipeable, Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Feather } from '@expo/vector-icons';
 import { supabase } from '../supabase';
@@ -141,6 +141,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
     const [clickedCell, setClickedCell] = useState<{ dayIndex: number; hourIndex: number } | null>(null);
     const clickTimeoutRef = useRef<NodeJS.Timeout>();
     const hasScrolledToCurrentTime = useRef(false);
+    const [currentWeekIndex, setCurrentWeekIndex] = useState(50); // Track current week index
     
     // Regenerate weeks array whenever selectedDate changes
     const weeks = useMemo(() => {
@@ -151,6 +152,35 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
             return weekStart;
         });
     }, [selectedDate]);
+
+    // Gesture handlers for swipe navigation - horizontal only
+    const panGesture = Gesture.Pan()
+        .activeOffsetX([-10, 10]) // Only activate for horizontal movement
+        .failOffsetY([-5, 5]) // Fail if vertical movement exceeds 5px
+        .onEnd((event) => {
+            const { translationX, velocityX } = event;
+            const threshold = 50; // Minimum distance for swipe
+            const velocityThreshold = 500; // Minimum velocity for swipe
+
+            // Only handle horizontal swipes
+            const isHorizontalSwipe = Math.abs(translationX) > threshold || Math.abs(velocityX) > velocityThreshold;
+
+            if (isHorizontalSwipe) {
+                // Horizontal swipe - navigate between weeks
+                if (translationX > 0) {
+                    // Swipe right - go to previous week
+                    const newIndex = Math.max(0, currentWeekIndex - 1);
+                    setCurrentWeekIndex(newIndex);
+                    flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
+                } else {
+                    // Swipe left - go to next week
+                    const newIndex = Math.min(weeks.length - 1, currentWeekIndex + 1);
+                    setCurrentWeekIndex(newIndex);
+                    flatListRef.current?.scrollToIndex({ index: newIndex, animated: true });
+                }
+            }
+            // All other gestures are ignored
+        });
 
     // Initialize month text immediately
     useEffect(() => {
@@ -179,6 +209,14 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
             const weekEnd = new Date(visibleWeek);
             weekEnd.setDate(weekEnd.getDate() + 6);
 
+            // Update current week index
+            const weekIndex = weeks.findIndex(week => 
+                week.getTime() === weekStart.getTime()
+            );
+            if (weekIndex !== -1) {
+                setCurrentWeekIndex(weekIndex);
+            }
+
             let newMonthText;
             if (weekStart.getMonth() !== weekEnd.getMonth()) {
                 const startMonth = weekStart.toLocaleString('en-US', { month: 'long' }).toLowerCase();
@@ -195,7 +233,7 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
             setVisibleWeekMonthText(newMonthText);
             setVisibleWeekMonth(weekStart);
         }
-    }, [setVisibleWeekMonth, setVisibleWeekMonthText]);
+    }, [setVisibleWeekMonth, setVisibleWeekMonthText, weeks]);
 
     const isToday = (date: Date) => {
         const today = new Date();
@@ -846,23 +884,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
   }, [selectedDate, scrollToCurrentTime]);
 
   return (
-    <View style={{ flex: 1 }}>
-      {!hideHeader && (
-        <TouchableOpacity 
-          style={styles.weekStrip}
-          onPress={() => {
-            // Navigate to the current week (today's date)
-            const now = new Date();
-            scrollToWeek(now);
-          }}
-        >
-          <View style={{ flex: 1, alignItems: 'center' }}>
-            <Text style={styles.monthLabel}>
-              {visibleWeekMonthText}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      )}
+    <View style={{ flex: 1, marginTop: 20 }}>
+
       <FlatList
       ref={flatListRef} 
         data={weeks}
@@ -885,6 +908,8 @@ const WeeklyCalendarView = React.forwardRef<WeeklyCalendarViewRef, WeeklyCalenda
         decelerationRate="fast"
         snapToInterval={SCREEN_WIDTH}
         snapToAlignment="center"
+        scrollEnabled={true}
+        directionalLockEnabled={true}
       />
     </View>
   );
@@ -896,8 +921,8 @@ const styles = StyleSheet.create({
   weekStrip: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 12,
-    paddingBottom: 16,
+    paddingTop: 0,
+    paddingBottom: 0,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderColor: '#dadce0',
@@ -912,7 +937,7 @@ const styles = StyleSheet.create({
   headerContainer: {
     flexDirection: 'row',
     backgroundColor: '#ffffff',
-    paddingTop: 6,
+    paddingTop: 0,
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderColor: '#dadce0',
@@ -950,7 +975,7 @@ const styles = StyleSheet.create({
     color: '#5f6368',
     fontFamily: 'Onest',
     textAlign: 'right',
-    marginBottom: -7,
+    marginBottom: 0,
     marginTop: 0,
     backgroundColor: 'transparent',
     paddingRight: 12,
@@ -1034,6 +1059,7 @@ const styles = StyleSheet.create({
   },
 
   monthLabel: {
+    marginTop: 20,
     fontSize: 18,
     fontWeight: '600',
     color: '#202124',
