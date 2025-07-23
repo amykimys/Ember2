@@ -73,6 +73,7 @@ interface MemoryItem {
   title: string;
   description?: string;
   categoryColor?: string;
+  isPrivate?: boolean;
 }
 
 interface MemoryGroup {
@@ -959,27 +960,18 @@ export default function ProfileScreen() {
             photos: event.photos,
             private_photos: event.private_photos
           });
-          
-          // Only include regular photos in memories (private photos should not appear in memories)
+          // Include regular photos in memories
           const allPhotos = event.photos || [];
-          
           if (allPhotos.length > 0) {
             console.log(`📷 All photos array for event ${event.id}:`, allPhotos);
-            
             allPhotos.forEach((photoUri: string, photoIndex: number) => {
               console.log(`📅 Processing photo ${photoIndex} for event ${event.id}:`, photoUri);
-              
               if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {
-                // Only skip obviously invalid photos
                 const isObviouslyInvalid = (
-                  // Empty or very short strings
                   photoUri.length < 10 ||
-                  // Just file extensions
                   /^\.(jpg|jpeg|png|gif|webp)$/i.test(photoUri) ||
-                  // Just UUIDs without file extensions
                   /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i.test(photoUri)
                 );
-                
                 if (!isObviouslyInvalid) {
                   console.log(`✅ Adding event memory for date ${event.date}:`, photoUri);
                   allMemories.push({
@@ -989,7 +981,8 @@ export default function ProfileScreen() {
                     type: 'event',
                     title: event.title,
                     description: event.description,
-                    categoryColor: event.category_color
+                    categoryColor: event.category_color,
+                    isPrivate: false
                   });
                 } else {
                   console.log(`⚠️ Skipping obviously invalid event photo for event ${event.id}:`, photoUri);
@@ -998,8 +991,36 @@ export default function ProfileScreen() {
                 console.log(`❌ Skipping invalid event photo for event ${event.id}:`, photoUri);
               }
             });
-          } else {
-            console.log(`❌ Event ${event.id} has no valid photos:`, { photos: event.photos, private_photos: event.private_photos });
+          }
+          // Include private photos in memories, marked as private
+          const privatePhotos = event.private_photos || [];
+          if (privatePhotos.length > 0) {
+            privatePhotos.forEach((photoUri: string, photoIndex: number) => {
+              if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {
+                const isObviouslyInvalid = (
+                  photoUri.length < 10 ||
+                  /^\.(jpg|jpeg|png|gif|webp)$/i.test(photoUri) ||
+                  /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i.test(photoUri)
+                );
+                if (!isObviouslyInvalid) {
+                  console.log(`✅ Adding PRIVATE event memory for date ${event.date}:`, photoUri);
+                  allMemories.push({
+                    id: `${event.id}_private_${photoIndex}`,
+                    photoUri: photoUri,
+                    date: event.date,
+                    type: 'event',
+                    title: event.title,
+                    description: event.description,
+                    categoryColor: event.category_color,
+                    isPrivate: true
+                  });
+                } else {
+                  console.log(`⚠️ Skipping obviously invalid PRIVATE event photo for event ${event.id}:`, photoUri);
+                }
+              } else {
+                console.log(`❌ Skipping invalid PRIVATE event photo for event ${event.id}:`, photoUri);
+              }
+            });
           }
         });
       } else {

@@ -4305,14 +4305,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
     
     setIsSharingPhoto(true);
     try {
-      // Ensure the photo is properly saved to the event first
-      // This handles the case where the background update might still be in progress
-      try {
-        await updateEventPhoto(photoForCaption.eventId, photoForCaption.url, false);
-      } catch (error) {
-        console.error('Error ensuring photo is saved to event:', error);
-        // Continue anyway since the photo was uploaded successfully
-      }
+      // The photo is already saved to the event from handleEventPhotoPicker
+      // No need to call updateEventPhoto again as it would duplicate the photo
       
       // Check if a social update already exists for this photo to prevent duplicates
       const { data: existingUpdate, error: checkError } = await supabase
@@ -4414,15 +4408,21 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
       if (isPrivate) {
         // Add to private photos and remove from regular photos if it exists
-        updatedPrivatePhotos = [...updatedPrivatePhotos, photoUrl];
+        if (!updatedPrivatePhotos.includes(photoUrl)) {
+          updatedPrivatePhotos = [...updatedPrivatePhotos, photoUrl];
+        }
         updatedPhotos = updatedPhotos.filter(photo => photo !== photoUrl);
       } else {
         // Add to regular photos and remove from private photos if it exists
-        updatedPhotos = [...updatedPhotos, photoUrl];
+        if (!updatedPhotos.includes(photoUrl)) {
+          updatedPhotos = [...updatedPhotos, photoUrl];
+        }
         updatedPrivatePhotos = updatedPrivatePhotos.filter(photo => photo !== photoUrl);
       }
 
       console.log('📸 [Photo] Updated arrays:', { updatedPhotos, updatedPrivatePhotos });
+      console.log('📸 [Photo] Photo already exists in regular photos:', updatedPhotos.includes(photoUrl));
+      console.log('📸 [Photo] Photo already exists in private photos:', updatedPrivatePhotos.includes(photoUrl));
       
       const { error } = await supabase
         .from('events')
@@ -5640,7 +5640,14 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                     onPress={() => {
                                       try {
                                         // Validate photo data before opening viewer
-                                        if (!event || !photoUrl || !event.photos || event.photos.length === 0) {
+                                        if (
+                                          !event ||
+                                          !photoUrl ||
+                                          (
+                                            (!event.photos || !event.photos.includes(photoUrl)) &&
+                                            (!event.private_photos || !event.private_photos.includes(photoUrl))
+                                          )
+                                        ) {
                                           console.error('Invalid photo data:', { event, photoUrl });
                                           Alert.alert('Error', 'Invalid photo data');
                                           return;
