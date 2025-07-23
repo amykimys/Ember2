@@ -960,13 +960,13 @@ export default function ProfileScreen() {
             private_photos: event.private_photos
           });
           
-          // Combine regular photos and private photos
-          const allPhotos = [...(event.photos || []), ...(event.private_photos || [])];
+          // Only include regular photos in memories (private photos should not appear in memories)
+          const allPhotos = event.photos || [];
           
           if (allPhotos.length > 0) {
             console.log(`📷 All photos array for event ${event.id}:`, allPhotos);
             
-            allPhotos.forEach((photoUri, photoIndex) => {
+            allPhotos.forEach((photoUri: string, photoIndex: number) => {
               console.log(`📅 Processing photo ${photoIndex} for event ${event.id}:`, photoUri);
               
               if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {

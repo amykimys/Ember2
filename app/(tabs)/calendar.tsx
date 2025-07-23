@@ -37,8 +37,7 @@ import { fetchSharedEvents as fetchSharedEventsUtil, acceptSharedEvent as accept
 import type { SharedEvent } from '../../utils/sharing';
 import { Colors } from '../../constants/Colors';
 import PhotoCaptionModal from '../../components/PhotoCaptionModal';
-import PhotoZoomViewer from '../../components/PhotoZoomViewer';
-
+import EventPhotoViewerModal from '../../components/EventPhotoViewerModal';
 import { arePushNotificationsEnabled } from '../../utils/notificationUtils';
 
 // Add robust ID generation function that works with TEXT ids
@@ -591,9 +590,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   
   // New Instagram-like photo zoom state
-  const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
-  const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<{ photoUrl: string; eventTitle: string } | null>(null);
-  
+  const [showPhotoViewerModal, setShowPhotoViewerModal] = useState(false);
+const [selectedPhotoForViewer, setSelectedPhotoForViewer] = useState<{ event: CalendarEvent, photoUrl: string } | null>(null);
   // Custom photo attachment modal state
   const [showCustomPhotoModal, setShowCustomPhotoModal] = useState(false);
   const [selectedEventForPhoto, setSelectedEventForPhoto] = useState<string | undefined>(undefined);
@@ -605,6 +603,32 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   const [isSharingPhoto, setIsSharingPhoto] = useState(false);
   
   const photoViewerFlatListRef = useRef<FlatList>(null);
+
+  // Scroll to the correct photo when the photo viewer opens
+  useEffect(() => {
+    if (showPhotoViewer && selectedPhotoForViewing && photoViewerFlatListRef.current) {
+      const allPhotos = [...(selectedPhotoForViewing.event.photos || []), ...(selectedPhotoForViewing.event.private_photos || [])];
+      const photoIndex = allPhotos.indexOf(selectedPhotoForViewing.photoUrl);
+      
+      if (photoIndex >= 0) {
+        setTimeout(() => {
+          try {
+            photoViewerFlatListRef.current?.scrollToIndex({
+              index: photoIndex,
+              animated: false
+            });
+          } catch (error) {
+            console.error('Error scrolling to photo index:', error);
+            // Fallback to scroll to offset
+            photoViewerFlatListRef.current?.scrollToOffset({
+              offset: photoIndex * Dimensions.get('window').width,
+              animated: false
+            });
+          }
+        }, 100);
+      }
+    }
+  }, [showPhotoViewer, selectedPhotoForViewing]);
     const eventModalScrollViewRef = useRef<ScrollView>(null);
     const editEventModalScrollViewRef = useRef<ScrollView>(null);
     const swipeableRefs = useRef<{ [key: string]: any }>({});
@@ -659,10 +683,10 @@ const [customModalDescription, setCustomModalDescription] = useState('');
   }>>([]);
   const photoViewerPanResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, gestureState) => {
-        // Respond to any vertical movement
-        return Math.abs(gestureState.dy) > 2;
+        // Only respond to vertical movements, allow horizontal movements to pass through
+        return Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
       },
       onPanResponderGrant: () => {
         // Optional: Add visual feedback when gesture starts
@@ -671,8 +695,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         // Optional: Add visual feedback during gesture
       },
       onPanResponderRelease: (_, gestureState) => {
-        // Close modal on any downward swipe
-        if (gestureState.dy > 10) {
+        // Close modal on downward swipe
+        if (gestureState.dy > 50) {
           setShowPhotoViewer(false);
         }
       },
@@ -1496,7 +1520,8 @@ const [customModalDescription, setCustomModalDescription] = useState('');
             customDates: event.custom_dates || [],
             customTimes,
             isAllDay: isAllDay,
-            photos: [...(event.photos || []), ...(event.private_photos || [])],
+            photos: event.photos || [],
+            private_photos: event.private_photos || [],
             // Shared event properties (for shared events)
             isShared: event.isShared || false,
             sharedBy: event.sharedBy,
@@ -2186,6 +2211,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
         return;
       }
 
+      // Close all other swipeable components before deleting
+      Object.keys(swipeableRefs.current).forEach(refKey => {
+        if (refKey !== eventId && swipeableRefs.current[refKey]) {
+          swipeableRefs.current[refKey].close();
+        }
+      });
+
       const parts = eventId.split('_');
       const isMultiDayInstance = parts.length >= 2 && !!parts[parts.length - 1].match(/^\d{4}-\d{2}-\d{2}$/);
       const baseEventId = isMultiDayInstance ? parts.slice(0, -1).join('_') : eventId;
@@ -2210,6 +2242,13 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (!user) {
         throw new Error('User not authenticated');
       }
+
+      // Close all other swipeable components before deleting
+      Object.keys(swipeableRefs.current).forEach(refKey => {
+        if (refKey !== sharedEventId && swipeableRefs.current[refKey]) {
+          swipeableRefs.current[refKey].close();
+        }
+      });
 
       // Extract the actual shared event ID (remove 'shared_' prefix)
       const actualSharedEventId = sharedEventId.replace('shared_', '');
@@ -2283,6 +2322,14 @@ const [customModalDescription, setCustomModalDescription] = useState('');
       if (!user) {
         throw new Error('User not authenticated');
       }
+
+      // Close all other swipeable components before deleting
+      const eventIdToClose = originalEventId || baseEventId;
+      Object.keys(swipeableRefs.current).forEach(refKey => {
+        if (refKey !== eventIdToClose && swipeableRefs.current[refKey]) {
+          swipeableRefs.current[refKey].close();
+        }
+      });
 
       // The baseEventId passed here is already the base event ID (extracted in handleDeleteEvent)
       // No need to extract again
@@ -2893,52 +2940,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       setShowCustomDatesPicker(false);
       setEditingEvent(null);
 
-      // If the event has photos and is not private, share them to friends feed
-      if (eventToSave.photos && eventToSave.photos.length > 0 && user?.id) {
-        try {
-          // Share each non-private photo
-          for (const photoUrl of eventToSave.photos) {
-            // Check if this photo is not in private_photos
-            if (!eventToSave.private_photos?.includes(photoUrl)) {
-              // Create social update for this photo
-              const { error: socialError } = await supabase
-                .from('social_updates')
-                .insert({
-                  user_id: user.id,
-                  type: 'photo_share',
-                  photo_url: photoUrl,
-                  caption: '', // Let the friends feed fetch the actual event title
-                  source_type: 'event',
-                  source_id: eventToSave.id,
-                  is_public: true,
-                  content: {
-                    title: eventToSave.title,
-                    photo_url: photoUrl
-                  }
-                });
-
-              if (socialError) {
-                console.error('Error creating social update for photo:', socialError);
-              }
-            }
-          }
-          
-          // Show additional success message if photos were shared
-          const publicPhotoCount = eventToSave.photos.filter(photo => 
-            !eventToSave.private_photos?.includes(photo)
-          ).length;
-          
-          if (publicPhotoCount > 0) {
-      Toast.show({
-        type: 'success',
-              text1: `${publicPhotoCount} photo${publicPhotoCount > 1 ? 's' : ''} shared with friends!`,
-        position: 'bottom',
-      });
-          }
-        } catch (error) {
-          console.error('Error sharing photos to friends feed:', error);
-        }
-      }
+      // Photos are now only shared to friends feed when user explicitly adds captions
+      // No automatic social update creation when saving events
     } catch (error) {
       Alert.alert('Error', 'Failed to save event. Please try again.');
     }
@@ -4272,8 +4275,9 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
           
           // Update the database in the background for saved events
           if (eventId) {
+            console.log('🔄 [Photo] Calling updateEventPhoto for saved event:', { eventId, photoUrl: photoData.url, isPrivate: photoData.isPrivate });
             updateEventPhoto(eventId, photoData.url, photoData.isPrivate).catch(error => {
-              console.error('Error updating event photo in database:', error);
+              console.error('❌ [Photo] Error updating event photo in database:', error);
               // Don't show error to user since photo was uploaded successfully
             });
           }
@@ -4310,26 +4314,42 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         // Continue anyway since the photo was uploaded successfully
       }
       
-      // Create social update with caption
-      const { error: socialError } = await supabase
+      // Check if a social update already exists for this photo to prevent duplicates
+      const { data: existingUpdate, error: checkError } = await supabase
         .from('social_updates')
-        .insert({
-          user_id: user.id,
-          type: 'photo_share',
-          photo_url: photoForCaption.url,
-          caption: caption,
-          source_type: 'event',
-          source_id: photoForCaption.eventId,
-          is_public: true,
-          content: {
-            title: photoForCaption.eventTitle,
-            photo_url: photoForCaption.url
-          }
-        });
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('photo_url', photoForCaption.url)
+        .eq('source_type', 'event')
+        .eq('source_id', photoForCaption.eventId)
+        .single();
 
-      if (socialError) {
-        console.error('Error creating social update:', socialError);
-        throw socialError;
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Error checking existing social update:', checkError);
+      }
+
+      // Only create social update if one doesn't already exist
+      if (!existingUpdate) {
+        const { error: socialError } = await supabase
+          .from('social_updates')
+          .insert({
+            user_id: user.id,
+            type: 'photo_share',
+            photo_url: photoForCaption.url,
+            caption: caption,
+            source_type: 'event',
+            source_id: photoForCaption.eventId,
+            is_public: true,
+            content: {
+              title: photoForCaption.eventTitle,
+              photo_url: photoForCaption.url
+            }
+          });
+
+        if (socialError) {
+          console.error('Error creating social update:', socialError);
+          throw socialError;
+        }
       }
       
       Toast.show({
@@ -4367,6 +4387,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
   const updateEventPhoto = async (eventId: string, photoUrl: string, isPrivate: boolean = false) => {
     try {
+      console.log('🔄 [Photo] Updating event photo:', { eventId, photoUrl, isPrivate });
+      
       // Get the current event to see existing photos and private photos
       const { data: currentEvent, error: fetchError } = await supabase
         .from('events')
@@ -4375,12 +4397,17 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         .single();
 
       if (fetchError) {
+        console.error('❌ [Photo] Error fetching current event:', fetchError);
         throw fetchError;
       }
+
+      console.log('📸 [Photo] Current event data:', currentEvent);
 
       // Append the new photo to existing photos
       const currentPhotos = currentEvent?.photos || [];
       const currentPrivatePhotos = currentEvent?.private_photos || [];
+      
+      console.log('📸 [Photo] Current arrays:', { currentPhotos, currentPrivatePhotos });
       
       let updatedPhotos = [...currentPhotos];
       let updatedPrivatePhotos = [...currentPrivatePhotos];
@@ -4395,6 +4422,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         updatedPrivatePhotos = updatedPrivatePhotos.filter(photo => photo !== photoUrl);
       }
 
+      console.log('📸 [Photo] Updated arrays:', { updatedPhotos, updatedPrivatePhotos });
+      
       const { error } = await supabase
         .from('events')
         .update({ 
@@ -4404,16 +4433,22 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         .eq('id', eventId);
 
       if (error) {
+        console.error('❌ [Photo] Error updating event:', error);
         throw error;
       }
 
-      // Update local state - combine both arrays for display
-      const allPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
+      console.log('✅ [Photo] Event updated successfully');
+
+      // Update local state - keep photos and private_photos separate
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
           updated[date] = updated[date].map(event => 
-            event.id === eventId ? { ...event, photos: allPhotos } : event
+            event.id === eventId ? { 
+              ...event, 
+              photos: updatedPhotos,
+              private_photos: updatedPrivatePhotos
+            } : event
           );
         });
         return updated;
@@ -4478,13 +4513,16 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         await removePhotoFromFriendsFeed(user.id, 'event', eventId, photoUrlToRemove);
       }
 
-      // Update local state - combine both arrays for display
-      const allUpdatedPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
+      // Update local state - keep photos and private_photos separate
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
           updated[date] = updated[date].map(event => 
-            event.id === eventId ? { ...event, photos: allUpdatedPhotos } : event
+            event.id === eventId ? { 
+              ...event, 
+              photos: updatedPhotos,
+              private_photos: updatedPrivatePhotos
+            } : event
           );
         });
         return updated;
@@ -4538,13 +4576,16 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
         await removePhotoFromFriendsFeed(user.id, 'event', eventId, photoUrlToRemove);
       }
 
-      // Update local state - combine both arrays for display
-      const allUpdatedPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
+      // Update local state - keep photos and private_photos separate
       setEvents(prev => {
         const updated = { ...prev };
         Object.keys(updated).forEach(date => {
           updated[date] = updated[date].map(event => 
-            event.id === eventId ? { ...event, photos: allUpdatedPhotos } : event
+            event.id === eventId ? { 
+              ...event, 
+              photos: updatedPhotos,
+              private_photos: updatedPrivatePhotos
+            } : event
           );
         });
         return updated;
@@ -4552,22 +4593,23 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
 
       // Update the selected photo for viewing
       if (selectedPhotoForViewing) {
-        const currentIndex = allUpdatedPhotos.indexOf(photoUrlToRemove);
+        const allPhotos = [...updatedPhotos, ...updatedPrivatePhotos];
+        const currentIndex = allPhotos.indexOf(photoUrlToRemove);
 
-        if (allUpdatedPhotos.length > 0) {
+        if (allPhotos.length > 0) {
           // If there are remaining photos, select the next one
           let newPhotoUrl: string;
-          if (currentIndex >= allUpdatedPhotos.length) {
+          if (currentIndex >= allPhotos.length) {
             // If we deleted the last photo, select the new last photo
-            newPhotoUrl = allUpdatedPhotos[allUpdatedPhotos.length - 1];
+            newPhotoUrl = allPhotos[allPhotos.length - 1];
           } else {
             // Select the photo at the same index (or the last one if index is out of bounds)
-            newPhotoUrl = allUpdatedPhotos[Math.min(currentIndex, allUpdatedPhotos.length - 1)];
+            newPhotoUrl = allPhotos[Math.min(currentIndex, allPhotos.length - 1)];
           }
 
           // Update the selected photo
           setSelectedPhotoForViewing({
-            event: { ...selectedPhotoForViewing.event, photos: allUpdatedPhotos },
+            event: { ...selectedPhotoForViewing.event, photos: allPhotos },
             photoUrl: newPhotoUrl
           });
         } else {
@@ -5586,13 +5628,13 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                           
                           {/* Photo Section */}
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            {event.photos && event.photos.length > 0 && (
+                            {((event.photos && event.photos.length > 0) || (event.private_photos && event.private_photos.length > 0)) && (
                               <View style={{ 
                                 position: 'relative',
-                                width: 45 + (event.photos.length > 1 ? 8 : 0), // Account for stacking offset
-                                height: 45 + (Math.min(event.photos.length, 3) - 1) * 8, // Account for vertical stacking
+                                width: 45 + (Math.max((event.photos?.length || 0) + (event.private_photos?.length || 0), 1) > 1 ? 8 : 0), // Account for stacking offset
+                                height: 45 + (Math.min(Math.max((event.photos?.length || 0) + (event.private_photos?.length || 0), 1), 3) - 1) * 8, // Account for vertical stacking
                               }}>
-                                {event.photos.slice(0, 3).map((photoUrl, photoIndex) => (
+                                {[...(event.photos || []), ...(event.private_photos || [])].slice(0, 3).map((photoUrl, photoIndex) => (
                                   <TouchableOpacity
                                     key={photoIndex}
                                     onPress={() => {
@@ -5605,8 +5647,8 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                         }
                                         
                                         // Use the new Instagram-like zoom viewer
-                                        setSelectedPhotoForZoom({ photoUrl, eventTitle: event.title });
-                                        setShowPhotoZoomModal(true);
+                                        setSelectedPhotoForViewer({ event, photoUrl });
+  setShowPhotoViewerModal(true);
                                       } catch (error) {
                                         console.error('Error opening photo viewer:', error);
                                         Alert.alert('Error', 'Failed to open photo viewer');
@@ -5645,7 +5687,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                   </TouchableOpacity>
                                 ))}
                                 {/* Show count indicator if more than 3 photos */}
-                                {event.photos.length > 3 && (
+                                {((event.photos?.length || 0) + (event.private_photos?.length || 0)) > 3 && (
                                   <View style={{
                                     position: 'absolute',
                                     top: 2 * 4 + 45, // Position below the stacked photos
@@ -5661,7 +5703,7 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                                       fontSize: 10, 
                                       fontWeight: 'bold' 
                                     }}>
-                                      +{event.photos.length - 3}
+                                      +{((event.photos?.length || 0) + (event.private_photos?.length || 0)) - 3}
                                     </Text>
                                   </View>
                                 )}
@@ -7803,26 +7845,36 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                 paddingVertical: 6,
                 borderRadius: 12,
               }}>
-                {selectedPhotoForViewing.event.photos!.indexOf(selectedPhotoForViewing.photoUrl) + 1} of {selectedPhotoForViewing.event.photos!.length}
+                {[...(selectedPhotoForViewing.event.photos || []), ...(selectedPhotoForViewing.event.private_photos || [])].indexOf(selectedPhotoForViewing.photoUrl) + 1} of {[...(selectedPhotoForViewing.event.photos || []), ...(selectedPhotoForViewing.event.private_photos || [])].length}
               </Text>
             </View>
           )}
           
           {/* Main Photo Display */}
-          {selectedPhotoForViewing?.event?.photos && selectedPhotoForViewing.event.photos.length > 0 && (
+          {selectedPhotoForViewing?.event?.photos && (selectedPhotoForViewing.event.photos.length > 0 || (selectedPhotoForViewing.event.private_photos?.length || 0) > 0) && (
             <FlatList
               ref={photoViewerFlatListRef}
-              data={selectedPhotoForViewing.event.photos}
+              data={[...(selectedPhotoForViewing.event.photos || []), ...(selectedPhotoForViewing.event.private_photos || [])]}
               horizontal
               pagingEnabled
               showsHorizontalScrollIndicator={false}
-              keyExtractor={(item, idx) => item + idx}
+              keyExtractor={(item, idx) => `photo-${idx}-${item}`}
               getItemLayout={(_, index) => ({ length: Dimensions.get('window').width, offset: Dimensions.get('window').width * index, index })}
+              scrollEnabled={true}
+              directionalLockEnabled={false}
+              alwaysBounceHorizontal={true}
+              bounces={true}
+              decelerationRate="fast"
+              snapToInterval={Dimensions.get('window').width}
+              snapToAlignment="start"
+              initialScrollIndex={[...(selectedPhotoForViewing?.event?.photos || []), ...(selectedPhotoForViewing?.event?.private_photos || [])].indexOf(selectedPhotoForViewing?.photoUrl)}
+
               onMomentumScrollEnd={e => {
                 try {
                 const width = e.nativeEvent.layoutMeasurement.width;
                 const index = Math.round(e.nativeEvent.contentOffset.x / width);
-                  const photoUrl = selectedPhotoForViewing?.event?.photos?.[index];
+                  const allPhotos = [...(selectedPhotoForViewing?.event?.photos || []), ...(selectedPhotoForViewing?.event?.private_photos || [])];
+                  const photoUrl = allPhotos[index];
                   if (photoUrl && photoUrl !== selectedPhotoForViewing?.photoUrl) {
                   setSelectedPhotoForViewing({
                     event: selectedPhotoForViewing.event,
@@ -7833,33 +7885,38 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                   console.error('Error in onMomentumScrollEnd:', error);
                 }
               }}
-              renderItem={({ item }) => (
-                <View style={{ 
-                  width: Dimensions.get('window').width, 
-                  height: '100%', 
-                  justifyContent: 'center', 
-                  alignItems: 'center',
-                  paddingHorizontal: 32,
-                }}>
-                  <Image
-                    source={{ uri: item }}
-                    style={{
-                      width: '100%',
-                      height: '75%',
-                      resizeMode: 'contain',
-                    }}
-                    onError={(error) => {
-                      console.error('Image loading error:', error);
-                    }}
-                  />
-                </View>
-              )}
+              renderItem={({ item, index }) => {
+                return (
+                  <View style={{ 
+                    width: Dimensions.get('window').width, 
+                    height: '100%', 
+                    justifyContent: 'center', 
+                    alignItems: 'center',
+                    paddingHorizontal: 32,
+                  }}>
+                    <Image
+                      source={{ uri: item }}
+                      style={{
+                        width: '100%',
+                        height: '75%',
+                        resizeMode: 'contain',
+                      }}
+                      onError={(error) => {
+                        console.error('Image loading error:', error);
+                      }}
+                    />
+                  </View>
+                );
+              }}
               style={{ width: Dimensions.get('window').width, height: '100%' }}
             />
           )}
           
           {/* Bottom Thumbnails */}
-          {selectedPhotoForViewing?.event.photos && selectedPhotoForViewing.event.photos.length > 1 && (
+          {selectedPhotoForViewing?.event && (() => {
+            const allPhotos = [...(selectedPhotoForViewing.event.photos || []), ...(selectedPhotoForViewing.event.private_photos || [])];
+            return allPhotos.length > 1;
+          })() && (
             <View style={{
               position: 'absolute',
               bottom: 0,
@@ -7868,19 +7925,32 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
               paddingVertical: 24,
               paddingHorizontal: 24,
               zIndex: 10,
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              borderTopLeftRadius: 16,
+              borderTopRightRadius: 16,
             }}>
+              <Text style={{
+                color: 'white',
+                fontSize: 14,
+                fontWeight: '600',
+                marginBottom: 12,
+                textAlign: 'center',
+                fontFamily: 'Onest',
+              }}>
+                Photos ({[...(selectedPhotoForViewing.event.photos || []), ...(selectedPhotoForViewing.event.private_photos || [])].length})
+              </Text>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{
                   alignItems: 'center',
-                  gap: 12,
+                  gap: 8,
                 }}
                 style={{
                   maxWidth: '100%',
                 }}
               >
-                {selectedPhotoForViewing.event.photos.map((photoUrl, index) => {
+                {[...(selectedPhotoForViewing.event.photos || []), ...(selectedPhotoForViewing.event.private_photos || [])].map((photoUrl, index) => {
                   const isSelected = photoUrl === selectedPhotoForViewing.photoUrl;
                   return (
                     <TouchableOpacity
@@ -7892,22 +7962,32 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                           photoUrl: photoUrl
                         });
                         // Scroll to the selected photo
-                        photoViewerFlatListRef.current?.scrollToIndex({
-                          index: index,
-                          animated: true,
-                        });
+                        try {
+                          photoViewerFlatListRef.current?.scrollToIndex({
+                            index: index,
+                            animated: true,
+                          });
+                        } catch (error) {
+                          console.error('Error scrolling to photo index:', error);
+                          // Fallback to scroll to offset
+                          photoViewerFlatListRef.current?.scrollToOffset({
+                            offset: index * Dimensions.get('window').width,
+                            animated: true
+                          });
+                        }
                         } catch (error) {
                           console.error('Error selecting thumbnail:', error);
                         }
                       }}
                       style={{
-                        width: 48,
-                        height: 48,
-                        borderRadius: 6,
+                        width: 56,
+                        height: 56,
+                        borderRadius: 8,
                         overflow: 'hidden',
-                        borderWidth: isSelected ? 2 : 1,
-                        borderColor: isSelected ? '#00BCD4' : '#E5E5E7',
+                        borderWidth: isSelected ? 3 : 2,
+                        borderColor: isSelected ? '#00BCD4' : 'rgba(255, 255, 255, 0.3)',
                         backgroundColor: '#F2F2F7',
+                        marginHorizontal: 4,
                       }}
                     >
                       <Image
@@ -7917,7 +7997,24 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
                           height: '100%',
                           resizeMode: 'cover',
                         }}
+                        onError={(error) => {
+                          console.error('Thumbnail image loading error:', error);
+                        }}
                       />
+                      {isSelected && (
+                        <View style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          backgroundColor: 'rgba(0, 188, 212, 0.3)',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }}>
+                          <Ionicons name="checkmark-circle" size={20} color="white" />
+                        </View>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -8475,16 +8572,24 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
       />
 
       {/* Instagram-like Photo Zoom Viewer */}
-      <PhotoZoomViewer
-        visible={showPhotoZoomModal}
-        photoUrl={selectedPhotoForZoom?.photoUrl || ''}
-        sourceTitle={selectedPhotoForZoom?.eventTitle}
-        sourceType="event"
-        onClose={() => {
-          setShowPhotoZoomModal(false);
-          setSelectedPhotoForZoom(null);
-        }}
-      />
+     <EventPhotoViewerModal
+  visible={showPhotoViewerModal}
+  photos={[...(selectedPhotoForViewer?.event.photos || []), ...(selectedPhotoForViewer?.event.private_photos || [])]}
+  initialIndex={(() => {
+    const allPhotos = [...(selectedPhotoForViewer?.event.photos || []), ...(selectedPhotoForViewer?.event.private_photos || [])];
+    return allPhotos.indexOf(selectedPhotoForViewer?.photoUrl || '');
+  })()}
+  onClose={() => {
+    setShowPhotoViewerModal(false);
+    setSelectedPhotoForViewer(null);
+  }}
+  onDelete={(photoUrl) => {
+    if (selectedPhotoForViewer) {
+      handlePhotoViewerDelete(selectedPhotoForViewer.event.id, photoUrl);
+      // Optionally, close modal if all photos are deleted
+    }
+  }}
+/>
 
       </>
       

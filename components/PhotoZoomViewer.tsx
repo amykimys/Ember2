@@ -100,7 +100,13 @@ export default function PhotoZoomViewer({
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (evt, gestureState) => {
-      return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10;
+      // Only capture vertical movements when not zoomed to allow horizontal scrolling
+      if (isZoomed) {
+        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10;
+      } else {
+        // Only capture vertical movements for swipe-to-close when not zoomed
+        return Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+      }
     },
     onPanResponderGrant: () => {
       showControlsWithTimeout();
@@ -122,7 +128,24 @@ export default function PhotoZoomViewer({
     onPanResponderRelease: (evt, gestureState) => {
       if (!isZoomed && gestureState.dy > 100) {
         // Close modal if swiped down enough
-        onClose();
+        // Reset all values before closing to prevent UI glitches
+        scale.setValue(1);
+        translateX.setValue(0);
+        translateY.setValue(0);
+        opacity.setValue(1);
+        setIsZoomed(false);
+        setCurrentScale(1);
+        setShowControls(true);
+        
+        // Clear any pending timeouts
+        if (controlsTimeoutRef.current) {
+          clearTimeout(controlsTimeoutRef.current);
+        }
+        
+        // Call onClose after a brief delay to ensure animations are complete
+        setTimeout(() => {
+          onClose();
+        }, 50);
       } else if (isZoomed) {
         // Reset pan position when zoomed
         Animated.parallel([
@@ -168,16 +191,33 @@ export default function PhotoZoomViewer({
     showControlsWithTimeout();
   }, [showControlsWithTimeout]);
 
+  // Reset all animated values when modal becomes visible or invisible
   React.useEffect(() => {
     if (visible) {
       showControlsWithTimeout();
+      // Reset all animated values when modal opens
+      scale.setValue(1);
+      translateX.setValue(0);
+      translateY.setValue(0);
+      opacity.setValue(1);
+      setIsZoomed(false);
+      setCurrentScale(1);
+    } else {
+      // Reset all animated values when modal closes
+      scale.setValue(1);
+      translateX.setValue(0);
+      translateY.setValue(0);
+      opacity.setValue(1);
+      setIsZoomed(false);
+      setCurrentScale(1);
+      setShowControls(true);
     }
     return () => {
       if (controlsTimeoutRef.current) {
         clearTimeout(controlsTimeoutRef.current);
       }
     };
-  }, [visible, showControlsWithTimeout]);
+  }, [visible, showControlsWithTimeout, scale, translateX, translateY, opacity]);
 
   if (!visible) return null;
 
@@ -186,7 +226,23 @@ export default function PhotoZoomViewer({
       visible={visible}
       transparent={true}
       animationType="fade"
-      onRequestClose={onClose}
+      onRequestClose={() => {
+        // Reset all values before closing to prevent UI glitches
+        scale.setValue(1);
+        translateX.setValue(0);
+        translateY.setValue(0);
+        opacity.setValue(1);
+        setIsZoomed(false);
+        setCurrentScale(1);
+        setShowControls(true);
+        
+        // Clear any pending timeouts
+        if (controlsTimeoutRef.current) {
+          clearTimeout(controlsTimeoutRef.current);
+        }
+        
+        onClose();
+      }}
     >
       <StatusBar barStyle="light-content" backgroundColor="rgba(0, 0, 0, 0.9)" />
       
@@ -226,7 +282,23 @@ export default function PhotoZoomViewer({
               backgroundColor: 'rgba(0, 0, 0, 0.5)',
               borderRadius: 16,
             }}
-            onPress={onClose}
+            onPress={() => {
+              // Reset all values before closing to prevent UI glitches
+              scale.setValue(1);
+              translateX.setValue(0);
+              translateY.setValue(0);
+              opacity.setValue(1);
+              setIsZoomed(false);
+              setCurrentScale(1);
+              setShowControls(true);
+              
+              // Clear any pending timeouts
+              if (controlsTimeoutRef.current) {
+                clearTimeout(controlsTimeoutRef.current);
+              }
+              
+              onClose();
+            }}
           >
             <Ionicons name="close" size={20} color="#fff" />
           </TouchableOpacity>

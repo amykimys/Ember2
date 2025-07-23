@@ -74,16 +74,6 @@ export default function LoadingScreen({ onLoadingComplete, progress }: LoadingSc
           style={styles.logo}
           resizeMode="contain"
         />
-        
-        {/* App Name */}
-        <Text style={styles.appName}>Jaani</Text>
-        
-        {/* Loading Indicator */}
-        <View style={styles.loadingIndicator}>
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-          <View style={styles.dot} />
-        </View>
       </Animated.View>
     </View>
   );
