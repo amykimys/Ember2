@@ -2332,8 +2332,8 @@ export default function ProfileScreen() {
       visible={showMemoriesModal}
       animationType="slide"
       presentationStyle="pageSheet"
+      transparent={true}
       onRequestClose={() => {
-        setShowMemoriesModal(false);
         // Reset selection state when modal closes
         setIsMultiSelectMode(false);
         setSelectedMemories(new Set());
@@ -2349,8 +2349,7 @@ export default function ProfileScreen() {
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={() => {
-            setShowMemoriesModal(false);
-            // Reset selection state when modal closes
+            setShowMemoriesModal(false); // Actually close the modal
             setIsMultiSelectMode(false);
             setSelectedMemories(new Set());
           }}>
@@ -2529,8 +2528,19 @@ export default function ProfileScreen() {
                   if (isMultiSelectMode) {
                     toggleMemorySelection(memory.id);
                   } else {
-                    setSelectedMemory(memory);
-                    setShowMemoryDetailModal(true);
+                    setSelectedPhotoForZoom({
+                      update_id: memory.id || '',
+                      user_id: user?.id || '',
+                      user_name: profile?.full_name || '',
+                      user_avatar: profile?.avatar_url || '',
+                      user_username: profile?.username || '',
+                      photo_url: memory.photoUri,
+                      caption: memory.description || '',
+                      source_type: memory.type,
+                      source_title: memory.title || '',
+                      created_at: memory.date || '',
+                    });
+                    setShowPhotoZoomModal(true);
                   }
                 }}
                 activeOpacity={0.7}
@@ -2629,6 +2639,22 @@ export default function ProfileScreen() {
               </View>
             </View>
           </View>
+        )}
+        {/* Photo view overlay inside the modal */}
+        {showPhotoZoomModal && selectedPhotoForZoom && (
+          <PhotoZoomViewer
+            visible={true}
+            photoUrl={selectedPhotoForZoom.photo_url}
+            caption={selectedPhotoForZoom.caption}
+            sourceType={selectedPhotoForZoom.source_type}
+            sourceTitle={selectedPhotoForZoom.source_title}
+            userAvatar={selectedPhotoForZoom.user_avatar}
+            username={selectedPhotoForZoom.user_username}
+            onClose={() => {
+              setShowPhotoZoomModal(false);
+              setSelectedPhotoForZoom(null);
+            }}
+          />
         )}
       </SafeAreaView>
     </Modal>
@@ -2746,10 +2772,17 @@ export default function ProfileScreen() {
                 >
                   <Image
                     source={{ uri: item.photo_url }}
-                    style={photoDimensions[item.update_id] && photoDimensions[item.update_id].width < photoDimensions[item.update_id].height ? styles.photoSquare : styles.photo}
+                    style={{
+                      width: '100%',
+                      height: photoDimensions[item.update_id]
+                        ? (photoDimensions[item.update_id].width < photoDimensions[item.update_id].height ? 400 : 250)
+                        : 300, // default height while loading
+                      borderRadius: 12,
+                      alignSelf: 'center',
+                    }}
                     resizeMode="cover"
-                    onLayout={(event) => {
-                      const { width, height } = event.nativeEvent.layout;
+                    onLoad={e => {
+                      const { width, height } = e.nativeEvent.source;
                       setPhotoDimensions(prev => ({
                         ...prev,
                         [item.update_id]: { width, height }
@@ -2795,26 +2828,6 @@ export default function ProfileScreen() {
       </SafeAreaView>
     </Modal>
   );
-
-  const renderPhotoZoomModal = () => {
-    if (!selectedPhotoForZoom) return null;
-
-    return (
-      <PhotoZoomViewer
-        visible={showPhotoZoomModal}
-        photoUrl={selectedPhotoForZoom.photo_url}
-        caption={selectedPhotoForZoom.caption}
-        sourceType={selectedPhotoForZoom.source_type}
-        sourceTitle={selectedPhotoForZoom.source_title}
-        userAvatar={selectedPhotoForZoom.user_avatar}
-        username={selectedPhotoForZoom.user_username}
-        onClose={() => {
-          setShowPhotoZoomModal(false);
-          setSelectedPhotoForZoom(null);
-        }}
-      />
-    );
-  };
 
   const renderSettingsModal = () => (
     <Modal
@@ -4575,7 +4588,6 @@ export default function ProfileScreen() {
       {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
       {renderFriendsFeedModal()}
-      {renderPhotoZoomModal()}
       {renderSettingsModal()}
       {renderDefaultScreenModal()}
       {renderGoogleSyncModal()}
@@ -5602,7 +5614,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Onest',
   },
   caption: {
-    fontSize: 16,
+    fontSize: 19,
     color: '#000',
     fontFamily: 'Onest',
     marginTop: 6,

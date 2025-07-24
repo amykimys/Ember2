@@ -1,15 +1,5 @@
-import React, { useRef, useState, useCallback } from 'react';
-import {
-  View,
-  Modal,
-  Dimensions,
-  TouchableOpacity,
-  Text,
-  Image,
-  Animated,
-  PanResponder,
-  StatusBar,
-} from 'react-native';
+import React, { useRef, useState, useEffect } from 'react';
+import { View, Modal, TouchableOpacity, Text, Image, StyleSheet, Dimensions, StatusBar, PanResponder, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -35,141 +25,65 @@ export default function PhotoZoomViewer({
   username,
   onClose,
 }: PhotoZoomViewerProps) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(1)).current;
-  
-  const [isZoomed, setIsZoomed] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [currentScale, setCurrentScale] = useState(1);
-  
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<number | undefined>(undefined);
 
-  const hideControls = useCallback(() => {
-    setShowControls(false);
-  }, []);
-
-  const showControlsWithTimeout = useCallback(() => {
-    setShowControls(true);
-    if (controlsTimeoutRef.current) {
-      clearTimeout(controlsTimeoutRef.current);
+  useEffect(() => {
+    if (photoUrl) {
+      // Fetch image dimensions and set aspect ratio
+      Image.getSize(
+        photoUrl,
+        (width, height) => {
+          if (width && height) {
+            setAspectRatio(width / height);
+          }
+        },
+        () => {
+          setAspectRatio(undefined); // fallback if error
+        }
+      );
     }
-    controlsTimeoutRef.current = setTimeout(hideControls, 3000);
-  }, [hideControls]);
-
-  const resetZoom = useCallback(() => {
-    Animated.parallel([
-      Animated.timing(scale, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateX, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setIsZoomed(false);
-      setCurrentScale(1);
-    });
-  }, [scale, translateX, translateY]);
-
-  const handleDoubleTap = useCallback(() => {
-    if (isZoomed) {
-      resetZoom();
-    } else {
-      Animated.timing(scale, {
-        toValue: 2,
-        duration: 200,
-        useNativeDriver: true,
-      }).start(() => {
-        setIsZoomed(true);
-        setCurrentScale(2);
-      });
-    }
-    showControlsWithTimeout();
-  }, [isZoomed, resetZoom, scale, showControlsWithTimeout]);
+  }, [photoUrl]);
 
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (evt, gestureState) => {
-      // Only capture vertical movements when not zoomed to allow horizontal scrolling
-      if (isZoomed) {
-        return Math.abs(gestureState.dx) > 10 || Math.abs(gestureState.dy) > 10;
-      } else {
-        // Only capture vertical movements for swipe-to-close when not zoomed
-        return Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
-      }
-    },
-    onPanResponderGrant: () => {
-      showControlsWithTimeout();
+      return Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
     },
     onPanResponderMove: (evt, gestureState) => {
-      if (isZoomed) {
-        // Allow panning when zoomed
-        translateX.setValue(gestureState.dx);
+      if (gestureState.dy > 0) {
         translateY.setValue(gestureState.dy);
-      } else {
-        // Swipe down to close when not zoomed
-        if (gestureState.dy > 50) {
-          const progress = Math.min(gestureState.dy / 200, 1);
-          opacity.setValue(1 - progress);
-          translateY.setValue(gestureState.dy * 0.3);
-        }
+        opacity.setValue(1 - Math.min(gestureState.dy / 200, 0.7));
       }
     },
     onPanResponderRelease: (evt, gestureState) => {
-      if (!isZoomed && gestureState.dy > 100) {
-        // Close modal if swiped down enough
-        // Reset all values before closing to prevent UI glitches
-        scale.setValue(1);
-        translateX.setValue(0);
-        translateY.setValue(0);
-        opacity.setValue(1);
-        setIsZoomed(false);
-        setCurrentScale(1);
-        setShowControls(true);
-        
-        // Clear any pending timeouts
-        if (controlsTimeoutRef.current) {
-          clearTimeout(controlsTimeoutRef.current);
-        }
-        
-        // Call onClose after a brief delay to ensure animations are complete
-        setTimeout(() => {
-          onClose();
-        }, 50);
-      } else if (isZoomed) {
-        // Reset pan position when zoomed
+      if (gestureState.dy > 100) {
         Animated.parallel([
-          Animated.timing(translateX, {
+          Animated.timing(translateY, {
+            toValue: screenHeight,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
             toValue: 0,
             duration: 200,
             useNativeDriver: true,
           }),
+        ]).start(() => {
+          onClose();
+          translateY.setValue(0);
+          opacity.setValue(1);
+        });
+      } else {
+        Animated.parallel([
           Animated.timing(translateY, {
             toValue: 0,
             duration: 200,
             useNativeDriver: true,
           }),
-        ]).start();
-      } else {
-        // Reset opacity and position
-        Animated.parallel([
           Animated.timing(opacity, {
             toValue: 1,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateY, {
-            toValue: 0,
             duration: 200,
             useNativeDriver: true,
           }),
@@ -178,310 +92,163 @@ export default function PhotoZoomViewer({
     },
   });
 
-  const handlePinch = useCallback((evt: any) => {
-    const { scale: pinchScale } = evt.nativeEvent;
-    const newScale = Math.max(0.5, Math.min(3, pinchScale));
-    scale.setValue(newScale);
-    setCurrentScale(newScale);
-    setIsZoomed(newScale > 1);
-    showControlsWithTimeout();
-  }, [scale, showControlsWithTimeout]);
-
-  const handleModalPress = useCallback(() => {
-    showControlsWithTimeout();
-  }, [showControlsWithTimeout]);
-
-  // Reset all animated values when modal becomes visible or invisible
-  React.useEffect(() => {
-    if (visible) {
-      showControlsWithTimeout();
-      // Reset all animated values when modal opens
-      scale.setValue(1);
-      translateX.setValue(0);
-      translateY.setValue(0);
-      opacity.setValue(1);
-      setIsZoomed(false);
-      setCurrentScale(1);
-    } else {
-      // Reset all animated values when modal closes
-      scale.setValue(1);
-      translateX.setValue(0);
-      translateY.setValue(0);
-      opacity.setValue(1);
-      setIsZoomed(false);
-      setCurrentScale(1);
-      setShowControls(true);
-    }
-    return () => {
-      if (controlsTimeoutRef.current) {
-        clearTimeout(controlsTimeoutRef.current);
-      }
-    };
-  }, [visible, showControlsWithTimeout, scale, translateX, translateY, opacity]);
-
   if (!visible) return null;
 
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="fade"
-      onRequestClose={() => {
-        // Reset all values before closing to prevent UI glitches
-        scale.setValue(1);
-        translateX.setValue(0);
-        translateY.setValue(0);
-        opacity.setValue(1);
-        setIsZoomed(false);
-        setCurrentScale(1);
-        setShowControls(true);
-        
-        // Clear any pending timeouts
-        if (controlsTimeoutRef.current) {
-          clearTimeout(controlsTimeoutRef.current);
-        }
-        
-        onClose();
-      }}
-    >
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <StatusBar barStyle="light-content" backgroundColor="rgba(0, 0, 0, 0.9)" />
-      
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: 'rgba(0, 0, 0, 0.9)',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-        {...panResponder.panHandlers}
-        onTouchEnd={handleModalPress}
-      >
-        {/* Top Controls */}
-        <Animated.View
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            paddingHorizontal: 24,
-            paddingTop: 60,
-            paddingBottom: 16,
-            zIndex: 10,
-            opacity: showControls ? 1 : 0,
-          }}
-        >
-          <TouchableOpacity
-            style={{
-              width: 32,
-              height: 32,
-              justifyContent: 'center',
-              alignItems: 'center',
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-              borderRadius: 16,
-            }}
-            onPress={() => {
-              // Reset all values before closing to prevent UI glitches
-              scale.setValue(1);
-              translateX.setValue(0);
-              translateY.setValue(0);
-              opacity.setValue(1);
-              setIsZoomed(false);
-              setCurrentScale(1);
-              setShowControls(true);
-              
-              // Clear any pending timeouts
-              if (controlsTimeoutRef.current) {
-                clearTimeout(controlsTimeoutRef.current);
-              }
-              
-              onClose();
-            }}
-          >
-            <Ionicons name="close" size={20} color="#fff" />
-          </TouchableOpacity>
-          
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderRadius: 16,
-          }}>
-            {userAvatar && (
-              <Image
-                source={{ uri: userAvatar }}
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: 10,
-                  marginRight: 8,
-                }}
-              />
-            )}
-            <Text style={{
-              color: '#fff',
-              fontSize: 12,
-              fontWeight: '600',
-              fontFamily: 'Onest',
-            }}>
-              @{username || 'user'}
-            </Text>
-          </View>
-          
-          <TouchableOpacity
-            style={{
-              width: 32,
-              height: 32,
-              justifyContent: 'center',
-              alignItems: 'center',
-              backgroundColor: 'rgba(0, 0, 0, 0.5)',
-              borderRadius: 16,
-            }}
-            onPress={resetZoom}
-          >
-            <Ionicons name="expand" size={20} color="#fff" />
-          </TouchableOpacity>
-        </Animated.View>
-
-        {/* Photo Container */}
-        <Animated.View
-          style={{
-            flex: 1,
-            justifyContent: 'center',
-            alignItems: 'center',
-            width: '100%',
-            paddingHorizontal: 20,
+      <Animated.View
+        style={[
+          styles.memoryDetailOverlay,
+          {
+            transform: [{ translateY }],
             opacity,
-            transform: [
-              { scale },
-              { translateX },
-              { translateY },
-            ],
-          }}
-        >
+          },
+        ]}
+        {...panResponder.panHandlers}
+      >
+        {/* Full screen background image */}
+        <View style={styles.memoryDetailImageContainer}>
+          <Image
+            source={{ uri: photoUrl }}
+            style={[
+              styles.memoryDetailImage,
+              aspectRatio ? { aspectRatio } : {},
+            ]}
+            resizeMode="contain"
+          />
+        </View>
+        {/* Top bar with close button */}
+        <View style={styles.memoryDetailTopBar}>
           <TouchableOpacity
-            activeOpacity={1}
-            onPress={handleDoubleTap}
-            style={{
-              width: screenWidth - 40,
-              height: screenHeight * 0.7,
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
+            style={styles.memoryDetailCloseButton}
+            onPress={onClose}
           >
-            <Image
-              source={{ uri: photoUrl }}
-              style={{
-                width: '100%',
-                height: '100%',
-              }}
-              resizeMode="contain"
-            />
+            <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
-        </Animated.View>
-
-        {/* Bottom Info */}
-        <Animated.View
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            paddingHorizontal: 24,
-            paddingBottom: 40,
-            zIndex: 10,
-            opacity: showControls ? 1 : 0,
-          }}
-        >
-          {caption && (
-            <Text style={{
-              color: '#fff',
-              fontSize: 16,
-              fontFamily: 'Onest',
-              marginBottom: 8,
-              textAlign: 'center',
-              textShadowColor: 'rgba(0, 0, 0, 0.8)',
-              textShadowOffset: { width: 0, height: 1 },
-              textShadowRadius: 3,
-            }}>
-              {caption}
-            </Text>
-          )}
-          <View style={{
-            flexDirection: 'row',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}>
+        </View>
+        {/* Bottom info panel */}
+        <View style={styles.memoryDetailBottomPanel}>
+          <View style={styles.memoryDetailInfo}>
             {sourceType && (
               <View style={[
-                {
-                  backgroundColor: sourceType === 'habit' ? '#4CAF50' : '#2196F3',
-                  paddingHorizontal: 12,
-                  paddingVertical: 4,
-                  borderRadius: 12,
-                  marginRight: 8,
-                }
+                styles.memoryDetailTypeBadge,
+                { backgroundColor: sourceType === 'habit' ? '#4CAF50' : '#00ACC1' },
               ]}>
-                <Text style={{
-                  color: '#fff',
-                  fontSize: 12,
-                  fontWeight: '600',
-                  fontFamily: 'Onest',
-                }}>
+                <Text style={styles.memoryDetailTypeText}>
                   {sourceType === 'habit' ? 'Habit' : 'Event'}
                 </Text>
               </View>
             )}
             {sourceTitle && (
-              <Text style={{
-                color: '#fff',
-                fontSize: 14,
-                fontFamily: 'Onest',
-                opacity: 0.8,
-                textShadowColor: 'rgba(0, 0, 0, 0.8)',
-                textShadowOffset: { width: 0, height: 1 },
-                textShadowRadius: 3,
-              }}>
-                {sourceTitle}
-              </Text>
+              <Text style={styles.memoryDetailTitle}>{sourceTitle}</Text>
+            )}
+            {caption && (
+              <Text style={styles.memoryDetailDescription}>{caption}</Text>
             )}
           </View>
-        </Animated.View>
-
-        {/* Zoom Indicator */}
-        <Animated.View
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: [
-              { translateX: -25 },
-              { translateY: -25 },
-            ],
-            width: 50,
-            height: 50,
-            justifyContent: 'center',
-            alignItems: 'center',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            borderRadius: 25,
-            opacity: isZoomed ? 1 : 0,
-            zIndex: 5,
-          }}
-        >
-                     <Text style={{
-             color: '#fff',
-             fontSize: 12,
-             fontWeight: '600',
-             fontFamily: 'Onest',
-           }}>
-             {Math.round(currentScale * 100)}%
-           </Text>
-        </Animated.View>
-      </View>
-    </Modal>
+        </View>
+      </Animated.View>
+    </View>
   );
-} 
+}
+
+const styles = StyleSheet.create({
+  memoryDetailOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#000',
+    zIndex: 1000,
+  },
+  memoryDetailBackgroundImage: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+  },
+  memoryDetailDarkOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  memoryDetailTopBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 60,
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  memoryDetailCloseButton: {
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memoryDetailBottomPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  memoryDetailInfo: {
+    marginBottom: 10,
+  },
+  memoryDetailTypeBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  memoryDetailTypeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  memoryDetailTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  memoryDetailDescription: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+    marginBottom: 8,
+  },
+  memoryDetailImageContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 80, // leave space for top bar
+    marginBottom: 120, // leave space for bottom panel
+  },
+  memoryDetailImage: {
+    width: '100%',
+    height: undefined, // Let aspect ratio control height
+    maxHeight: screenHeight - 200, // leave space for top/bottom bars
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+}); 

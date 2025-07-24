@@ -221,15 +221,22 @@ export default function NotesScreen() {
     const debouncedRefresh = debounce(() => {
       if (!isLoading) fetchAllNotesData(true);
     }, 1000);
+
+    // Notes
     const notesSubscription = supabase
       .channel('notes-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `user_id=eq.${user.id}` }, debouncedRefresh)
       .subscribe();
+
+    // Shared Notes
     const sharedNotesSubscription = subscribeToSharedNotes(debouncedRefresh);
+
+    // Shared Notes Table
     const sharedNotesTableSubscription = supabase
       .channel('shared-notes-table-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shared_notes', filter: `shared_with=eq.${user.id}` }, debouncedRefresh)
       .subscribe();
+
     return () => {
       notesSubscription.unsubscribe();
       sharedNotesSubscription.unsubscribe();
@@ -1151,29 +1158,44 @@ export default function NotesScreen() {
 
               {/* Note Editor */}
               {isEditing ? (
-                <TextInput
-                  style={styles.noteEditor}
-                  placeholder="Start writing..."
-                  value={noteContent}
-                  onChangeText={handleContentChange}
-                  multiline
-                  textAlignVertical="top"
-                  autoFocus
-                  editable={true}
-                />
+                <ScrollView
+                  style={{ flex: 1, width: '100%' }}
+                  contentContainerStyle={{ flexGrow: 1, paddingBottom: 500 }}
+                  showsVerticalScrollIndicator={true}
+                  keyboardShouldPersistTaps="handled"
+                >
+                  <TextInput
+                    style={styles.noteEditor}
+                    placeholder="Start writing..."
+                    value={noteContent}
+                    onChangeText={handleContentChange}
+                    multiline
+                    textAlignVertical="top"
+                    autoFocus
+                    editable={true}
+                  />
+                </ScrollView>
               ) : (
                 <TouchableOpacity
                   style={styles.noteEditorContainer}
                   onPress={handleStartEditing}
                   activeOpacity={0.8}
                 >
-                  <View style={styles.noteEditorPlaceholder}>
-                    {noteContent ? (
-                      <Text style={styles.noteEditorContent}>
-                        {noteContent}
-                      </Text>
-                    ) : null}
-                  </View>
+                  <ScrollView style={{ flex: 1, width: '100%' }} contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={true}>
+                    <View style={styles.noteEditorPlaceholder}>
+                      {noteContent ? (() => {
+                        const [firstLine, ...rest] = noteContent.split('\n');
+                        return (
+                          <>
+                            <Text style={[styles.noteEditorContent, { fontWeight: 'bold' }]}>{firstLine}</Text>
+                            {rest.length > 0 && (
+                              <Text style={styles.noteEditorContent}>{rest.join('\n')}</Text>
+                            )}
+                          </>
+                        );
+                      })() : null}
+                    </View>
+                  </ScrollView>
                 </TouchableOpacity>
               )}
             </SafeAreaView>

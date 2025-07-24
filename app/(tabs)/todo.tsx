@@ -1451,12 +1451,12 @@ useEffect(() => {
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split('T')[0];
 
-  // Find all incomplete tasks with a date before today
+  // Find all incomplete tasks with a date less than or equal to today
   const { data: oldTasks, error } = await supabase
-        .from('todos')
-        .select('*')
+    .from('todos')
+    .select('*')
     .eq('user_id', userId)
-    .lt('date', todayStr)
+    .lte('date', todayStr) // <-- Move today and earlier
     .eq('completed', false);
 
       if (error) {
@@ -2322,7 +2322,7 @@ useEffect(() => {
         setNewTodo(todo.text);
         setNewDescription(todo.description || '');
         setTaskDate(todo.date);
-        setSelectedCategoryId(todo.category?.id || '');
+        setSelectedCategoryId((todo as any).category?.id || '');
         setReminderTime(todo.reminderTime || null);
         setSelectedRepeat(todo.repeat || 'none');
         setRepeatEndDate(todo.repeatEndDate || null);
@@ -2436,8 +2436,8 @@ useEffect(() => {
                 borderRadius: 5,
                 borderWidth: 1.4,
                 marginLeft: 4,
-                borderColor: todo.category?.color
-  ? darkenColor(todo.category.color)
+                        borderColor: (todo as any).category?.color
+          ? darkenColor((todo as any).category.color)
   : Colors.light.icon,
               }}
             />
@@ -2644,12 +2644,25 @@ useEffect(() => {
     filteredTodos.forEach(todo => {
       if (todo.completed) {
         result['completed'].push(todo);
-      } else if (todo.category?.id && categories.some(cat => cat.id === todo.category?.id)) {
-        result[todo.category.id].push(todo);
+      } else if ((todo as any).category?.id && categories.some(cat => cat.id === (todo as any).category?.id)) {
+        result[(todo as any).category.id].push(todo);
       } else {
         result['uncategorized'].push(todo);
       }
     });
+    
+    // Debug logging to help identify sorting issues
+    if (filteredTodos.length > 0) {
+      console.log('🔄 [Todo] categorizedTodos debug:', {
+        totalTasks: filteredTodos.length,
+        categoriesCount: categories.length,
+        tasksWithCategory: filteredTodos.filter(t => (t as any).category?.id).length,
+        tasksWithoutCategory: filteredTodos.filter(t => !(t as any).category?.id).length,
+        uncategorizedCount: result['uncategorized'].length,
+        completedCount: result['completed'].length,
+        categorizedCount: Object.keys(result).filter(key => key !== 'uncategorized' && key !== 'completed').reduce((sum, key) => sum + result[key].length, 0)
+      });
+    }
     
     return result;
   }, [filteredTodos, categories]);
@@ -3375,6 +3388,7 @@ useEffect(() => {
           customRepeatDates: todo.customRepeatDates?.map(date => new Date(date)) || [],
           deletedInstances: todo.deletedInstances || [],
           photo: todo.photo || undefined,
+          category: (todo as any).category || null, // Preserve category object from preloaded data
         }));
         
         setTodos(processedTodos);
@@ -3385,6 +3399,7 @@ useEffect(() => {
           friend_name: string;
           friend_avatar: string;
           friend_username: string;
+          
         }>> = {};
         
         processedTodos.forEach(todo => {
@@ -3451,6 +3466,33 @@ useEffect(() => {
         fetchCategoriesOnly();
       } else {
         console.log('🔄 [Todo] Using existing local categories:', categories.length);
+      }
+      
+      // Ensure categories are loaded before processing todos
+      if (appData.todos && appData.todos.length > 0 && (!appData.categories || appData.categories.length === 0)) {
+        console.log('⚠️ [Todo] Have todos but no categories - will fetch categories to ensure proper sorting');
+        const fetchCategoriesForSorting = async () => {
+          try {
+            const { data, error } = await supabase
+              .from('categories')
+              .select('*')
+              .eq('user_id', user.id)
+              .in('type', ['todo', 'task'])
+              .order('created_at', { ascending: false });
+
+            if (error) {
+              console.error('❌ [Todo] Error fetching categories for sorting:', error);
+              return;
+            }
+
+            console.log('🔄 [Todo] Fetched categories for sorting:', data?.length || 0);
+            setCategories(data || []);
+          } catch (error) {
+            console.error('❌ [Todo] Error in categories fetch for sorting:', error);
+          }
+        };
+
+        fetchCategoriesForSorting();
       }
       
       if (appData.friends) {
@@ -3529,6 +3571,15 @@ useEffect(() => {
       }
     }
   }, [appData.categories, categories.length]);
+
+  // Force re-sort when categories are loaded to ensure proper task categorization
+  useEffect(() => {
+    if (categories.length > 0 && todos.length > 0) {
+      console.log('🔄 [Todo] Categories loaded, ensuring proper task sorting');
+      // The categorizedTodos useMemo will automatically re-run when categories change
+      // This effect just ensures we log when this happens
+    }
+  }, [categories.length, todos.length]);
 
   // Add focus effect to refresh data when screen comes into focus
   useFocusEffect(

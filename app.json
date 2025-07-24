@@ -27,7 +27,9 @@
           }
         ],
         "NSUserNotificationUsageDescription": "This app uses notifications to remind you about your calendar events.",
-        "UIBackgroundModes": ["remote-notification", "background-processing", "background-fetch"]
+        "UIBackgroundModes": ["remote-notification", "background-processing", "background-fetch"],
+        "NSCalendarsUsageDescription": "Jaani uses your calendar to let you add, view, and manage your events directly from the app. Your calendar data is never shared or used for any other purpose.",
+        "NSRemindersUsageDescription": "This app needs access to your reminders to add and view reminders."
       }
     },
     "android": {
@@ -66,8 +68,10 @@
           "color": "#667eea",
           "sounds": ["./assets/sounds/notification.wav"]
         }
-      ]
-    ],
+      ],
+      "expo-calendar"
+    ]
+      ,
     "experiments": {
       "typedRoutes": true
     },

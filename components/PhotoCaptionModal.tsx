@@ -87,8 +87,8 @@ export default function PhotoCaptionModal({
             <View style={styles.photoContainer}>
               <Image
                 source={{ uri: photoUrl }}
-                style={styles.photo}
-                resizeMode="cover"
+                style={{ width: '100%', aspectRatio: 9/16, maxHeight: 600, alignSelf: 'center', borderRadius: 12 }}
+                resizeMode="contain"
               />
             </View>
           )}

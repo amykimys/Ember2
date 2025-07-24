@@ -18,6 +18,7 @@ import { View } from 'react-native';
 import LoadingScreen from '@/components/LoadingScreen';
 import { checkAndMoveTasksIfNeeded } from '../utils/taskUtils';
 import { DataProvider, useData } from '../contexts/DataContext';
+import { AppState } from 'react-native';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -201,7 +202,14 @@ function AppContent() {
     const [tasksResult, habitsResult] = await Promise.all([
       supabase
         .from('todos')
-        .select('*')
+        .select(`
+          *,
+          category:category_id (
+            id,
+            label,
+            color
+          )
+        `)
         .eq('user_id', userId)
         .order('updated_at', { ascending: false }), // Use updated_at for more recent changes
       supabase
@@ -472,6 +480,7 @@ function AppContent() {
       customRepeatDates: task.custom_repeat_dates ? task.custom_repeat_dates.map((date: string) => new Date(date)) : [],
       deletedInstances: task.deleted_instances || [],
       categoryId: task.category_id,
+      category: task.category || null, // Include category object from join
       photo: task.photo,
       autoMove: task.auto_move || false,
       sharedFriends: task.sharedFriends || [] // Preserve shared friends data
@@ -967,28 +976,52 @@ function AppContent() {
     return () => clearInterval(checkInterval);
   }, [session?.user]);
 
-  // Add app state listener to refresh data when app comes to foreground
+  // Add robust AppState handler for session and data refresh
   useEffect(() => {
     if (!session?.user) return;
 
+    let lastActiveTimestamp = Date.now();
+
     const handleAppStateChange = async (nextAppState: string) => {
       if (nextAppState === 'active') {
-        console.log('🔄 App came to foreground - refreshing data...');
-        try {
-          // Force refresh all data when app becomes active
-          await preloadAppData(session.user.id);
-          console.log('✅ Data refreshed successfully');
-        } catch (error) {
-          console.error('❌ Error refreshing data on app foreground:', error);
+        const now = Date.now();
+        const timeAway = now - lastActiveTimestamp;
+        lastActiveTimestamp = now;
+        // If away for more than 10 minutes, treat as a long absence
+        if (timeAway > 10 * 60 * 1000) {
+          console.log('⏰ App was backgrounded for a long time, checking session and refreshing data...');
+          try {
+            // Check session validity
+            const { data: { session: freshSession }, error } = await supabase.auth.getSession();
+            if (error || !freshSession) {
+              console.warn('⚠️ Session expired or error occurred. Logging out user.');
+              setSession(null);
+              setData(prev => ({ ...prev, isPreloaded: false, lastUpdated: null }));
+              handleSimpleLoading();
+              return;
+            }
+            setSession(freshSession);
+            await preloadAppData(freshSession.user.id);
+            console.log('✅ Data and session refreshed after long background.');
+          } catch (err) {
+            console.error('❌ Error during session/data refresh after long background:', err);
+          }
+        } else {
+          // Short absence, just refresh data
+          try {
+            await preloadAppData(session.user.id);
+            console.log('✅ Data refreshed after short background.');
+          } catch (err) {
+            console.error('❌ Error refreshing data after short background:', err);
+          }
         }
+      } else if (nextAppState === 'background' || nextAppState === 'inactive') {
+        lastActiveTimestamp = Date.now();
       }
     };
 
-    // Import AppState dynamically to avoid issues
-    const { AppState } = require('react-native');
     const subscription = AppState.addEventListener('change', handleAppStateChange);
-
-    return () => subscription?.remove();
+    return () => subscription.remove();
   }, [session?.user]);
 
   const listener = Linking.addEventListener('url', (event) => {

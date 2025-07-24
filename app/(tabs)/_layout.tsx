@@ -29,7 +29,7 @@ export default function TabLayout() {
         tabBarStyle: {
           borderTopWidth: 0,
           borderTopColor: 'transparent',
-          backgroundColor: Colors[colorScheme ?? 'light'].background,
+          backgroundColor: '#ffffff', // Always white
           height: 70,
           paddingBottom: 8,
           paddingTop: 4,

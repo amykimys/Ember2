@@ -2331,9 +2331,6 @@ const [selectedPhotoForViewer, setSelectedPhotoForViewer] = useState<{ event: Ca
         }
       });
 
-      // The baseEventId passed here is already the base event ID (extracted in handleDeleteEvent)
-      // No need to extract again
-
       // Find all events that match the base event ID (including multi-day instances)
       const { data: existingEvents, error: checkError } = await supabase
         .from('events')
@@ -2389,8 +2386,6 @@ const [selectedPhotoForViewer, setSelectedPhotoForViewer] = useState<{ event: Ca
     }
   };
 
-  // Helper function to remove events from local state
-  // Helper function to generate repeated events
   const generateRepeatedEvents = (event: CalendarEvent): CalendarEvent[] => {
     if (!event.repeatOption || event.repeatOption === 'None' || event.repeatOption === 'Custom') {
       return [event];
@@ -3896,29 +3891,49 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   useEffect(() => {
     if (!user?.id) return;
 
-    const subscription = supabase
+    // Events
+    const eventsChannel = supabase
       .channel('events_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'events',
-          filter: `user_id=eq.${user.id}`
-        },
-        (payload) => {
-          // Only refresh for INSERT operations (new events) or UPDATE operations
-          // Skip DELETE operations to avoid bringing back deleted events
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            fetchEvents();
-          } else if (payload.eventType === 'DELETE') {
-          }
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `user_id=eq.${user.id}` }, (payload) => {
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+          fetchEvents();
         }
-      )
+      })
+      .subscribe();
+
+    // Friends
+    const friendsChannel = supabase
+      .channel('friends_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'friendships', filter: `user_id=eq.${user.id}` }, () => {
+        fetchFriends();
+      })
+      .subscribe();
+
+    // Categories
+    const categoriesChannel = supabase
+      .channel('calendar-categories-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'categories', filter: `user_id=eq.${user.id}` }, () => {
+        const fetchCategories = async () => {
+          try {
+            const { data, error } = await supabase
+              .from('categories')
+              .select('*')
+              .eq('user_id', user.id)
+              .eq('type', 'calendar');
+            if (error) return;
+            if (data) {
+              setCategories(data.map(cat => ({ id: cat.id, name: cat.label, color: cat.color })));
+            }
+          } catch {}
+        };
+        fetchCategories();
+      })
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      eventsChannel.unsubscribe();
+      friendsChannel.unsubscribe();
+      categoriesChannel.unsubscribe();
     };
   }, [user?.id]);
 
@@ -8593,7 +8608,25 @@ const eventBaseId = eventIsMultiDayInstance ? eventParts.slice(0, -1).join('_') 
   onDelete={(photoUrl) => {
     if (selectedPhotoForViewer) {
       handlePhotoViewerDelete(selectedPhotoForViewer.event.id, photoUrl);
-      // Optionally, close modal if all photos are deleted
+      // Update the selectedPhotoForViewer event's photos in state so the modal updates immediately
+      const updatedPhotos = (selectedPhotoForViewer.event.photos || []).filter(p => p !== photoUrl);
+      const updatedPrivatePhotos = (selectedPhotoForViewer.event.private_photos || []).filter(p => p !== photoUrl);
+      const nextPhoto = updatedPhotos[0] || updatedPrivatePhotos[0] || '';
+      setSelectedPhotoForViewer(
+        updatedPhotos.length + updatedPrivatePhotos.length === 0
+          ? null
+          : {
+              event: {
+                ...selectedPhotoForViewer.event,
+                photos: updatedPhotos,
+                private_photos: updatedPrivatePhotos,
+              },
+              photoUrl: nextPhoto,
+            }
+      );
+      if (updatedPhotos.length + updatedPrivatePhotos.length === 0) {
+        setShowPhotoViewerModal(false);
+      }
     }
   }}
 />
