@@ -990,7 +990,7 @@ function AppContent() {
         // If away for more than 10 minutes, treat as a long absence
         if (timeAway > 10 * 60 * 1000) {
           console.log('⏰ App was backgrounded for a long time, checking session and refreshing data...');
-          try {
+        try {
             // Check session validity
             const { data: { session: freshSession }, error } = await supabase.auth.getSession();
             if (error || !freshSession) {
@@ -1009,12 +1009,12 @@ function AppContent() {
         } else {
           // Short absence, just refresh data
           try {
-            await preloadAppData(session.user.id);
+          await preloadAppData(session.user.id);
             console.log('✅ Data refreshed after short background.');
           } catch (err) {
             console.error('❌ Error refreshing data after short background:', err);
-          }
         }
+      }
       } else if (nextAppState === 'background' || nextAppState === 'inactive') {
         lastActiveTimestamp = Date.now();
       }

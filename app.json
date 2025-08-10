@@ -7,7 +7,7 @@
     "icon": "./assets/images/logo.png",
     "scheme": "Jaani",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yunseokim.jani",
@@ -68,10 +68,8 @@
           "color": "#667eea",
           "sounds": ["./assets/sounds/notification.wav"]
         }
-      ],
-      "expo-calendar"
-    ]
-      ,
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     },

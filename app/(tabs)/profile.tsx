@@ -1013,8 +1013,8 @@ export default function ProfileScreen() {
                     description: event.description,
                     categoryColor: event.category_color,
                     isPrivate: true
-                  });
-                } else {
+            });
+          } else {
                   console.log(`⚠️ Skipping obviously invalid PRIVATE event photo for event ${event.id}:`, photoUri);
                 }
               } else {

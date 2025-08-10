@@ -49,7 +49,7 @@ export default function PhotoZoomViewer({
   const panResponder = PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (evt, gestureState) => {
-      return Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
+        return Math.abs(gestureState.dy) > 10 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx);
     },
     onPanResponderMove: (evt, gestureState) => {
       if (gestureState.dy > 0) {
@@ -109,7 +109,7 @@ export default function PhotoZoomViewer({
       >
         {/* Full screen background image */}
         <View style={styles.memoryDetailImageContainer}>
-          <Image
+              <Image
             source={{ uri: photoUrl }}
             style={[
               styles.memoryDetailImage,
@@ -117,7 +117,7 @@ export default function PhotoZoomViewer({
             ]}
             resizeMode="contain"
           />
-        </View>
+          </View>
         {/* Top bar with close button */}
         <View style={styles.memoryDetailTopBar}>
           <TouchableOpacity
@@ -147,8 +147,8 @@ export default function PhotoZoomViewer({
               <Text style={styles.memoryDetailDescription}>{caption}</Text>
             )}
           </View>
-        </View>
-      </Animated.View>
+          </View>
+        </Animated.View>
     </View>
   );
 }
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   memoryDetailTopBar: {
-    position: 'absolute',
+            position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
@@ -198,8 +198,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+            justifyContent: 'center',
+            alignItems: 'center',
   },
   memoryDetailBottomPanel: {
     position: 'absolute',
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     padding: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
@@ -222,8 +222,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   memoryDetailTypeText: {
-    fontSize: 12,
-    fontWeight: '600',
+             fontSize: 12,
+             fontWeight: '600',
     color: '#fff',
   },
   memoryDetailTitle: {
