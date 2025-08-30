@@ -708,7 +708,7 @@ export const acceptSharedEvent = async (
     Toast.show({
       type: 'success',
       text1: 'Event accepted successfully',
-      text2: 'The event has been added to your calendar',
+      text2: 'The event has been added to your tasks',
       position: 'bottom',
     });
 

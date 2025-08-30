@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { useTabBar } from '../../contexts/TabBarContext';
 import { View, Text, TouchableOpacity, SafeAreaView, Alert, ScrollView, StyleSheet, ActivityIndicator, Switch, Image, Modal, TextInput, FlatList, Dimensions, RefreshControl, Animated, PanResponder } from 'react-native';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
@@ -10,7 +11,7 @@ import * as FileSystem from 'expo-file-system';
 import { useFocusEffect } from '@react-navigation/native';
 import { clearPreferencesCache, testSharingNotifications, initializeNotificationsWithToken } from '../../utils/notificationUtils';
 import { manuallyMoveUncompletedTasks, debugUserTasks } from '../../utils/taskUtils';
-import { GoogleCalendarSyncNew } from '../../components/GoogleCalendarSyncNew';
+
 import { Colors } from '../../constants/Colors';
 import Toast from 'react-native-toast-message';
 import PhotoZoomViewer from '../../components/PhotoZoomViewer';
@@ -22,7 +23,7 @@ interface UserPreferences {
   default_view: 'day' | 'week' | 'month';
   email_notifications: boolean;
   push_notifications: boolean;
-  default_screen: 'calendar' | 'todo' | 'notes' | 'profile';
+  default_screen: 'todo' | 'notes' | 'profile';
   auto_move_uncompleted_tasks: boolean;
 }
 
@@ -69,7 +70,7 @@ interface MemoryItem {
   id: string;
   photoUri: string;
   date: string;
-  type: 'habit' | 'event';
+  type: 'habit' | 'friends_feed' | 'daily_bit';
   title: string;
   description?: string;
   categoryColor?: string;
@@ -83,18 +84,7 @@ interface MemoryGroup {
 }
 
 // Friends feed interfaces
-interface PhotoShare {
-  update_id: string;
-  user_id: string;
-  user_name: string;
-  user_avatar: string;
-  user_username: string;
-  photo_url: string;
-  caption: string;
-  source_type: 'habit' | 'event';
-  source_title: string;
-  created_at: string;
-}
+
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -112,7 +102,7 @@ export default function ProfileScreen() {
     default_view: 'day',
     email_notifications: true,
     push_notifications: true,
-    default_screen: 'calendar',
+    default_screen: 'todo',
     auto_move_uncompleted_tasks: false
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -152,31 +142,20 @@ export default function ProfileScreen() {
   const [selectedMemories, setSelectedMemories] = useState<Set<string>>(new Set());
   const [isDeletingMemories, setIsDeletingMemories] = useState(false);
 
-  // Friends feed state
-  const [photoShares, setPhotoShares] = useState<PhotoShare[]>([]);
-  const [isLoadingPhotoShares, setIsLoadingPhotoShares] = useState(false);
-  const [showFriendsFeedModal, setShowFriendsFeedModal] = useState(false);
-  const [photoSharesPage, setPhotoSharesPage] = useState(0);
-  const [hasMorePhotoShares, setHasMorePhotoShares] = useState(true);
-  const [isRefreshingPhotoShares, setIsRefreshingPhotoShares] = useState(false);
-  const [unreadPhotoShares, setUnreadPhotoShares] = useState(0);
-  const [lastViewedPhotoShareTime, setLastViewedPhotoShareTime] = useState<number>(0);
-  
   // Friends modal refresh state
   const [isRefreshingFriends, setIsRefreshingFriends] = useState(false);
   
-  // Photo zoom state
+  // Photo zoom state for memories
   const [showPhotoZoomModal, setShowPhotoZoomModal] = useState(false);
-  const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<PhotoShare | null>(null);
-  const [photoDimensions, setPhotoDimensions] = useState<{[key: string]: {width: number, height: number}}>({});
-  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const [selectedPhotoForZoom, setSelectedPhotoForZoom] = useState<MemoryItem | null>(null);
+  const { setIsPhotoZoomed } = useTabBar();
 
   // Settings state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showDefaultScreenModal, setShowDefaultScreenModal] = useState(false);
   
-  // Google Calendar sync state
-  const [showGoogleSyncModal, setShowGoogleSyncModal] = useState(false);
+
+
 
   // Use preloaded data from DataContext when available
   useEffect(() => {
@@ -200,7 +179,7 @@ export default function ProfileScreen() {
           default_view: appData.userPreferences.default_view || 'day',
           email_notifications: appData.userPreferences.email_notifications ?? true,
           push_notifications: appData.userPreferences.push_notifications ?? true,
-          default_screen: appData.userPreferences.default_screen || 'calendar',
+          default_screen: appData.userPreferences.default_screen || 'todo',
           auto_move_uncompleted_tasks: appData.userPreferences.auto_move_uncompleted_tasks ?? false
         });
       }
@@ -248,7 +227,7 @@ export default function ProfileScreen() {
               default_view: appData.userPreferences.default_view || 'day',
               email_notifications: appData.userPreferences.email_notifications ?? true,
               push_notifications: appData.userPreferences.push_notifications ?? true,
-              default_screen: appData.userPreferences.default_screen || 'calendar',
+              default_screen: appData.userPreferences.default_screen || 'todo',
               auto_move_uncompleted_tasks: appData.userPreferences.auto_move_uncompleted_tasks ?? false
             });
           }
@@ -263,7 +242,7 @@ export default function ProfileScreen() {
           await initializeNotificationsWithToken(session.user.id);
           await loadFriendRequests(session.user.id);
           await loadMemories(session.user.id);
-          await loadPhotoShares(true);
+
         }
       } catch (error) {
         console.error('[Profile] Error in checkSession:', error);
@@ -280,7 +259,7 @@ export default function ProfileScreen() {
         await loadFriends(session.user.id);
         await loadFriendRequests(session.user.id);
         await loadMemories(session.user.id);
-        await loadPhotoShares(true);
+
       } else {
         setUser(null);
         setProfile(null);
@@ -303,7 +282,7 @@ export default function ProfileScreen() {
         loadFriends(user.id);
         loadFriendRequests(user.id);
         loadMemories(user.id);
-        loadPhotoShares(true);
+
       }
     }, [user?.id])
   );
@@ -360,9 +339,7 @@ export default function ProfileScreen() {
       if (globalAny.lastPhotoShareTime && globalAny.lastPhotoShareTime > lastPhotoShareCheckTime) {
         lastPhotoShareCheckTime = globalAny.lastPhotoShareTime;
         console.log('🔄 Photo share detected, refreshing friends feed...');
-        if (user?.id) {
-          loadPhotoShares(true);
-        }
+
       }
     };
 
@@ -450,7 +427,7 @@ export default function ProfileScreen() {
           default_view: data.default_view || 'day',
           email_notifications: data.email_notifications ?? true,
           push_notifications: data.push_notifications ?? true,
-          default_screen: data.default_screen || 'calendar',
+          default_screen: data.default_screen || 'todo',
           auto_move_uncompleted_tasks: data.auto_move_uncompleted_tasks ?? false
         });
       } else {
@@ -462,7 +439,7 @@ export default function ProfileScreen() {
           default_view: 'day',
           email_notifications: true,
           push_notifications: true,
-          default_screen: 'calendar',
+          default_screen: 'todo',
           auto_move_uncompleted_tasks: false
         };
 
@@ -500,7 +477,7 @@ export default function ProfileScreen() {
         default_view: 'day',
         email_notifications: true,
         push_notifications: true,
-        default_screen: 'calendar',
+        default_screen: 'todo',
         auto_move_uncompleted_tasks: false
       });
     }
@@ -932,100 +909,103 @@ export default function ProfileScreen() {
         console.log('📸 No habits with photos found');
       }
 
-      // Fetch events with photos (including private photos)
-      console.log('🔍 Fetching events with photos...');
-      const { data: eventsData, error: eventsError } = await supabase
-        .from('events')
-        .select('id, title, description, date, photos, private_photos, category_name, category_color')
-        .eq('user_id', userId);
+      // Fetch friends feed photos (social updates) - include all photo shares regardless of source type
+      console.log('🔍 Fetching friends feed photos...');
+      const { data: socialUpdatesData, error: socialUpdatesError } = await supabase
+        .from('social_updates')
+        .select('id, photo_url, photos, caption, source_type, source_id, created_at')
+        .eq('user_id', userId)
+        .eq('type', 'photo_share')
+        .not('photo_url', 'is', null);
 
-      if (eventsError) {
-        console.error('Error fetching events with photos:', eventsError);
-        // Don't return here, continue with habits data
-      } else if (eventsData) {
-        console.log('📸 Found events:', eventsData.length);
+      if (socialUpdatesError) {
+        console.error('Error fetching friends feed photos:', socialUpdatesError);
+      } else if (socialUpdatesData) {
+        console.log('📸 Found friends feed photos:', socialUpdatesData.length);
         
-        // Filter events that have either regular photos or private photos
-        const eventsWithPhotos = eventsData.filter(event => {
-          const hasRegularPhotos = event.photos && Array.isArray(event.photos) && event.photos.length > 0;
-          const hasPrivatePhotos = event.private_photos && Array.isArray(event.private_photos) && event.private_photos.length > 0;
-          return hasRegularPhotos || hasPrivatePhotos;
+        // Create a set of habit photo URLs to avoid duplicates
+        const habitPhotoUrls = new Set<string>();
+        allMemories.forEach(memory => {
+          if (memory.type === 'habit') {
+            habitPhotoUrls.add(memory.photoUri);
+          }
         });
         
-        console.log('📸 Events with photos:', eventsWithPhotos.length);
+        // Also create a set to track all photo URLs we've already processed
+        const allPhotoUrls = new Set<string>();
+        allMemories.forEach(memory => {
+          allPhotoUrls.add(memory.photoUri);
+        });
         
-        eventsWithPhotos.forEach(event => {
-          console.log(`🔍 Processing event ${event.id}:`, {
-            title: event.title,
-            photos: event.photos,
-            private_photos: event.private_photos
+        socialUpdatesData.forEach(update => {
+          console.log(`🔍 Processing social update ${update.id}:`, {
+            photo_url: update.photo_url,
+            photos: update.photos,
+            caption: update.caption,
+            source_type: update.source_type
           });
-          // Include regular photos in memories
-          const allPhotos = event.photos || [];
-          if (allPhotos.length > 0) {
-            console.log(`📷 All photos array for event ${event.id}:`, allPhotos);
-            allPhotos.forEach((photoUri: string, photoIndex: number) => {
-              console.log(`📅 Processing photo ${photoIndex} for event ${event.id}:`, photoUri);
-              if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {
-                const isObviouslyInvalid = (
-                  photoUri.length < 10 ||
-                  /^\.(jpg|jpeg|png|gif|webp)$/i.test(photoUri) ||
-                  /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i.test(photoUri)
-                );
-                if (!isObviouslyInvalid) {
-                  console.log(`✅ Adding event memory for date ${event.date}:`, photoUri);
-                  allMemories.push({
-                    id: `${event.id}_${photoIndex}`,
-                    photoUri: photoUri,
-                    date: event.date,
-                    type: 'event',
-                    title: event.title,
-                    description: event.description,
-                    categoryColor: event.category_color,
-                    isPrivate: false
-                  });
-                } else {
-                  console.log(`⚠️ Skipping obviously invalid event photo for event ${event.id}:`, photoUri);
+          
+          // Create a date string from the created_at timestamp
+          const date = new Date(update.created_at).toISOString().split('T')[0];
+          
+          // Process multiple photos if they exist
+          if (update.photos && Array.isArray(update.photos) && update.photos.length > 0) {
+            console.log(`📸 Processing ${update.photos.length} photos for social update ${update.id}`);
+            
+            update.photos.forEach((photoUrl, photoIndex) => {
+              if (photoUrl && typeof photoUrl === 'string' && photoUrl.trim() !== '') {
+                // Skip if this photo is already included anywhere (habit or other social updates)
+                if (allPhotoUrls.has(photoUrl)) {
+                  console.log(`⚠️ Skipping duplicate photo (already exists):`, photoUrl);
+                  return;
                 }
+                
+                console.log(`✅ Adding friends feed memory for date ${date}, photo ${photoIndex + 1}:`, photoUrl);
+                allMemories.push({
+                  id: `social_${update.id}_${photoIndex}`,
+                  photoUri: photoUrl,
+                  date: date,
+                  type: update.source_type === 'habit' ? 'friends_feed' : 'daily_bit',
+                  title: update.caption || 'Daily Bit',
+                  description: update.caption,
+                  categoryColor: update.source_type === 'habit' ? '#00ACC1' : '#FF6B35' // Different colors for different types
+                });
+                
+                // Add to the set to prevent future duplicates
+                allPhotoUrls.add(photoUrl);
               } else {
-                console.log(`❌ Skipping invalid event photo for event ${event.id}:`, photoUri);
+                console.log(`❌ Skipping invalid photo at index ${photoIndex}:`, photoUrl);
               }
             });
-          }
-          // Include private photos in memories, marked as private
-          const privatePhotos = event.private_photos || [];
-          if (privatePhotos.length > 0) {
-            privatePhotos.forEach((photoUri: string, photoIndex: number) => {
-              if (photoUri && typeof photoUri === 'string' && photoUri.trim() !== '') {
-                const isObviouslyInvalid = (
-                  photoUri.length < 10 ||
-                  /^\.(jpg|jpeg|png|gif|webp)$/i.test(photoUri) ||
-                  /^[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}$/i.test(photoUri)
-                );
-                if (!isObviouslyInvalid) {
-                  console.log(`✅ Adding PRIVATE event memory for date ${event.date}:`, photoUri);
-                  allMemories.push({
-                    id: `${event.id}_private_${photoIndex}`,
-                    photoUri: photoUri,
-                    date: event.date,
-                    type: 'event',
-                    title: event.title,
-                    description: event.description,
-                    categoryColor: event.category_color,
-                    isPrivate: true
+          } else if (update.photo_url && typeof update.photo_url === 'string' && update.photo_url.trim() !== '') {
+            // Fallback to single photo_url for backward compatibility
+            if (allPhotoUrls.has(update.photo_url)) {
+              console.log(`⚠️ Skipping duplicate photo (already exists):`, update.photo_url);
+              return;
+            }
+            
+            console.log(`✅ Adding friends feed memory for date ${date} (single photo):`, update.photo_url);
+            allMemories.push({
+              id: `social_${update.id}`,
+              photoUri: update.photo_url,
+              date: date,
+              type: update.source_type === 'habit' ? 'friends_feed' : 'daily_bit',
+              title: update.caption || 'Daily Bit',
+              description: update.caption,
+              categoryColor: update.source_type === 'habit' ? '#00ACC1' : '#FF6B35' // Different colors for different types
             });
+            
+            // Add to the set to prevent future duplicates
+            allPhotoUrls.add(update.photo_url);
           } else {
-                  console.log(`⚠️ Skipping obviously invalid PRIVATE event photo for event ${event.id}:`, photoUri);
-                }
-              } else {
-                console.log(`❌ Skipping invalid PRIVATE event photo for event ${event.id}:`, photoUri);
-              }
-            });
+            console.log(`❌ Skipping invalid social update - no valid photos:`, update);
           }
         });
       } else {
-        console.log('📸 No events with photos found');
+        console.log('📸 No friends feed photos found');
       }
+
+
 
       console.log('📸 Total memories found:', allMemories.length);
       console.log('📸 All memories:', allMemories);
@@ -1358,13 +1338,13 @@ export default function ProfileScreen() {
                 default_view: 'day',
                 email_notifications: true,
                 push_notifications: true,
-                default_screen: 'calendar',
+                default_screen: 'todo',
                 auto_move_uncompleted_tasks: false
               });
               setFriends([]);
               setFriendRequests([]);
               setMemories([]);
-              setPhotoShares([]);
+
               
               // Close all modals
               setShowSettingsModal(false);
@@ -1372,7 +1352,7 @@ export default function ProfileScreen() {
               setShowFriendsModal(false);
               setShowSimpleFriendsModal(false);
               setShowMemoriesModal(false);
-              setShowFriendsFeedModal(false);
+
               setIsEditingProfile(false);
               
               console.log('✅ Successfully signed out');
@@ -1386,13 +1366,12 @@ export default function ProfileScreen() {
     );
   };
 
-  const getDefaultScreenLabel = (screen: 'calendar' | 'todo' | 'notes' | 'profile') => {
+  const getDefaultScreenLabel = (screen: 'todo' | 'notes' | 'profile') => {
     switch (screen) {
-      case 'calendar': return 'Calendar';
       case 'todo': return 'Todo';
       case 'notes': return 'Notes';
       case 'profile': return 'Profile';
-      default: return 'Calendar';
+      default: return 'Todo';
     }
   };
 
@@ -1479,7 +1458,7 @@ export default function ProfileScreen() {
         Toast.show({
           type: 'success',
           text1: 'Default Screen Updated',
-          text2: `App will now start with ${getDefaultScreenLabel((value || 'calendar') as 'calendar' | 'todo' | 'notes' | 'profile')}`,
+          text2: `App will now start with ${getDefaultScreenLabel((value || 'todo') as 'todo' | 'notes' | 'profile')}`,
           position: 'bottom',
         });
       }
@@ -2337,8 +2316,15 @@ export default function ProfileScreen() {
         // Reset selection state when modal closes
         setIsMultiSelectMode(false);
         setSelectedMemories(new Set());
+        // Also reset photo zoom state to prevent interference
+        setSelectedPhotoForZoom(null);
+        setShowPhotoZoomModal(false);
       }}
       onShow={() => {
+        // Reset photo zoom state to prevent interference
+        setSelectedPhotoForZoom(null);
+        setShowPhotoZoomModal(false);
+        
         // Refresh memories when modal opens to ensure we have the latest data
         if (user?.id) {
           console.log('🔄 Refreshing memories on modal open...');
@@ -2348,10 +2334,13 @@ export default function ProfileScreen() {
     >
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={() => {
+          <TouchableOpacity           onPress={() => {
             setShowMemoriesModal(false); // Actually close the modal
             setIsMultiSelectMode(false);
             setSelectedMemories(new Set());
+            // Also reset photo zoom state to prevent interference
+            setSelectedPhotoForZoom(null);
+            setShowPhotoZoomModal(false);
           }}>
             <Ionicons name="close" size={24} color="#000" />
           </TouchableOpacity>
@@ -2524,25 +2513,15 @@ export default function ProfileScreen() {
             renderItem={({ item: memory }) => (
               <TouchableOpacity
                 style={styles.memoryItem}
-                onPress={() => {
-                  if (isMultiSelectMode) {
-                    toggleMemorySelection(memory.id);
-                  } else {
-                    setSelectedPhotoForZoom({
-                      update_id: memory.id || '',
-                      user_id: user?.id || '',
-                      user_name: profile?.full_name || '',
-                      user_avatar: profile?.avatar_url || '',
-                      user_username: profile?.username || '',
-                      photo_url: memory.photoUri,
-                      caption: memory.description || '',
-                      source_type: memory.type,
-                      source_title: memory.title || '',
-                      created_at: memory.date || '',
-                    });
-                    setShowPhotoZoomModal(true);
-                  }
-                }}
+                                  onPress={() => {
+                    if (isMultiSelectMode) {
+                      toggleMemorySelection(memory.id);
+                    } else {
+                      setSelectedPhotoForZoom(memory);
+                      setShowPhotoZoomModal(true);
+                      setIsPhotoZoomed(true);
+                    }
+                  }}
                 activeOpacity={0.7}
               >
                 <Image
@@ -2624,7 +2603,8 @@ export default function ProfileScreen() {
                   { backgroundColor: selectedMemory.categoryColor || '#00ACC1' }
                 ]}>
                   <Text style={styles.memoryDetailTypeText}>
-                    {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
+                    {selectedMemory.type === 'habit' ? 'Habit' : 
+                     selectedMemory.type === 'friends_feed' ? 'Daily Bit' : 'Event'}
                   </Text>
                 </View>
                 <Text style={styles.memoryDetailTitle}>{selectedMemory.title}</Text>
@@ -2643,13 +2623,8 @@ export default function ProfileScreen() {
         {/* Photo view overlay inside the modal */}
         {showPhotoZoomModal && selectedPhotoForZoom && (
           <PhotoZoomViewer
-            visible={true}
-            photoUrl={selectedPhotoForZoom.photo_url}
-            caption={selectedPhotoForZoom.caption}
-            sourceType={selectedPhotoForZoom.source_type}
-            sourceTitle={selectedPhotoForZoom.source_title}
-            userAvatar={selectedPhotoForZoom.user_avatar}
-            username={selectedPhotoForZoom.user_username}
+            photoUrl={selectedPhotoForZoom.photoUri}
+            sourceType={selectedPhotoForZoom.type}
             onClose={() => {
               setShowPhotoZoomModal(false);
               setSelectedPhotoForZoom(null);
@@ -2660,174 +2635,7 @@ export default function ProfileScreen() {
     </Modal>
   );
 
-  const renderFriendsFeedModal = () => (
-    <Modal
-      visible={showFriendsFeedModal}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={() => setShowFriendsFeedModal(false)}
-      onShow={() => {
-        if (user?.id) {
-          // Only load if we don't have data yet
-          if (photoShares.length === 0) {
-            loadPhotoShares(true);
-          }
-          markPhotoSharesAsRead();
-        }
-      }}
-    >
-      <SafeAreaView style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={() => setShowFriendsFeedModal(false)}>
-            <Ionicons name="close" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Friends Feed</Text>
-          <TouchableOpacity onPress={() => {
-            loadPhotoShares(true);
-            Toast.show({
-              type: 'info',
-              text1: 'Refreshing feed...',
-              position: 'bottom',
-            });
-          }}>
-            <Ionicons name="refresh" size={24} color="#000" />
-          </TouchableOpacity>
-        </View>
-
-        {isLoadingPhotoShares ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#00ACC1" />
-            <Text style={styles.loadingText}>Loading friends feed...</Text>
-          </View>
-        ) : photoShares.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="people-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyText}>No friends feed yet</Text>
-            <Text style={styles.emptySubtext}>
-              When your friends share photos from their habits and events, they'll appear here
-            </Text>
-          </View>
-        ) : (
-          <FlatList
-            data={photoShares}
-            keyExtractor={(item, index) => `${item.update_id}-${index}`}
-            renderItem={({ item }) => (
-              <View style={styles.photoShareCard}>
-                {/* User Header */}
-                <View style={styles.userHeader}>
-                  <View style={styles.userInfo}>
-                    <Image
-                      source={{ 
-                        uri: item.user_avatar || 'https://via.placeholder.com/40x40?text=U'
-                      }}
-                      style={styles.userAvatar}
-                    />
-                    <View style={styles.userDetails}>
-                      <Text style={[styles.userUsername, { fontWeight: 'bold', color: '#000', marginBottom: 2 }]}>{item.user_username}</Text>
-                      <Text style={[styles.timeAgo, { marginTop: 0 }]}>{formatTimeAgo(item.created_at)}</Text>
-                    </View>
-                  </View>
-                  {item.user_id === user?.id && (
-                    <TouchableOpacity
-                      onPress={() => {
-                        console.log('🗑️ Delete button pressed for post:', {
-                          update_id: item.update_id,
-                          user_id: item.user_id,
-                          current_user: user?.id
-                        });
-                        Alert.alert(
-                          'Delete Post',
-                          'Are you sure you want to delete this post?',
-                          [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Delete', style: 'destructive', onPress: () => handleDeletePhotoShare(item.update_id) }
-                          ]
-                        );
-                      }}
-                      style={{ marginLeft: 12 }}
-                    >
-                      <Ionicons 
-                        name="trash-outline" 
-                        size={16} 
-                        color={deletingPhotoId === item.update_id ? "#FF3B30" : "#8E8E93"} 
-                      />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                {/* Caption above photo, smaller font */}
-                {item.caption && (
-                  <Text style={[styles.caption, { fontSize: 13, marginBottom: 8, marginTop: 0 }]}>{item.caption}</Text>
-                )}
-                {/* Photo */}
-                <TouchableOpacity 
-                  style={{
-                    borderRadius: 6,
-                    overflow: 'hidden',
-                  }}
-                  onPress={() => {
-                    setSelectedPhotoForZoom(item);
-                    setShowPhotoZoomModal(true);
-                  }}
-                  activeOpacity={0.9}
-                >
-                  <Image
-                    source={{ uri: item.photo_url }}
-                    style={{
-                      width: '100%',
-                      height: photoDimensions[item.update_id]
-                        ? (photoDimensions[item.update_id].width < photoDimensions[item.update_id].height ? 400 : 250)
-                        : 300, // default height while loading
-                      borderRadius: 12,
-                      alignSelf: 'center',
-                    }}
-                    resizeMode="cover"
-                    onLoad={e => {
-                      const { width, height } = e.nativeEvent.source;
-                      setPhotoDimensions(prev => ({
-                        ...prev,
-                        [item.update_id]: { width, height }
-                      }));
-                    }}
-                  />
-                </TouchableOpacity>
-                {/* Caption and Source */}
-                <View style={styles.contentContainer}>
-                  <View style={styles.sourceContainer}>
-                    <View style={[
-                      styles.sourceBadge,
-                      { backgroundColor: item.source_type === 'habit' ? '#4CAF50' : '#00BCD4' }
-                    ]}>
-                      <Ionicons 
-                        name={item.source_type === 'habit' ? 'repeat' : 'calendar'} 
-                        size={12} 
-                        color="white" 
-                      />
-                      <Text style={styles.sourceText}>
-                        {item.source_type === 'habit' ? 'Habit' : 'Event'}
-                      </Text>
-                    </View>
-                    <Text style={styles.sourceTitle}>{item.source_title}</Text>
-                  </View>
-                </View>
-              </View>
-            )}
-            refreshControl={
-              <RefreshControl
-                refreshing={isRefreshingPhotoShares}
-                onRefresh={handlePhotoSharesRefresh}
-                colors={['#00ACC1']}
-                tintColor="#00ACC1"
-              />
-            }
-            onEndReached={handlePhotoSharesLoadMore}
-            onEndReachedThreshold={0.1}
-            contentContainerStyle={styles.listContainer}
-            showsVerticalScrollIndicator={false}
-          />
-        )}
-      </SafeAreaView>
-    </Modal>
-  );
+  
 
   const renderSettingsModal = () => (
     <Modal
@@ -2853,14 +2661,11 @@ export default function ProfileScreen() {
             <Text style={styles.sectionTitle}>Preferences</Text>
             {renderSettingsItem('color-palette-outline', 'Theme', preferences.theme)}
             {renderSettingsItem('notifications-outline', 'Push Notifications', undefined, undefined, true, preferences.push_notifications, (value) => handlePreferenceChange('push_notifications', value))}
-            {renderSettingsItem('home-outline', 'Default Screen', getDefaultScreenLabel((preferences.default_screen || 'calendar') as 'calendar' | 'todo' | 'notes' | 'profile'), () => {
+            {renderSettingsItem('home-outline', 'Default Screen', getDefaultScreenLabel((preferences.default_screen || 'todo') as 'todo' | 'notes' | 'profile'), () => {
               setShowSettingsModal(false);
               setShowDefaultScreenModal(true);
             })}
-            {renderSettingsItem('logo-google', 'Google Calendar Sync', undefined, () => {
-              setShowSettingsModal(false);
-              setShowGoogleSyncModal(true);
-            })}
+
 
           </View>
 
@@ -2940,9 +2745,9 @@ export default function ProfileScreen() {
             <Text style={styles.sectionTitle}>Select the screen that appears when you open the app</Text>
             
             {[
-              { key: 'calendar', label: 'Calendar', icon: 'calendar-number-outline' },
               { key: 'todo', label: 'Todo', icon: 'list' },
               { key: 'notes', label: 'Notes', icon: 'document-text-outline' },
+              { key: 'friends-feed', label: 'Friends', icon: 'people-outline' },
               { key: 'profile', label: 'Profile', icon: 'person-outline' }
             ].map((screen) => (
               <TouchableOpacity
@@ -2984,39 +2789,7 @@ export default function ProfileScreen() {
     </Modal>
   );
 
-  const renderGoogleSyncModal = () => (
-    <Modal
-      visible={showGoogleSyncModal}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={() => setShowGoogleSyncModal(false)}
-    >
-      <SafeAreaView style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <TouchableOpacity onPress={() => setShowGoogleSyncModal(false)}>
-            <Ionicons name="close" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.modalTitle}>Google Calendar Sync</Text>
-          <View style={{ width: 24 }} />
-        </View>
 
-        <View style={styles.modalContent}>
-          <GoogleCalendarSyncNew
-            userId={user?.id}
-            onEventsSynced={() => {
-              // Handle events synced
-            }}
-            onCalendarUnsynced={() => {
-              // Handle calendar unsynced
-            }}
-            onCalendarColorUpdated={() => {
-              // Handle calendar color updated
-            }}
-          />
-        </View>
-      </SafeAreaView>
-    </Modal>
-  );
 
   const checkDatabaseState = async (userId: string) => {
     try {
@@ -3543,31 +3316,7 @@ export default function ProfileScreen() {
         });
       }
 
-      // Check events with photos
-      const { data: eventsData, error: eventsError } = await supabase
-        .from('events')
-        .select('id, title, photos')
-        .eq('user_id', userId)
-        .not('photos', 'is', null);
 
-      if (eventsError) {
-        console.error('Error testing events:', eventsError);
-        return;
-      }
-
-      console.log('🧪 Events with photos found:', eventsData?.length || 0);
-      
-      if (eventsData && eventsData.length > 0) {
-        eventsData.forEach(event => {
-          console.log(`🧪 Event ${event.id} (${event.title}):`, event.photos);
-          if (event.photos && Array.isArray(event.photos)) {
-            console.log(`🧪   - ${event.photos.length} photos stored`);
-            event.photos.forEach((photoUri, index) => {
-              console.log(`🧪   - Photo ${index}: ${photoUri}`);
-            });
-          }
-        });
-      }
 
       Alert.alert('Test Complete', 'Check console for detailed photo information.');
     } catch (error) {
@@ -3743,34 +3492,7 @@ export default function ProfileScreen() {
         }
       }
 
-      // Clear memories from events - get ALL events for this user
-      const { data: allEventsData, error: allEventsError } = await supabase
-        .from('events')
-        .select('id, photos')
-        .eq('user_id', userId);
 
-      if (allEventsError) {
-        console.error('Error fetching all events for clearing:', allEventsError);
-        return;
-      }
-
-      if (allEventsData && allEventsData.length > 0) {
-        console.log(`🗑️ Checking ${allEventsData.length} events for photos`);
-        
-        for (const event of allEventsData) {
-          // Clear photos regardless of whether they exist or not
-          const { error } = await supabase
-            .from('events')
-            .update({ photos: [] })
-            .eq('id', event.id);
-          
-          if (error) {
-            console.error(`🗑️ Error clearing photos from event ${event.id}:`, error);
-          } else {
-            console.log(`🗑️ Successfully cleared photos from event ${event.id}`);
-          }
-        }
-      }
 
       // Clear local state immediately
       setMemories([]);
@@ -3928,178 +3650,7 @@ export default function ProfileScreen() {
     }
   };
 
-  const loadPhotoShares = async (refresh = false) => {
-    if (!user?.id) return;
 
-    try {
-      if (refresh) {
-        setIsRefreshingPhotoShares(true);
-        setPhotoSharesPage(0);
-        setHasMorePhotoShares(true);
-      } else {
-        setIsLoadingPhotoShares(true);
-      }
-
-      const limit = 10;
-      const offset = refresh ? 0 : photoSharesPage * limit;
-      
-      // For pagination, we need to fetch more data than the limit since the DB function doesn't support offset
-      const fetchLimit = refresh ? limit : (photoSharesPage + 1) * limit;
-
-      console.log('🔄 Loading photo shares for user:', user.id, 'limit:', limit, 'offset:', offset);
-
-      // Try the main function first (without offset since it's not supported)
-      let { data, error } = await supabase.rpc('get_friends_photo_shares_with_privacy', {
-        current_user_id: user.id,
-        limit_count: fetchLimit
-      });
-          
-      if (error) {
-        console.error('❌ Error with main friends feed function:', error);
-        
-        // Fallback: try to get basic photo shares directly
-        console.log('🔄 Trying fallback approach...');
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .from('social_updates')
-          .select(`
-            id,
-            user_id,
-            photo_url,
-            caption,
-            source_type,
-            source_id,
-            created_at
-          `)
-          .eq('type', 'photo_share')
-          .not('photo_url', 'is', null)
-          .order('created_at', { ascending: false })
-          .range(0, fetchLimit - 1);
-
-        if (fallbackError) {
-          console.error('❌ Fallback also failed:', fallbackError);
-          Alert.alert('Error', 'Failed to load friends feed. Please try again.');
-          return;
-        }
-
-        // Get user profiles separately to avoid join issues
-        const userIds = [...new Set(fallbackData?.map((item: any) => item.user_id) || [])];
-        const { data: profilesData } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url, username')
-          .in('id', userIds);
-
-        const profilesMap = new Map(profilesData?.map((p: any) => [p.id, p]) || []);
-
-        // Transform fallback data to match expected format
-        data = fallbackData?.map((item: any) => {
-          const profile = profilesMap.get(item.user_id);
-          return {
-            update_id: item.id,
-            user_id: item.user_id,
-            user_name: profile?.full_name || 'Unknown User',
-            user_avatar: profile?.avatar_url,
-            user_username: profile?.username || 'unknown',
-            photo_url: item.photo_url,
-            caption: item.caption || '',
-            source_type: item.source_type || 'unknown',
-            source_title: item.caption || 'Photo Share', // Will be updated below
-            created_at: item.created_at,
-            source_id: item.source_id // Add source_id for title lookup
-          };
-        }) || [];
-      }
-
-      // The database function already provides titles, so we don't need to fetch them separately
-      // Just log what we got for debugging
-      if (data && data.length > 0) {
-        console.log('✅ Photo shares loaded with titles from database function');
-        data.forEach((item: any, index: number) => {
-          console.log(`${index + 1}. ${item.source_type}: "${item.source_title}"`);
-        });
-      }
-
-      console.log('✅ Photo shares loaded:', data?.length || 0);
-
-      // Log the first few posts to see their structure
-      if (data && data.length > 0) {
-        console.log('📋 Sample posts:', data.slice(0, 3).map((post: any) => ({
-          update_id: post.update_id,
-          user_id: post.user_id,
-          user_username: post.user_username,
-          source_type: post.source_type,
-          source_title: post.source_title,
-          photo_url: post.photo_url?.substring(0, 50) + '...'
-        })));
-      }
-
-      // Handle pagination on client side since DB function doesn't support offset
-      let currentPageData = data || [];
-      
-      if (refresh) {
-        // For refresh, take the first page
-        currentPageData = data?.slice(0, limit) || [];
-        setPhotoShares(currentPageData);
-        // Count unread photo shares (created after last viewed time)
-        const unreadCount = currentPageData.filter((share: PhotoShare) => 
-          new Date(share.created_at).getTime() > lastViewedPhotoShareTime
-        ).length;
-        setUnreadPhotoShares(unreadCount);
-      } else {
-        // For load more, take the new items (skip what we already have)
-        const existingCount = photoShares.length;
-        const newItems = data?.slice(existingCount, existingCount + limit) || [];
-        setPhotoShares(prev => [...prev, ...newItems]);
-        currentPageData = newItems;
-      }
-
-      // Set hasMorePhotoShares based on whether we got a full page of results
-      // If we got fewer items than the limit, we've reached the end
-      const hasMore = (data || []).length > (refresh ? limit : photoShares.length + limit);
-      console.log(`📊 Pagination: got ${(data || []).length} total items, current page: ${currentPageData.length}, hasMore: ${hasMore}`);
-      setHasMorePhotoShares(hasMore);
-      setPhotoSharesPage(prev => refresh ? 1 : prev + 1);
-    } catch (error) {
-      console.error('❌ Error in loadPhotoShares:', error);
-      Alert.alert('Error', 'Failed to load friends feed. Please try again.');
-    } finally {
-      setIsLoadingPhotoShares(false);
-      setIsRefreshingPhotoShares(false);
-    }
-  };
-
-  const handlePhotoSharesRefresh = () => {
-    loadPhotoShares(true);
-  };
-
-  const handlePhotoSharesLoadMore = () => {
-    if (hasMorePhotoShares && !isLoadingPhotoShares) {
-      loadPhotoShares();
-    }
-  };
-
-  const markPhotoSharesAsRead = () => {
-    setLastViewedPhotoShareTime(Date.now());
-    setUnreadPhotoShares(0);
-  };
-
-  const formatTimeAgo = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diffInSeconds < 60) {
-      return 'just now';
-    } else if (diffInSeconds < 3600) {
-      const minutes = Math.floor(diffInSeconds / 60);
-      return `${minutes}m ago`;
-    } else if (diffInSeconds < 86400) {
-      const hours = Math.floor(diffInSeconds / 3600);
-      return `${hours}h ago`;
-            } else {
-      const days = Math.floor(diffInSeconds / 86400);
-      return `${days}d ago`;
-    }
-  };
 
   // Multi-select functions for memories
   const toggleMultiSelectMode = () => {
@@ -4143,9 +3694,9 @@ export default function ProfileScreen() {
             try {
               setIsDeletingMemories(true);
               
-              // Group memories by type (habit vs event) for efficient deletion
+              // Group memories by type (habit vs friends_feed) for efficient deletion
               const habitMemories: { [habitId: string]: string[] } = {};
-              const eventMemories: { [eventId: string]: number[] } = {};
+              const friendsFeedMemories: string[] = [];
               
               // Process each selected memory
               for (const memoryId of selectedMemories) {
@@ -4159,13 +3710,10 @@ export default function ProfileScreen() {
                     habitMemories[habitId] = [];
                   }
                   habitMemories[habitId].push(date);
-                } else if (memory.type === 'event') {
-                  const eventId = memoryId.split('_')[0];
-                  const photoIndex = parseInt(memoryId.split('_')[1]);
-                  if (!eventMemories[eventId]) {
-                    eventMemories[eventId] = [];
-                  }
-                  eventMemories[eventId].push(photoIndex);
+                } else if (memory.type === 'friends_feed' || memory.type === 'daily_bit') {
+                  // Extract the social update ID from the memory ID (format: social_<id>)
+                  const socialUpdateId = memoryId.replace('social_', '');
+                  friendsFeedMemories.push(socialUpdateId);
                 }
               }
               
@@ -4211,80 +3759,28 @@ export default function ProfileScreen() {
                 }
               }
               
-              // Delete event photos
-              for (const [eventId, photoIndices] of Object.entries(eventMemories)) {
-                console.log(`🗑️ Deleting event photos for event ${eventId}, indices:`, photoIndices);
+              // Delete friends feed photos
+              if (friendsFeedMemories.length > 0) {
+                console.log(`🗑️ Deleting ${friendsFeedMemories.length} friends feed photos...`);
                 
-                const { data: event, error: fetchError } = await supabase
-                  .from('events')
-                  .select('photos, private_photos')
-                  .eq('id', eventId)
-                  .single();
-                
-                if (fetchError) {
-                  console.error(`❌ Error fetching event ${eventId}:`, fetchError);
-                  continue;
-                }
-                
-                if (event?.photos && Array.isArray(event.photos)) {
-                  console.log(`📸 Original event photos:`, event.photos);
-                  const updatedPhotos = [...event.photos];
-                  const updatedPrivatePhotos = [...(event.private_photos || [])];
+                for (const socialUpdateId of friendsFeedMemories) {
+                  console.log(`🗑️ Deleting social update ${socialUpdateId}`);
                   
-                  // Remove photos in reverse order to maintain correct indices
-                  photoIndices.sort((a, b) => b - a).forEach(index => {
-                    if (index >= 0 && index < updatedPhotos.length) {
-                      const photoUrlToRemove = updatedPhotos[index];
-                      console.log(`🗑️ Removing photo at index ${index}:`, photoUrlToRemove);
-                      updatedPhotos.splice(index, 1);
-                      
-                      // Also remove from private_photos if it exists there
-                      const privateIndex = updatedPrivatePhotos.indexOf(photoUrlToRemove);
-                      if (privateIndex !== -1) {
-                        updatedPrivatePhotos.splice(privateIndex, 1);
-                      }
-                      
-                      // Remove the photo from friends feed (social_updates table)
-                      if (user?.id) {
-                        supabase
-                          .from('social_updates')
-                          .delete()
-                          .eq('user_id', user.id)
-                          .eq('type', 'photo_share')
-                          .eq('source_type', 'event')
-                          .eq('source_id', eventId)
-                          .eq('photo_url', photoUrlToRemove)
-                          .then(({ error: socialError }) => {
-                            if (socialError) {
-                              console.error('Error removing photo from friends feed:', socialError);
-                            } else {
-                              console.log('✅ Photo removed from friends feed');
-                            }
-                          });
-                      }
-                    }
-                  });
+                  const { error: deleteError } = await supabase
+                    .from('social_updates')
+                    .delete()
+                    .eq('id', socialUpdateId)
+                    .eq('user_id', user?.id);
                   
-                  console.log(`📸 Updated event photos:`, updatedPhotos);
-                  console.log(`📸 Updated private photos:`, updatedPrivatePhotos);
-                  
-                  const { error: updateError } = await supabase
-                    .from('events')
-                    .update({ 
-                      photos: updatedPhotos,
-                      private_photos: updatedPrivatePhotos
-                    })
-                    .eq('id', eventId);
-                  
-                  if (updateError) {
-                    console.error(`❌ Error updating event ${eventId}:`, updateError);
+                  if (deleteError) {
+                    console.error(`❌ Error deleting social update ${socialUpdateId}:`, deleteError);
                   } else {
-                    console.log(`✅ Successfully updated event ${eventId}`);
+                    console.log(`✅ Successfully deleted social update ${socialUpdateId}`);
                   }
-                } else {
-                  console.log(`⚠️ Event ${eventId} has no photos to delete`);
                 }
               }
+              
+
               
               // Refresh memories and exit multi-select mode
               if (user?.id) {
@@ -4398,112 +3894,7 @@ export default function ProfileScreen() {
   };
 
   // Add this handler near other handlers
-  const handleDeletePhotoShare = async (updateId: string) => {
-    try {
-      // Set the deleting state to show red color
-      setDeletingPhotoId(updateId);
-      
-      console.log('🗑️ Attempting to delete post with ID:', updateId);
-      console.log('🗑️ Current user ID:', user?.id);
-      
-      if (!user?.id) {
-        console.error('❌ No user ID available');
-        Alert.alert('Error', 'User not authenticated');
-        return;
-      }
-      
-      // First, let's check if the post exists and we can see it
-      const { data: checkData, error: checkError } = await supabase
-        .from('social_updates')
-        .select('id, user_id, type, photo_url, created_at, source_type, source_id')
-        .eq('id', updateId);
-      
-      console.log('🔍 Post check result:', { checkData, checkError });
-      
-      if (checkError) {
-        console.error('❌ Error checking post:', checkError);
-        Alert.alert('Error', `Cannot find post: ${checkError.message}`);
-        return;
-      }
-      
-      if (!checkData || checkData.length === 0) {
-        console.log('⚠️ Post not found in database');
-        Alert.alert('Error', 'Post not found in database');
-        return;
-      }
-      
-      const postToDelete = checkData[0];
-      console.log('✅ Found post to delete:', postToDelete);
-      
-      // Check if the user owns this post
-      if (postToDelete.user_id !== user.id) {
-        console.error('❌ User does not own this post');
-        Alert.alert('Error', 'You can only delete your own posts');
-        return;
-      }
-      
-      // Let's also check what posts the user can see
-      const { data: allPosts, error: listError } = await supabase
-        .from('social_updates')
-        .select('id, user_id, type, photo_url')
-        .eq('type', 'photo_share')
-        .eq('user_id', user?.id)
-        .limit(5);
-      
-      console.log('📋 User\'s posts:', { allPosts, listError });
-      
-      // Also check if the specific update_id exists in the user's posts
-      const foundInUserPosts = allPosts?.find(post => post.id === updateId);
-      console.log('🔍 Is update_id in user\'s posts?', foundInUserPosts);
-      
-      // Now try to delete it
-      const { data, error } = await supabase
-        .from('social_updates')
-        .delete()
-        .eq('id', updateId)
-        .eq('user_id', user.id) // Add user_id check for extra security
-        .select(); // Add select() to see what was deleted
-      
-      console.log('🗑️ Delete result:', { data, error });
-      
-      if (error) {
-        console.error('❌ Delete error:', error);
-        
-        // Provide more specific error messages
-        if (error.code === '42501') {
-          Alert.alert('Error', 'Permission denied. You can only delete your own posts.');
-        } else if (error.code === '23503') {
-          Alert.alert('Error', 'Cannot delete post due to database constraints.');
-        } else {
-          Alert.alert('Error', `Failed to delete post: ${error.message}`);
-        }
-        return;
-      }
-      
-      if (data && data.length > 0) {
-        console.log('✅ Successfully deleted post:', data[0]);
-        setPhotoShares(prev => prev.filter(item => item.update_id !== updateId));
-        Toast.show({
-          type: 'success',
-          text1: 'Post deleted',
-          position: 'bottom',
-        });
-        
-        // Reset the deleting state after a short delay
-        setTimeout(() => {
-          setDeletingPhotoId(null);
-        }, 1000);
-      } else {
-        console.log('⚠️ No rows were deleted');
-        Alert.alert('Error', 'Post not found or already deleted');
-        setDeletingPhotoId(null);
-      }
-    } catch (err) {
-      console.error('❌ Exception in delete:', err);
-      Alert.alert('Error', 'Failed to delete post.');
-      setDeletingPhotoId(null);
-    }
-  };
+
 
   return (
     <SafeAreaView style={styles.container}>
@@ -4527,23 +3918,50 @@ export default function ProfileScreen() {
 
         {user && (
           <View style={styles.featuresSection}>
-            <View style={{ height: 40 }} />
+            <View style={{ height: 15 }} />
             <View style={styles.featuresGrid}>
 
-            {renderFeatureCard(
-                'images-outline',
-                'Memories',
-                '',
-                Number(memories.flatMap(group => group.memories).length) || undefined,
-                () => setShowMemoriesModal(true)
-              )}
-              {renderFeatureCard(
-                'people-outline',
-                'Friends Feed',
-                '',
-                typeof unreadPhotoShares === 'number' && unreadPhotoShares > 0 ? unreadPhotoShares : undefined,
-                () => setShowFriendsFeedModal(true)
-              )}
+            {/* Memories Grid */}
+            {isLoadingMemories ? (
+              <View style={styles.memoriesLoading}>
+                <ActivityIndicator size="small" color="#00ACC1" />
+                <Text style={styles.memoriesLoadingText}>Loading memories...</Text>
+              </View>
+            ) : memories.length === 0 ? (
+              <View style={styles.memoriesEmpty}>
+                <Ionicons name="images-outline" size={48} color="#ccc" />
+                <Text style={styles.memoriesEmptyText}>No memories yet</Text>
+                <Text style={styles.memoriesEmptySubtext}>Your habit photos will appear here</Text>
+              </View>
+            ) : (
+              <View style={styles.memoriesGrid}>
+                {memories.flatMap(group => group.memories).slice(0, 19).map((memory, memoryIndex) => (
+                  <TouchableOpacity
+                    key={memoryIndex}
+                    style={styles.memoryThumbnail}
+                    onPress={() => {
+                      setSelectedPhotoForZoom(memory);
+                      setShowPhotoZoomModal(true);
+                      setIsPhotoZoomed(true);
+                    }}
+                  >
+                    <Image
+                      source={{ uri: memory.photoUri }}
+                      style={styles.memoryThumbnailImage}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={styles.memoryThumbnailMore}
+                  onPress={() => setShowMemoriesModal(true)}
+                >
+                  <View style={styles.memoryThumbnailMoreContent}>
+                    <Ionicons name="add" size={20} color="#666" />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            )}
             </View>
           </View>
         )}
@@ -4587,10 +4005,25 @@ export default function ProfileScreen() {
       {renderFriendsListModal()}
       {renderSimpleFriendsModal()}
       {renderMemoriesModal()}
-      {renderFriendsFeedModal()}
+
       {renderSettingsModal()}
       {renderDefaultScreenModal()}
-      {renderGoogleSyncModal()}
+      
+      {/* Photo zoom modal for viewing individual photos */}
+      {showPhotoZoomModal && selectedPhotoForZoom && (
+        <PhotoZoomViewer
+          photoUrl={selectedPhotoForZoom.photoUri}
+          sourceType={selectedPhotoForZoom.type}
+          onClose={() => {
+            setShowPhotoZoomModal(false);
+            setSelectedPhotoForZoom(null);
+            setIsPhotoZoomed(false);
+          }}
+          onOpen={() => {
+            setIsPhotoZoomed(true);
+          }}
+        />
+      )}
       
       {/* Memory detail modal for viewing individual photos */}
       {showMemoryDetailModal && selectedMemory && (
@@ -4629,7 +4062,8 @@ export default function ProfileScreen() {
                   { backgroundColor: selectedMemory.categoryColor || '#00ACC1' }
                 ]}>
                   <Text style={styles.memoryDetailTypeText}>
-                    {selectedMemory.type === 'habit' ? 'Habit' : 'Event'}
+                    {selectedMemory.type === 'habit' ? 'Habit' : 
+                     selectedMemory.type === 'friends_feed' ? 'Daily Bit' : 'Event'}
                   </Text>
                 </View>
                 <Text style={styles.memoryDetailTitle}>{selectedMemory.title}</Text>
@@ -5760,5 +5194,73 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     fontFamily: 'Onest',
     letterSpacing: 0.5,
+  },
+  // Memories section styles
+
+  memoriesLoading: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  memoriesLoadingText: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'Onest',
+  },
+  memoriesEmpty: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  memoriesEmptyText: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+    fontFamily: 'Onest',
+  },
+  memoriesEmptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    fontFamily: 'Onest',
+  },
+  memoriesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 3,
+  },
+  memoryThumbnail: {
+    width: (Dimensions.get('window').width - 55) / 5, // 5 columns with smaller photos
+    height: (Dimensions.get('window').width - 55) / 5,
+    borderRadius: 8,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  memoryThumbnailImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  memoryThumbnailMore: {
+    width: (Dimensions.get('window').width - 50) / 5,
+    height: (Dimensions.get('window').width - 50) / 5,
+    borderRadius: 8,
+    backgroundColor: '#f8f9fa',
+    borderWidth: 2,
+    borderColor: '#e0e0e0',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  memoryThumbnailMoreContent: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  memoryThumbnailMoreText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+    fontFamily: 'Onest',
   },
 });

@@ -58,3 +58,17 @@ export const Colors = {
     borderVariant: '#64748b',
   },
 };
+
+// Font family constants
+export const Fonts = {
+  default: 'Onest',
+  thin: 'Onest-Thin',
+  extraLight: 'Onest-ExtraLight',
+  light: 'Onest-Light',
+  regular: 'Onest',
+  medium: 'Onest-Medium',
+  semiBold: 'Onest-SemiBold',
+  bold: 'Onest-Bold',
+  extraBold: 'Onest-ExtraBold',
+  black: 'Onest-Black',
+};

@@ -11,9 +11,9 @@ CHECK (type IN ('goal_completion', 'journal_entry', 'streak_milestone', 'photo_s
 ALTER TABLE public.social_updates 
 ADD COLUMN IF NOT EXISTS photo_url TEXT;
 
--- Add source_type and source_id columns to track what the photo is from (habit/event)
+-- Add source_type and source_id columns to track what the photo is from (habit only)
 ALTER TABLE public.social_updates 
-ADD COLUMN IF NOT EXISTS source_type TEXT CHECK (source_type IN ('habit', 'event'));
+ADD COLUMN IF NOT EXISTS source_type TEXT CHECK (source_type IN ('habit'));
 
 ALTER TABLE public.social_updates 
 ADD COLUMN IF NOT EXISTS source_id UUID;
@@ -73,14 +73,12 @@ BEGIN
     su.source_type,
     CASE 
       WHEN su.source_type = 'habit' THEN h.text
-      WHEN su.source_type = 'event' THEN e.title
       ELSE NULL
     END as source_title,
     su.created_at
   FROM public.social_updates su
   JOIN public.profiles p ON su.user_id = p.id
   LEFT JOIN public.habits h ON su.source_type = 'habit' AND su.source_id = h.id
-  LEFT JOIN public.events e ON su.source_type = 'event' AND su.source_id = e.id
   WHERE su.type = 'photo_share'
     AND su.is_public = true
     AND su.photo_url IS NOT NULL

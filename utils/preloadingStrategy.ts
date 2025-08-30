@@ -48,7 +48,6 @@ export const DATA_PRIORITIES = {
   [DataPriority.IMPORTANT]: [
     'allTodos',
     'allHabits',
-    'calendarEvents',
     'notes',
     'friends',
     'friendRequests'
@@ -56,7 +55,6 @@ export const DATA_PRIORITIES = {
   
   // NORMAL - Load in background
   [DataPriority.NORMAL]: [
-    'sharedEvents',
     'sharedNotes',
     'socialUpdates',
     'autoMoveTasks'
@@ -140,7 +138,6 @@ export class AppDataPreloader {
     const importantTasks = [
       { name: 'allTodos', fn: () => this.preloadAllTodos(userId) },
       { name: 'allHabits', fn: () => this.preloadAllHabits(userId) },
-      { name: 'calendarEvents', fn: () => this.preloadCalendarEvents(userId) },
       { name: 'notes', fn: () => this.preloadNotes(userId) },
       { name: 'friends', fn: () => this.preloadFriendsAndRequests(userId) }
     ];
@@ -173,7 +170,6 @@ export class AppDataPreloader {
     console.log('🔄 Loading normal data in background...');
     
     const normalTasks = [
-      { name: 'sharedEvents', fn: () => this.preloadSharedEvents(userId) },
       { name: 'sharedNotes', fn: () => this.preloadSharedNotes(userId) },
       { name: 'socialUpdates', fn: () => this.preloadSocialUpdates(userId) },
       { name: 'autoMoveTasks', fn: () => this.runAutoMoveTasks(userId) }
@@ -292,16 +288,7 @@ export class AppDataPreloader {
     return data || [];
   }
 
-  private async preloadCalendarEvents(userId: string) {
-    const { data, error } = await supabase
-      .from('events')
-      .select('*')
-      .eq('user_id', userId)
-      .order('date', { ascending: true });
-    
-    if (error) throw error;
-    return data || [];
-  }
+
 
   private async preloadNotes(userId: string) {
     const { data, error } = await supabase
@@ -349,19 +336,7 @@ export class AppDataPreloader {
     };
   }
 
-  private async preloadSharedEvents(userId: string) {
-    const { data, error } = await supabase
-      .from('shared_events')
-      .select(`
-        *,
-        events (*),
-        profiles (*)
-      `)
-      .or(`shared_by.eq.${userId},shared_with.cs.{${userId}}`);
-    
-    if (error) throw error;
-    return data || [];
-  }
+
 
   private async preloadSharedNotes(userId: string) {
     const { data, error } = await supabase

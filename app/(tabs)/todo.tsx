@@ -4,6 +4,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing } from '
 import { Menu } from 'react-native-paper';
 import * as Notifications from 'expo-notifications';
 import * as ImagePicker from 'expo-image-picker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../supabase';
 import { User } from '@supabase/supabase-js';
 import { checkAndMoveTasksIfNeeded, forceCheckAndMoveTasks } from '../../utils/taskUtils';
@@ -42,17 +43,18 @@ import habitStyles from '../../styles/habit.styles';
 import DateTimePickerModal from 'react-native-modal-datetime-picker';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import BottomSheet, { BottomSheetView } from '@gorhom/bottom-sheet';
-import { Calendar as RNCalendar, DateData } from 'react-native-calendars';
+
 import { Picker } from '@react-native-picker/picker';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import NetInfo from '@react-native-community/netinfo';
-import CalendarStrip from 'react-native-calendar-strip';
+
 import moment from 'moment';
 import 'moment/locale/en-gb';
 import { shareTaskWithFriend, shareHabitWithFriend, addFriendToSharedTask } from '../../utils/sharing';
 import { arePushNotificationsEnabled } from '../../utils/notificationUtils';
 import { useData } from '../../contexts/DataContext';
+import { useTabBar } from '../../contexts/TabBarContext';
 import { promptPhotoSharing, PhotoShareData } from '../../utils/photoSharing';
 import * as FileSystem from 'expo-file-system';
 
@@ -232,6 +234,7 @@ const calculateCurrentStreak = (completedDays: string[]): number => {
 };
 
 export default function TodoScreen() {
+  const { setIsPhotoZoomed } = useTabBar();
 
   const [user, setUser] = useState<User | null>(null);
 
@@ -331,27 +334,55 @@ export default function TodoScreen() {
 
   const lastRunDateRef = useRef<string | null>(null);
 
-useEffect(() => {
-  if (!user?.id) return;
+  useEffect(() => {
+    if (!user?.id) return;
 
-  const handleAppStateChange = (nextAppState: string) => {
-    if (nextAppState === 'active') {
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      const nowStr = now.toISOString().split('T')[0];
-      if (lastRunDateRef.current !== nowStr) {
-        console.log('🔄 [Todo] App became active, running auto-move tasks');
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        const now = moment().startOf('day');
+        const nowStr = now.format('YYYY-MM-DD');
+        if (lastRunDateRef.current !== nowStr) {
+          moveIncompleteTasksForwardOneDay(user.id);
+          lastRunDateRef.current = nowStr;
+        }
+      }
+    };
+
+    // Check for date changes every minute when app is active
+    const checkDateChange = () => {
+      const now = moment().startOf('day');
+      const nowStr = now.format('YYYY-MM-DD');
+      const currentTime = moment().format('HH:mm:ss');
+      const currentHour = now.hour();
+      const currentMinute = now.minute();
+      
+      // Check if it's midnight (12:00-12:05 AM) and we haven't run today
+      const isMidnight = currentHour === 0 && currentMinute <= 5;
+      const shouldRun = lastRunDateRef.current !== nowStr;
+      
+      if (shouldRun) {
+        console.log('🔄 [Todo] Date change detected, running auto-move tasks');
         moveIncompleteTasksForwardOneDay(user.id);
         lastRunDateRef.current = nowStr;
+      } else if (isMidnight && lastRunDateRef.current === nowStr) {
+        // If it's midnight and we haven't moved tasks yet today, force a check
+        console.log('🔄 [Todo] Midnight detected, checking if tasks need to be moved');
+        moveIncompleteTasksForwardOneDay(user.id);
       }
-    }
-  };
+    };
 
-  
     const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    // Set up interval to check for date changes every minute
+    const intervalId = setInterval(checkDateChange, 60000); // Check every minute
+    
     // Run once on mount
     handleAppStateChange('active');
-    return () => subscription.remove();
+    
+    return () => {
+      subscription.remove();
+      clearInterval(intervalId);
+    };
   }, [user]);
 
   // Create separate functions for fetching only todos and habits without categories
@@ -399,14 +430,37 @@ useEffect(() => {
       });
     
       if (result) {
-        const mappedTasks = result.map((task: any) => ({
-          ...task,
-          date: task.date ? new Date(task.date) : new Date(),
-          repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
-          category: task.category || null, // category object from join
-        }));
-        setTodos(mappedTasks);
-        updateData('todos', mappedTasks);
+        const currentDateString = moment(currentDate).format('YYYY-MM-DD');
+        console.log('🗑️ [Fetch] Current date string for filtering:', currentDateString);
+        console.log('🗑️ [Fetch] Current date object:', currentDate);
+        console.log('🗑️ [Fetch] Current deletedInstanceIds:', deletedInstanceIds);
+        
+        const mappedTasks = result
+          .map((task: any) => ({
+            ...task,
+            date: task.date ? new Date(task.date) : new Date(),
+            repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+            reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
+            category: task.category || null, // category object from join
+          }))
+          .filter((task: any) => {
+            // Check if this task instance has been deleted
+            const isDeleted = deletedInstanceIds.includes(task.id);
+            console.log('🗑️ [Filter] Task:', task.text, 'ID:', task.id, 'isDeleted:', isDeleted);
+            
+            if (isDeleted) {
+              console.log('🗑️ [Filter] Filtering out deleted instance:', task.text);
+              return false;
+            }
+            console.log('🗑️ [Filter] Keeping task:', task.text);
+            return true;
+          });
+        
+        // Apply deletion filtering to the fetched tasks
+        const tasksWithDeletionFilter = mappedTasks.filter((task: any) => !deletedInstanceIds.includes(task.id));
+        
+        setTodos(tasksWithDeletionFilter);
+        updateData('todos', tasksWithDeletionFilter);
     
         // Fetch shared info for these tasks
         const taskIds = mappedTasks.map((t: Todo) => t.id);
@@ -493,9 +547,17 @@ useEffect(() => {
           table: 'todos',
           filter: `user_id=eq.${user.id}`,
         },
-        () => {
-          console.log('🔄 [Todo] Todos changed, fetching todos only');
-          fetchTodosOnly(user);
+        async (payload) => {
+          console.log('🔄 [Todo] Real-time subscription triggered - todos changed:', payload.eventType);
+          
+          // Skip fetching if we're in the middle of deleting an instance
+          if (isDeletingInstance) {
+            console.log('🔄 [Todo] Skipping fetch due to active instance deletion');
+            return;
+          }
+          
+          console.log('🔄 [Todo] Fetching todos after real-time change');
+          await fetchTodosOnly(user);
         }
       )
       .subscribe();
@@ -606,6 +668,96 @@ useEffect(() => {
   };
   const [todos, setTodos] = useState<Todo[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
+  
+
+
+  // Add auto-move timer to automatically move tasks at configurable time
+  useEffect(() => {
+    const checkAutoMoveTime = () => {
+      const now = new Date();
+      const lastCheck = lastMidnightCheckRef.current;
+      
+      // Check if we've crossed the auto-move time since the last check
+      const lastCheckDate = lastCheck.toDateString();
+      const currentDate = now.toDateString();
+      
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const lastCheckHour = lastCheck.getHours();
+      const lastCheckMinute = lastCheck.getMinutes();
+      
+      console.log('🕛 Checking auto-move time:', {
+        lastCheck: lastCheckDate,
+        current: currentDate,
+        lastCheckTime: lastCheck.toISOString(),
+        currentTime: now.toISOString(),
+        autoMoveTime: `${autoMoveTime.hour.toString().padStart(2, '0')}:${autoMoveTime.minute.toString().padStart(2, '0')}`,
+        currentHour: currentHour,
+        currentMinute: currentMinute,
+        lastCheckHour: lastCheckHour,
+        lastCheckMinute: lastCheckMinute
+      });
+      
+      // Check if current time is after the auto-move time
+      const isAfterAutoMoveTime = (
+        currentHour > autoMoveTime.hour || 
+        (currentHour === autoMoveTime.hour && currentMinute >= autoMoveTime.minute)
+      );
+      
+      // Check if we've passed the auto-move time since the last check
+      const wasBeforeAutoMoveTime = (
+        lastCheckHour < autoMoveTime.hour || 
+        (lastCheckHour === autoMoveTime.hour && lastCheckMinute < autoMoveTime.minute)
+      );
+      
+      console.log('🕛 Time analysis:', {
+        isAfterAutoMoveTime,
+        wasBeforeAutoMoveTime,
+        dateChanged: currentDate !== lastCheckDate,
+        shouldTrigger: currentDate !== lastCheckDate || (isAfterAutoMoveTime && wasBeforeAutoMoveTime)
+      });
+      
+      // Trigger if date changed OR if we've crossed the auto-move time on the same day
+      if (currentDate !== lastCheckDate || (isAfterAutoMoveTime && wasBeforeAutoMoveTime)) {
+        if (isAfterAutoMoveTime) {
+          console.log(`🕛 Past auto-move time (${autoMoveTime.hour}:${autoMoveTime.minute}) - moving tasks!`);
+          console.log(`🕛 Current time: ${currentHour}:${currentMinute}, Last check: ${lastCheckHour}:${lastCheckMinute}`);
+          lastMidnightCheckRef.current = now;
+          handleMidnightMove();
+        }
+      } else {
+        console.log('🕛 Not yet time to move tasks');
+      }
+    };
+    
+    // Check immediately when component mounts
+    console.log('🕛 Component mounted, checking auto-move time immediately');
+    checkAutoMoveTime();
+    
+    // Set up interval to check every 30 seconds for more responsive detection
+    const interval = setInterval(() => {
+      console.log('🕛 Interval check triggered');
+      checkAutoMoveTime();
+    }, 30000); // Check every 30 seconds
+    
+    // Listen for app state changes to check auto-move time when app comes back to foreground
+    const handleAppStateChange = (nextAppState: string) => {
+      console.log('🕛 App state changed to:', nextAppState);
+      setAppState(nextAppState);
+      
+      if (nextAppState === 'active') {
+        console.log('🕛 App became active, checking for auto-move time');
+        checkAutoMoveTime();
+      }
+    };
+    
+    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    return () => {
+      clearInterval(interval);
+      appStateSubscription?.remove();
+    };
+  }, []);
 
   // Add real-time subscription for shared_tasks to update friends info without full refetch
   useEffect(() => {
@@ -698,16 +850,29 @@ useEffect(() => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
   const [taskDate, setTaskDate] = useState<Date | null>(null);
+  
+  // Debug: Monitor taskDate changes
+  useEffect(() => {
+    console.log('📅 taskDate state changed to:', taskDate);
+  }, [taskDate]);
+  
   const [repeatEndDate, setRepeatEndDate] = useState<Date | null>(null);
   const [showRepeatEndDatePicker, setShowRepeatEndDatePicker] = useState(false);
   const [customRepeatFrequency, setCustomRepeatFrequency] = useState('1');
   const [customRepeatUnit, setCustomRepeatUnit] = useState<'days' | 'weeks' | 'months'>('days');
   const [selectedWeekDays, setSelectedWeekDays] = useState<WeekDay[]>([]);
   const [reminderTime, setReminderTime] = useState<Date | null>(null);
+  const [defaultReminderTime] = useState(() => {
+    const time = new Date();
+    return time;
+  });
+  const [defaultEndDate] = useState(() => {
+    const date = new Date();
+    return date;
+  });
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [swipingTodoId, setSwipingTodoId] = useState<string | null>(null);
   const [isNewTaskModalVisible, setIsNewTaskModalVisible] = useState(false);
-  const [currentWeek, setCurrentWeek] = useState<Date[]>([]);
   const newTodoInputRef = useRef<TextInput | null>(null);
   const newDescriptionInputRef = useRef<TextInput | null>(null);
   const reminderButtonRef = useRef<View>(null);
@@ -717,8 +882,6 @@ useEffect(() => {
     width: number;
     height: number;
   }>({ x: 0, y: 0, width: 0, height: 0 });
-  const [calendarDates, setCalendarDates] = useState<Date[]>([]);
-  const calendarStripRef = useRef<any>(null);
   const [isCategoryModalVisible, setIsCategoryModalVisible] = useState(false);
   const [showCategoryBox, setShowCategoryBox] = useState(false);
   const categoryInputRef = useRef<TextInput>(null);
@@ -762,6 +925,13 @@ useEffect(() => {
 
   const [showReminderOptions, setShowReminderOptions] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
+  const [deletedInstanceIds, setDeletedInstanceIds] = useState<string[]>([]);
+  const [isDeletingInstance, setIsDeletingInstance] = useState(false);
+  const lastMidnightCheckRef = useRef<Date>(new Date());
+  const [appState, setAppState] = useState('active');
+  
+  // Configurable auto-move time (default: 12:00 AM)
+  const [autoMoveTime, setAutoMoveTime] = useState({ hour: 0, minute: 0 }); // 12:00 AM (midnight)
 
   // Add timeout refs for debouncing picker closes
   const timeoutRefs = {
@@ -846,6 +1016,7 @@ useEffect(() => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [isQuickAddFocused, setIsQuickAddFocused] = useState(false);
   const [showQuickAddBox, setShowQuickAddBox] = useState(false);
+  const [isMoveToTomorrowLoading, setIsMoveToTomorrowLoading] = useState(false);
   
   // Habit quick add state
   const [quickAddHabitText, setQuickAddHabitText] = useState('');
@@ -1002,11 +1173,18 @@ useEffect(() => {
     setRepeatEndDate(null);
     setShowInlineEndDatePicker(false);
     setShowRepeatPicker(false);
+    setShowReminderPicker(false);
+    setShowEndDatePicker(false);
+    setShowRepeatEndDatePicker(false);
     setCustomRepeatFrequency('1');
     setCustomRepeatUnit('days');
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
+    // Clear the deleted instance IDs when resetting the form
+    setDeletedInstanceIds([]);
+    // Clear the quick add text so it's ready for the next task
+    setQuickAddText('');
   };
 
   async function scheduleReminderNotification(taskTitle: string, reminderTime: Date, taskId?: string) {
@@ -1237,6 +1415,10 @@ useEffect(() => {
           }
         }
 
+        console.log('💾 [Edit Save] Current reminderTime state:', reminderTime);
+        console.log('💾 [Edit Save] Current reminderTime type:', typeof reminderTime);
+        console.log('💾 [Edit Save] Is reminderTime a Date object:', reminderTime instanceof Date);
+        
         const updatedTodo = {
           ...editingTodo,
           text: newTodo,
@@ -1250,6 +1432,8 @@ useEffect(() => {
             : undefined,
           reminderTime: reminderTime || null,
         };
+        
+        console.log('💾 [Edit Save] Updated todo reminderTime:', updatedTodo.reminderTime);
     
         const updatedTodos = todos.map(todo => (todo.id === editingTodo.id ? updatedTodo : todo));
         setTodos(updatedTodos);
@@ -1290,6 +1474,8 @@ useEffect(() => {
         // Update task in Supabase if user is logged in
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          console.log('💾 [Edit Save] About to update database with reminder_time:', updatedTodo.reminderTime?.toISOString());
+          
           const { error } = await supabase
             .from('todos')
             .update({
@@ -1430,15 +1616,17 @@ useEffect(() => {
           }
         }
 
+        console.log('💾 [Edit Save] About to update reminder notification with reminderTime:', reminderTime);
+        
         // Update reminder notification
         await updateTaskReminderNotification(updatedTodo.id, updatedTodo.text, reminderTime);
     
-        hideModal();
-        // Delay resetForm to prevent title change during modal closing animation
-        setTimeout(() => {
-          setEditingTodo(null);
-          resetForm();
-        }, 300);
+        // Close modal and reset editing state
+        setIsNewTaskModalVisible(false);
+        setEditingTodo(null);
+        
+        // Don't call resetForm immediately - let the modal close naturally
+        // The form will be reset when the modal is opened again
       } catch (error) {
         console.error('Error in handleEditSave:', error);
         Alert.alert('Error', 'An unexpected error occurred. Please try again.');
@@ -1447,38 +1635,168 @@ useEffect(() => {
   };
 
   const moveIncompleteTasksForwardOneDay = async (userId: string) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split('T')[0];
+    try {
+      // Use moment with proper timezone handling
+      const today = moment().startOf('day');
+      const todayStr = today.format('YYYY-MM-DD');
 
-  // Find all incomplete tasks with a date less than or equal to today
-  const { data: oldTasks, error } = await supabase
-    .from('todos')
-    .select('*')
-    .eq('user_id', userId)
-    .lte('date', todayStr) // <-- Move today and earlier
-    .eq('completed', false);
+    console.log('🔄 [Todo] Checking for incomplete tasks to move forward. Today:', todayStr);
+    console.log('🔄 [Todo] Current timezone offset:', moment().format('Z'));
+    console.log('🔄 [Todo] Current time:', moment().format('HH:mm:ss'));
+    console.log('🔄 [Todo] Current moment object:', moment().toString());
+    console.log('🔄 [Todo] Current moment ISO:', moment().toISOString());
 
-      if (error) {
-    console.error('Error fetching old incomplete tasks:', error);
-        return;
-      }
-
-  if (!oldTasks || oldTasks.length === 0) return;
-
-  // Update each task to its next day
-  const updates = oldTasks.map(task => {
-    const oldDate = new Date(task.date);
-    oldDate.setDate(oldDate.getDate() + 1);
-    const newDateStr = oldDate.toISOString().split('T')[0];
-    return supabase
+    // Find incomplete tasks from all past days (including yesterday)
+    const yesterday = moment().subtract(1, 'day').startOf('day');
+    const yesterdayStr = yesterday.format('YYYY-MM-DD');
+    
+    console.log('🔄 [Todo] Querying for incomplete tasks from past days (including yesterday):', yesterdayStr);
+    
+    // First, let's see ALL tasks for this user to debug
+    const { data: allTasks, error: allTasksError } = await supabase
       .from('todos')
-      .update({ date: newDateStr })
-      .eq('id', task.id)
+      .select('*')
       .eq('user_id', userId);
-  });
-  await Promise.all(updates);
+    
+    if (allTasksError) {
+      console.error('🔄 [Todo] Error fetching all tasks:', allTasksError);
+      return;
+    }
+    
+    console.log('🔄 [Todo] All tasks for user:', allTasks?.length || 0);
+    if (allTasks && allTasks.length > 0) {
+      allTasks.forEach((task, index) => {
+        console.log(`🔄 [Todo] Task ${index + 1}: "${task.text}" - Date: ${task.date} - Completed: ${task.completed}`);
+      });
+    }
+    
+    // Try a more flexible approach - get all incomplete tasks and filter by date in JavaScript
+    const { data: allIncompleteTasks, error: incompleteError } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('completed', false);
+    
+    if (incompleteError) {
+      console.error('🔄 [Todo] Error fetching incomplete tasks:', incompleteError);
+      return;
+    }
+    
+    console.log('🔄 [Todo] All incomplete tasks found:', allIncompleteTasks?.length || 0);
+    
+    // Filter tasks that are from past days using JavaScript
+    const oldTasks = allIncompleteTasks?.filter(task => {
+      if (!task.date) return false;
+      
+      const taskDate = moment(task.date).startOf('day');
+      const todayMoment = moment().startOf('day');
+      
+      const isPastDate = taskDate.isBefore(todayMoment, 'day');
+      console.log(`🔄 [Todo] Task "${task.text}" - Date: ${task.date} - TaskDate: ${taskDate.format('YYYY-MM-DD')} - Today: ${todayMoment.format('YYYY-MM-DD')} - IsPast: ${isPastDate}`);
+      
+      return isPastDate;
+    }) || [];
+
+    // No need to check error here since we're using the new approach
+
+    console.log('🔄 [Todo] Database query completed. Found tasks:', oldTasks?.length || 0);
+    console.log('🔄 [Todo] Query details: userId=', userId, 'todayStr=', todayStr, 'completed=false');
+    
+    if (oldTasks && oldTasks.length > 0) {
+      oldTasks.forEach((task, index) => {
+        console.log(`🔄 [Todo] Found old task ${index + 1}: "${task.text}" - Date: ${task.date} - Type: ${typeof task.date}`);
+      });
+    }
+    
+    // Debug: Let's also check what tasks exist for yesterday specifically
+    const { data: yesterdayTasksDebug, error: debugError } = await supabase
+      .from('todos')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('date', yesterdayStr)
+      .eq('completed', false);
+    
+    if (debugError) {
+      console.error('🔄 [Todo] Debug query error:', debugError);
+    } else {
+      console.log('🔄 [Todo] Debug: Yesterday incomplete tasks:', yesterdayTasksDebug?.length || 0);
+      if (yesterdayTasksDebug && yesterdayTasksDebug.length > 0) {
+        yesterdayTasksDebug.forEach((task, index) => {
+          console.log(`🔄 [Todo] Debug: Yesterday task ${index + 1}: "${task.text}" (ID: ${task.id}) - Date: ${task.date}`);
+        });
+      }
+    }
+    
+    if (!oldTasks || oldTasks.length === 0) {
+      console.log('🔄 [Todo] No incomplete tasks to move forward');
+      Toast.show({
+        type: 'info',
+        text1: 'No tasks to rollover',
+        text2: 'All tasks are up to date',
+        position: 'bottom',
+      });
+      return;
+    }
+
+    console.log(`🔄 [Todo] Moving ${oldTasks.length} incomplete tasks forward`);
+    
+    // Log the tasks that will be moved
+    oldTasks.forEach((task, index) => {
+      console.log(`🔄 [Todo] Task ${index + 1}: "${task.text}" (ID: ${task.id}) - Date: ${task.date}`);
+    });
+
+    // Update each task to its next day
+    const updates = oldTasks.map(task => {
+      const oldDate = moment(task.date);
+      const newDate = moment(task.date).add(1, 'day'); // Create new moment instance
+      const newDateStr = newDate.format('YYYY-MM-DD');
+      
+      console.log(`🔄 [Todo] Moving task "${task.text}" from ${oldDate.format('YYYY-MM-DD')} to ${newDateStr}`);
+      console.log(`🔄 [Todo] Update query: id=${task.id}, userId=${userId}, newDate=${newDateStr}`);
+      
+      return supabase
+        .from('todos')
+        .update({ date: newDateStr })
+        .eq('id', task.id)
+        .eq('user_id', userId);
+    });
+    
+    const results = await Promise.all(updates);
+    console.log('🔄 [Todo] Update results:', results);
+    
+    const errors = results.filter(result => result.error);
+    
+    if (errors.length > 0) {
+      console.error('🔄 [Todo] Some task updates failed:', errors);
+      errors.forEach((error, index) => {
+        console.error(`🔄 [Todo] Error ${index + 1}:`, error);
+      });
+    } else {
+      console.log('🔄 [Todo] Successfully moved all incomplete tasks forward');
+      console.log('🔄 [Todo] Results details:', results.map((result, index) => ({
+        index,
+        success: !result.error,
+        data: result.data,
+        error: result.error
+      })));
+      
+      // Set current date to today so moved tasks become visible
+      const today = new Date();
+      setCurrentDate(today);
+      // Refresh todos after moving tasks
+      await fetchTodosOnly(user);
+    }
+  } catch (error) {
+    console.error('❌ Error in moveIncompleteTasksForwardOneDay:', error);
+    throw error; // Re-throw to be caught by the calling function
+  }
 };
+
+
+
+
+
+
   
   const toggleTodo = async (id: string) => {
     try {
@@ -2062,62 +2380,60 @@ useEffect(() => {
   };
   
   const isSameDay = (date1: Date, date2: Date) => {
-    return (
-      date1.getFullYear() === date2.getFullYear() &&
-      date1.getMonth() === date2.getMonth() &&
-      date1.getDate() === date2.getDate()
-    );
+    // Use moment for better timezone handling
+    return moment(date1).isSame(moment(date2), 'day');
   };
 
   const doesTodoBelongToday = (todo: Todo, date: Date) => {
-    const taskDate = new Date(todo.date);
-    const endDate = todo.repeatEndDate ? new Date(todo.repeatEndDate) : null;
+    const taskDate = moment(todo.date);
+    const endDate = todo.repeatEndDate ? moment(todo.repeatEndDate) : null;
   
-    // Set both dates to start of day for proper comparison
-    const compareDate = new Date(date);
-    compareDate.setHours(0, 0, 0, 0);
+    // Use moment for proper timezone handling
+    const compareDate = moment(date).startOf('day');
     
-    const compareEndDate = endDate ? new Date(endDate) : null;
-    if (compareEndDate) {
-      compareEndDate.setHours(0, 0, 0, 0);
-    }
-  
     // Check if the date is after the end date (not including the end date)
-    if (compareEndDate && compareDate > compareEndDate) return false;
+    if (endDate && compareDate.isAfter(endDate, 'day')) return false;
   
     // Check if this specific instance has been deleted
-    const dateString = date.toISOString().split('T')[0];
+    const dateString = moment(date).format('YYYY-MM-DD');
     if (todo.deletedInstances?.includes(dateString)) {
       return false;
     }
   
-    if (isSameDay(taskDate, date)) return true; // normal case
+    if (taskDate.isSame(compareDate, 'day')) return true; // normal case
   
     if (todo.repeat === 'daily') {
-      return date >= taskDate;
+      return compareDate.isSameOrAfter(taskDate, 'day');
     }
   
     if (todo.repeat === 'weekly') {
-      return date >= taskDate && taskDate.getDay() === date.getDay();
+      return compareDate.isSameOrAfter(taskDate, 'day') && taskDate.day() === compareDate.day();
     }
   
     if (todo.repeat === 'monthly') {
-      return date >= taskDate && taskDate.getDate() === date.getDate();
+      return compareDate.isSameOrAfter(taskDate, 'day') && taskDate.date() === compareDate.date();
     }
   
     if (todo.repeat === 'custom') {
-      return todo.customRepeatDates?.some((d) => isSameDay(new Date(d), date)) ?? false;
+      return todo.customRepeatDates?.some((d) => moment(d).isSame(compareDate, 'day')) ?? false;
     }
   
     return false;
   };
 
-  const goToToday = () => {
+  const goToToday = async () => {
     const today = new Date();
     setCurrentDate(today);
-    setTimeout(() => {
-      calendarStripRef.current?.scrollToIndex({ index: 30, animated: true });
-    }, 50);
+    // Clear old deletion records when going to today
+    await clearOldDeletionRecords();
+  };
+
+  // Function to clear deleted instance IDs when date changes
+  const clearOldDeletionRecords = async () => {
+    // Clear the deleted instance IDs when changing dates
+    // This ensures that deleted instances only affect the specific date they were deleted on
+    setDeletedInstanceIds([]);
+    console.log('🗑️ Cleared deleted instance IDs for new date');
   };
 
   // Helper function to delete a single instance of a repeated task
@@ -2126,30 +2442,26 @@ useEffect(() => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const dateString = currentDate.toISOString().split('T')[0];
-      const updatedDeletedInstances = [...(todo.deletedInstances || []), dateString];
+      console.log('🗑️ Deleting single instance for task:', todo.text, 'date:', currentDate.toISOString());
 
-      // Update the task in the database
-      const { error } = await supabase
-          .from('todos')
-        .update({ deleted_instances: updatedDeletedInstances })
-        .eq('id', todo.id)
-        .eq('user_id', user.id);
+      // Set deletion flag to prevent real-time subscription interference
+      setIsDeletingInstance(true);
 
-      if (error) {
-        console.error('Error updating task:', error);
-        Alert.alert('Error', 'Failed to delete task instance. Please try again.');
-        return;
-      }
+      // Use a simple approach: add the task ID to a local state array of deleted instances
+      // This will prevent the task from showing up in the current view
+      setDeletedInstanceIds(prev => {
+        const newIds = [...prev, todo.id];
+        console.log('🗑️ Updated deletedInstanceIds:', newIds);
+        return newIds;
+      });
 
-      // Update local state
-      setTodos(prev => 
-        prev.map(t => 
-          t.id === todo.id 
-            ? { ...t, deletedInstances: updatedDeletedInstances }
-            : t
-        )
-      );
+      // Remove from current view immediately
+      setTodos(prev => prev.filter(t => t.id !== todo.id));
+
+      // Clear deletion flag after a short delay to allow the UI to update
+      setTimeout(() => {
+        setIsDeletingInstance(false);
+      }, 1000);
 
       Toast.show({
         type: 'success',
@@ -2159,6 +2471,8 @@ useEffect(() => {
     } catch (error) {
       console.error('Error in deleteSingleInstance:', error);
       Alert.alert('Error', 'Failed to delete task instance.');
+      // Clear deletion flag on error
+      setIsDeletingInstance(false);
     }
   };
 
@@ -2193,6 +2507,9 @@ useEffect(() => {
             : t
         )
       );
+      
+      // Refresh todos to reflect the changes
+      await fetchTodosOnly(user);
 
       Toast.show({
         type: 'success',
@@ -2255,15 +2572,51 @@ useEffect(() => {
 
         // Check if this is a repeated task
         if (todo.repeat && todo.repeat !== 'none') {
-          // For repeated tasks, delete just this instance by default
-          await deleteSingleInstance(todo, currentDate);
+          // For repeated tasks, show options
+          Alert.alert(
+            'Delete Repeated Task',
+            'This task repeats. What would you like to delete?',
+            [
+              {
+                text: 'Cancel',
+                style: 'cancel',
+              },
+              {
+                text: 'Just This Instance',
+                onPress: async () => {
+                  await deleteSingleInstance(todo, currentDate);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                },
+              },
+              {
+                text: 'All Future Instances',
+                onPress: async () => {
+                  await deleteAllFutureInstances(todo);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                },
+              },
+              {
+                text: 'Delete Entire Task',
+                style: 'destructive',
+                onPress: async () => {
+                  await deleteEntireTask(todo);
+                  if (Platform.OS !== 'web') {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  }
+                },
+              },
+            ]
+          );
         } else {
           // For non-repeated tasks, delete normally
           await deleteEntireTask(todo);
-        }
-
-        if (Platform.OS !== 'web') {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          }
         }
       } catch (error) {
         console.error('Error in handleDelete:', error);
@@ -2317,6 +2670,17 @@ useEffect(() => {
         setSearchFriend('');
         setIsSearchFocused(false);
         
+        console.log('✏️ [Edit] Loading task for editing:', todo.text);
+        console.log('✏️ [Edit] Task reminderTime from database:', todo.reminderTime);
+        console.log('✏️ [Edit] Task reminder_time from database:', (todo as any).reminder_time);
+        
+        // Reset all spinner states to closed
+        setShowReminderPicker(false);
+        setShowRepeatPicker(false);
+        setShowInlineEndDatePicker(false);
+        setShowEndDatePicker(false);
+        setShowRepeatEndDatePicker(false);
+        
         // Set form data
         setEditingTodo(todo);
         setNewTodo(todo.text);
@@ -2326,6 +2690,8 @@ useEffect(() => {
         setReminderTime(todo.reminderTime || null);
         setSelectedRepeat(todo.repeat || 'none');
         setRepeatEndDate(todo.repeatEndDate || null);
+        
+        console.log('✏️ [Edit] Set reminderTime state to:', todo.reminderTime || null);
         if (todo.repeat === 'custom' && todo.customRepeatDates) {
           setCustomSelectedDates(todo.customRepeatDates.map(date => date.toISOString().split('T')[0]));
         }
@@ -2418,9 +2784,35 @@ useEffect(() => {
           styles.todoItem,
           todo.completed && styles.completedTodo,
         ]}
-        onLongPress={handleEdit}
-        onPress={() => toggleTodo(todo.id)}
-        delayLongPress={500}
+        onPress={() => {
+          // Handle double-click for task editing
+          const now = Date.now();
+          const lastPress = lastPressTime.current[todo.id] || 0;
+          const timeDiff = now - lastPress;
+          
+          if (timeDiff < 300) { // Double-click detected (300ms threshold)
+            // Edit the task
+            handleEdit();
+            // Reset the press time
+            lastPressTime.current[todo.id] = 0;
+          } else {
+            // Single click - store the press time and wait for potential double-click
+            lastPressTime.current[todo.id] = now;
+            
+            // Use setTimeout to delay the single-click action
+            setTimeout(() => {
+              // Only execute if no double-click occurred (press time wasn't reset)
+              if (lastPressTime.current[todo.id] === now) {
+                // Toggle the task completion
+                toggleTodo(todo.id);
+              }
+            }, 300); // Wait 300ms to see if a double-click occurs
+          }
+        }}
+        onLongPress={() => {
+          // Long press opens edit modal
+          handleEdit();
+        }}
         activeOpacity={0.9}
       >
         <View
@@ -2738,10 +3130,14 @@ useEffect(() => {
             ...task,
             date: task.date ? new Date(task.date) : new Date(),
             repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
+            reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
             category: task.category || null, // category object from join
           }));
-          setTodos(mappedTasks);
-          updateData('todos', mappedTasks);
+          // Apply deletion filtering to the fetched tasks
+          const tasksWithDeletionFilter = mappedTasks.filter((task: any) => !deletedInstanceIds.includes(task.id));
+          
+          setTodos(tasksWithDeletionFilter);
+          updateData('todos', tasksWithDeletionFilter);
       
           // Fetch shared info for these tasks
           const taskIds = mappedTasks.map((t: Todo) => t.id);
@@ -2990,22 +3386,7 @@ useEffect(() => {
     );
   };
 
-  // Add this after your existing useEffect hooks
-  useEffect(() => {
-    const dates: Date[] = [];
-    const today = new Date();
-  
-    for (let i = -30; i <= 30; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-      dates.push(date);
-    }
-  
-    setCalendarDates(dates);
-    setTimeout(() => {
-      calendarStripRef.current?.scrollToIndex({ index: 30, animated: false }); // <- Center on today
-    }, 100); // Delay until strip is rendered
-  }, []);
+
 
   // Simple keyboard height tracking
   useEffect(() => {
@@ -3025,36 +3406,19 @@ useEffect(() => {
 
 
 
-  // Create animated style that directly responds to keyboard height
-  const animatedStyle = useAnimatedStyle(() => {
-    const targetBottom = keyboardHeight > 0 ? keyboardHeight + 20 : 100;
-    return {
-      bottom: targetBottom,
-    };
-  }, [keyboardHeight]);
+        // Create animated style that directly responds to keyboard height
+      const animatedStyle = useAnimatedStyle(() => {
+        const targetBottom = keyboardHeight > 0 ? keyboardHeight + 20 : 100;
+        return {
+          bottom: targetBottom,
+        };
+      }, [keyboardHeight]);
 
   const handleCloseNewTaskModal = useCallback(() => {
     hideModal();
   }, []);
 
-  // Add this useEffect to initialize the current week
-  useEffect(() => {
-    const today = new Date();
-    const week = [];
-    const startOfWeek = new Date(today);
-    const day = today.getDay(); // Sunday = 0, Monday = 1, ..., Saturday = 6
-    const offset = (day + 6) % 7; // Makes Monday the start of the week
-    startOfWeek.setDate(today.getDate() - offset);
-    startOfWeek.setHours(0, 0, 0, 0);
 
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startOfWeek);
-      date.setDate(startOfWeek.getDate() + i);
-      week.push(date);
-    }
-
-    setCurrentWeek(week);
-  }, []);
 
 
   const onGestureEvent = (event: any) => {
@@ -3092,12 +3456,51 @@ useEffect(() => {
   const showModal = () => {
     setShowCategoryBox(false);
     setIsNewTaskModalVisible(true);
-    // Set the task date to the currently selected date instead of today
-    setTaskDate(currentDate);
+    console.log('📅 Modal opened, current taskDate:', taskDate);
+    console.log('📅 Current date:', currentDate);
+    console.log('📅 Editing todo:', editingTodo);
+    
+    // Ensure all spinners are closed when opening the modal
+    setShowReminderPicker(false);
+    setShowRepeatPicker(false);
+    setShowInlineEndDatePicker(false);
+    setShowEndDatePicker(false);
+    setShowRepeatEndDatePicker(false);
+    
+    // Only set task date if it's not already set and we're not editing
+    if (!taskDate && !editingTodo) {
+      console.log('📅 Setting taskDate to currentDate:', currentDate);
+      setTaskDate(currentDate);
+    }
+    
+    // Don't set default values automatically - let user choose
+    // When editing, existing values should already be set by handleEdit
   };
   
   const hideModal = () => {
     setIsNewTaskModalVisible(false);
+    // Reset form when modal is closed
+    setNewTodo('');
+    setNewDescription('');
+    setSelectedCategoryId('');
+    setShowNewCategoryInput(false);
+    setNewCategoryName('');
+    setNewCategoryColor('#00ACC1');
+    setEditingTodo(null);
+    setTaskDate(null);
+    setReminderTime(null);
+    setSelectedRepeat('none');
+    setRepeatEndDate(null);
+    setShowInlineEndDatePicker(false);
+    setShowRepeatPicker(false);
+    setShowReminderPicker(false);
+    setShowEndDatePicker(false);
+    setShowRepeatEndDatePicker(false);
+    setCustomRepeatFrequency('1');
+    setCustomRepeatUnit('days');
+    setSelectedWeekDays([]);
+    setSelectedFriends([]);
+    setSearchFriend('');
   };
 
   // Update the handleAddButtonPress function
@@ -3113,17 +3516,24 @@ useEffect(() => {
     setNewCategoryName('');
     setNewCategoryColor('#00ACC1');
     setEditingTodo(null);
-    setTaskDate(currentDate); // Set to current selected date
-    setReminderTime(null);
+    // Only set task date if it's not already set
+    if (!taskDate) {
+      setTaskDate(currentDate);
+    }
+    // Don't set default values automatically - let user choose
     setSelectedRepeat('none');
-    setRepeatEndDate(null);
     setShowInlineEndDatePicker(false);
     setShowRepeatPicker(false);
+    setShowReminderPicker(false);
+    setShowEndDatePicker(false);
+    setShowRepeatEndDatePicker(false);
     setCustomRepeatFrequency('1');
     setCustomRepeatUnit('days');
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
+    // Clear deleted instance IDs for new task
+    setDeletedInstanceIds([]);
     
     // Clear the quick add input since we're moving to the modal
     setQuickAddText('');
@@ -3364,20 +3774,9 @@ useEffect(() => {
 
   // Use preloaded data from DataContext
   useEffect(() => {
-    console.log('🔄 [Todo] Main useEffect triggered:', {
-      user: !!user,
-      isPreloaded: appData.isPreloaded,
-      categoriesLength: appData.categories?.length || 0,
-      todosLength: appData.todos?.length || 0,
-      habitsLength: appData.habits?.length || 0
-    });
-    
     if (user && appData.isPreloaded) {
-      console.log('🔄 [Todo] Using preloaded data');
-      
       // Update local state with preloaded data
       if (appData.todos) {
-        console.log('🔄 [Todo] Setting preloaded todos:', appData.todos.length);
         
         // Process todos to ensure they have the correct format
         const processedTodos = appData.todos.map(todo => ({
@@ -3412,7 +3811,7 @@ useEffect(() => {
       }
       
       if (appData.habits) {
-        console.log('🔄 [Todo] Setting preloaded habits:', appData.habits.length);
+
         
         // Process habits to ensure they have the correct format
         const processedHabits = appData.habits.map((habit: any) => {
@@ -3437,7 +3836,7 @@ useEffect(() => {
       }
       
       if (appData.categories) {
-        console.log('🔄 [Todo] Setting categories from preloaded data:', appData.categories.length);
+
         setCategories(appData.categories);
       } else if (categories.length === 0) {
         // Only fetch categories if we don't have any locally
@@ -4116,10 +4515,114 @@ useEffect(() => {
           onPress: () => {
             setSelectedPhotoForViewing({ habit, photoUrl, date, formattedDate });
             setIsPhotoViewerVisible(true);
+            setIsPhotoZoomed(true);
           },
         })),
       ]
     );
+  };
+
+  // Function to set auto-move time
+  const setAutoMoveTimeHandler = (hour: number, minute: number) => {
+    setAutoMoveTime({ hour, minute });
+    console.log(`🕛 Auto-move time set to ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
+  };
+
+  // Function to manually trigger auto-move (for testing)
+  const triggerAutoMove = () => {
+    console.log('🕛 Manually triggering auto-move');
+    handleMidnightMove();
+  };
+
+  // Add function to automatically move tasks at configurable time
+  const handleMidnightMove = async () => {
+    try {
+      console.log('🕛 handleMidnightMove called - starting midnight task movement');
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('🕛 No user found, aborting midnight move');
+        return;
+      }
+
+      console.log('🕛 User authenticated, proceeding with midnight move for user:', user.id);
+      console.log('🕛 Midnight detected - automatically moving incomplete tasks to next day');
+      
+      // Find incomplete tasks from today and previous days only
+      const today = new Date();
+      today.setHours(23, 59, 59, 999); // End of today to include today's tasks
+      const todayISO = today.toISOString();
+      
+      console.log('🕛 Fetching incomplete tasks from today and previous days for user:', user.id);
+      console.log('🕛 Today cutoff date:', todayISO);
+      
+      const { data: allIncompleteTasks, error } = await supabase
+        .from('todos')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('completed', false)
+        .lte('date', todayISO); // Only tasks from today and previous days
+      
+      if (error) {
+        console.error('❌ Error fetching incomplete tasks for midnight move:', error);
+        return;
+      }
+      
+      console.log('🕛 Fetched incomplete tasks:', allIncompleteTasks?.length || 0);
+      
+      if (!allIncompleteTasks || allIncompleteTasks.length === 0) {
+        console.log('🕛 No incomplete tasks to move at midnight');
+        return;
+      }
+      
+      console.log(`🕛 Moving ${allIncompleteTasks.length} incomplete tasks at midnight`);
+      
+      let successCount = 0;
+      let errorCount = 0;
+      
+      for (const task of allIncompleteTasks) {
+        try {
+          // Calculate tomorrow based on the task's current date
+          const taskDate = new Date(task.date);
+          const tomorrow = new Date(taskDate);
+          tomorrow.setDate(taskDate.getDate() + 1);
+          tomorrow.setHours(0, 0, 0, 0);
+          
+          console.log(`🕛 Auto-moving task "${task.title}" from ${task.date} to ${tomorrow.toISOString()}`);
+          
+          const { error } = await supabase
+            .from('todos')
+            .update({ date: tomorrow.toISOString() })
+            .eq('id', task.id)
+            .eq('user_id', user.id);
+          
+          if (error) {
+            console.error(`❌ Failed to auto-move task "${task.title}":`, error);
+            errorCount++;
+          } else {
+            console.log(`✅ Successfully auto-moved task "${task.title}"`);
+            successCount++;
+            
+            // Update local state immediately
+            setTodos(prevTodos => 
+              prevTodos.map(todo => 
+                todo.id === task.id 
+                  ? { ...todo, date: tomorrow }
+                  : todo
+              )
+            );
+          }
+        } catch (error) {
+          console.error(`❌ Error auto-moving task "${task.title}":`, error);
+          errorCount++;
+        }
+      }
+      
+      console.log(`🕛 Midnight move results: ${successCount} successful, ${errorCount} failed`);
+      
+    } catch (error) {
+      console.error('❌ Error in midnight move:', error);
+    }
   };
 
   // Add function to move task to tomorrow
@@ -4759,12 +5262,18 @@ useEffect(() => {
             </TouchableOpacity>
             </View>
 
+
+
             {/* Tasks and Habits Icons */}
             <View style={{
               flexDirection: 'row',
               alignItems: 'center',
               gap: 18,
             }}>
+            
+
+
+
 
               {/* Tasks Button */}
               <TouchableOpacity
@@ -4841,34 +5350,38 @@ useEffect(() => {
               {/* Floating Panel */}
               <Animated.View style={[{
                 position: 'absolute',
-                top: 110,
+                top: 107,
                 left: 22,
-                width: 320,
+                width: 300,
                 backgroundColor: Colors.light.background,
-                borderRadius: 16,
+                borderRadius: 12,
                 shadowColor: '#000',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.15,
-                shadowRadius: 12,
-                elevation: 8,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.08,
+                shadowRadius: 8,
+                elevation: 4,
                 overflow: 'hidden',
                 zIndex: 1001,
               }, headerDatePickerAnimatedStyle]}>
+                {/* Date Picker Container */}
                 <View style={{
                   paddingHorizontal: 0,
                   paddingVertical: 0,
+                  backgroundColor: Colors.light.background,
                 }}>
                   <DateTimePicker
                     value={currentDate}
                     mode="date"
                     display="spinner"
-                    onChange={(event, selectedDate) => {
+                    onChange={async (event, selectedDate) => {
                       if (selectedDate) {
                         setCurrentDate(selectedDate);
+                        // Clear old deletion records when date changes
+                        await clearOldDeletionRecords();
                       }
                     }}
                     style={{
-                      height: 70,
+                      height: 150,
                       width: '100%',
                     }}
                     textColor={Colors.light.text}
@@ -5433,7 +5946,7 @@ useEffect(() => {
           {activeTab === 'tasks' && (
             <Animated.View style={[{
                     position: 'absolute',
-                    bottom: 100,
+                    bottom: 100, // Positioned above the tab bar
                     left: 20,
                     right: 20,
               backgroundColor: Colors.light.surface,
@@ -5531,7 +6044,7 @@ useEffect(() => {
           {activeTab === 'habits' && (
             <Animated.View style={[{
               position: 'absolute',
-              bottom: 100,
+              bottom: 100, // Positioned above the tab bar
               left: 20,
               right: 20,
               backgroundColor: Colors.light.surface,
@@ -5977,88 +6490,60 @@ useEffect(() => {
                       borderColor: showTaskDatePicker ? Colors.light.accent : Colors.light.border,
                     }}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <Text style={{
-                        fontSize: 14,
-                        color: Colors.light.text,
-                        fontFamily: 'Onest',
-                        fontWeight: '500'
-                      }}>
-                        {taskDate ? 
-                          (() => {
-                            const today = moment().startOf('day');
-                            const tomorrow = moment().add(1, 'day').startOf('day');
-                            const taskMoment = moment(taskDate).startOf('day');
-                            
-                            if (taskMoment.isSame(today)) {
-                              return 'Today';
-                            } else if (taskMoment.isSame(tomorrow)) {
-                              return 'Tomorrow';
-                            } else {
-                              return moment(taskDate).format('MMM D, YYYY');
-                            }
-                          })() : 
-                          'Select date'
-                        }
-                      </Text>
-                    </View>
+                    <Text style={{
+                      fontSize: 14,
+                      color: Colors.light.text,
+                      fontFamily: 'Onest',
+                      fontWeight: '500'
+                    }}>
+                      {taskDate ? 
+                        (() => {
+                          const today = moment().startOf('day');
+                          const tomorrow = moment().add(1, 'day').startOf('day');
+                          const taskMoment = moment(taskDate).startOf('day');
+                          
+                          if (taskMoment.isSame(today)) {
+                            return 'Today';
+                          } else if (taskMoment.isSame(tomorrow)) {
+                            return 'Tomorrow';
+                          } else {
+                            return moment(taskDate).format('MMM D, YYYY');
+                          }
+                        })() : 
+                        'Select date'
+                      }
+                    </Text>
                   </TouchableOpacity>
 
+                  {/* Header-Style Date Picker */}
                   {showTaskDatePicker && (
                     <View style={{
-                      backgroundColor: '#f8f9fa',
-                      borderRadius: 8,
-                      padding: 12,
                       marginTop: 8,
-                      borderWidth: 1,
-                      borderColor: '#e0e0e0',
+                      backgroundColor: Colors.light.background,
+                      borderRadius: 12,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 8,
+                      elevation: 4,
+                      overflow: 'hidden',
                     }}>
-                      <RNCalendar
-                        current={taskDate ? moment(taskDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')}
-                        onDayPress={(day: DateData) => {
-                          // Create a new date using the dateString to avoid timezone issues
-                          const selectedDate = new Date(day.dateString + 'T00:00:00');
-                          setTaskDate(selectedDate);
-                          setShowTaskDatePicker(false);
-                          Keyboard.dismiss();
-                        }}
-                        markedDates={{
-                          [taskDate ? moment(taskDate).format('YYYY-MM-DD') : '']: {
-                            selected: true,
-                            selectedColor: '#00ACC1',
-                          },
-                          [moment().format('YYYY-MM-DD')]: {
-                            today: true,
-                            todayTextColor: '#00ACC1',
+                      <DateTimePicker
+                        value={taskDate ? new Date(taskDate) : new Date()}
+                        mode="date"
+                        display="spinner"
+                        onChange={(event, selectedDate) => {
+                          if (selectedDate) {
+                            console.log('📅 Header-style date picker changed to:', selectedDate);
+                            setTaskDate(selectedDate);
                           }
                         }}
-                        theme={{
-                          backgroundColor: 'transparent',
-                          calendarBackground: 'transparent',
-                          textSectionTitleColor: '#333',
-                          selectedDayBackgroundColor: '#00ACC1',
-                          selectedDayTextColor: '#ffffff',
-                          todayTextColor: '#00ACC1',
-                          dayTextColor: '#333',
-                          textDisabledColor: '#d9e1e8',
-                          dotColor: '#00ACC1',
-                          selectedDotColor: '#ffffff',
-                          arrowColor: '#00ACC1',
-                          monthTextColor: '#333',
-                          indicatorColor: '#00ACC1',
-                          textDayFontFamily: 'Onest',
-                          textMonthFontFamily: 'Onest',
-                          textDayHeaderFontFamily: 'Onest',
-                          textDayFontWeight: '400',
-                          textMonthFontWeight: '600',
-                          textDayHeaderFontWeight: '500',
-                          textDayFontSize: 14,
-                          textMonthFontSize: 16,
-                          textDayHeaderFontSize: 12,
-                        }}
                         style={{
+                          height: 150,
                           width: '100%',
                         }}
+                        textColor={Colors.light.text}
+                        themeVariant="light"
                       />
                     </View>
                   )}
@@ -6398,22 +6883,45 @@ useEffect(() => {
                           }}
                           style={showReminderPicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
                         >
-                          <Text style={styles.modalTimeText}>
-                            {reminderTime ? reminderTime.toLocaleString([], { 
-                              month: 'short', 
-                              day: 'numeric', 
-                              hour: 'numeric', 
-                              minute: '2-digit', 
-                              hour12: true 
-                            }) : 'No reminder'}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Text style={styles.modalTimeText}>
+                              {reminderTime ? reminderTime.toLocaleString([], { 
+                                month: 'short', 
+                                day: 'numeric', 
+                                hour: 'numeric', 
+                                minute: '2-digit', 
+                                hour12: true 
+                              }) : 'Select time'}
                             </Text>
+                            {reminderTime && (
+                              <TouchableOpacity
+                                onPress={() => setReminderTime(null)}
+                                style={{
+                                  marginLeft: 8,
+                                }}
+                              >
+                                <Ionicons name="close" size={14} color="#8E8E93" />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </TouchableOpacity>
                       </View>
+                      {/* Header-Style Reminder Time Picker */}
                       {showReminderPicker && (
-                        <View style={styles.modalPickerContainer}>
+                        <View style={{
+                          marginTop: 8,
+                          backgroundColor: Colors.light.background,
+                          borderRadius: 12,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.08,
+                          shadowRadius: 8,
+                          elevation: 4,
+                          overflow: 'hidden',
+                        }}>
                           <DateTimePicker
-                            value={reminderTime || new Date()}
-                            mode="datetime"
+                            value={reminderTime || defaultReminderTime}
+                            mode="time"
                             display="spinner"
                             onChange={(event, selectedDate) => {
                               if (selectedDate) {
@@ -6421,8 +6929,12 @@ useEffect(() => {
                                 debouncePickerClose('reminder');
                               }
                             }}
-                            style={{ height: 120, width: '100%' }}
-                            textColor="#333"
+                            style={{
+                              height: 120,
+                              width: '100%',
+                            }}
+                            textColor={Colors.light.text}
+                            themeVariant="light"
                           />
                         </View>
                       )}
@@ -6471,14 +6983,19 @@ useEffect(() => {
                         </TouchableOpacity>
                       </View>
 
+                      {/* Header-Style Repeat Picker */}
                       {showRepeatPicker && (
                         <View style={{
-                          backgroundColor: '#f8f9fa',
-                          borderRadius: 8,
-                          padding: 8,
-                          marginTop: 4,
-                          borderWidth: 1,
-                          borderColor: '#e0e0e0',
+                          marginTop: 0,
+                          backgroundColor: Colors.light.background,
+                          borderRadius: 12,
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.08,
+                          shadowRadius: 8,
+                          elevation: 4,
+                          overflow: 'hidden',
+                          padding: 12,
                         }}>
                           <View style={{
                             marginBottom: 8,
@@ -6516,7 +7033,7 @@ useEffect(() => {
                               >
                                 <Text style={{
                                   fontSize: 14,
-                                  color: '#333',
+                                  color: Colors.light.text,
                                   fontFamily: 'Onest',
                                   fontWeight: selectedRepeat === option.value ? '600' : '500'
                                 }}>
@@ -6534,122 +7051,71 @@ useEffect(() => {
                               borderTopWidth: 1,
                               borderTopColor: '#00ACC1',
                               paddingTop: 8,
+                              marginTop: 8,
                             }}>
-                              <TouchableOpacity
-                                onPress={() => {
-                                  setShowInlineEndDatePicker(prev => !prev);
-                                  Keyboard.dismiss();
-                                }}
-                                style={{
-                                  backgroundColor: repeatEndDate ? '#f0f0f0' : 'transparent',
-                                  paddingVertical: 8,
-                                  paddingHorizontal: 12,
-                                  borderRadius: 6,
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                }}
-                              >
-                                <Text style={{
-                                  fontSize: 14,
-                                  color: '#333',
-                                  fontFamily: 'Onest',
-                                  fontWeight: repeatEndDate ? '600' : '500'
-                                }}>
-                                  {repeatEndDate ? 
-                                    `Ends ${moment(repeatEndDate).format('MMM D, YYYY')}` : 
-                                    'Set end date'}
+                              <View style={styles.modalTimeRow}>
+                                <Text style={styles.modalLabel}>
+                                  End Date
                                 </Text>
-                                {repeatEndDate ? (
-                                  <Ionicons name="checkmark" size={16} color="#00ACC1" />
-                                ) : (
-                                  <Ionicons name="calendar-outline" size={16} color="#666" />
-                                )}
-                              </TouchableOpacity>
-
-                              {showInlineEndDatePicker && (
-                                <View style={{
-                                  backgroundColor: '#ffffff',
-                                  borderRadius: 8,
-                                  padding: 8,
-                                  marginTop: 4,
-                                  borderWidth: 1,
-                                  borderColor: '#e0e0e0',
-                                }}>
-                                  <View style={{
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                    marginBottom: 8,
-                                  }}>
-                                    <TouchableOpacity
-                                      onPress={() => {
-                                        setRepeatEndDate(null);
-                                        setShowInlineEndDatePicker(false);
-                                      }}
-                                      style={{
-                                        paddingHorizontal: 8,
-                                        paddingVertical: 4,
-                                      }}
-                                    >
-                                      <Text style={{
-                                        fontSize: 12,
-                                        color: '#FF6B6B',
-                                        fontFamily: 'Onest',
-                                        fontWeight: '500'
-                                      }}>
-                                        Clear
-                                      </Text>
-                                    </TouchableOpacity>
-                                  </View>
-                                  
-                                  <RNCalendar
-                                    current={repeatEndDate ? moment(repeatEndDate).format('YYYY-MM-DD') : moment().format('YYYY-MM-DD')}
-                                    onDayPress={(day: DateData) => {
-                                      const selectedDate = new Date(day.dateString + 'T00:00:00');
-                                      setRepeatEndDate(selectedDate);
-                                      setShowInlineEndDatePicker(false);
-                                      setShowRepeatPicker(false);
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    if (showRepeatEndDatePicker) {
+                                      setShowRepeatEndDatePicker(false);
+                                    } else {
+                                      setShowRepeatEndDatePicker(true);
                                       Keyboard.dismiss();
-                                    }}
-                                    markedDates={{
-                                      [repeatEndDate ? moment(repeatEndDate).format('YYYY-MM-DD') : '']: {
-                                        selected: true,
-                                        selectedColor: '#00ACC1',
-                                                                              },
-                                        [moment().format('YYYY-MM-DD')]: {
-                                          today: true,
-                                          todayTextColor: '#00ACC1',
-                                        }
-                                    }}
-                                    minDate={moment().format('YYYY-MM-DD')}
-                                    theme={{
-                                      backgroundColor: 'transparent',
-                                      calendarBackground: 'transparent',
-                                      textSectionTitleColor: '#333',
-                                      selectedDayBackgroundColor: '#00ACC1',
-                                      selectedDayTextColor: '#ffffff',
-                                      todayTextColor: '#00ACC1',
-                                      dayTextColor: '#333',
-                                      textDisabledColor: '#d9e1e8',
-                                      dotColor: '#00ACC1',
-                                      selectedDotColor: '#ffffff',
-                                      arrowColor: '#00ACC1',
-                                      monthTextColor: '#333',
-                                      indicatorColor: '#00ACC1',
-                                      textDayFontFamily: 'Onest',
-                                      textMonthFontFamily: 'Onest',
-                                      textDayHeaderFontFamily: 'Onest',
-                                      textDayFontWeight: '400',
-                                      textMonthFontWeight: '600',
-                                      textDayHeaderFontWeight: '500',
-                                      textDayFontSize: 14,
-                                      textMonthFontSize: 16,
-                                      textDayHeaderFontSize: 12,
+                                    }
+                                  }}
+                                  style={showRepeatEndDatePicker ? styles.modalTimeButtonFocused : styles.modalTimeButton}
+                                >
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <Text style={styles.modalTimeText}>
+                                      {repeatEndDate ? 
+                                        moment(repeatEndDate).format('MMM D, YYYY') : 
+                                        'Select date'}
+                                    </Text>
+                                    {repeatEndDate && (
+                                      <TouchableOpacity
+                                        onPress={() => setRepeatEndDate(null)}
+                                        style={{
+                                          marginLeft: 8,
+                                        }}
+                                      >
+                                        <Ionicons name="close" size={14} color="#8E8E93" />
+                                      </TouchableOpacity>
+                                    )}
+                                  </View>
+                                </TouchableOpacity>
+                              </View>
+
+                              {/* Header-Style End Date Picker */}
+                              {showRepeatEndDatePicker && (
+                                <View style={{
+                                  marginTop: 8,
+                                  backgroundColor: Colors.light.background,
+                                  borderRadius: 12,
+                                  shadowColor: '#000',
+                                  shadowOffset: { width: 0, height: 2 },
+                                  shadowOpacity: 0.08,
+                                  shadowRadius: 8,
+                                  elevation: 4,
+                                  overflow: 'hidden',
+                                }}>
+                                  <DateTimePicker
+                                    value={repeatEndDate ? new Date(repeatEndDate) : defaultEndDate}
+                                    mode="date"
+                                    display="spinner"
+                                    onChange={(event, selectedDate) => {
+                                      if (selectedDate) {
+                                        setRepeatEndDate(selectedDate);
+                                      }
                                     }}
                                     style={{
+                                      height: 150,
                                       width: '100%',
                                     }}
+                                    textColor={Colors.light.text}
+                                    themeVariant="light"
                                   />
                                 </View>
                               )}
@@ -6861,6 +7327,58 @@ useEffect(() => {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
+
+      {/* Floating Action Button */}
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          bottom: 100,
+          right: 20,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          backgroundColor: Colors.light.accent,
+          justifyContent: 'center',
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 8,
+          elevation: 8,
+          zIndex: 1000,
+          opacity: 0, // Make invisible
+        }}
+        onPress={showModal}
+        activeOpacity={0.8}
+      >
+        <Ionicons name="add" size={24} color="white" />
+      </TouchableOpacity>
+
+      {/* Temporary Test Button for Auto-Move */}
+      <TouchableOpacity
+        style={{
+          position: 'absolute',
+          bottom: 170,
+          right: 20,
+          width: 56,
+          height: 56,
+          borderRadius: 28,
+          backgroundColor: 'red',
+          justifyContent: 'center',
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 8,
+          elevation: 8,
+          zIndex: 1000,
+          opacity: 0, // Make invisible
+        }}
+        onPress={triggerAutoMove}
+        activeOpacity={0.8}
+      >
+        <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>Test</Text>
+      </TouchableOpacity>
 
       {/* New Category Modal */}
       <Modal
@@ -7350,18 +7868,32 @@ useEffect(() => {
                             }}>
                             {habitReminderTime ? moment(habitReminderTime).format('h:mm A') : 'No reminder'}
                             </Text>
+                            {habitReminderTime && (
+                              <TouchableOpacity
+                                onPress={() => setHabitReminderTime(null)}
+                                style={{
+                                  marginLeft: 8,
+                                }}
+                              >
+                                <Ionicons name="close" size={14} color="#8E8E93" />
+                              </TouchableOpacity>
+                            )}
                     </View>
                       </TouchableOpacity>
                     </View>
 
-                    {showHabitReminderPicker && (
+                                        {/* Header-Style Habit Reminder Time Picker */}
+                                        {showHabitReminderPicker && (
                       <View style={{
-                        backgroundColor: '#f8f9fa',
-                        borderRadius: 8,
-                        padding: 8,
-                        marginTop: 4,
-                        borderWidth: 1,
-                        borderColor: '#e0e0e0',
+                        marginTop: 8,
+                        backgroundColor: Colors.light.background,
+                        borderRadius: 12,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.08,
+                        shadowRadius: 8,
+                        elevation: 4,
+                        overflow: 'hidden',
                       }}>
                         <DateTimePicker
                           value={habitReminderTime instanceof Date ? habitReminderTime : new Date()}
@@ -7380,45 +7912,19 @@ useEffect(() => {
                                 timeOnly.getMinutes()
                               );
                               setHabitReminderTime(combinedDateTime);
+                              // Close the picker after selection
+                              setShowHabitReminderPicker(false);
                             }
                           }}
                           style={{
-                            height: 80,
+                            height: 120,
                             width: '100%',
                           }}
-                          textColor="#333"
+                          textColor={Colors.light.text}
+                          themeVariant="light"
                         />
-                        
-                    <View style={{ 
-                      flexDirection: 'row', 
-                          justifyContent: 'flex-end',
-                          marginTop: 8,
-                        }}>
-                        <TouchableOpacity
-                            onPress={() => {
-                              setHabitReminderTime(null);
-                              setShowHabitReminderPicker(false);
-                              Keyboard.dismiss();
-                          }}
-                          style={{
-                              backgroundColor: 'transparent',
-                            paddingHorizontal: 12,
-                              paddingVertical: 6,
-                            borderRadius: 6,
-                          }}
-                        >
-                          <Text style={{
-                              fontSize: 12,
-                              color: '#FF6B6B',
-                            fontFamily: 'Onest',
-                              fontWeight: '500'
-                          }}>
-                              Clear
-                          </Text>
-                        </TouchableOpacity>
                       </View>
-                    </View>
-                  )}
+                    )}
                   </View>
                 </View>
               </View>
@@ -7427,18 +7933,6 @@ useEffect(() => {
           </View>
         </SafeAreaView>
       </Modal>
-
-      {/* DateTimePicker for end date */}
-      <DateTimePickerModal
-        isVisible={showRepeatEndDatePicker}
-        mode="date"
-        onConfirm={(date) => {
-          setRepeatEndDate(date);
-          setShowRepeatEndDatePicker(false);
-        }}
-        onCancel={() => setShowRepeatEndDatePicker(false)}
-        minimumDate={new Date()}
-      />
 
       {/* Notes Modal - REMOVED */}
 
@@ -7609,6 +8103,7 @@ useEffect(() => {
           setSelectedPhotoForViewing(null);
           setAllPhotosForViewing([]);
           setCurrentPhotoIndex(0);
+          setIsPhotoZoomed(false);
         }}
       >
           <View style={{ 
@@ -7626,6 +8121,7 @@ useEffect(() => {
                   setSelectedPhotoForViewing(null);
                   setAllPhotosForViewing([]);
                   setCurrentPhotoIndex(0);
+                  setIsPhotoZoomed(false);
                 }}
                 style={{
                   position: 'absolute',
@@ -8046,6 +8542,7 @@ useEffect(() => {
                           setCurrentPhotoIndex(0);
                           setIsHabitLogModalVisible(false);
                           setIsPhotoViewerVisible(true);
+                          setIsPhotoZoomed(true);
                         }
                       }}
                     >
@@ -8596,6 +9093,7 @@ useEffect(() => {
                             setCurrentPhotoIndex(0);
                             setIsDetailModalVisible(false);
                             setIsPhotoViewerVisible(true);
+                            setIsPhotoZoomed(true);
                           }
                         }}
                         style={{

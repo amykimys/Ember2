@@ -352,6 +352,97 @@ export const removeNoteCollaboration = async (
   }
 };
 
+// Delete a shared note (for both sender and recipient)
+export const deleteSharedNote = async (
+  sharedNoteId: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    // First, get the shared note details to check permissions
+    const { data: sharedNote, error: fetchError } = await supabase
+      .from('shared_notes')
+      .select('*')
+      .eq('id', sharedNoteId)
+      .single();
+
+    if (fetchError || !sharedNote) {
+      console.error('Error fetching shared note:', fetchError);
+      return { success: false, error: 'Shared note not found' };
+    }
+
+    // Check if user is the sender or recipient
+    if (sharedNote.shared_by !== user.id && sharedNote.shared_with !== user.id) {
+      return { success: false, error: 'You do not have permission to delete this shared note' };
+    }
+
+    // Delete the shared note record
+    const { error: deleteError } = await supabase
+      .from('shared_notes')
+      .delete()
+      .eq('id', sharedNoteId);
+
+    if (deleteError) {
+      console.error('Error deleting shared note:', deleteError);
+      return { success: false, error: 'Failed to delete shared note' };
+    }
+
+    console.log('✅ Shared note deleted successfully');
+    return { success: true };
+  } catch (error) {
+    console.error('Error in deleteSharedNote:', error);
+    return { success: false, error: 'Unexpected error occurred' };
+  }
+};
+
+// Delete all shared notes for a specific note (for the note owner)
+export const deleteAllSharedNotesForNote = async (
+  noteId: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) {
+      return { success: false, error: 'User not authenticated' };
+    }
+
+    // Check if user owns the original note
+    const { data: note, error: noteError } = await supabase
+      .from('notes')
+      .select('user_id')
+      .eq('id', noteId)
+      .single();
+
+    if (noteError || !note) {
+      console.error('Error fetching note:', noteError);
+      return { success: false, error: 'Note not found' };
+    }
+
+    if (note.user_id !== user.id) {
+      return { success: false, error: 'You do not have permission to delete shared notes for this note' };
+    }
+
+    // Delete all shared note records for this note
+    const { error: deleteError } = await supabase
+      .from('shared_notes')
+      .delete()
+      .eq('original_note_id', noteId);
+
+    if (deleteError) {
+      console.error('Error deleting shared notes:', deleteError);
+      return { success: false, error: 'Failed to delete shared notes' };
+    }
+
+    console.log('✅ All shared notes deleted successfully for note:', noteId);
+    return { success: true };
+  } catch (error) {
+    console.error('Error in deleteAllSharedNotesForNote:', error);
+    return { success: false, error: 'Unexpected error occurred' };
+  }
+};
+
 export const canUserEditNote = async (noteId: string): Promise<boolean> => {
   try {
     const { data: { user }, error: userError } = await supabase.auth.getUser();

@@ -38,8 +38,7 @@ The system preloads the following data in sequence:
 2. **User Preferences** - App settings and preferences
 3. **Categories** - User's task categories
 4. **Tasks & Habits** - All todos and habits
-5. **Calendar Events** - All calendar events
-6. **Shared Events** - Events shared with/by the user
+
 7. **Notes** - User's notes
 8. **Shared Notes** - Notes shared with/by the user
 9. **Friends & Requests** - Friends list and friend requests

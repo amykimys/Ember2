@@ -14,7 +14,6 @@ const styles = StyleSheet.create({
     },
     menuButton: {
       padding: 4,
-      
     },
     todoList: {
       flex: 1,
@@ -68,9 +67,8 @@ const styles = StyleSheet.create({
       padding: 10,
       backgroundColor: 'rgba(255, 255, 255, 0.8)',
       marginBottom: 0,
-      overflow: 'hidden', // or your base bg
-      borderRadius: 0,         // optional, but won't hurt
-      
+      overflow: 'hidden',
+      borderRadius: 0,
     },
     todoContent: {
       flex: 1,
@@ -98,8 +96,16 @@ const styles = StyleSheet.create({
     },
     completedDescription: {
       textDecorationLine: 'line-through',
-      color: '#64748b',
-      fontFamily: 'Onest',
+    },
+    dragHandle: {
+      position: 'absolute',
+      right: 10,
+      top: '50%',
+      marginTop: -10,
+      opacity: 0.3,
+    },
+    dragHandleActive: {
+      opacity: 0.8,
     },
     completedSection: {
       marginTop: 24,
@@ -123,13 +129,11 @@ const styles = StyleSheet.create({
     keyboardAvoidingView: {
       flex: 1,
     },
-    
     modalOverlay: {
       flex: 1,
       backgroundColor: 'rgba(0, 0, 0, 0.5)',
       justifyContent: 'flex-end',
     },
-    
     modalContent: {
       backgroundColor: '#ffffff',
       borderTopLeftRadius: 20,
@@ -137,7 +141,6 @@ const styles = StyleSheet.create({
       maxHeight: '90%',
       paddingTop: 8
     },
-    
     modalHeader: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -149,29 +152,25 @@ const styles = StyleSheet.create({
       fontWeight: 'bold',
       color: '#0f172a',
     },
-   
     rightAction: {
       backgroundColor: '#ef4444',
       justifyContent: 'center',
       alignItems: 'center',
       width: 64,
-      flex: 1, // ✅ fill parent height
+      flex: 1,
       borderRadius: 0,
     },
-    
     leftAction: {
       backgroundColor: '#3b82f6',
       justifyContent: 'center',
       alignItems: 'center',
       width: 64,
-      flex: 1, // ✅ fill parent height
+      flex: 1,
       borderRadius: 0,
     },
-    
     trashIconContainer: {
       padding: 9,
     },
-
     photoIconContainer: {
       padding: 12,
       justifyContent: 'center',
@@ -179,7 +178,6 @@ const styles = StyleSheet.create({
       minWidth: 44,
       minHeight: 44,
     },
-
     stickyFooter: {
       position: 'absolute',
       bottom: 0,
@@ -203,7 +201,6 @@ const styles = StyleSheet.create({
       fontWeight: '600',
       fontFamily: 'Onest',
     },
-    // Add modal styles to match event modal
     modalTimeRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -247,6 +244,153 @@ const styles = StyleSheet.create({
       marginLeft: -6,
       borderWidth: 1,
       borderColor: '#e2e8f0',
+    },
+    dragHint: {
+      fontSize: 12,
+      color: '#64748b',
+      textAlign: 'center',
+      paddingVertical: 8,
+      fontFamily: 'Onest',
+      fontStyle: 'italic',
+    },
+    // Additional styles for the new todo screen
+    headerTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 16,
+    },
+    headerTitle: {
+      fontSize: 28,
+      fontWeight: '700',
+      color: '#0f172a',
+      fontFamily: 'Onest',
+    },
+    dateHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    dateButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      backgroundColor: '#f8fafc',
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: '#e2e8f0',
+    },
+    dateText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#0f172a',
+      fontFamily: 'Onest',
+    },
+    todayButton: {
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      backgroundColor: '#00ACC1',
+      borderRadius: 8,
+    },
+    todayButtonText: {
+      color: 'white',
+      fontSize: 14,
+      fontWeight: '600',
+      fontFamily: 'Onest',
+    },
+    quickAddContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginBottom: 24,
+      paddingHorizontal: 24,
+    },
+    quickAddInput: {
+      flex: 1,
+      backgroundColor: '#f8fafc',
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      fontSize: 16,
+      fontFamily: 'Onest',
+      borderWidth: 1,
+      borderColor: '#e2e8f0',
+    },
+    quickAddButton: {
+      width: 44,
+      height: 44,
+      backgroundColor: '#00ACC1',
+      borderRadius: 22,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tabContainer: {
+      flexDirection: 'row',
+      marginBottom: 24,
+      paddingHorizontal: 24,
+    },
+    tab: {
+      flex: 1,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      alignItems: 'center',
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
+    },
+    activeTab: {
+      borderBottomColor: '#00ACC1',
+    },
+    tabText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#64748b',
+      fontFamily: 'Onest',
+    },
+    activeTabText: {
+      color: '#00ACC1',
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 24,
+    },
+    loadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingVertical: 60,
+    },
+    loadingText: {
+      fontSize: 16,
+      color: '#64748b',
+      marginTop: 16,
+      fontFamily: 'Onest',
+    },
+    habitContainer: {
+      marginBottom: 16,
+    },
+    habitContent: {
+      backgroundColor: '#f8fafc',
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#e2e8f0',
+    },
+    habitInfo: {
+      flex: 1,
+    },
+    habitText: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: '#0f172a',
+      fontFamily: 'Onest',
+      marginBottom: 4,
+    },
+    habitDescription: {
+      fontSize: 14,
+      color: '#64748b',
+      fontFamily: 'Onest',
     },
   });
 

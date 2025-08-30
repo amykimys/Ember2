@@ -17,7 +17,7 @@ interface UserPreferences {
   default_view: 'day' | 'week' | 'month';
   email_notifications: boolean;
   push_notifications: boolean;
-  default_screen: 'calendar' | 'todo' | 'notes' | 'profile';
+  default_screen: 'todo' | 'notes' | 'profile';
   auto_move_uncompleted_tasks: boolean;
 }
 
@@ -40,38 +40,6 @@ interface Habit {
   category_id: string | null;
   created_at: string;
   updated_at: string;
-}
-
-interface CalendarEvent {
-  id: string;
-  title: string;
-  description?: string;
-  location?: string;
-  date: string;
-  startDateTime?: Date;
-  endDateTime?: Date;
-  categoryName?: string;
-  categoryColor?: string;
-  reminderTime?: Date | null;
-  user_id: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface SharedEvent {
-  id: string;
-  event_id: string;
-  shared_by: string;
-  shared_with: string[];
-  status: 'pending' | 'accepted' | 'declined';
-  created_at: string;
-  events: CalendarEvent;
-  profiles: {
-    id: string;
-    full_name: string;
-    username: string;
-    avatar_url: string;
-  };
 }
 
 interface Note {
@@ -105,7 +73,7 @@ interface SocialUpdate {
   content: string;
   photo_url?: string;
   caption?: string;
-  source_type: 'habit' | 'event';
+  source_type: 'habit';
   source_title: string;
   created_at: string;
   profiles: {
@@ -176,8 +144,6 @@ interface AppData {
   userPreferences: UserPreferences | null;
   todos: Todo[];
   habits: Habit[];
-  events: CalendarEvent[];
-  sharedEvents: SharedEvent[];
   notes: Note[];
   sharedNotes: SharedNote[];
   sharedNoteIds: string[];
@@ -198,27 +164,10 @@ interface DataContextType {
   clearData: () => void;
 }
 
-const defaultData: AppData = {
-  userProfile: null,
-  userPreferences: null,
-  todos: [],
-  habits: [],
-  events: [],
-  sharedEvents: [],
-  notes: [],
-  sharedNotes: [],
-  sharedNoteIds: [],
-  sharedNoteDetails: {},
-  friends: [],
-  friendRequests: [],
-  categories: [],
-  socialUpdates: [],
-  isPreloaded: false,
-  lastUpdated: null,
-};
-
+// Create the context
 const DataContext = createContext<DataContextType | undefined>(undefined);
 
+// Hook to use the context
 export const useData = () => {
   const context = useContext(DataContext);
   if (context === undefined) {
@@ -227,42 +176,58 @@ export const useData = () => {
   return context;
 };
 
+// Provider component
 interface DataProviderProps {
   children: ReactNode;
 }
 
 export const DataProvider: React.FC<DataProviderProps> = ({ children }) => {
-  const [data, setData] = useState<AppData>(defaultData);
+  const [data, setData] = useState<AppData>({
+    userProfile: null,
+    userPreferences: null,
+    todos: [],
+    habits: [],
+    notes: [],
+    sharedNotes: [],
+    sharedNoteIds: [],
+    sharedNoteDetails: {},
+    friends: [],
+    friendRequests: [],
+    categories: [],
+    socialUpdates: [],
+    isPreloaded: false,
+    lastUpdated: null,
+  });
 
   const updateData = (key: keyof AppData, value: any) => {
-    setData(prev => ({
-      ...prev,
-      [key]: value,
-      lastUpdated: new Date(),
-    }));
+    setData(prev => ({ ...prev, [key]: value }));
   };
 
   const refreshData = () => {
-    setData(prev => ({
-      ...prev,
-      lastUpdated: new Date(),
-    }));
+    setData(prev => ({ ...prev, lastUpdated: new Date() }));
   };
 
   const clearData = () => {
-    setData(defaultData);
-  };
-
-  const value: DataContextType = {
-    data,
-    setData,
-    updateData,
-    refreshData,
-    clearData,
+    setData({
+      userProfile: null,
+      userPreferences: null,
+      todos: [],
+      habits: [],
+      notes: [],
+      sharedNotes: [],
+      sharedNoteIds: [],
+      sharedNoteDetails: {},
+      friends: [],
+      friendRequests: [],
+      categories: [],
+      socialUpdates: [],
+      isPreloaded: false,
+      lastUpdated: null,
+    });
   };
 
   return (
-    <DataContext.Provider value={value}>
+    <DataContext.Provider value={{ data, setData, updateData, refreshData, clearData }}>
       {children}
     </DataContext.Provider>
   );

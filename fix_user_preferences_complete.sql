@@ -35,7 +35,7 @@ BEGIN
     WHERE table_name = 'user_preferences' 
     AND column_name = 'default_screen'
   ) THEN
-    ALTER TABLE user_preferences ADD COLUMN default_screen TEXT DEFAULT 'calendar' CHECK (default_screen IN ('calendar', 'todo', 'notes', 'profile'));
+    ALTER TABLE user_preferences ADD COLUMN default_screen TEXT DEFAULT 'todo' CHECK (default_screen IN ('todo', 'notes', 'profile'));
     RAISE NOTICE 'Added default_screen column';
   ELSE
     RAISE NOTICE 'default_screen column already exists';

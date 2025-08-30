@@ -8,7 +8,7 @@ export interface UserPreferences {
   default_view: 'day' | 'week' | 'month';
   email_notifications: boolean;
   push_notifications: boolean;
-  default_screen: 'calendar' | 'todo' | 'notes' | 'profile';
+  default_screen: 'todo' | 'notes' | 'friends-feed' | 'profile';
   auto_move_uncompleted_tasks: boolean;
 }
 
@@ -44,7 +44,7 @@ export const getUserPreferences = async (userId: string): Promise<UserPreference
           default_view: 'week',
           email_notifications: true,
           push_notifications: true,
-          default_screen: 'calendar',
+          default_screen: 'todo',
           auto_move_uncompleted_tasks: false,
         };
 

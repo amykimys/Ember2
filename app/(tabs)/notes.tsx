@@ -30,6 +30,8 @@ import {
   getSharedNotes, 
   updateNoteCollaboration,
   removeNoteCollaboration,
+  deleteSharedNote,
+  deleteAllSharedNotesForNote,
   getNoteCollaborators,
   canUserEditNote,
   subscribeToNoteCollaborators,
@@ -61,6 +63,7 @@ export default function NotesScreen() {
   const [sharedNotes, setSharedNotes] = useState<SharedNote[]>([]);
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
   const [sharedNoteDetails, setSharedNoteDetails] = useState<Map<string, string[]>>(new Map());
+  const [deletedSharedNoteIds, setDeletedSharedNoteIds] = useState<Set<string>>(new Set());
   const [combinedNotes, setCombinedNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -106,6 +109,11 @@ export default function NotesScreen() {
   const combineNotes = useCallback((notesData: Note[], sharedNotesData: SharedNote[], sharedNoteIdsData: Set<string>, sharedNoteDetailsData: Map<string, string[]>) => {
     const combined: Note[] = [...notesData];
     for (const sharedNote of sharedNotesData) {
+      // Skip deleted shared notes
+      if (deletedSharedNoteIds.has(sharedNote.original_note_id)) {
+        continue;
+      }
+      
       // Get friend's name from the joined profiles data
       const friendProfile = sharedNote.profiles;
       const sharedByName = friendProfile?.full_name || friendProfile?.username || 'Unknown User';
@@ -131,7 +139,7 @@ export default function NotesScreen() {
     // Sort by updated_at
     combined.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     setCombinedNotes(combined);
-  }, []);
+  }, [deletedSharedNoteIds]);
 
   // Centralized data fetching
   const fetchAllNotesData = useCallback(async (forceRefresh = false) => {
@@ -410,6 +418,65 @@ export default function NotesScreen() {
     }
   }, []);
 
+  // Handle deleting a shared note (for both sender and recipient)
+  const handleDeleteSharedNote = useCallback(async (noteId: string, isOwner: boolean = false) => {
+    try {
+      if (!user) {
+        console.error('No cached user found');
+        return;
+      }
+
+      let result;
+      if (isOwner) {
+        // If user owns the note, delete all shared instances
+        result = await deleteAllSharedNotesForNote(noteId);
+      } else {
+        // If user is recipient, find and delete the specific shared note record
+        const sharedNote = sharedNotes.find(sn => sn.original_note_id === noteId);
+        if (sharedNote) {
+          result = await deleteSharedNote(sharedNote.id);
+        } else {
+          result = { success: false, error: 'Shared note not found' };
+        }
+      }
+
+      if (result.success) {
+        // Optimistic delete - remove from UI immediately
+        setSharedNotes(prev => prev.filter(sn => sn.original_note_id !== noteId));
+        setSharedNoteIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(noteId);
+          return newSet;
+        });
+        setSharedNoteDetails(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(noteId);
+          return newMap;
+        });
+
+        // Update combined notes
+        combineNotes(
+          notes,
+          sharedNotes.filter(sn => sn.original_note_id !== noteId),
+          (() => { const s = new Set(sharedNoteIds); s.delete(noteId); return s; })(),
+          (() => { const m = new Map(sharedNoteDetails); m.delete(noteId); return m; })()
+        );
+
+        if (Platform.OS !== 'web') {
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+
+        // Show success message
+        Alert.alert('Success', isOwner ? 'Note unshared with all users' : 'Shared note removed');
+      } else {
+        Alert.alert('Error', result.error || 'Failed to delete shared note');
+      }
+    } catch (error) {
+      console.error('Error deleting shared note:', error);
+      Alert.alert('Error', 'Failed to delete shared note');
+    }
+  }, [user, sharedNotes, sharedNoteIds, sharedNoteDetails, notes, combineNotes]);
+
   const handleDeleteNote = useCallback(async (noteId: string) => {
     try {
       if (!user) {
@@ -451,13 +518,31 @@ export default function NotesScreen() {
 
       let error = null;
       if (isShared) {
-        // Remove collaboration for this user
-        const { error: sharedError } = await supabase
-          .from('shared_notes')
-          .delete()
-          .eq('original_note_id', noteId)
-          .eq('shared_with', user.id);
-        error = sharedError;
+        // For shared notes, we need to check if the user is the owner or just a recipient
+        const isOwner = noteToDelete?.user_id === user.id;
+        
+        if (isOwner) {
+          // If user is the owner, delete the actual note and all shared records
+          const { error: notesError } = await supabase
+            .from('notes')
+            .delete()
+            .eq('id', noteId)
+            .eq('user_id', user.id);
+          error = notesError;
+        } else {
+          // If user is just a recipient, only remove the collaboration record
+          const { error: sharedError } = await supabase
+            .from('shared_notes')
+            .delete()
+            .eq('original_note_id', noteId)
+            .eq('shared_with', user.id);
+          error = sharedError;
+          
+          // Track this deleted shared note to prevent it from reappearing
+          if (!error) {
+            setDeletedSharedNoteIds(prev => new Set([...prev, noteId]));
+          }
+        }
       } else {
         // Delete from database
         const { error: notesError } = await supabase
@@ -574,7 +659,7 @@ export default function NotesScreen() {
     const renderRightActions = () => {
       return (
         <View style={styles.rightActions}>
-          {/* Only show share button for notes that the user owns */}
+          {/* Show share button for notes that the user owns */}
           {!note.isShared && (
             <TouchableOpacity
               style={styles.shareAction}
@@ -588,7 +673,8 @@ export default function NotesScreen() {
               <Ionicons name="share-outline" size={20} color="#fff" />
             </TouchableOpacity>
           )}
-          {/* Only show delete button for notes that the user owns */}
+          
+          {/* Show delete button for notes that the user owns */}
           {!note.isShared && (
             <TouchableOpacity
               style={styles.deleteAction}
@@ -605,6 +691,40 @@ export default function NotesScreen() {
                       text: 'Delete',
                       style: 'destructive',
                       onPress: () => handleDeleteNote(note.id),
+                    },
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="trash" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
+          
+          {/* Show delete button for shared notes (both sender and recipient can delete) */}
+          {note.isShared && (
+            <TouchableOpacity
+              style={[styles.deleteAction, { backgroundColor: '#FF6B6B' }]}
+              onPress={() => {
+                if (Platform.OS !== 'web') {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                }
+                
+                // Check if user is the owner (sender) or recipient
+                const isOwner = note.user_id === user?.id;
+                const actionText = isOwner ? 'Unshare Note' : 'Remove Shared Note';
+                const messageText = isOwner 
+                  ? 'This will unshare the note with all users. The note will remain in your notes.'
+                  : 'This will remove the shared note from your view. The note will remain shared with others.';
+                
+                Alert.alert(
+                  actionText,
+                  messageText,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: isOwner ? 'Unshare' : 'Remove',
+                      style: 'destructive',
+                      onPress: () => handleDeleteSharedNote(note.id, isOwner),
                     },
                   ]
                 );
@@ -630,7 +750,7 @@ export default function NotesScreen() {
             if (Platform.OS !== 'web') {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             }
-            // Only allow deletion for notes that the user owns
+            // Handle deletion for both owned and shared notes
             if (!note.isShared) {
               Alert.alert(
                 'Delete Note',
@@ -645,10 +765,24 @@ export default function NotesScreen() {
                 ]
               );
             } else {
+              // Check if user is the owner (sender) or recipient
+              const isOwner = note.user_id === user?.id;
+              const actionText = isOwner ? 'Unshare Note' : 'Remove Shared Note';
+              const messageText = isOwner 
+                ? 'This will unshare the note with all users. The note will remain in your notes.'
+                : 'This will remove the shared note from your view. The note will remain shared with others.';
+              
               Alert.alert(
-                'Shared Note',
-                'This is a shared note. You cannot delete notes shared with you.',
-                [{ text: 'OK', style: 'default' }]
+                actionText,
+                messageText,
+                [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: isOwner ? 'Unshare' : 'Remove',
+                    style: 'destructive',
+                    onPress: () => handleDeleteSharedNote(note.id, isOwner),
+                  },
+                ]
               );
             }
           }}
@@ -686,7 +820,7 @@ export default function NotesScreen() {
         </TouchableOpacity>
       </Swipeable>
     );
-  }, [handleDeleteNote, handleOpenNote, sharedNoteIds, sharedNoteDetails]);
+  }, [handleDeleteNote, handleDeleteSharedNote, handleOpenNote, sharedNoteIds, sharedNoteDetails, user]);
 
   // Debug function to test shared notes functionality
   const debugSharedNotes = useCallback(async () => {
@@ -1564,7 +1698,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    paddingTop: 12,
+    paddingTop: 24,
   },
   headerButtons: {
     flexDirection: 'row',

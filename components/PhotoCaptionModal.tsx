@@ -20,7 +20,7 @@ interface PhotoCaptionModalProps {
   onClose: () => void;
   onSave: (caption: string) => void;
   photoUrl?: string;
-  eventTitle?: string;
+  itemTitle?: string;
   isLoading?: boolean;
 }
 
@@ -29,7 +29,7 @@ export default function PhotoCaptionModal({
   onClose,
   onSave,
   photoUrl,
-  eventTitle,
+  itemTitle,
   isLoading = false,
 }: PhotoCaptionModalProps) {
   const [caption, setCaption] = useState('');
@@ -74,11 +74,11 @@ export default function PhotoCaptionModal({
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
 
-           {/* Event Info */}
-           {eventTitle && (
-            <View style={styles.eventInfo}>
-              <Ionicons name="calendar" size={16} color={Colors.light.accent} />
-              <Text style={styles.eventTitle}>{eventTitle}</Text>
+           {/* Item Info */}
+           {itemTitle && (
+            <View style={styles.itemInfo}>
+              <Ionicons name="information-circle" size={16} color={Colors.light.accent} />
+              <Text style={styles.itemTitle}>{itemTitle}</Text>
             </View>
           )}
 
@@ -168,20 +168,20 @@ const styles = StyleSheet.create({
     height: 200,
     borderRadius: 12,
   },
-  eventInfo: {
+  itemInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.light.surfaceVariant,
     padding: 12,
     borderRadius: 8,
-    marginBottom: 20,
+    marginBottom: 16,
   },
-  eventTitle: {
+  itemTitle: {
     fontSize: 14,
-    fontWeight: '500',
     color: Colors.light.text,
     marginLeft: 8,
     fontFamily: 'Onest',
+    flex: 1,
   },
   captionContainer: {
     marginBottom: 20,

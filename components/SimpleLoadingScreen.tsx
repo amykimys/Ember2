@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#667eea',
+    backgroundColor: '#8E8E93',
     marginHorizontal: 4,
   },
   message: {

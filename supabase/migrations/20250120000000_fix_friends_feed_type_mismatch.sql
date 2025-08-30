@@ -34,14 +34,12 @@ BEGIN
     su.source_type,
     CASE 
       WHEN su.source_type = 'habit' THEN h.text
-      WHEN su.source_type = 'event' THEN e.title
       ELSE NULL
     END as source_title,
     su.created_at
   FROM public.social_updates su
   JOIN public.profiles p ON su.user_id = p.id
   LEFT JOIN public.habits h ON su.source_type = 'habit' AND su.source_id = h.id
-  LEFT JOIN public.events e ON su.source_type = 'event' AND su.source_id::text = e.id
   WHERE su.type = 'photo_share'
     AND su.is_public = true
     AND su.photo_url IS NOT NULL
