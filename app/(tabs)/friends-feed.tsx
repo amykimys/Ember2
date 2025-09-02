@@ -27,6 +27,15 @@ import PhotoZoomViewer from '../../components/PhotoZoomViewer';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
+import { PanGestureHandler, GestureHandlerRootView, State } from 'react-native-gesture-handler';
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  useAnimatedGestureHandler,
+  withSpring,
+  runOnJS
+} from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface PhotoShare {
   update_id: string; // This maps to the 'id' column from the database
@@ -91,6 +100,11 @@ export default function FriendsFeedScreen() {
   const [galleryEndCursor, setGalleryEndCursor] = useState<string | null>(null); // Store end cursor for pagination
   const galleryScrollViewRef = useRef<ScrollView>(null);
   
+  // Gallery categorization state
+  const [galleryCategory, setGalleryCategory] = useState<'recents' | 'favorites' | 'videos' | 'all'>('recents');
+  const [favoritePhotos, setFavoritePhotos] = useState<string[]>([]);
+  const [videoAssets, setVideoAssets] = useState<string[]>([]);
+  
   // Selected photos carousel state
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
@@ -99,6 +113,13 @@ export default function FriendsFeedScreen() {
   const [isCommenting, setIsCommenting] = useState(false);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [selectedPostForComments, setSelectedPostForComments] = useState<PhotoShare | null>(null);
+  
+  // Comment modal height state
+  const [commentModalHeight, setCommentModalHeight] = useState<'compact' | 'expanded'>('compact');
+  
+  // Swipe gesture state
+  const [swipeOffset, setSwipeOffset] = useState<{[key: string]: number}>({});
+  const [swipeInProgress, setSwipeInProgress] = useState<{[key: string]: boolean}>({});
 
   useEffect(() => {
     checkSession();
@@ -123,7 +144,7 @@ export default function FriendsFeedScreen() {
       // Reset gallery state when modal opens
       if (galleryPhotos.length === 0) {
         setGalleryEndCursor(null);
-        loadGalleryPhotos();
+        loadGalleryPhotosByCategory(galleryCategory);
       }
     } else {
       // Clear gallery when modal closes
@@ -295,6 +316,81 @@ export default function FriendsFeedScreen() {
     }
   };
 
+  // Load photos based on selected category
+  const loadGalleryPhotosByCategory = async (category: 'recents' | 'favorites' | 'videos' | 'all', loadMore = false) => {
+    try {
+      setIsLoadingGallery(true);
+      
+      if (category === 'favorites') {
+        // Load favorite photos from AsyncStorage
+        const favorites = await AsyncStorage.getItem('favoritePhotos');
+        const favoriteUris = favorites ? JSON.parse(favorites) : [];
+        setGalleryPhotos(favoriteUris);
+        setFavoritePhotos(favoriteUris);
+        return;
+      }
+      
+      if (category === 'videos') {
+        // Load videos from MediaLibrary
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('❌ Media library permission not granted');
+          return;
+        }
+        
+        const videos = await MediaLibrary.getAssetsAsync({
+          mediaType: 'video',
+          first: 50,
+          sortBy: ['creationTime'],
+        });
+        
+        const videoUris = await Promise.all(
+          videos.assets.map(async (asset) => {
+            const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
+            return assetInfo.localUri;
+          })
+        );
+        
+        setGalleryPhotos(videoUris.filter(uri => uri !== null) as string[]);
+        setVideoAssets(videoUris.filter(uri => uri !== null) as string[]);
+        return;
+      }
+      
+      // For 'recents' and 'all', use the existing loadGalleryPhotos function
+      await loadGalleryPhotos(loadMore);
+      
+    } catch (error) {
+      console.error('❌ Error loading gallery photos by category:', error);
+    } finally {
+      setIsLoadingGallery(false);
+    }
+  };
+
+  // Toggle favorite status for a photo
+  const toggleFavorite = async (photoUri: string) => {
+    try {
+      const favorites = await AsyncStorage.getItem('favoritePhotos');
+      const favoriteUris = favorites ? JSON.parse(favorites) : [];
+      
+      let newFavorites;
+      if (favoriteUris.includes(photoUri)) {
+        newFavorites = favoriteUris.filter((uri: string) => uri !== photoUri);
+      } else {
+        newFavorites = [...favoriteUris, photoUri];
+      }
+      
+      await AsyncStorage.setItem('favoritePhotos', JSON.stringify(newFavorites));
+      setFavoritePhotos(newFavorites);
+      
+      // Update gallery photos if we're in favorites category
+      if (galleryCategory === 'favorites') {
+        setGalleryPhotos(newFavorites);
+      }
+    } catch (error) {
+      console.error('❌ Error toggling favorite:', error);
+    }
+  };
+
   const navigateToPhoto = (direction: 'next' | 'prev') => {
     if (selectedPhotos.length <= 1) return;
     
@@ -339,6 +435,71 @@ export default function FriendsFeedScreen() {
       ...prev,
       [postId]: newIndex
     }));
+  };
+
+  // Handle swipe gestures for photo navigation
+  const handleSwipeGesture = (postId: string, translationX: number) => {
+    const post = photoShares.find(p => p.update_id === postId);
+    const photos = post?.photos && post.photos.length > 0 ? post.photos : [post?.photo_url];
+    
+    if (!photos || photos.length <= 1) return;
+    
+    const currentIndex = postPhotoIndices[postId] || 0;
+    const threshold = 50; // Minimum swipe distance to trigger navigation
+    
+    if (translationX > threshold && currentIndex > 0) {
+      // Swipe right - go to previous photo
+      navigatePostPhoto(postId, 'prev');
+    } else if (translationX < -threshold && currentIndex < photos.length - 1) {
+      // Swipe left - go to next photo
+      navigatePostPhoto(postId, 'next');
+    }
+  };
+
+  // Add haptic feedback for swipe gestures
+  const handleSwipeWithFeedback = (postId: string, translationX: number) => {
+    const post = photoShares.find(p => p.update_id === postId);
+    const photos = post?.photos && post.photos.length > 0 ? post.photos : [post?.photo_url];
+    
+    if (!photos || photos.length <= 1) return;
+    
+    // Prevent multiple swipes for the same post
+    if (swipeInProgress[postId]) return;
+    
+    const currentIndex = postPhotoIndices[postId] || 0;
+    const threshold = 80; // Lower threshold for easier navigation
+    
+    if (translationX > threshold && currentIndex > 0) {
+      // Set swipe in progress to prevent multiple triggers
+      setSwipeInProgress(prev => ({ ...prev, [postId]: true }));
+      
+      // Haptic feedback for successful swipe
+      if (Platform.OS === 'ios') {
+        const Haptics = require('expo-haptics');
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      navigatePostPhoto(postId, 'prev');
+      
+      // Reset swipe in progress after a delay
+      setTimeout(() => {
+        setSwipeInProgress(prev => ({ ...prev, [postId]: false }));
+      }, 500);
+    } else if (translationX < -threshold && currentIndex < photos.length - 1) {
+      // Set swipe in progress to prevent multiple triggers
+      setSwipeInProgress(prev => ({ ...prev, [postId]: true }));
+      
+      // Haptic feedback for successful swipe
+      if (Platform.OS === 'ios') {
+        const Haptics = require('expo-haptics');
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }
+      navigatePostPhoto(postId, 'next');
+      
+      // Reset swipe in progress after a delay
+      setTimeout(() => {
+        setSwipeInProgress(prev => ({ ...prev, [postId]: false }));
+      }, 500);
+    }
   };
 
   const loadCommentsForAllPosts = async (posts: PhotoShare[]) => {
@@ -1379,42 +1540,33 @@ export default function FriendsFeedScreen() {
           
           return (
             <>
-              <TouchableOpacity 
-                onPress={() => {
-                  setSelectedPhotoForZoom(item);
-                  setZoomPhotoIndex(postPhotoIndices[item.update_id] || 0);
-                  setShowPhotoZoomModal(true);
-                  setIsPhotoZoomed(true);
+              <PanGestureHandler
+                onEnded={(event: any) => {
+                  const { translationX } = event.nativeEvent;
+                  if (Math.abs(translationX) > 80) {
+                    handleSwipeWithFeedback(item.update_id, translationX);
+                  }
                 }}
-                activeOpacity={0.9}
-                style={styles.photoWrapper}
               >
-                <Image
-                  source={{ uri: currentPhoto }}
-                  style={styles.naturalPhoto}
-                  resizeMode="cover"
-                />
-                
-                {/* Swipe gesture overlay for multiple photos */}
-                {photos.length > 1 && (
-                  <View style={styles.swipeOverlay}>
-                    <TouchableOpacity
-                      style={styles.swipeLeftArea}
-                      onPress={() => navigatePostPhoto(item.update_id, 'prev')}
-                      activeOpacity={0.1}
-                      hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
+                <Animated.View style={styles.photoWrapper}>
+                  <TouchableOpacity 
+                    onPress={() => {
+                      setSelectedPhotoForZoom(item);
+                      setZoomPhotoIndex(postPhotoIndices[item.update_id] || 0);
+                      setShowPhotoZoomModal(true);
+                      setIsPhotoZoomed(true);
+                    }}
+                    activeOpacity={0.9}
+                    style={{ flex: 1 }}
+                  >
+                    <Image
+                      source={{ uri: currentPhoto }}
+                      style={styles.naturalPhoto}
+                      resizeMode="cover"
                     />
-                    <TouchableOpacity
-                      style={styles.swipeRightArea}
-                      onPress={() => navigatePostPhoto(item.update_id, 'next')}
-                      activeOpacity={0.1}
-                      hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-                    />
-                    
-
-                  </View>
-                )}
-              </TouchableOpacity>
+                  </TouchableOpacity>
+                </Animated.View>
+              </PanGestureHandler>
               
 
               
@@ -1453,32 +1605,25 @@ export default function FriendsFeedScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaView style={styles.container}>
             {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Feed</Text>
-        <View style={styles.headerButtons}>
-          {/* Debug button for troubleshooting */}
-          <TouchableOpacity 
-            onPress={debugUserStatus}
-            style={styles.debugButton}
-          >
-            <Ionicons name="bug" size={20} color="#8E8E93" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            onPress={() => {
-              setSelectedPhotos([]);
-              setSelectedPhotosData([]);
-              setCaption('');
-              setShowPostModal(true);
-            }}
-            style={[
-              styles.postButton,
-              !canPostToday && styles.postButtonDisabled
-            ]}
-            disabled={!canPostToday}
-          >
+              <View style={styles.header}>
+          <Text style={styles.headerTitle}>Feed</Text>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              onPress={() => {
+                setSelectedPhotos([]);
+                setSelectedPhotosData([]);
+                setCaption('');
+                setShowPostModal(true);
+              }}
+              style={[
+                styles.postButton,
+                !canPostToday && styles.postButtonDisabled
+              ]}
+              disabled={!canPostToday}
+            >
                       <Ionicons 
             name="add" 
             size={24} 
@@ -1655,6 +1800,81 @@ export default function FriendsFeedScreen() {
                 <Text style={styles.galleryTitle}>Gallery</Text>
               </View>
               
+              {/* Gallery Category Tabs */}
+              <View style={styles.galleryTabs}>
+                <TouchableOpacity
+                  style={[
+                    styles.galleryTab,
+                    galleryCategory === 'recents' && styles.galleryTabActive
+                  ]}
+                  onPress={() => {
+                    setGalleryCategory('recents');
+                    loadGalleryPhotosByCategory('recents');
+                  }}
+                >
+                  <Text style={[
+                    styles.galleryTabText,
+                    galleryCategory === 'recents' && styles.galleryTabTextActive
+                  ]}>
+                    Recents
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.galleryTab,
+                    galleryCategory === 'favorites' && styles.galleryTabActive
+                  ]}
+                  onPress={() => {
+                    setGalleryCategory('favorites');
+                    loadGalleryPhotosByCategory('favorites');
+                  }}
+                >
+                  <Text style={[
+                    styles.galleryTabText,
+                    galleryCategory === 'favorites' && styles.galleryTabTextActive
+                  ]}>
+                    Favorites
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.galleryTab,
+                    galleryCategory === 'videos' && styles.galleryTabActive
+                  ]}
+                  onPress={() => {
+                    setGalleryCategory('videos');
+                    loadGalleryPhotosByCategory('videos');
+                  }}
+                >
+                  <Text style={[
+                    styles.galleryTabText,
+                    galleryCategory === 'videos' && styles.galleryTabTextActive
+                  ]}>
+                    Videos
+                  </Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.galleryTab,
+                    galleryCategory === 'all' && styles.galleryTabActive
+                  ]}
+                  onPress={() => {
+                    setGalleryCategory('all');
+                    loadGalleryPhotosByCategory('all');
+                  }}
+                >
+                  <Text style={[
+                    styles.galleryTabText,
+                    galleryCategory === 'all' && styles.galleryTabTextActive
+                  ]}>
+                    All Photos
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
               {isLoadingGallery ? (
                 <View style={styles.galleryLoading}>
                   <ActivityIndicator size="large" color="#007AFF" />
@@ -1686,6 +1906,21 @@ export default function FriendsFeedScreen() {
                             </View>
                           </View>
                         )}
+                        
+                        {/* Favorite Button */}
+                        <TouchableOpacity
+                          style={styles.galleryFavoriteButton}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            toggleFavorite(photoUri);
+                          }}
+                        >
+                          <Ionicons 
+                            name={favoritePhotos.includes(photoUri) ? "heart" : "heart-outline"} 
+                            size={16} 
+                            color={favoritePhotos.includes(photoUri) ? "#FF3B30" : "#fff"} 
+                          />
+                        </TouchableOpacity>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -1715,6 +1950,7 @@ export default function FriendsFeedScreen() {
         onRequestClose={() => {
           setShowCommentsModal(false);
           setCommentText(''); // Clear comment text when closing modal
+          setCommentModalHeight('compact'); // Reset to compact size
         }}
       >
         <View style={styles.commentsModalOverlay}>
@@ -1724,13 +1960,26 @@ export default function FriendsFeedScreen() {
             onPress={() => {
               setShowCommentsModal(false);
               setCommentText(''); // Clear comment text when closing modal
+              setCommentModalHeight('compact'); // Reset to compact size
             }}
           />
-          <View style={styles.commentsModalContainer}>
+          <View style={[
+            styles.commentsModalContainer,
+            commentModalHeight === 'expanded' && styles.commentsModalContainerExpanded
+          ]}>
             {/* Handle bar */}
-            <View style={styles.commentsModalHandle}>
-              <View style={styles.commentsModalHandleBar} />
-            </View>
+            <TouchableOpacity
+              style={styles.commentsModalHandle}
+              onPress={() => {
+                setCommentModalHeight(commentModalHeight === 'compact' ? 'expanded' : 'compact');
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={[
+                styles.commentsModalHandleBar,
+                commentModalHeight === 'expanded' && styles.commentsModalHandleBarExpanded
+              ]} />
+            </TouchableOpacity>
             
             {/* Header */}
             <View style={styles.commentsModalHeader}>
@@ -1739,6 +1988,7 @@ export default function FriendsFeedScreen() {
                 onPress={() => {
                   setShowCommentsModal(false);
                   setCommentText(''); // Clear comment text when closing modal
+                  setCommentModalHeight('compact'); // Reset to compact size
                 }}
                 style={styles.commentsModalCloseButton}
               >
@@ -1750,7 +2000,7 @@ export default function FriendsFeedScreen() {
             <KeyboardAvoidingView 
               style={styles.commentsModalContent}
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
             >
               {/* Scrollable comments area */}
               <ScrollView 
@@ -1860,6 +2110,7 @@ export default function FriendsFeedScreen() {
         </View>
       </Modal>
     </SafeAreaView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -1886,11 +2137,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  debugButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#F2F2F7',
   },
   postButton: {
     padding: 8,
@@ -2138,6 +2384,32 @@ const styles = StyleSheet.create({
     borderTopColor: '#F2F2F7',
     paddingTop: 24,
   },
+  galleryTabs: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  galleryTab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  galleryTabActive: {
+    borderBottomColor: '#007AFF',
+  },
+  galleryTabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  galleryTabTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
   galleryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2235,6 +2507,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
     fontFamily: 'Onest',
+  },
+  galleryFavoriteButton: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 12,
+    padding: 4,
+    zIndex: 10,
   },
   loadMoreButton: {
     marginTop: 16,
@@ -2513,7 +2794,7 @@ const styles = StyleSheet.create({
   },
   noCommentsContainer: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 20, // Reduced from 40 to 20
   },
   noCommentsText: {
     fontSize: 16,
@@ -2579,9 +2860,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '95%',
-    minHeight: '70%',
+    maxHeight: '60%', // Reduced from 95% to 60%
+    minHeight: '40%', // Reduced from 70% to 40%
     flex: 1,
+  },
+  commentsModalContainerExpanded: {
+    maxHeight: '90%', // Expanded height
+    minHeight: '70%', // Expanded minimum height
   },
   commentsModalHandle: {
     alignItems: 'center',
@@ -2594,12 +2879,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E5EA',
     borderRadius: 2,
   },
+  commentsModalHandleBarExpanded: {
+    backgroundColor: '#00ACC1', // Different color when expanded
+    width: 50, // Slightly wider when expanded
+  },
   commentsModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8, // Reduced from 12 to 8
   },
   commentsModalTitle: {
     fontSize: 16,
@@ -2622,6 +2911,6 @@ const styles = StyleSheet.create({
   },
   commentsModalScrollContent: {
     flexGrow: 1,
-    paddingBottom: 10, // Add some bottom padding to the scroll content
+    paddingBottom: 5, // Reduced from 10 to 5
   },
 });
