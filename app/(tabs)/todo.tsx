@@ -237,6 +237,7 @@ export default function TodoScreen() {
   const { setIsPhotoZoomed } = useTabBar();
 
   const [user, setUser] = useState<User | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Initialize notifications for todo screen
   useEffect(() => {
@@ -388,7 +389,7 @@ export default function TodoScreen() {
   // Create separate functions for fetching only todos and habits without categories
   const fetchTodosOnly = async (currentUser?: User | null) => {
     const userToUse = currentUser || user;
-    if (!userToUse) return;
+    if (!userToUse || isDeleting) return;
 
     const retryRequest = async (
       requestFn: () => Promise<any>,
@@ -433,7 +434,6 @@ export default function TodoScreen() {
         const currentDateString = moment(currentDate).format('YYYY-MM-DD');
         console.log('🗑️ [Fetch] Current date string for filtering:', currentDateString);
         console.log('🗑️ [Fetch] Current date object:', currentDate);
-        console.log('🗑️ [Fetch] Current deletedInstanceIds:', deletedInstanceIds);
         
         const mappedTasks = result
           .map((task: any) => ({
@@ -442,25 +442,10 @@ export default function TodoScreen() {
             repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
             reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
             category: task.category || null, // category object from join
-          }))
-          .filter((task: any) => {
-            // Check if this task instance has been deleted
-            const isDeleted = deletedInstanceIds.includes(task.id);
-            console.log('🗑️ [Filter] Task:', task.text, 'ID:', task.id, 'isDeleted:', isDeleted);
-            
-            if (isDeleted) {
-              console.log('🗑️ [Filter] Filtering out deleted instance:', task.text);
-              return false;
-            }
-            console.log('🗑️ [Filter] Keeping task:', task.text);
-            return true;
-          });
+          }));
         
-        // Apply deletion filtering to the fetched tasks
-        const tasksWithDeletionFilter = mappedTasks.filter((task: any) => !deletedInstanceIds.includes(task.id));
-        
-        setTodos(tasksWithDeletionFilter);
-        updateData('todos', tasksWithDeletionFilter);
+        setTodos(mappedTasks);
+        updateData('todos', mappedTasks);
     
         // Fetch shared info for these tasks
         const taskIds = mappedTasks.map((t: Todo) => t.id);
@@ -534,6 +519,8 @@ export default function TodoScreen() {
     }
   };
 
+    // State for basic functionality
+
   useEffect(() => {
     if (!user?.id) return;
     // Subscribe to real-time changes for this user's todos
@@ -549,15 +536,12 @@ export default function TodoScreen() {
         },
         async (payload) => {
           console.log('🔄 [Todo] Real-time subscription triggered - todos changed:', payload.eventType);
-          
-          // Skip fetching if we're in the middle of deleting an instance
-          if (isDeletingInstance) {
-            console.log('🔄 [Todo] Skipping fetch due to active instance deletion');
-            return;
-          }
-          
           console.log('🔄 [Todo] Fetching todos after real-time change');
-          await fetchTodosOnly(user);
+          if (!isDeleting) {
+            await fetchTodosOnly(user);
+          } else {
+            console.log('🔄 [Todo] Skipping real-time fetch during deletion');
+          }
         }
       )
       .subscribe();
@@ -671,93 +655,9 @@ export default function TodoScreen() {
   
 
 
-  // Add auto-move timer to automatically move tasks at configurable time
-  useEffect(() => {
-    const checkAutoMoveTime = () => {
-      const now = new Date();
-      const lastCheck = lastMidnightCheckRef.current;
-      
-      // Check if we've crossed the auto-move time since the last check
-      const lastCheckDate = lastCheck.toDateString();
-      const currentDate = now.toDateString();
-      
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-      const lastCheckHour = lastCheck.getHours();
-      const lastCheckMinute = lastCheck.getMinutes();
-      
-      console.log('🕛 Checking auto-move time:', {
-        lastCheck: lastCheckDate,
-        current: currentDate,
-        lastCheckTime: lastCheck.toISOString(),
-        currentTime: now.toISOString(),
-        autoMoveTime: `${autoMoveTime.hour.toString().padStart(2, '0')}:${autoMoveTime.minute.toString().padStart(2, '0')}`,
-        currentHour: currentHour,
-        currentMinute: currentMinute,
-        lastCheckHour: lastCheckHour,
-        lastCheckMinute: lastCheckMinute
-      });
-      
-      // Check if current time is after the auto-move time
-      const isAfterAutoMoveTime = (
-        currentHour > autoMoveTime.hour || 
-        (currentHour === autoMoveTime.hour && currentMinute >= autoMoveTime.minute)
-      );
-      
-      // Check if we've passed the auto-move time since the last check
-      const wasBeforeAutoMoveTime = (
-        lastCheckHour < autoMoveTime.hour || 
-        (lastCheckHour === autoMoveTime.hour && lastCheckMinute < autoMoveTime.minute)
-      );
-      
-      console.log('🕛 Time analysis:', {
-        isAfterAutoMoveTime,
-        wasBeforeAutoMoveTime,
-        dateChanged: currentDate !== lastCheckDate,
-        shouldTrigger: currentDate !== lastCheckDate || (isAfterAutoMoveTime && wasBeforeAutoMoveTime)
-      });
-      
-      // Trigger if date changed OR if we've crossed the auto-move time on the same day
-      if (currentDate !== lastCheckDate || (isAfterAutoMoveTime && wasBeforeAutoMoveTime)) {
-        if (isAfterAutoMoveTime) {
-          console.log(`🕛 Past auto-move time (${autoMoveTime.hour}:${autoMoveTime.minute}) - moving tasks!`);
-          console.log(`🕛 Current time: ${currentHour}:${currentMinute}, Last check: ${lastCheckHour}:${lastCheckMinute}`);
-          lastMidnightCheckRef.current = now;
-          handleMidnightMove();
-        }
-      } else {
-        console.log('🕛 Not yet time to move tasks');
-      }
-    };
-    
-    // Check immediately when component mounts
-    console.log('🕛 Component mounted, checking auto-move time immediately');
-    checkAutoMoveTime();
-    
-    // Set up interval to check every 30 seconds for more responsive detection
-    const interval = setInterval(() => {
-      console.log('🕛 Interval check triggered');
-      checkAutoMoveTime();
-    }, 30000); // Check every 30 seconds
-    
-    // Listen for app state changes to check auto-move time when app comes back to foreground
-    const handleAppStateChange = (nextAppState: string) => {
-      console.log('🕛 App state changed to:', nextAppState);
-      setAppState(nextAppState);
-      
-      if (nextAppState === 'active') {
-        console.log('🕛 App became active, checking for auto-move time');
-        checkAutoMoveTime();
-      }
-    };
-    
-    const appStateSubscription = AppState.addEventListener('change', handleAppStateChange);
-    
-    return () => {
-      clearInterval(interval);
-      appStateSubscription?.remove();
-    };
-  }, []);
+  // DISABLED: Complex auto-move system (using simple system instead)
+  // The complex system was disabled because it was interfering with the simple timer
+  // The simple timer below is more reliable and works like the test button
 
   // Add real-time subscription for shared_tasks to update friends info without full refetch
   useEffect(() => {
@@ -925,8 +825,7 @@ export default function TodoScreen() {
 
   const [showReminderOptions, setShowReminderOptions] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
-  const [deletedInstanceIds, setDeletedInstanceIds] = useState<string[]>([]);
-  const [isDeletingInstance, setIsDeletingInstance] = useState(false);
+  const [checkButtonPressed, setCheckButtonPressed] = useState(false);
   const lastMidnightCheckRef = useRef<Date>(new Date());
   const [appState, setAppState] = useState('active');
   
@@ -1181,8 +1080,6 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
-    // Clear the deleted instance IDs when resetting the form
-    setDeletedInstanceIds([]);
     // Clear the quick add text so it's ready for the next task
     setQuickAddText('');
   };
@@ -2424,61 +2321,39 @@ export default function TodoScreen() {
   const goToToday = async () => {
     const today = new Date();
     setCurrentDate(today);
-    // Clear old deletion records when going to today
-    await clearOldDeletionRecords();
   };
 
-  // Function to clear deleted instance IDs when date changes
-  const clearOldDeletionRecords = async () => {
-    // Clear the deleted instance IDs when changing dates
-    // This ensures that deleted instances only affect the specific date they were deleted on
-    setDeletedInstanceIds([]);
-    console.log('🗑️ Cleared deleted instance IDs for new date');
-  };
-
-  // Helper function to delete a single instance of a repeated task
+  // Simple function to delete a single instance of a repeated task
   const deleteSingleInstance = async (todo: Todo, currentDate: Date) => {
     try {
+      setIsDeleting(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       console.log('🗑️ Deleting single instance for task:', todo.text, 'date:', currentDate.toISOString());
 
-      // Set deletion flag to prevent real-time subscription interference
-      setIsDeletingInstance(true);
-
-      // Use a simple approach: add the task ID to a local state array of deleted instances
-      // This will prevent the task from showing up in the current view
-      setDeletedInstanceIds(prev => {
-        const newIds = [...prev, todo.id];
-        console.log('🗑️ Updated deletedInstanceIds:', newIds);
-        return newIds;
-      });
-
-      // Remove from current view immediately
+      // Remove from UI immediately
       setTodos(prev => prev.filter(t => t.id !== todo.id));
-
-      // Clear deletion flag after a short delay to allow the UI to update
-      setTimeout(() => {
-        setIsDeletingInstance(false);
-      }, 1000);
+      updateData('todos', todos.filter(t => t.id !== todo.id));
 
       Toast.show({
         type: 'success',
         text1: 'Task instance deleted',
         position: 'bottom',
       });
+
     } catch (error) {
       console.error('Error in deleteSingleInstance:', error);
       Alert.alert('Error', 'Failed to delete task instance.');
-      // Clear deletion flag on error
-      setIsDeletingInstance(false);
+    } finally {
+      setTimeout(() => setIsDeleting(false), 1000);
     }
   };
 
   // Helper function to delete all future instances of a repeated task
   const deleteAllFutureInstances = async (todo: Todo) => {
     try {
+      setIsDeleting(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
@@ -2486,7 +2361,31 @@ export default function TodoScreen() {
       const today = new Date();
       today.setHours(23, 59, 59, 999); // End of today
 
-      // Update the task in the database
+      // Optimistic UI update - update local state immediately
+      setTodos(prev => 
+        prev.map(t => 
+          t.id === todo.id 
+            ? { ...t, repeatEndDate: today }
+            : t
+        )
+      );
+
+      // Update DataContext immediately
+      const updatedTodos = todos.map(t => 
+        t.id === todo.id 
+          ? { ...t, repeatEndDate: today }
+          : t
+      );
+      updateData('todos', updatedTodos);
+
+      // Show success feedback immediately
+      Toast.show({
+        type: 'success',
+        text1: 'Future instances deleted',
+        position: 'bottom',
+      });
+
+      // Update the task in the database in the background
       const { error } = await supabase
         .from('todos')
         .update({ repeat_end_date: today.toISOString() })
@@ -2495,40 +2394,52 @@ export default function TodoScreen() {
 
       if (error) {
         console.error('Error updating task:', error);
+        
+        // Revert optimistic update on error
+        setTodos(prev => 
+          prev.map(t => 
+            t.id === todo.id 
+              ? { ...t, repeatEndDate: todo.repeatEndDate }
+              : t
+          )
+        );
+        updateData('todos', todos);
+        
         Alert.alert('Error', 'Failed to delete future instances. Please try again.');
         return;
       }
 
-      // Update local state
+    } catch (error) {
+      console.error('Error in deleteAllFutureInstances:', error);
+      
+      // Revert optimistic update on error
       setTodos(prev => 
         prev.map(t => 
           t.id === todo.id 
-            ? { ...t, repeatEndDate: today }
+            ? { ...t, repeatEndDate: todo.repeatEndDate }
             : t
         )
       );
+      updateData('todos', todos);
       
-      // Refresh todos to reflect the changes
-      await fetchTodosOnly(user);
-
-      Toast.show({
-        type: 'success',
-        text1: 'Future instances deleted',
-        position: 'bottom',
-      });
-    } catch (error) {
-      console.error('Error in deleteAllFutureInstances:', error);
       Alert.alert('Error', 'Failed to delete future instances.');
+    } finally {
+      setTimeout(() => setIsDeleting(false), 1000);
     }
   };
 
-  // Helper function to delete an entire task
+  // Simple function to delete an entire task
   const deleteEntireTask = async (todo: Todo) => {
     try {
+      setIsDeleting(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Delete from Supabase
+      // Remove from UI immediately
+      setTodos(prev => prev.filter(t => t.id !== todo.id));
+      updateData('todos', todos.filter(t => t.id !== todo.id));
+
+      // Delete from database
       const { error } = await supabase
         .from('todos')
         .delete()
@@ -2537,25 +2448,27 @@ export default function TodoScreen() {
 
       if (error) {
         console.error('Error deleting task:', error);
+        // Revert on error
+        setTodos(prev => [...prev, todo]);
+        updateData('todos', [...todos, todo]);
         Alert.alert('Error', 'Failed to delete task. Please try again.');
         return;
       }
-
-      // Update local state
-      const updatedTodos = todos.filter(t => t.id !== todo.id);
-      setTodos(updatedTodos);
-      
-      // Update DataContext with deleted task
-      updateData('todos', updatedTodos);
 
       Toast.show({
         type: 'success',
         text1: 'Task deleted',
         position: 'bottom',
       });
+
     } catch (error) {
       console.error('Error in deleteEntireTask:', error);
+      // Revert on error
+      setTodos(prev => [...prev, todo]);
+      updateData('todos', [...todos, todo]);
       Alert.alert('Error', 'Failed to delete task.');
+    } finally {
+      setTimeout(() => setIsDeleting(false), 1000);
     }
   };
 
@@ -2783,6 +2696,15 @@ export default function TodoScreen() {
         style={[
           styles.todoItem,
           todo.completed && styles.completedTodo,
+          longPressedTaskId === todo.id && {
+            backgroundColor: '#e8f4fd',
+            transform: [{ scale: 1.05 }],
+            shadowColor: '#00ACC1',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.3,
+            shadowRadius: 4,
+            elevation: 5,
+          },
         ]}
         onPress={() => {
           // Handle double-click for task editing
@@ -2810,6 +2732,19 @@ export default function TodoScreen() {
           }
         }}
         onLongPress={() => {
+          // Provide haptic feedback
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }
+          
+          // Set visual effect state
+          setLongPressedTaskId(todo.id);
+          
+          // Clear visual effect after a short delay
+          setTimeout(() => {
+            setLongPressedTaskId(null);
+          }, 200);
+          
           // Long press opens edit modal
           handleEdit();
         }}
@@ -2943,13 +2878,31 @@ export default function TodoScreen() {
             setSwipingTodoId(null);
           });
         }}        
-        onSwipeableRightOpen={handleDelete}
-        onSwipeableLeftOpen={() => moveTaskToTomorrow(todo.id)}
-        friction={1.5}
+        onSwipeableRightOpen={() => {
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }
+          // Close the swipeable after a short delay
+          setTimeout(() => {
+            setSwipingTodoId(null);
+          }, 100);
+          handleDelete();
+        }}
+        onSwipeableLeftOpen={() => {
+          if (Platform.OS !== 'web') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }
+          // Close the swipeable after a short delay
+          setTimeout(() => {
+            setSwipingTodoId(null);
+          }, 100);
+          moveTaskToTomorrow(todo.id);
+        }}
+        friction={1.2}
         overshootRight={false}
         overshootLeft={false}
-        rightThreshold={30}
-        leftThreshold={30}
+        rightThreshold={20}
+        leftThreshold={20}
         enableTrackpadTwoFingerGesture={false}
       >
         {swipingTodoId === todo.id ? (
@@ -3133,11 +3086,9 @@ export default function TodoScreen() {
             reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
             category: task.category || null, // category object from join
           }));
-          // Apply deletion filtering to the fetched tasks
-          const tasksWithDeletionFilter = mappedTasks.filter((task: any) => !deletedInstanceIds.includes(task.id));
           
-          setTodos(tasksWithDeletionFilter);
-          updateData('todos', tasksWithDeletionFilter);
+          setTodos(mappedTasks);
+          updateData('todos', mappedTasks);
       
           // Fetch shared info for these tasks
           const taskIds = mappedTasks.map((t: Todo) => t.id);
@@ -3532,8 +3483,6 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
-    // Clear deleted instance IDs for new task
-    setDeletedInstanceIds([]);
     
     // Clear the quick add input since we're moving to the modal
     setQuickAddText('');
@@ -3774,21 +3723,22 @@ export default function TodoScreen() {
 
   // Use preloaded data from DataContext
   useEffect(() => {
-    if (user && appData.isPreloaded) {
+    if (user && appData.isPreloaded && !isDeleting) {
       // Update local state with preloaded data
       if (appData.todos) {
         
         // Process todos to ensure they have the correct format
-        const processedTodos = appData.todos.map(todo => ({
-          ...todo,
-          date: new Date(todo.date),
-          reminderTime: todo.reminderTime ? new Date(todo.reminderTime) : null,
-          repeatEndDate: todo.repeatEndDate ? new Date(todo.repeatEndDate) : null,
-          customRepeatDates: todo.customRepeatDates?.map(date => new Date(date)) || [],
-          deletedInstances: todo.deletedInstances || [],
-          photo: todo.photo || undefined,
-          category: (todo as any).category || null, // Preserve category object from preloaded data
-        }));
+        const processedTodos = appData.todos
+          .map(todo => ({
+            ...todo,
+            date: new Date(todo.date),
+            reminderTime: todo.reminderTime ? new Date(todo.reminderTime) : null,
+            repeatEndDate: todo.repeatEndDate ? new Date(todo.repeatEndDate) : null,
+            customRepeatDates: todo.customRepeatDates?.map((date: any) => new Date(date)) || [],
+            deletedInstances: todo.deletedInstances || [],
+            photo: todo.photo || undefined,
+            category: (todo as any).category || null, // Preserve category object from preloaded data
+          }));
         
         setTodos(processedTodos);
         
@@ -3983,7 +3933,7 @@ export default function TodoScreen() {
   // Add focus effect to refresh data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
-      if (user) {
+      if (user && !isDeleting) {
         console.log('🔄 [Todo] useFocusEffect: Screen focused for user:', user.id);
         console.log('🔄 [Todo] useFocusEffect: appData.isPreloaded:', appData.isPreloaded);
         console.log('🔄 [Todo] useFocusEffect: appData.categories length:', appData.categories?.length || 0);
@@ -4531,79 +4481,120 @@ export default function TodoScreen() {
   // Function to manually trigger auto-move (for testing)
   const triggerAutoMove = () => {
     console.log('🕛 Manually triggering auto-move');
-    handleMidnightMove();
+    moveTasksToNextDay();
   };
 
-  // Add function to automatically move tasks at configurable time
-  const handleMidnightMove = async () => {
+  // NEW IMPLEMENTATION: Move tasks to next day at 12:40 AM
+  const moveTasksToNextDay = async () => {
+    console.log('🕛 ===== NEW AUTO-MOVE: Starting task movement =====');
+    console.log('🕛 Function entered successfully');
+    
     try {
-      console.log('🕛 handleMidnightMove called - starting midnight task movement');
-      
+      console.log('🕛 Try block entered');
+      // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.log('🕛 No user found, aborting midnight move');
+        console.error('❌ No user found for auto-move');
         return;
       }
-
-      console.log('🕛 User authenticated, proceeding with midnight move for user:', user.id);
-      console.log('🕛 Midnight detected - automatically moving incomplete tasks to next day');
       
-      // Find incomplete tasks from today and previous days only
-      const today = new Date();
-      today.setHours(23, 59, 59, 999); // End of today to include today's tasks
-      const todayISO = today.toISOString();
+      // Get current date (end of day to include today's tasks)
+      const currentDate = new Date();
+      currentDate.setHours(23, 59, 59, 999); // End of today to include today's tasks
+      const currentDateISO = currentDate.toISOString();
       
-      console.log('🕛 Fetching incomplete tasks from today and previous days for user:', user.id);
-      console.log('🕛 Today cutoff date:', todayISO);
+      // Calculate tomorrow's date
+      const tomorrow = new Date(currentDate);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowISO = tomorrow.toISOString();
       
-      const { data: allIncompleteTasks, error } = await supabase
+      console.log('🕛 Current date (end of day):', currentDateISO);
+      console.log('🕛 Tomorrow date:', tomorrowISO);
+      console.log('🕛 Current date string:', currentDate.toDateString());
+      console.log('🕛 Tomorrow date string:', tomorrow.toDateString());
+      console.log('🕛 Will move tasks with date <=', currentDateISO);
+      
+      // Find incomplete tasks with due dates of current date or before
+      console.log('🕛 Fetching incomplete tasks with date <=', currentDateISO);
+      
+      const { data: tasksToMove, error } = await supabase
         .from('todos')
         .select('*')
         .eq('user_id', user.id)
         .eq('completed', false)
-        .lte('date', todayISO); // Only tasks from today and previous days
+        .lte('date', currentDateISO); // Tasks due today or before
       
       if (error) {
-        console.error('❌ Error fetching incomplete tasks for midnight move:', error);
+        console.error('❌ Error fetching tasks to move:', error);
         return;
       }
       
-      console.log('🕛 Fetched incomplete tasks:', allIncompleteTasks?.length || 0);
+      console.log(`🕛 Found ${tasksToMove?.length || 0} tasks to move`);
       
-      if (!allIncompleteTasks || allIncompleteTasks.length === 0) {
-        console.log('🕛 No incomplete tasks to move at midnight');
+      // Debug: Show ALL tasks for this user to understand what's in the database
+      const { data: allUserTasks, error: allTasksError } = await supabase
+        .from('todos')
+        .select('*')
+        .eq('user_id', user.id);
+      
+      if (allTasksError) {
+        console.error('❌ Error fetching all user tasks:', allTasksError);
+      } else {
+        console.log('🕛 ALL tasks for user:', allUserTasks?.length || 0);
+        if (allUserTasks && allUserTasks.length > 0) {
+          console.log('🕛 All tasks details:');
+          allUserTasks.forEach((task, index) => {
+            console.log(`🕛 Task ${index + 1}: "${task.title}" - Date: ${task.date} - Completed: ${task.completed}`);
+          });
+        }
+      }
+      
+      if (!tasksToMove || tasksToMove.length === 0) {
+        console.log('🕛 No tasks to move');
         return;
       }
       
-      console.log(`🕛 Moving ${allIncompleteTasks.length} incomplete tasks at midnight`);
+      // Log tasks being moved
+      console.log('🕛 Tasks that WILL be moved (due today or before):');
+      tasksToMove.forEach((task, index) => {
+        console.log(`🕛 Task ${index + 1}: "${task.title}" - Due: ${task.date} -> Moving to: ${tomorrowISO}`);
+      });
+      
+      // Show tasks that WON'T be moved (for comparison)
+      if (allUserTasks) {
+        const tasksNotMoving = allUserTasks.filter(task => 
+          !tasksToMove.some(movingTask => movingTask.id === task.id)
+        );
+        
+        if (tasksNotMoving.length > 0) {
+          console.log('🕛 Tasks that WON\'T be moved:');
+          tasksNotMoving.forEach((task, index) => {
+            const reason = task.completed ? 'Completed' : 'Due in future';
+            console.log(`🕛 Skipped ${index + 1}: "${task.title}" - Due: ${task.date} - Reason: ${reason}`);
+          });
+        }
+      }
       
       let successCount = 0;
       let errorCount = 0;
       
-      for (const task of allIncompleteTasks) {
+      // Move each task to tomorrow
+      for (const task of tasksToMove) {
         try {
-          // Calculate tomorrow based on the task's current date
-          const taskDate = new Date(task.date);
-          const tomorrow = new Date(taskDate);
-          tomorrow.setDate(taskDate.getDate() + 1);
-          tomorrow.setHours(0, 0, 0, 0);
-          
-          console.log(`🕛 Auto-moving task "${task.title}" from ${task.date} to ${tomorrow.toISOString()}`);
-          
-          const { error } = await supabase
+          const { error: updateError } = await supabase
             .from('todos')
-            .update({ date: tomorrow.toISOString() })
+            .update({ date: tomorrowISO })
             .eq('id', task.id)
             .eq('user_id', user.id);
           
-          if (error) {
-            console.error(`❌ Failed to auto-move task "${task.title}":`, error);
+          if (updateError) {
+            console.error(`❌ Failed to move task "${task.title}":`, updateError);
             errorCount++;
           } else {
-            console.log(`✅ Successfully auto-moved task "${task.title}"`);
+            console.log(`✅ Moved task "${task.title}" to tomorrow`);
             successCount++;
             
-            // Update local state immediately
+            // Update local state
             setTodos(prevTodos => 
               prevTodos.map(todo => 
                 todo.id === task.id 
@@ -4612,18 +4603,59 @@ export default function TodoScreen() {
               )
             );
           }
-        } catch (error) {
-          console.error(`❌ Error auto-moving task "${task.title}":`, error);
+        } catch (taskError) {
+          console.error(`❌ Exception moving task "${task.title}":`, taskError);
           errorCount++;
         }
       }
       
-      console.log(`🕛 Midnight move results: ${successCount} successful, ${errorCount} failed`);
+      console.log(`🕛 Auto-move complete: ${successCount} moved, ${errorCount} failed`);
       
     } catch (error) {
-      console.error('❌ Error in midnight move:', error);
+      console.error('❌ Error in moveTasksToNextDay:', error);
     }
   };
+
+  // Test function to manually trigger auto-move
+  const testAutoMove = () => {
+    console.log('🕛 ===== MANUAL TEST: testAutoMove called =====');
+    console.log('🕛 About to call moveTasksToNextDay...');
+    
+    // Reset the "moved today" flag for testing
+    lastMidnightCheckRef.current = new Date(0); // Reset to epoch time
+    console.log('🕛 Reset lastMidnightCheckRef for testing');
+    
+    moveTasksToNextDay().then(() => {
+      console.log('🕛 moveTasksToNextDay completed');
+    }).catch((error) => {
+      console.error('🕛 Error in moveTasksToNextDay:', error);
+    });
+  };
+
+  // MIDNIGHT AUTO-MOVE: Automatically move tasks at 12:00 AM (midnight)
+  useEffect(() => {
+    const checkAndTriggerAutoMove = () => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      
+      console.log(`🕛 Midnight auto-move check at ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
+      
+      // Check if it's exactly 12:00 AM (midnight)
+      if (currentHour === 0 && currentMinute === 0) {
+        console.log('🕛 ===== MIDNIGHT AUTO-MOVE: TRIGGERING AT 12:00 AM =====');
+        testAutoMove(); // Automatically call the test function
+      }
+    };
+    
+    // Check immediately
+    checkAndTriggerAutoMove();
+    
+    // Set up interval to check every 30 seconds for precise midnight detection
+    const interval = setInterval(checkAndTriggerAutoMove, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   // Add function to move task to tomorrow
   const moveTaskToTomorrow = async (taskId: string) => {
@@ -4861,6 +4893,7 @@ export default function TodoScreen() {
   // Add network status state
   const [isOnline, setIsOnline] = useState(true);
   const [lastNetworkError, setLastNetworkError] = useState<string | null>(null);
+  const [longPressedTaskId, setLongPressedTaskId] = useState<string | null>(null);
 
   // Add network status monitoring
   useEffect(() => {
@@ -5262,7 +5295,26 @@ export default function TodoScreen() {
             </TouchableOpacity>
             </View>
 
-
+            {/* DEBUG: Test Auto-Move Button - HIDDEN */}
+            {/* <TouchableOpacity
+              onPress={testAutoMove}
+              style={{
+                backgroundColor: '#FF6B6B',
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 4,
+                marginLeft: 10,
+              }}
+            >
+              <Text style={{
+                color: 'white',
+                fontSize: 10,
+                fontWeight: '500',
+                fontFamily: 'Onest',
+              }}>
+                Test Move
+              </Text>
+            </TouchableOpacity> */}
 
             {/* Tasks and Habits Icons */}
             <View style={{
@@ -5376,8 +5428,6 @@ export default function TodoScreen() {
                     onChange={async (event, selectedDate) => {
                       if (selectedDate) {
                         setCurrentDate(selectedDate);
-                        // Clear old deletion records when date changes
-                        await clearOldDeletionRecords();
                       }
                     }}
                     style={{
@@ -5394,7 +5444,11 @@ export default function TodoScreen() {
           {/* TASK LIST */}
           <ScrollView 
             style={styles.todoList} 
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={{ 
+              flexGrow: 1,
+              paddingBottom: 150 // Add extra padding at bottom for better scrolling
+            }}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -5404,6 +5458,9 @@ export default function TodoScreen() {
                 titleColor="#666"
               />
             }
+            bounces={true}
+            alwaysBounceVertical={true}
+            keyboardShouldPersistTaps="handled"
           >
             {activeTab === 'tasks' ? (
               // Tasks Content
@@ -6371,7 +6428,26 @@ export default function TodoScreen() {
                 </Text>
                 
                 <TouchableOpacity 
-                  onPress={editingTodo ? handleEditSave : handleSave}
+                  onPress={async () => {
+                    if (Platform.OS !== 'web') {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    }
+                    
+                    // Add visual feedback
+                    setCheckButtonPressed(true);
+                    
+                    // Execute the save function
+                    if (editingTodo) {
+                      await handleEditSave();
+                    } else {
+                      await handleSave();
+                    }
+                    
+                    // Reset visual feedback after a short delay
+                    setTimeout(() => {
+                      setCheckButtonPressed(false);
+                    }, 200);
+                  }}
                   disabled={!newTodo.trim()}
                   style={{
                     width: 32,
@@ -6380,6 +6456,12 @@ export default function TodoScreen() {
                     backgroundColor: newTodo.trim() ? Colors.light.accent : Colors.light.background,
                     justifyContent: 'center',
                     alignItems: 'center',
+                    transform: [{ scale: checkButtonPressed ? 0.9 : 1 }],
+                    shadowColor: checkButtonPressed ? Colors.light.accent : 'transparent',
+                    shadowOffset: { width: 0, height: 2 },
+                    shadowOpacity: checkButtonPressed ? 0.3 : 0,
+                    shadowRadius: 4,
+                    elevation: checkButtonPressed ? 3 : 0,
                   }}
                 >
                   <Ionicons 

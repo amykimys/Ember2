@@ -41,6 +41,19 @@ interface PhotoShare {
   source_type: 'habit' | 'event';
   source_title: string;
   created_at: string;
+  comments?: Comment[]; // Comments for this post
+  comment_count?: number; // Number of comments
+}
+
+interface Comment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  user_name: string;
+  user_username: string;
+  user_avatar: string;
+  content: string;
+  created_at: string;
 }
 
 export default function FriendsFeedScreen() {
@@ -81,6 +94,12 @@ export default function FriendsFeedScreen() {
   // Selected photos carousel state
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
 
+  // Comment state
+  const [commentText, setCommentText] = useState('');
+  const [isCommenting, setIsCommenting] = useState(false);
+  const [showCommentsModal, setShowCommentsModal] = useState(false);
+  const [selectedPostForComments, setSelectedPostForComments] = useState<PhotoShare | null>(null);
+
   useEffect(() => {
     checkSession();
   }, []);
@@ -89,6 +108,7 @@ export default function FriendsFeedScreen() {
     if (user?.id) {
       loadPhotoShares();
       markPhotoSharesAsRead();
+      checkCommentsTable(); // Check if comments table exists
     }
   }, [user]);
 
@@ -321,6 +341,97 @@ export default function FriendsFeedScreen() {
     }));
   };
 
+  const loadCommentsForAllPosts = async (posts: PhotoShare[]) => {
+    try {
+      console.log('🔍 Loading comments for all posts:', posts.length);
+      
+      if (posts.length === 0) return;
+      
+      // Get all post IDs
+      const postIds = posts.map(post => post.update_id);
+      
+      // Load all comments for all posts in a single query
+      const { data: commentsData, error } = await supabase
+        .from('comments')
+        .select(`
+          id,
+          post_id,
+          user_id,
+          content,
+          created_at
+        `)
+        .in('post_id', postIds)
+        .order('created_at', { ascending: true });
+
+      console.log('📝 All comments load result:', { commentsData, error });
+
+      if (error) {
+        console.error('❌ Error loading all comments:', error);
+        return;
+      }
+
+      // Get unique user IDs from comments
+      const userIds = [...new Set(commentsData.map(comment => comment.user_id))];
+      
+      // Load profiles for all users who commented
+      let profilesData: any[] = [];
+      if (userIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, username, avatar_url')
+          .in('id', userIds);
+        
+        if (profilesError) {
+          console.error('❌ Error loading profiles:', profilesError);
+        } else {
+          profilesData = profiles || [];
+        }
+      }
+
+      // Create a map of user profiles for quick lookup
+      const profilesMap = profilesData.reduce((acc, profile) => {
+        acc[profile.id] = profile;
+        return acc;
+      }, {} as { [key: string]: any });
+
+      // Group comments by post_id
+      const commentsByPost: { [postId: string]: Comment[] } = {};
+      commentsData.forEach(comment => {
+        const postId = comment.post_id;
+        if (!commentsByPost[postId]) {
+          commentsByPost[postId] = [];
+        }
+        
+        const userProfile = profilesMap[comment.user_id];
+        const commentWithUserInfo: Comment = {
+          id: comment.id,
+          post_id: comment.post_id,
+          user_id: comment.user_id,
+          user_name: userProfile?.full_name || 'Unknown',
+          user_username: userProfile?.username || 'user',
+          user_avatar: userProfile?.avatar_url || '',
+          content: comment.content,
+          created_at: comment.created_at,
+        };
+        
+        commentsByPost[postId].push(commentWithUserInfo);
+      });
+
+      // Update local state with comments for each post
+      setPhotoShares(prev => prev.map(post => {
+        const postComments = commentsByPost[post.update_id] || [];
+        return {
+          ...post,
+          comments: postComments,
+          comment_count: postComments.length,
+        };
+      }));
+
+    } catch (error) {
+      console.error('❌ Error loading comments for all posts:', error);
+    }
+  };
+
   const loadPhotoShares = async () => {
     if (!user?.id) return;
 
@@ -337,6 +448,12 @@ export default function FriendsFeedScreen() {
 
       if (result.error) {
         console.error('❌ Error loading photo shares:', result.error);
+        Toast.show({
+          type: 'error',
+          text1: 'Failed to load feed',
+          text2: result.error.message,
+          position: 'bottom',
+        });
         return;
       }
 
@@ -352,6 +469,8 @@ export default function FriendsFeedScreen() {
           user_id: mostRecent.user_id,
           photo_url: mostRecent.photo_url
         });
+      } else {
+        console.log('📭 No photo shares found for user:', user.id);
       }
 
       // Transform the data to match PhotoShare interface
@@ -388,6 +507,9 @@ export default function FriendsFeedScreen() {
 
       setPhotoShares(transformedData);
 
+      // Load comments for all posts
+      await loadCommentsForAllPosts(transformedData);
+
       // Calculate unread count
       if (lastViewedPhotoShareTime > 0) {
         const unreadCount = transformedData.filter(
@@ -398,6 +520,12 @@ export default function FriendsFeedScreen() {
 
     } catch (error) {
       console.error('❌ Error in loadPhotoShares:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Failed to load feed',
+        text2: 'Please try again',
+        position: 'bottom',
+      });
     } finally {
       setIsLoadingPhotoShares(false);
     }
@@ -417,6 +545,104 @@ export default function FriendsFeedScreen() {
       const latestTime = Math.max(...photoShares.map(share => new Date(share.created_at).getTime()));
       setLastViewedPhotoShareTime(latestTime);
       setUnreadPhotoShares(0);
+    }
+  };
+
+  // Add a simple debug function for users
+  const debugUserStatus = async () => {
+    if (!user?.id) {
+      Toast.show({
+        type: 'error',
+        text1: 'No user logged in',
+        position: 'bottom',
+      });
+      return;
+    }
+
+    try {
+      // Check user's profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('full_name, username, avatar_url')
+        .eq('id', user.id)
+        .single();
+
+      // Check user's friendships
+      const { data: friendshipData, error: friendshipError } = await supabase
+        .from('friendships')
+        .select('status')
+        .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`);
+
+      // Check user's posts
+      const { data: postsData, error: postsError } = await supabase
+        .from('social_updates')
+        .select('id, is_public')
+        .eq('user_id', user.id)
+        .eq('type', 'photo_share');
+
+      // Test the function
+      const { data: functionData, error: functionError } = await supabase.rpc('get_friends_photo_shares_with_privacy', {
+        current_user_id: user.id,
+        limit_count: 5
+      });
+
+      // Build debug message
+      let debugMessage = `User: ${user.email}\n\n`;
+      
+      if (profileError) {
+        debugMessage += `❌ Profile: ${profileError.message}\n`;
+      } else if (profileData) {
+        debugMessage += `✅ Profile: ${profileData.full_name || 'Missing name'}\n`;
+      } else {
+        debugMessage += `❌ Profile: Not found\n`;
+      }
+
+      if (friendshipError) {
+        debugMessage += `❌ Friendships: ${friendshipError.message}\n`;
+      } else {
+        const acceptedFriends = friendshipData?.filter(f => f.status === 'accepted').length || 0;
+        const pendingFriends = friendshipData?.filter(f => f.status === 'pending').length || 0;
+        debugMessage += `✅ Friendships: ${acceptedFriends} accepted, ${pendingFriends} pending\n`;
+      }
+
+      if (postsError) {
+        debugMessage += `❌ Posts: ${postsError.message}\n`;
+      } else {
+        const publicPosts = postsData?.filter(p => p.is_public).length || 0;
+        const privatePosts = postsData?.filter(p => !p.is_public).length || 0;
+        debugMessage += `✅ Posts: ${publicPosts} public, ${privatePosts} private\n`;
+      }
+
+      if (functionError) {
+        debugMessage += `❌ Function: ${functionError.message}\n`;
+      } else {
+        debugMessage += `✅ Function: Can see ${functionData?.length || 0} posts\n`;
+      }
+
+      // Show debug info
+      Alert.alert('Debug Info', debugMessage, [
+        { text: 'OK' },
+        { 
+          text: 'Copy to Clipboard', 
+          onPress: () => {
+            // In a real app, you'd copy to clipboard here
+            Toast.show({
+              type: 'success',
+              text1: 'Debug info copied',
+              position: 'bottom',
+            });
+          }
+        }
+      ]);
+
+    } catch (error) {
+      console.error('Debug error:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Debug failed',
+        text2: 'Please try again',
+        position: 'bottom',
+      });
     }
   };
 
@@ -803,6 +1029,282 @@ export default function FriendsFeedScreen() {
     }
   };
 
+  // Comment functions
+  const checkCommentsTable = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('comments')
+        .select('id')
+        .limit(1);
+      
+      console.log('🔍 Comments table check:', { data, error });
+      return !error;
+    } catch (err) {
+      console.error('❌ Error checking comments table:', err);
+      return false;
+    }
+  };
+
+  const handleAddComment = async (postId: string) => {
+    if (!user?.id || !commentText.trim()) return;
+
+    console.log('🔍 Adding comment:', { postId, userId: user.id, content: commentText.trim() });
+
+    try {
+      setIsCommenting(true);
+      
+      // Insert comment into database
+      const { data: commentData, error } = await supabase
+        .from('comments')
+        .insert({
+          post_id: postId,
+          user_id: user.id,
+          content: commentText.trim(),
+        })
+        .select('id, post_id, user_id, content, created_at')
+        .single();
+
+      console.log('📝 Comment insert result:', { commentData, error });
+
+      if (error) {
+        console.error('❌ Error adding comment:', error);
+        Toast.show({
+          type: 'error',
+          text1: 'Error adding comment',
+          text2: 'Please try again',
+          position: 'bottom',
+        });
+        return;
+      }
+
+      // Get current user's profile information
+      const { data: userProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('full_name, username, avatar_url')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) {
+        console.error('❌ Error fetching user profile:', profileError);
+      }
+
+      // Create comment object with user info
+      const newComment: Comment = {
+        id: commentData.id,
+        post_id: postId,
+        user_id: user.id,
+        user_name: userProfile?.full_name || user.user_metadata?.full_name || 'Unknown',
+        user_username: userProfile?.username || user.user_metadata?.username || 'user',
+        user_avatar: userProfile?.avatar_url || user.user_metadata?.avatar_url || '',
+        content: commentData.content,
+        created_at: commentData.created_at,
+      };
+
+      // Update local state
+      setPhotoShares(prev => prev.map(post => {
+        if (post.update_id === postId) {
+          return {
+            ...post,
+            comments: [...(post.comments || []), newComment],
+            comment_count: (post.comment_count || 0) + 1,
+          };
+        }
+        return post;
+      }));
+
+      // Update the selected post for comments to show the new comment immediately
+      if (selectedPostForComments && selectedPostForComments.update_id === postId) {
+        setSelectedPostForComments(prev => {
+          if (prev) {
+            return {
+              ...prev,
+              comments: [...(prev.comments || []), newComment],
+              comment_count: (prev.comment_count || 0) + 1,
+            };
+          }
+          return prev;
+        });
+      }
+
+      // Clear comment text
+      setCommentText('');
+      
+      Toast.show({
+        type: 'success',
+        text1: 'Comment added',
+        position: 'bottom',
+      });
+
+    } catch (error) {
+      console.error('❌ Error in handleAddComment:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error adding comment',
+        position: 'bottom',
+      });
+    } finally {
+      setIsCommenting(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string, postId: string) => {
+    if (!user?.id) return;
+
+    try {
+      console.log('🗑️ Deleting comment:', { commentId, postId, userId: user.id });
+
+      // Delete comment from database
+      const { error } = await supabase
+        .from('comments')
+        .delete()
+        .eq('id', commentId)
+        .eq('user_id', user.id); // Ensure user can only delete their own comments
+
+      if (error) {
+        console.error('❌ Error deleting comment:', error);
+        Toast.show({
+          type: 'error',
+          text1: 'Error deleting comment',
+          text2: 'Please try again',
+          position: 'bottom',
+        });
+        return;
+      }
+
+      // Update local state - remove comment from photoShares
+      setPhotoShares(prev => prev.map(post => {
+        if (post.update_id === postId) {
+          const updatedComments = (post.comments || []).filter(comment => comment.id !== commentId);
+          return {
+            ...post,
+            comments: updatedComments,
+            comment_count: updatedComments.length,
+          };
+        }
+        return post;
+      }));
+
+      // Update the selected post for comments
+      if (selectedPostForComments && selectedPostForComments.update_id === postId) {
+        setSelectedPostForComments(prev => {
+          if (prev) {
+            const updatedComments = (prev.comments || []).filter(comment => comment.id !== commentId);
+            return {
+              ...prev,
+              comments: updatedComments,
+              comment_count: updatedComments.length,
+            };
+          }
+          return prev;
+        });
+      }
+
+      Toast.show({
+        type: 'success',
+        text1: 'Comment deleted',
+        position: 'bottom',
+      });
+
+    } catch (error) {
+      console.error('❌ Error in handleDeleteComment:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Error deleting comment',
+        text2: 'Please try again',
+        position: 'bottom',
+      });
+    }
+  };
+
+  const loadCommentsForPost = async (postId: string) => {
+    console.log('🔍 Loading comments for post:', postId);
+    
+    try {
+      const { data: commentsData, error } = await supabase
+        .from('comments')
+        .select(`
+          id,
+          post_id,
+          user_id,
+          content,
+          created_at
+        `)
+        .eq('post_id', postId)
+        .order('created_at', { ascending: true });
+
+      console.log('📝 Comments load result:', { commentsData, error });
+
+      if (error) {
+        console.error('❌ Error loading comments:', error);
+        return;
+      }
+
+      // Get unique user IDs from comments
+      const userIds = [...new Set(commentsData.map(comment => comment.user_id))];
+      
+      // Load profiles for all users who commented
+      let profilesData: any[] = [];
+      if (userIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, full_name, username, avatar_url')
+          .in('id', userIds);
+        
+        if (profilesError) {
+          console.error('❌ Error loading profiles:', profilesError);
+        } else {
+          profilesData = profiles || [];
+        }
+      }
+
+      // Create a map of user profiles for quick lookup
+      const profilesMap = profilesData.reduce((acc, profile) => {
+        acc[profile.id] = profile;
+        return acc;
+      }, {} as { [key: string]: any });
+
+      // Transform comments data with proper user info
+      const comments: Comment[] = commentsData.map(comment => {
+        const userProfile = profilesMap[comment.user_id];
+        return {
+          id: comment.id,
+          post_id: comment.post_id,
+          user_id: comment.user_id,
+          user_name: userProfile?.full_name || 'Unknown',
+          user_username: userProfile?.username || 'user',
+          user_avatar: userProfile?.avatar_url || '',
+          content: comment.content,
+          created_at: comment.created_at,
+        };
+      });
+
+      // Update local state
+      setPhotoShares(prev => prev.map(post => {
+        if (post.update_id === postId) {
+          return {
+            ...post,
+            comments,
+            comment_count: comments.length,
+          };
+        }
+        return post;
+      }));
+
+    } catch (error) {
+      console.error('❌ Error in loadCommentsForPost:', error);
+    }
+  };
+
+  const openCommentsModal = (post: PhotoShare) => {
+    setSelectedPostForComments(post);
+    setShowCommentsModal(true);
+    setCommentText(''); // Clear comment text when opening modal
+    // Load comments if not already loaded
+    if (!post.comments) {
+      loadCommentsForPost(post.update_id);
+    }
+  };
+
   const renderPhotoShareItem = ({ item }: { item: PhotoShare }) => (
     <View style={styles.photoShareCard}>
       {/* User Header */}
@@ -930,6 +1432,19 @@ export default function FriendsFeedScreen() {
                   ))}
                 </View>
               )}
+
+              {/* Comment Section - positioned as overlay on photo */}
+              <View style={styles.commentOverlay}>
+                <TouchableOpacity
+                  style={styles.commentButton}
+                  onPress={() => openCommentsModal(item)}
+                >
+                  <Ionicons name="chatbubble-outline" size={14} color="#fff" />
+                  <Text style={styles.commentCountOverlay}>
+                    {item.comment_count || 0}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </>
           );
         })()}
@@ -939,16 +1454,24 @@ export default function FriendsFeedScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+            {/* Header */}
       <View style={styles.header}>
-                        <Text style={styles.headerTitle}>Feed</Text>
+        <Text style={styles.headerTitle}>Feed</Text>
         <View style={styles.headerButtons}>
+          {/* Debug button for troubleshooting */}
+          <TouchableOpacity 
+            onPress={debugUserStatus}
+            style={styles.debugButton}
+          >
+            <Ionicons name="bug" size={20} color="#8E8E93" />
+          </TouchableOpacity>
+          
           <TouchableOpacity 
             onPress={() => {
-                      setSelectedPhotos([]);
-        setSelectedPhotosData([]);
-        setCaption('');
-        setShowPostModal(true);
+              setSelectedPhotos([]);
+              setSelectedPhotosData([]);
+              setCaption('');
+              setShowPostModal(true);
             }}
             style={[
               styles.postButton,
@@ -1183,6 +1706,159 @@ export default function FriendsFeedScreen() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
+
+      {/* Comments Modal */}
+      <Modal
+        visible={showCommentsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => {
+          setShowCommentsModal(false);
+          setCommentText(''); // Clear comment text when closing modal
+        }}
+      >
+        <View style={styles.commentsModalOverlay}>
+          <TouchableOpacity
+            style={styles.commentsModalBackdrop}
+            activeOpacity={1}
+            onPress={() => {
+              setShowCommentsModal(false);
+              setCommentText(''); // Clear comment text when closing modal
+            }}
+          />
+          <View style={styles.commentsModalContainer}>
+            {/* Handle bar */}
+            <View style={styles.commentsModalHandle}>
+              <View style={styles.commentsModalHandleBar} />
+            </View>
+            
+            {/* Header */}
+            <View style={styles.commentsModalHeader}>
+              <Text style={styles.commentsModalTitle}>Comments</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setShowCommentsModal(false);
+                  setCommentText(''); // Clear comment text when closing modal
+                }}
+                style={styles.commentsModalCloseButton}
+              >
+                <Ionicons name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Content */}
+            <KeyboardAvoidingView 
+              style={styles.commentsModalContent}
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 50 : 0}
+            >
+              {/* Scrollable comments area */}
+              <ScrollView 
+                style={styles.commentsModalScrollView}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.commentsModalScrollContent}
+                keyboardShouldPersistTaps="handled"
+              >
+                {selectedPostForComments && (
+                  <>
+                    {/* Comments list */}
+                    <View style={styles.commentsList}>
+                      {selectedPostForComments.comments && selectedPostForComments.comments.length > 0 ? (
+                        selectedPostForComments.comments.map((comment) => (
+                          <View key={comment.id} style={styles.commentModalItem}>
+                            {comment.user_avatar ? (
+                              <Image
+                                source={{ uri: comment.user_avatar }}
+                                style={styles.commentModalAvatar}
+                              />
+                            ) : (
+                              <View style={styles.commentModalAvatarPlaceholder}>
+                                <Ionicons name="person" size={16} color="#8E8E93" />
+                              </View>
+                            )}
+                            <TouchableOpacity
+                              style={styles.commentModalContent}
+                              onLongPress={() => {
+                                if (comment.user_id === user?.id) {
+                                  // Haptic feedback
+                                  if (Platform.OS === 'ios') {
+                                    const Haptics = require('expo-haptics');
+                                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                                  }
+                                  
+                                  Alert.alert(
+                                    'Delete Comment',
+                                    'Are you sure you want to delete this comment?',
+                                    [
+                                      { text: 'Cancel', style: 'cancel' },
+                                      { 
+                                        text: 'Delete', 
+                                        style: 'destructive', 
+                                        onPress: () => handleDeleteComment(comment.id, selectedPostForComments.update_id)
+                                      }
+                                    ]
+                                  );
+                                }
+                              }}
+                              activeOpacity={comment.user_id === user?.id ? 0.7 : 1}
+                              disabled={comment.user_id !== user?.id}
+                            >
+                              <Text style={styles.commentModalUsername}>{comment.user_username}</Text>
+                              <Text style={styles.commentModalText}>{comment.content}</Text>
+                              <Text style={styles.commentModalTime}>{formatTimeAgo(comment.created_at)}</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))
+                      ) : (
+                        <View style={styles.noCommentsContainer}>
+                          <Text style={styles.noCommentsText}>No comments yet</Text>
+                          <Text style={styles.noCommentsSubtext}>Be the first to comment!</Text>
+                        </View>
+                      )}
+                    </View>
+                  </>
+                )}
+              </ScrollView>
+
+              {/* Fixed comment input at bottom */}
+              <View style={styles.commentModalInput}>
+                <TextInput
+                  style={styles.commentModalTextInput}
+                  placeholder="Add a comment..."
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  multiline={false}
+                  maxLength={200}
+                  returnKeyType="send"
+                  onSubmitEditing={() => {
+                    if (selectedPostForComments && commentText.trim()) {
+                      handleAddComment(selectedPostForComments.update_id);
+                    }
+                  }}
+                />
+                <TouchableOpacity
+                  style={[
+                    styles.commentModalSendButton,
+                    (!commentText.trim() || isCommenting) && styles.commentModalSendButtonDisabled
+                  ]}
+                  onPress={() => {
+                    if (selectedPostForComments) {
+                      handleAddComment(selectedPostForComments.update_id);
+                    }
+                  }}
+                  disabled={!commentText.trim() || isCommenting}
+                >
+                  {isCommenting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="send" size={16} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1210,6 +1886,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  debugButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#F2F2F7',
   },
   postButton: {
     padding: 8,
@@ -1255,7 +1936,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 0,
   },
   photoShareCard: {
     backgroundColor: '#fff',
@@ -1315,6 +1996,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     marginBottom: 8,
+    position: 'relative',
   },
   photo: {
     width: '100%',
@@ -1681,5 +2363,265 @@ const styles = StyleSheet.create({
   },
   modalShareTextDisabled: {
     color: '#8E8E93',
+  },
+
+  // Comment styles
+  commentSection: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  commentActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  commentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  commentCount: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'Onest',
+  },
+  commentOverlay: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    borderRadius: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  commentCountOverlay: {
+    fontSize: 12,
+    color: '#fff',
+    fontFamily: 'Onest',
+    fontWeight: '600',
+  },
+  sendCommentButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#00ACC1',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  sendCommentButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+
+  // Comments Modal styles
+  commentPostPreview: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  commentPostHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  commentPostAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  commentPostAvatarPlaceholder: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F2F2F7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  commentPostUserInfo: {
+    flex: 1,
+  },
+  commentPostUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    fontFamily: 'Onest',
+  },
+  commentPostTime: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  commentPostCaption: {
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'Onest',
+    marginBottom: 8,
+  },
+  commentPostImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+  },
+  commentsList: {
+    padding: 16,
+  },
+  commentModalItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  commentModalAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 12,
+  },
+  commentModalAvatarPlaceholder: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F2F2F7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  commentModalContent: {
+    flex: 1,
+  },
+  commentModalUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000',
+    fontFamily: 'Onest',
+    marginBottom: 2,
+  },
+  commentModalText: {
+    fontSize: 14,
+    color: '#333',
+    fontFamily: 'Onest',
+    marginBottom: 4,
+  },
+  commentModalTime: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  noCommentsContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noCommentsText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#000',
+    fontFamily: 'Onest',
+    marginBottom: 4,
+  },
+  noCommentsSubtext: {
+    fontSize: 14,
+    color: '#8E8E93',
+    fontFamily: 'Onest',
+  },
+  commentModalInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    paddingTop: 12, // Reduced top padding to position lower
+    paddingBottom: Platform.OS === 'ios' ? 16 : 16, // Reduced bottom padding to remove white space
+    backgroundColor: '#fff',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#F2F2F7',
+    minHeight: 80, // Ensure minimum height for the input area
+  },
+  commentModalTextInput: {
+    flex: 1,
+    fontSize: 16, // Slightly larger font for better readability
+    color: '#000',
+    fontFamily: 'Onest',
+    paddingVertical: 12, // More vertical padding
+    paddingHorizontal: 16, // More horizontal padding
+    backgroundColor: '#F2F2F7',
+    borderRadius: 20, // More rounded corners
+    marginRight: 12, // More space between input and button
+    minHeight: 44, // Minimum touch target size
+  },
+  commentModalSendButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#00ACC1',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  commentModalSendButtonDisabled: {
+    backgroundColor: '#ccc',
+  },
+
+  // Bottom Sheet Comments Modal styles
+  commentsModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  commentsModalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  commentsModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '95%',
+    minHeight: '70%',
+    flex: 1,
+  },
+  commentsModalHandle: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  commentsModalHandleBar: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E5E5EA',
+    borderRadius: 2,
+  },
+  commentsModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  commentsModalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    fontFamily: 'Onest',
+  },
+  commentsModalCloseButton: {
+    padding: 4,
+  },
+  commentsModalContent: {
+    flex: 1,
+    justifyContent: 'space-between', // This will push the input to the bottom
+  },
+  commentsModalInner: {
+    flex: 1,
+  },
+  commentsModalScrollView: {
+    flex: 1,
+  },
+  commentsModalScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 10, // Add some bottom padding to the scroll content
   },
 });

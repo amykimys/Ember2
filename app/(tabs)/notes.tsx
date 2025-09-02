@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, Stack, useFocusEffect } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../../supabase';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
@@ -95,6 +96,35 @@ export default function NotesScreen() {
   // Memoize user
   const user = useMemo(() => cachedUser, [cachedUser]);
 
+  // Load deleted shared note IDs from storage
+  const loadDeletedSharedNoteIds = useCallback(async () => {
+    try {
+      console.log('🔄 Loading deleted shared note IDs from storage...');
+      const stored = await AsyncStorage.getItem('deletedSharedNoteIds');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const deletedIds = new Set(parsed as string[]);
+        setDeletedSharedNoteIds(deletedIds);
+        console.log('✅ Loaded deleted shared note IDs:', Array.from(deletedIds));
+      } else {
+        console.log('ℹ️ No deleted shared note IDs found in storage');
+      }
+    } catch (error) {
+      console.error('❌ Error loading deleted shared note IDs:', error);
+    }
+  }, []);
+
+  // Save deleted shared note IDs to storage
+  const saveDeletedSharedNoteIds = useCallback(async (ids: Set<string>) => {
+    try {
+      console.log('💾 Saving deleted shared note IDs to storage:', Array.from(ids));
+      await AsyncStorage.setItem('deletedSharedNoteIds', JSON.stringify(Array.from(ids)));
+      console.log('✅ Successfully saved deleted shared note IDs');
+    } catch (error) {
+      console.error('❌ Error saving deleted shared note IDs:', error);
+    }
+  }, []);
+
   // Centralized error handler
   const handleError = useCallback((error: any, context: string) => {
     console.error(`❌ ${context} error:`, error);
@@ -108,9 +138,14 @@ export default function NotesScreen() {
   // Combine notes only after all data is set
   const combineNotes = useCallback((notesData: Note[], sharedNotesData: SharedNote[], sharedNoteIdsData: Set<string>, sharedNoteDetailsData: Map<string, string[]>) => {
     const combined: Note[] = [...notesData];
+    
+    console.log('🔍 [CombineNotes] Processing shared notes:', sharedNotesData.length);
+    console.log('🔍 [CombineNotes] Deleted shared note IDs:', Array.from(deletedSharedNoteIds));
+    
     for (const sharedNote of sharedNotesData) {
       // Skip deleted shared notes
       if (deletedSharedNoteIds.has(sharedNote.original_note_id)) {
+        console.log('🔍 [CombineNotes] Skipping deleted shared note:', sharedNote.original_note_id);
         continue;
       }
       
@@ -135,10 +170,13 @@ export default function NotesScreen() {
         canEdit: sharedNote.can_edit,
       };
       combined.push(sharedNoteItem);
+      console.log('🔍 [CombineNotes] Added shared note:', sharedNote.original_note_id);
     }
+    
     // Sort by updated_at
     combined.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
     setCombinedNotes(combined);
+    console.log('🔍 [CombineNotes] Final combined notes count:', combined.length);
   }, [deletedSharedNoteIds]);
 
   // Centralized data fetching
@@ -212,11 +250,16 @@ export default function NotesScreen() {
 
   // Initial setup and focus refresh
   useEffect(() => {
-    ensureSharedNotesTable().catch(error => {
-      console.error('❌ Failed to ensure shared notes table:', error);
-    });
-    fetchAllNotesData(true);
-  }, [fetchAllNotesData]);
+    const initializeApp = async () => {
+      await ensureSharedNotesTable().catch(error => {
+        console.error('❌ Failed to ensure shared notes table:', error);
+      });
+      await loadDeletedSharedNoteIds();
+      fetchAllNotesData(true);
+    };
+    
+    initializeApp();
+  }, [fetchAllNotesData, loadDeletedSharedNoteIds]);
   useFocusEffect(
     useCallback(() => {
       fetchAllNotesData(true);
@@ -530,7 +573,10 @@ export default function NotesScreen() {
             .eq('user_id', user.id);
           error = notesError;
         } else {
-          // If user is just a recipient, only remove the collaboration record
+          // If user is just a recipient, permanently delete the shared note from backend
+          console.log('🗑️ Permanently deleting shared note from backend:', noteId);
+          
+          // Delete the shared_notes record to prevent it from being fetched again
           const { error: sharedError } = await supabase
             .from('shared_notes')
             .delete()
@@ -538,9 +584,12 @@ export default function NotesScreen() {
             .eq('shared_with', user.id);
           error = sharedError;
           
-          // Track this deleted shared note to prevent it from reappearing
+          // Also add to local deleted set to prevent it from reappearing
           if (!error) {
-            setDeletedSharedNoteIds(prev => new Set([...prev, noteId]));
+            const newDeletedIds = new Set([...deletedSharedNoteIds, noteId]);
+            setDeletedSharedNoteIds(newDeletedIds);
+            saveDeletedSharedNoteIds(newDeletedIds);
+            console.log('✅ Shared note permanently deleted from backend and frontend');
           }
         }
       } else {
@@ -595,7 +644,7 @@ export default function NotesScreen() {
       console.error('Error deleting note:', error);
       Alert.alert('Error', 'Failed to delete note');
     }
-  }, [user, notes, sharedNotes, sharedNoteIds, sharedNoteDetails, currentNote, combineNotes]);
+  }, [user, notes, sharedNotes, sharedNoteIds, sharedNoteDetails, currentNote, combineNotes, deletedSharedNoteIds, saveDeletedSharedNoteIds]);
 
   const handleOpenNote = useCallback(async (note: Note) => {
     setCurrentNote(note);
