@@ -142,6 +142,7 @@ interface Todo {
   reminderTime?: Date | null;
   photo?: string; // Add photo field
   deletedInstances?: string[]; // Track deleted instances of repeated tasks
+  autoMove?: boolean; // Auto-rollover setting
   sharedFriends?: Array<{
     friend_id: string;
     friend_name: string;
@@ -338,13 +339,99 @@ export default function TodoScreen() {
   useEffect(() => {
     if (!user?.id) return;
 
-    const handleAppStateChange = (nextAppState: string) => {
+    const handleAppStateChange = async (nextAppState: string) => {
       if (nextAppState === 'active') {
+        console.log('🔄 [Todo] App became active, checking for data refresh');
+        
+        // Check for date changes and task movement
         const now = moment().startOf('day');
         const nowStr = now.format('YYYY-MM-DD');
         if (lastRunDateRef.current !== nowStr) {
-          moveIncompleteTasksForwardOneDay(user.id);
+          console.log('🔄 [Todo] Date changed, moving tasks');
+          checkAndMoveTasksIfNeeded(user.id);
           lastRunDateRef.current = nowStr;
+        }
+        
+        // Refresh data when app comes back to foreground
+        // This ensures data is fresh after the app has been in background
+        if (user && !isDeleting) {
+          console.log('🔄 [Todo] Refreshing data after app became active');
+          
+          // Refresh todos and habits to get latest data
+          await fetchTodosOnly(user);
+          await fetchHabitsOnly(user);
+          
+          // Only refresh categories if they're missing
+          if (!categories || categories.length === 0) {
+            // Simple categories fetch without retry logic
+            try {
+              const { data, error } = await supabase
+                .from('categories')
+                .select('*')
+                .eq('user_id', user.id)
+                .in('type', ['todo', 'task'])
+                .order('created_at', { ascending: false });
+
+              if (error) {
+                console.error('❌ [Todo] Error fetching categories:', error);
+              } else {
+                console.log('🔄 [Todo] Fetched categories after app became active:', data?.length || 0);
+                setCategories(data || []);
+              }
+            } catch (error) {
+              console.error('❌ [Todo] Error in categories fetch after app became active:', error);
+            }
+          }
+          
+          // Refresh friends data with simple fetch
+          try {
+            const { data: friendships, error: friendshipsError } = await supabase
+              .from('friendships')
+              .select(`
+                id,
+                user_id,
+                friend_id,
+                status,
+                created_at
+              `)
+              .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
+              .eq('status', 'accepted');
+
+            if (friendshipsError) {
+              console.error('❌ Error fetching friendships after app became active:', friendshipsError);
+            } else if (friendships && friendships.length > 0) {
+              const friendsWithProfiles = await Promise.all(
+                friendships.map(async (friendship) => {
+                  const friendUserId = friendship.user_id === user.id ? friendship.friend_id : friendship.user_id;
+                  
+                  const { data: profileData, error: profileError } = await supabase
+                    .from('profiles')
+                    .select('id, full_name, avatar_url, username')
+                    .eq('id', friendUserId)
+                    .maybeSingle();
+                  
+                  if (profileError || !profileData) {
+                    return null;
+                  }
+                  
+                  return {
+                    friendship_id: friendship.id,
+                    friend_id: friendUserId,
+                    friend_name: profileData.full_name || 'Unknown',
+                    friend_avatar: profileData.avatar_url || '',
+                    friend_username: profileData.username || '',
+                    status: friendship.status,
+                    created_at: friendship.created_at,
+                  };
+                })
+              );
+
+              const validFriends = friendsWithProfiles.filter(friend => friend !== null);
+              setFriends(validFriends);
+            }
+          } catch (error) {
+            console.error('❌ Error refreshing friends after app became active:', error);
+          }
         }
       }
     };
@@ -363,22 +450,31 @@ export default function TodoScreen() {
       
       if (shouldRun) {
         console.log('🔄 [Todo] Date change detected, running auto-move tasks');
-        moveIncompleteTasksForwardOneDay(user.id);
+        checkAndMoveTasksIfNeeded(user.id);
         lastRunDateRef.current = nowStr;
       } else if (isMidnight && lastRunDateRef.current === nowStr) {
         // If it's midnight and we haven't moved tasks yet today, force a check
         console.log('🔄 [Todo] Midnight detected, checking if tasks need to be moved');
-        moveIncompleteTasksForwardOneDay(user.id);
+        checkAndMoveTasksIfNeeded(user.id);
       }
     };
 
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      handleAppStateChange(nextAppState).catch(error => {
+        console.error('❌ Error in AppState change handler:', error);
+      });
+    });
     
     // Set up interval to check for date changes every minute
     const intervalId = setInterval(checkDateChange, 60000); // Check every minute
     
     // Run once on mount
-    handleAppStateChange('active');
+    handleAppStateChange('active').catch(error => {
+      console.error('❌ Error in initial AppState check:', error);
+    });
+    
+    // Also check for task movement on mount
+    checkAndMoveTasksIfNeeded(user.id);
     
     return () => {
       subscription.remove();
@@ -441,6 +537,7 @@ export default function TodoScreen() {
             date: task.date ? new Date(task.date) : new Date(),
             repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
             reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
+            autoMove: task.auto_move || false,
             category: task.category || null, // category object from join
           }));
         
@@ -653,6 +750,11 @@ export default function TodoScreen() {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
   
+  // Monitor todos state changes for debugging
+  useEffect(() => {
+    console.log('🔄 [Debug] Todos state changed:', todos.map(t => ({ id: t.id, text: t.text, autoMove: t.autoMove })));
+  }, [todos]);
+  
 
 
   // DISABLED: Complex auto-move system (using simple system instead)
@@ -750,6 +852,7 @@ export default function TodoScreen() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedRepeat, setSelectedRepeat] = useState<RepeatOption>('none');
   const [taskDate, setTaskDate] = useState<Date | null>(null);
+  const [modalAutoRollover, setModalAutoRollover] = useState(false);
   
   // Debug: Monitor taskDate changes
   useEffect(() => {
@@ -874,6 +977,38 @@ export default function TodoScreen() {
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
   const [newHabit, setNewHabit] = useState('');
   const [quickAddText, setQuickAddText] = useState('');
+  const [quickAddAutoRollover, setQuickAddAutoRollover] = useState(true);
+
+  // Load saved auto-rollover preference on component mount
+  useEffect(() => {
+    const loadAutoRolloverPreference = async () => {
+      try {
+        const savedPreference = await AsyncStorage.getItem('quickAddAutoRollover');
+              if (savedPreference !== null) {
+        setQuickAddAutoRollover(JSON.parse(savedPreference));
+        console.log('✅ Loaded auto-rollover preference:', JSON.parse(savedPreference));
+      } else {
+        // Default to true if no preference is saved
+        setQuickAddAutoRollover(true);
+        console.log('✅ Set default auto-rollover preference: true');
+      }
+      } catch (error) {
+        console.error('❌ Error loading auto-rollover preference:', error);
+      }
+    };
+
+    loadAutoRolloverPreference();
+  }, []);
+
+  // Save auto-rollover preference whenever it changes
+  const saveAutoRolloverPreference = async (value: boolean) => {
+    try {
+      await AsyncStorage.setItem('quickAddAutoRollover', JSON.stringify(value));
+      console.log('✅ Saved auto-rollover preference:', value);
+    } catch (error) {
+      console.error('❌ Error saving auto-rollover preference:', error);
+    }
+  };
   const [isQuickAdding, setIsQuickAdding] = useState(false);
   const quickAddInputRef = useRef<TextInput>(null);
   const [newHabitDescription, setNewHabitDescription] = useState('');
@@ -1080,6 +1215,10 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
+    // Only reset auto-rollover if we're not editing a task
+    if (!editingTodo) {
+      setModalAutoRollover(true); // Default to true for new tasks
+    }
     // Clear the quick add text so it's ready for the next task
     setQuickAddText('');
   };
@@ -1201,6 +1340,7 @@ export default function TodoScreen() {
           ? customSelectedDates.map((str) => new Date(str))
           : undefined,
         reminderTime: reminderTime || null,
+        autoMove: modalAutoRollover,
       };
       
       // OPTIMISTIC UPDATE: Add to local state immediately
@@ -1223,6 +1363,7 @@ export default function TodoScreen() {
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
           user_id: user.id,
           reminder_time: newTodoItem.reminderTime?.toISOString(),
+          auto_move: modalAutoRollover,
           custom_repeat_dates: selectedRepeat === 'custom'
             ? customSelectedDates
             : null,
@@ -1328,11 +1469,16 @@ export default function TodoScreen() {
             ? customSelectedDates.map((str) => new Date(str))
             : undefined,
           reminderTime: reminderTime || null,
+          autoMove: modalAutoRollover,
         };
         
         console.log('💾 [Edit Save] Updated todo reminderTime:', updatedTodo.reminderTime);
     
-        const updatedTodos = todos.map(todo => (todo.id === editingTodo.id ? updatedTodo : todo));
+        const updatedTodos = todos.map(todo => 
+          todo.id === editingTodo.id 
+            ? { ...todo, ...updatedTodo } // Ensure all properties are properly spread
+            : todo
+        );
         setTodos(updatedTodos);
         
         // Update DataContext with edited task
@@ -1383,6 +1529,7 @@ export default function TodoScreen() {
               repeat: updatedTodo.repeat,
               repeat_end_date: updatedTodo.repeatEndDate?.toISOString(),
               reminder_time: updatedTodo.reminderTime?.toISOString(),
+              auto_move: modalAutoRollover,
               custom_repeat_dates: selectedRepeat === 'custom'
                 ? customSelectedDates
                 : null,
@@ -1713,34 +1860,56 @@ export default function TodoScreen() {
         return;
       }
 
-      // Update in Supabase
-      const { error } = await supabase
-        .from('todos')
-        .update({ completed: !taskToToggle.completed })
-        .eq('id', id)
-        .eq('user_id', user.id);
-
-      if (error) {
-        console.error('Error updating task in Supabase:', error);
-        Alert.alert('Error', 'Failed to update task. Please try again.');
-        return;
-      }
-
-      // Update local state
+      // OPTIMISTIC UPDATE: Update UI immediately
+      const newCompletedState = !taskToToggle.completed;
       const updatedTodos = todos.map(todo => 
-        todo.id === id ? { ...todo, completed: !todo.completed } : todo
+        todo.id === id ? { ...todo, completed: newCompletedState } : todo
       );
       setTodos(updatedTodos);
       
       // Update DataContext with toggled task
       updateData('todos', updatedTodos);
       
-      // Provide haptic feedback
+      // Provide haptic feedback immediately
       if (Platform.OS !== 'web') {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       }
+
+      // Update in Supabase in the background
+      const { error } = await supabase
+        .from('todos')
+        .update({ completed: newCompletedState })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error updating task in Supabase:', error);
+        
+        // Revert the optimistic update on error
+        const revertedTodos = todos.map(todo => 
+          todo.id === id ? { ...todo, completed: !newCompletedState } : todo
+        );
+        setTodos(revertedTodos);
+        updateData('todos', revertedTodos);
+        
+        Alert.alert('Error', 'Failed to update task. Please try again.');
+        return;
+      }
+
+      console.log('✅ Task completion updated successfully in database');
     } catch (error) {
       console.error('Error in toggleTodo:', error);
+      
+      // Revert the optimistic update on error
+      const taskToToggle = todos.find(todo => todo.id === id);
+      if (taskToToggle) {
+        const revertedTodos = todos.map(todo => 
+          todo.id === id ? { ...todo, completed: !taskToToggle.completed } : todo
+        );
+        setTodos(revertedTodos);
+        updateData('todos', revertedTodos);
+      }
+      
       Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
@@ -2603,6 +2772,7 @@ export default function TodoScreen() {
         setReminderTime(todo.reminderTime || null);
         setSelectedRepeat(todo.repeat || 'none');
         setRepeatEndDate(todo.repeatEndDate || null);
+        setModalAutoRollover(todo.autoMove || false);
         
         console.log('✏️ [Edit] Set reminderTime state to:', todo.reminderTime || null);
         if (todo.repeat === 'custom' && todo.customRepeatDates) {
@@ -2773,13 +2943,21 @@ export default function TodoScreen() {
     
         <View style={[styles.todoContent, { flex: 1 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Text style={[
-            styles.todoText,
-            todo.completed && styles.completedText,
-              { color: Colors.light.text, fontFamily: 'Onest', flex: 1 }
-          ]}>
-            {todo.text}
-          </Text>
+            <Text style={[
+              styles.todoText,
+              todo.completed && styles.completedText,
+                { color: Colors.light.text, fontFamily: 'Onest', flex: 1 }
+            ]}>
+              {todo.text}
+            </Text>
+            {todo.autoMove && (
+              <Ionicons 
+                name="arrow-forward-circle" 
+                size={16} 
+                color={Colors.light.accent} 
+                style={{ marginLeft: 4 }}
+              />
+            )}
           </View>
           {todo.description && (
             <Text style={[
@@ -3483,6 +3661,7 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
+    setModalAutoRollover(quickAddAutoRollover); // Pass the quick add auto-rollover setting
     
     // Clear the quick add input since we're moving to the modal
     setQuickAddText('');
@@ -3498,17 +3677,18 @@ export default function TodoScreen() {
       const newTodoItem: Todo = {
         id: uuidv4(),
         text: quickAddText.trim(),
-    description: '',
-    completed: false,
-    categoryId: null,
+        description: '',
+        completed: false,
+        categoryId: null,
         date: currentDate,
-    repeat: 'none',
-    customRepeatDates: [],
-    repeatEndDate: null,
-    reminderTime: null,
+        repeat: 'none',
+        customRepeatDates: [],
+        repeatEndDate: null,
+        reminderTime: null,
         photo: undefined,
-    deletedInstances: [],
-    sharedFriends: [],
+        deletedInstances: [],
+        autoMove: quickAddAutoRollover,
+        sharedFriends: [],
       };
 
       // Save to Supabase
@@ -3525,6 +3705,7 @@ export default function TodoScreen() {
           custom_repeat_dates: newTodoItem.customRepeatDates?.map(date => date.toISOString()) || [],
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString() || null,
           reminder_time: newTodoItem.reminderTime?.toISOString() || null,
+          auto_move: newTodoItem.autoMove,
           photo: newTodoItem.photo || undefined,
           deleted_instances: newTodoItem.deletedInstances || [],
           user_id: user.id,
@@ -3543,6 +3724,7 @@ export default function TodoScreen() {
       // Add to local state
       setTodos(prev => [newTodoItem, ...prev]);
       setQuickAddText('');
+      // Don't reset the auto-rollover preference - keep user's setting
       setTimeout(() => {
         quickAddInputRef.current?.focus();
       }, 100);
@@ -3940,6 +4122,9 @@ export default function TodoScreen() {
         console.log('🔄 [Todo] useFocusEffect: appData.todos length:', appData.todos?.length || 0);
         console.log('🔄 [Todo] useFocusEffect: appData.habits length:', appData.habits?.length || 0);
         console.log('🔄 [Todo] useFocusEffect: local categories length:', categories.length);
+        
+        // Check if tasks need to be moved to next day (after midnight)
+        checkAndMoveTasksIfNeeded(user.id);
         
         // Check if we need to sync categories from DataContext to local state
         if (appData.isPreloaded && appData.categories && appData.categories.length > 0 && categories.length === 0) {
@@ -5470,7 +5655,7 @@ export default function TodoScreen() {
                   justifyContent: 'center', 
                   alignItems: 'center',
                   paddingHorizontal: 20,
-                  marginTop: 165
+                  marginTop: -40
                 }]}>
                   <Text style={[styles.emptyStateTitle, { 
                     textAlign: 'center',
@@ -5500,7 +5685,7 @@ export default function TodoScreen() {
                   justifyContent: 'center', 
                   alignItems: 'center',
                   paddingHorizontal: 20,
-                  marginTop: 180
+                  marginTop: -40
                 }]}>
                   <Text style={[styles.emptyStateTitle, { 
                     textAlign: 'center',
@@ -6048,6 +6233,33 @@ export default function TodoScreen() {
                 />
                 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  
+                  {/* Auto-rollover toggle button */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      const newValue = !quickAddAutoRollover;
+                      setQuickAddAutoRollover(newValue);
+                      saveAutoRolloverPreference(newValue);
+                      if (Platform.OS !== 'web') {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      }
+                    }}
+                    style={{
+                      paddingHorizontal: 8,
+                      paddingVertical: 6,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: quickAddAutoRollover ? Colors.light.accent : Colors.light.border,
+                      backgroundColor: quickAddAutoRollover ? Colors.light.accent + '20' : 'transparent',
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons 
+                      name="arrow-forward-circle" 
+                      size={16} 
+                      color={quickAddAutoRollover ? Colors.light.accent : Colors.light.icon} 
+                    />
+                  </TouchableOpacity>
                   
                   {/* More options button */}
                 <TouchableOpacity
@@ -6933,6 +7145,70 @@ export default function TodoScreen() {
                   </TouchableOpacity>
                 </View>
 
+                {/* Auto-Rollover Card */}
+                <View style={{
+                  backgroundColor: Colors.light.background,
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 18,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 1 },
+                  shadowOpacity: 0.05,
+                  shadowRadius: 4,
+                  elevation: 1,
+                }}>
+                  <View style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: Colors.light.text,
+                        marginBottom: 4,
+                        fontFamily: 'Onest'
+                      }}>
+                        Auto-Rollover
+                      </Text>
+                      <Text style={{
+                        fontSize: 12,
+                        color: Colors.light.icon,
+                        fontFamily: 'Onest',
+                        fontWeight: '400',
+                      }}>
+                        Move to tomorrow if not completed by midnight
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setModalAutoRollover(prev => !prev)}
+                      style={{
+                        width: 44,
+                        height: 24,
+                        borderRadius: 12,
+                        backgroundColor: modalAutoRollover ? Colors.light.accent : Colors.light.border,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        paddingHorizontal: 2,
+                      }}
+                    >
+                      <View style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: 10,
+                        backgroundColor: 'white',
+                        transform: [{ translateX: modalAutoRollover ? 10 : -10 }],
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 1 },
+                        shadowOpacity: 0.2,
+                        shadowRadius: 2,
+                        elevation: 2,
+                      }} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
                 {/* Options Card */}
                 <View style={{
                   backgroundColor: 'white',
@@ -7409,58 +7685,6 @@ export default function TodoScreen() {
           </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
-
-      {/* Floating Action Button */}
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          bottom: 100,
-          right: 20,
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          backgroundColor: Colors.light.accent,
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.25,
-          shadowRadius: 8,
-          elevation: 8,
-          zIndex: 1000,
-          opacity: 0, // Make invisible
-        }}
-        onPress={showModal}
-        activeOpacity={0.8}
-      >
-        <Ionicons name="add" size={24} color="white" />
-      </TouchableOpacity>
-
-      {/* Temporary Test Button for Auto-Move */}
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          bottom: 170,
-          right: 20,
-          width: 56,
-          height: 56,
-          borderRadius: 28,
-          backgroundColor: 'red',
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.25,
-          shadowRadius: 8,
-          elevation: 8,
-          zIndex: 1000,
-          opacity: 0, // Make invisible
-        }}
-        onPress={triggerAutoMove}
-        activeOpacity={0.8}
-      >
-        <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>Test</Text>
-      </TouchableOpacity>
 
       {/* New Category Modal */}
       <Modal

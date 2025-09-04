@@ -1,5 +1,4 @@
--- Fix Friends Feed Function - Restore SECURITY DEFINER but keep friendship filtering
--- The issue is that removing SECURITY DEFINER made the function subject to RLS policies
+-- Fix Friends Feed Function - Fix photo loading issue
 
 -- Drop the existing function
 DROP FUNCTION IF EXISTS public.get_friends_photo_shares_with_privacy(current_user_id uuid, limit_count integer);
@@ -31,9 +30,27 @@ BEGIN
     COALESCE(p.full_name, 'Unknown User') as user_name,
     p.avatar_url as user_avatar,
     COALESCE(p.username, 'unknown') as user_username,
-    su.photo_url,
-    su.photos,
-    COALESCE(array_length(su.photos, 1), 0) as photo_count,
+    -- Use the first photo from photos array, or fallback to photo_url
+    CASE 
+      WHEN su.photos IS NOT NULL AND jsonb_typeof(su.photos) = 'array' AND jsonb_array_length(su.photos) > 0 THEN 
+        (su.photos->0)::text
+      ELSE su.photo_url
+    END as photo_url,
+    -- Convert photos JSONB to text array
+    CASE 
+      WHEN su.photos IS NULL THEN ARRAY[]::text[]
+      WHEN jsonb_typeof(su.photos) = 'array' THEN 
+        (SELECT array_agg(value::text) FROM jsonb_array_elements(su.photos))
+      ELSE ARRAY[su.photo_url]::text[]
+    END as photos,
+    -- Count photos properly
+    CASE 
+      WHEN su.photos IS NULL THEN 
+        CASE WHEN su.photo_url IS NOT NULL AND su.photo_url != '' THEN 1 ELSE 0 END
+      WHEN jsonb_typeof(su.photos) = 'array' THEN jsonb_array_length(su.photos)
+      ELSE 
+        CASE WHEN su.photo_url IS NOT NULL AND su.photo_url != '' THEN 1 ELSE 0 END
+    END as photo_count,
     COALESCE(su.caption, '') as caption,
     COALESCE(su.source_type, 'unknown') as source_type,
     CASE 
@@ -48,8 +65,12 @@ BEGIN
   FROM public.social_updates su
   LEFT JOIN public.profiles p ON su.user_id = p.id
   WHERE su.type = 'photo_share'
-    AND su.photo_url IS NOT NULL
-    AND su.photo_url != ''
+    AND (
+      -- Check if there's a photo_url or photos array with content
+      (su.photo_url IS NOT NULL AND su.photo_url != '')
+      OR 
+      (su.photos IS NOT NULL AND jsonb_typeof(su.photos) = 'array' AND jsonb_array_length(su.photos) > 0)
+    )
     AND (
       -- Include own photos (even private ones)
       su.user_id = current_user_id
@@ -74,40 +95,3 @@ $$;
 
 -- Grant execute permission
 GRANT EXECUTE ON FUNCTION public.get_friends_photo_shares_with_privacy(uuid, integer) TO authenticated;
-
--- Test the updated function
--- Replace 'YOUR_USER_ID' with your actual user ID to test
-SELECT 'Testing updated friends feed function:' as info;
-SELECT 
-    update_id,
-    user_name,
-    user_username,
-    photo_url,
-    caption,
-    source_type,
-    source_title,
-    created_at
-FROM get_friends_photo_shares_with_privacy(
-    'YOUR_USER_ID'::UUID, -- Replace with your actual user ID
-    10
-)
-ORDER BY created_at DESC;
-
--- Show all photo shares in the database for verification
-SELECT 'All photo shares in database:' as info;
-SELECT 
-    su.id,
-    su.user_id,
-    p.full_name as user_name,
-    p.username as user_username,
-    su.type,
-    su.photo_url,
-    su.caption,
-    su.source_type,
-    su.source_id,
-    su.is_public,
-    su.created_at
-FROM social_updates su
-JOIN profiles p ON su.user_id = p.id
-WHERE su.type = 'photo_share'
-ORDER BY su.created_at DESC; 

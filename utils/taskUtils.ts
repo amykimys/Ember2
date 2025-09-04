@@ -2,26 +2,27 @@ import { supabase } from '../supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
- * Move uncompleted tasks from yesterday to today
+ * Move uncompleted tasks with auto_move enabled from today and previous days to tomorrow
  * This function should be called after midnight
  */
 export const moveUncompletedTasksToNextDay = async (userId: string): Promise<void> => {
   try {
-    console.log('🔄 Processing auto-move tasks...');
+    console.log('🔄 Processing task rollover...');
 
-    // Get today's date (the current date)
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    // Get tomorrow's date (the day after the current date)
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-    // Find uncompleted tasks from previous days that have auto_move enabled
-    // We'll look for tasks with dates before today
+    // Find uncompleted tasks from today and previous days
+    // We'll look for tasks with dates less than or equal to today
     const { data: uncompletedTasks, error: fetchError } = await supabase
       .from('todos')
       .select('*')
       .eq('user_id', userId)
-      .lt('date', todayStr) // Tasks from dates before today
+      .lte('date', new Date().toISOString().split('T')[0]) // Tasks from today and previous days
       .eq('completed', false)
-      .eq('auto_move', true);
+      .eq('auto_move', true); // Only tasks with auto_move enabled
 
     if (fetchError) {
       console.error('❌ Error fetching uncompleted tasks:', fetchError);
@@ -29,18 +30,18 @@ export const moveUncompletedTasksToNextDay = async (userId: string): Promise<voi
     }
 
     if (!uncompletedTasks || uncompletedTasks.length === 0) {
-      console.log('✅ No uncompleted tasks with auto-move found from previous days');
+      console.log('✅ No uncompleted tasks found from today or previous days');
       return;
     }
 
-    console.log(`📝 Found ${uncompletedTasks.length} uncompleted tasks with auto-move enabled to move to today`);
+    console.log(`📝 Found ${uncompletedTasks.length} uncompleted tasks with auto_move enabled from today and previous days to move to tomorrow (${tomorrowStr})`);
 
-    // Update each task to today's date
+    // Update each task to tomorrow's date
     for (const task of uncompletedTasks) {
       const { error: updateError } = await supabase
         .from('todos')
         .update({
-          date: todayStr,
+          date: tomorrowStr,
           updated_at: new Date().toISOString()
         })
         .eq('id', task.id)
@@ -49,11 +50,11 @@ export const moveUncompletedTasksToNextDay = async (userId: string): Promise<voi
       if (updateError) {
         console.error(`❌ Error updating task ${task.id}:`, updateError);
       } else {
-        console.log(`✅ Moved task "${task.text}" from ${task.date} to today`);
+        console.log(`✅ Moved task "${task.text}" from ${task.date} to tomorrow (${tomorrowStr})`);
       }
     }
 
-    console.log(`🎉 Successfully moved ${uncompletedTasks.length} auto-move tasks to today`);
+    console.log(`🎉 Successfully moved ${uncompletedTasks.length} tasks with auto_move enabled to tomorrow (${tomorrowStr})`);
   } catch (error) {
     console.error('💥 Error in moveUncompletedTasksToNextDay:', error);
   }
@@ -62,6 +63,7 @@ export const moveUncompletedTasksToNextDay = async (userId: string): Promise<voi
 /**
  * Check if it's time to move tasks (called after midnight)
  * This should be called when the app starts or when the user opens the todo screen
+ * All uncompleted tasks with auto_move enabled from today and previous days will be moved to tomorrow
  */
 export const checkAndMoveTasksIfNeeded = async (userId: string): Promise<void> => {
   try {

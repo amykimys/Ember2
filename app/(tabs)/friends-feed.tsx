@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import {
   Platform,
   ScrollView,
   Dimensions,
+  AppState,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useData } from '../../contexts/DataContext';
@@ -36,6 +37,7 @@ import Animated, {
   runOnJS
 } from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 
 interface PhotoShare {
   update_id: string; // This maps to the 'id' column from the database
@@ -52,6 +54,8 @@ interface PhotoShare {
   created_at: string;
   comments?: Comment[]; // Comments for this post
   comment_count?: number; // Number of comments
+  media_type?: 'photo' | 'video'; // Type of media
+  video_duration?: number; // Duration in seconds for videos
 }
 
 interface Comment {
@@ -93,6 +97,11 @@ export default function FriendsFeedScreen() {
   const [isPosting, setIsPosting] = useState(false);
   const [canPostToday, setCanPostToday] = useState(true);
   
+  // Video state
+  const [selectedVideos, setSelectedVideos] = useState<string[]>([]);
+  const [videoDurations, setVideoDurations] = useState<{[key: string]: number}>({});
+  const [isVideoUploading, setIsVideoUploading] = useState(false);
+  
   // Gallery state
   const [galleryPhotos, setGalleryPhotos] = useState<string[]>([]);
   const [galleryAssetIds, setGalleryAssetIds] = useState<string[]>([]); // Store asset IDs for pagination
@@ -104,6 +113,9 @@ export default function FriendsFeedScreen() {
   const [galleryCategory, setGalleryCategory] = useState<'recents' | 'favorites' | 'videos' | 'all'>('recents');
   const [favoritePhotos, setFavoritePhotos] = useState<string[]>([]);
   const [videoAssets, setVideoAssets] = useState<string[]>([]);
+  
+  // Menu dropdown state
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false);
   
   // Selected photos carousel state
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
@@ -173,6 +185,27 @@ export default function FriendsFeedScreen() {
       return () => clearInterval(interval);
     }
   }, [user?.id]);
+
+  // Refresh feed when app comes to foreground
+  useEffect(() => {
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'active') {
+        console.log('🔄 App became active, refreshing feed...');
+        loadPhotoShares();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription?.remove();
+  }, [user?.id]);
+
+  // Refresh feed when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('🔄 Friends feed screen focused, refreshing...');
+      loadPhotoShares();
+    }, [user?.id])
+  );
 
   const checkSession = async () => {
     try {
@@ -322,11 +355,46 @@ export default function FriendsFeedScreen() {
       setIsLoadingGallery(true);
       
       if (category === 'favorites') {
-        // Load favorite photos from AsyncStorage
-        const favorites = await AsyncStorage.getItem('favoritePhotos');
-        const favoriteUris = favorites ? JSON.parse(favorites) : [];
-        setGalleryPhotos(favoriteUris);
-        setFavoritePhotos(favoriteUris);
+        // Load favorite photos from iPhone Photos app
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Required', 'Please grant photo library access to view favorites.');
+          return;
+        }
+        
+        try {
+          // Get all photos and filter for favorites
+          const allAssets = await MediaLibrary.getAssetsAsync({
+            mediaType: MediaLibrary.MediaType.photo,
+            first: 1000, // Get more to find favorites
+            sortBy: MediaLibrary.SortBy.creationTime,
+          });
+          
+          // Get detailed info for each asset to check favorite status
+          const favoritePhotos = [];
+          for (const asset of allAssets.assets) {
+            try {
+              const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
+                             if (assetInfo.isFavorite) {
+                favoritePhotos.push(asset);
+              }
+            } catch (error) {
+              console.log('Skipping asset due to error:', error);
+            }
+          }
+          
+          // Get URIs for favorite photos
+          const favoriteUris = favoritePhotos.map(asset => asset.uri);
+          
+          setGalleryPhotos(favoriteUris);
+          setFavoritePhotos(favoriteUris);
+          console.log('📸 Loaded iPhone favorites:', favoriteUris.length);
+        } catch (error) {
+          console.error('❌ Error loading favorites:', error);
+          // Fallback to empty array
+          setGalleryPhotos([]);
+          setFavoritePhotos([]);
+        }
         return;
       }
       
@@ -366,28 +434,70 @@ export default function FriendsFeedScreen() {
     }
   };
 
-  // Toggle favorite status for a photo
-  const toggleFavorite = async (photoUri: string) => {
+  // Get category display name
+  const getCategoryDisplayName = (category: 'recents' | 'favorites' | 'videos' | 'all') => {
+    switch (category) {
+      case 'recents':
+        return 'Recents';
+      case 'favorites':
+        return 'Favorites';
+      case 'videos':
+        return 'Videos';
+      case 'all':
+        return 'All Photos';
+      default:
+        return 'Recents';
+    }
+  };
+
+  // Handle video selection
+  const selectVideoFromGallery = async (videoUri: string) => {
     try {
-      const favorites = await AsyncStorage.getItem('favoritePhotos');
-      const favoriteUris = favorites ? JSON.parse(favorites) : [];
+      // Check if video is already selected
+      if (selectedVideos.includes(videoUri)) {
+        setSelectedVideos(prev => prev.filter(uri => uri !== videoUri));
+        setVideoDurations(prev => {
+          const newDurations = { ...prev };
+          delete newDurations[videoUri];
+          return newDurations;
+        });
+        return;
+      }
+
+      // Check if we already have a video selected (max 1 video per post)
+      if (selectedVideos.length >= 1) {
+        Alert.alert('Video Limit', 'You can only select one video per post.');
+        return;
+      }
+
+      // Get video duration
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(videoUri);
+      const duration = assetInfo.duration || 0;
       
-      let newFavorites;
-      if (favoriteUris.includes(photoUri)) {
-        newFavorites = favoriteUris.filter((uri: string) => uri !== photoUri);
-      } else {
-        newFavorites = [...favoriteUris, photoUri];
+      // Check if video is longer than 1 minute (60 seconds)
+      if (duration > 60) {
+        Alert.alert(
+          'Video Too Long', 
+          'Videos must be 1 minute or shorter. Please select a shorter video.',
+          [{ text: 'OK' }]
+        );
+        return;
+      }
+
+      // Add video to selection
+      setSelectedVideos([videoUri]);
+      setVideoDurations(prev => ({ ...prev, [videoUri]: duration }));
+      
+      // Haptic feedback
+      if (Platform.OS === 'ios') {
+        const Haptics = require('expo-haptics');
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       }
       
-      await AsyncStorage.setItem('favoritePhotos', JSON.stringify(newFavorites));
-      setFavoritePhotos(newFavorites);
-      
-      // Update gallery photos if we're in favorites category
-      if (galleryCategory === 'favorites') {
-        setGalleryPhotos(newFavorites);
-      }
+      console.log('✅ Video selected:', videoUri, 'Duration:', duration);
     } catch (error) {
-      console.error('❌ Error toggling favorite:', error);
+      console.error('❌ Error selecting video:', error);
+      Alert.alert('Error', 'Failed to select video. Please try again.');
     }
   };
 
@@ -601,64 +711,94 @@ export default function FriendsFeedScreen() {
       
       console.log('🔍 Loading photo shares for user:', user.id);
 
-      // Use the improved database function
-      const result = await supabase.rpc('get_friends_photo_shares_with_privacy', {
-        current_user_id: user.id,
-        limit_count: 20
-      });
+      // TEMPORARY: Use direct query instead of complex function to test
+      console.log('🧪 Using direct query for testing...');
+      
+      // First, get all friends
+      const { data: friendsData, error: friendsError } = await supabase
+        .from('friendships')
+        .select('user_id, friend_id')
+        .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
+        .eq('status', 'accepted');
 
-      if (result.error) {
-        console.error('❌ Error loading photo shares:', result.error);
-        Toast.show({
-          type: 'error',
-          text1: 'Failed to load feed',
-          text2: result.error.message,
-          position: 'bottom',
-        });
+      if (friendsError) {
+        console.error('❌ Error loading friends:', friendsError);
         return;
       }
 
-      console.log('📸 Photo shares loaded:', result.data?.length || 0);
-      console.log('🔍 Raw data structure:', JSON.stringify(result.data, null, 2));
+      // Extract friend IDs
+      const friendIds = friendsData.map(f => 
+        f.user_id === user.id ? f.friend_id : f.user_id
+      );
+      
+      // Add current user to the list
+      const allUserIds = [...friendIds, user.id];
+      
+      console.log('👥 Found friends:', friendIds.length);
+      console.log('👤 Total users to check:', allUserIds.length);
 
-      // Check if we have any recent posts
-      if (result.data && result.data.length > 0) {
-        const mostRecent = result.data[0];
-        console.log('🕐 Most recent daily bit:', {
-          id: mostRecent.update_id,
-          created_at: mostRecent.created_at,
-          user_id: mostRecent.user_id,
-          photo_url: mostRecent.photo_url
-        });
-      } else {
-        console.log('📭 No photo shares found for user:', user.id);
+      // Get social updates from friends and self
+      const { data: socialUpdatesData, error: socialUpdatesError } = await supabase
+        .from('social_updates')
+        .select('id, user_id, photo_url, photos, caption, source_type, source_id, created_at, is_public')
+        .in('user_id', allUserIds)
+        .eq('type', 'photo_share')
+        .or(`is_public.eq.true,user_id.eq.${user.id}`)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (socialUpdatesError) {
+        console.error('❌ Error loading social updates:', socialUpdatesError);
+        return;
       }
 
+      console.log('📸 Social updates loaded:', socialUpdatesData?.length || 0);
+
+      // Get user profiles for all posts
+      const userIds = [...new Set(socialUpdatesData.map(post => post.user_id))];
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, username')
+        .in('id', userIds);
+
+      if (profilesError) {
+        console.error('❌ Error loading profiles:', profilesError);
+        return;
+      }
+
+      // Create a map of user profiles
+      const profilesMap = new Map();
+      profilesData.forEach(profile => {
+        profilesMap.set(profile.id, profile);
+      });
+
       // Transform the data to match PhotoShare interface
-      const transformedData = (result.data || []).map((item: any) => {
+      const transformedData = (socialUpdatesData || []).map((item: any) => {
+        const profile = profilesMap.get(item.user_id);
+        
         console.log('🔄 Processing item:', {
-          item_id: item.update_id,
+          item_id: item.id,
           user_id: item.user_id,
-          user_name: item.user_name,
-          user_avatar: item.user_avatar,
-          user_username: item.user_username,
+          user_name: profile?.full_name,
           photos: item.photos,
           photo_count: item.photo_count,
+          photosType: typeof item.photos,
+          photosIsArray: Array.isArray(item.photos),
           raw_item: item
         });
         
         const transformedItem = {
-          update_id: item.update_id,
+          update_id: item.id,
           user_id: item.user_id,
-          user_name: item.user_name || 'Unknown User',
-          user_avatar: item.user_avatar,
-          user_username: item.user_username || 'unknown',
+          user_name: profile?.full_name || 'Unknown User',
+          user_avatar: profile?.avatar_url,
+          user_username: profile?.username || 'unknown',
           photo_url: item.photo_url,
           photos: item.photos || null,
-          photo_count: item.photo_count || 0,
+          photo_count: Array.isArray(item.photos) ? item.photos.length : (item.photo_url ? 1 : 0),
           caption: item.caption || '',
           source_type: item.source_type || 'habit',
-          source_title: item.source_title || 'Photo Share',
+          source_title: item.source_type === 'habit' ? 'Habit' : 'Photo Share',
           created_at: item.created_at
         };
         
@@ -879,13 +1019,26 @@ export default function FriendsFeedScreen() {
   };
 
   const createPost = async () => {
-    if (!user?.id || selectedPhotos.length === 0) return;
+    if (!user?.id || (selectedPhotos.length === 0 && selectedVideos.length === 0)) return;
 
     try {
       setIsPosting(true);
 
       console.log('📸 Starting multi-photo upload implementation...');
       console.log('📱 Selected photos count:', selectedPhotos.length);
+
+      // Test storage bucket access first
+      console.log('🧪 Testing storage bucket access...');
+      const { data: bucketTest, error: bucketError } = await supabase.storage
+        .from('memories')
+        .list('', { limit: 1 });
+      
+      if (bucketError) {
+        console.error('❌ Storage bucket access failed:', bucketError);
+        throw new Error(`Storage bucket access failed: ${bucketError.message}`);
+      }
+      
+      console.log('✅ Storage bucket access successful');
 
       // First pass: Collect all photos with their dimensions and base64 data
       const photosWithData = [];
@@ -1024,7 +1177,7 @@ export default function FriendsFeedScreen() {
         
         // Create a unique filename
         const timestamp = Date.now();
-        const photoFileName = `friends-feed/${user.id}/photo_${timestamp}_${i}.jpg`;
+        const photoFileName = `friends-feed-${user.id}-photo-${timestamp}-${i}.jpg`;
         
         console.log(`📁 Uploading to:`, photoFileName);
         
@@ -1050,6 +1203,9 @@ export default function FriendsFeedScreen() {
         
         console.log(`🔗 Photo ${i + 1} public URL generated:`, urlData.publicUrl);
         
+        // Wait a moment for the file to be fully processed
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
         // Verify the upload by testing the URL
         try {
           console.log(`🧪 Testing photo ${i + 1}...`);
@@ -1057,6 +1213,13 @@ export default function FriendsFeedScreen() {
           
           if (!response.ok) {
             console.warn(`⚠️ Photo ${i + 1} URL test failed:`, response.status);
+            // Try again after a longer delay
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            const retryResponse = await fetch(urlData.publicUrl);
+            if (!retryResponse.ok) {
+              console.error(`❌ Photo ${i + 1} retry test also failed:`, retryResponse.status);
+              continue;
+            }
           } else {
             const blob = await response.blob();
             console.log(`✅ Photo ${i + 1} test successful, size:`, blob.size, 'bytes, type:', blob.type);
@@ -1080,14 +1243,37 @@ export default function FriendsFeedScreen() {
       
       console.log(`✅ Successfully uploaded ${uploadedPhotos.length} photos`);
       
+      // Additional verification: Test all uploaded photos one more time
+      console.log('🔍 Final verification of uploaded photos...');
+      const verifiedPhotos = [];
+      for (let i = 0; i < uploadedPhotos.length; i++) {
+        try {
+          const response = await fetch(uploadedPhotos[i]);
+          if (response.ok) {
+            verifiedPhotos.push(uploadedPhotos[i]);
+            console.log(`✅ Photo ${i + 1} verified:`, uploadedPhotos[i]);
+          } else {
+            console.warn(`⚠️ Photo ${i + 1} failed final verification:`, response.status);
+          }
+        } catch (error) {
+          console.warn(`⚠️ Photo ${i + 1} failed final verification:`, error);
+        }
+      }
+      
+      if (verifiedPhotos.length === 0) {
+        throw new Error('No photos passed final verification');
+      }
+      
+      console.log(`✅ Final verification complete: ${verifiedPhotos.length}/${uploadedPhotos.length} photos verified`);
+      
       // Step 7: Create a single social update with multiple photos
       console.log('📝 Creating single social update with multiple photos...');
       
       const socialUpdate = {
         user_id: user.id,
         type: 'photo_share',
-        photo_url: uploadedPhotos[0], // Keep first photo for backward compatibility
-        photos: uploadedPhotos, // Store all photos in the new photos array
+        photo_url: verifiedPhotos[0], // Keep first photo for backward compatibility
+        photos: verifiedPhotos, // Store all verified photos in the new photos array
         caption: caption.trim() || null,
         source_type: 'event', // Use 'event' for standalone photos
         source_id: null, // Events don't have a UUID reference
@@ -1528,14 +1714,33 @@ export default function FriendsFeedScreen() {
           });
           
           const currentPhotoIndex = postPhotoIndices[item.update_id] || 0;
-          const photos = item.photos && item.photos.length > 0 ? item.photos : [item.photo_url];
+          // Ensure photos is always an array and handle both string and array formats
+          const photos = (() => {
+            if (item.photos && Array.isArray(item.photos) && item.photos.length > 0) {
+              return item.photos;
+            } else if (item.photo_url && item.photo_url !== '') {
+              return [item.photo_url];
+            } else {
+              return [];
+            }
+          })();
           const currentPhoto = photos[currentPhotoIndex];
+          
+          // Safety check - if no current photo, don't render the image
+          if (!currentPhoto) {
+            console.log('⚠️ No current photo found for item:', item.update_id);
+            return null;
+          }
           
           console.log('📸 Processed photos data:', {
             currentPhotoIndex,
             photos,
             currentPhoto,
-            photosLength: photos.length
+            photosLength: photos.length,
+            itemPhotos: item.photos,
+            itemPhotoUrl: item.photo_url,
+            itemPhotosType: typeof item.photos,
+            itemPhotosIsArray: Array.isArray(item.photos)
           });
           
           return (
@@ -1563,6 +1768,9 @@ export default function FriendsFeedScreen() {
                       source={{ uri: currentPhoto }}
                       style={styles.naturalPhoto}
                       resizeMode="cover"
+                      onError={(error) => {
+                        console.error('❌ Image loading error for:', currentPhoto, error.nativeEvent.error);
+                      }}
                     />
                   </TouchableOpacity>
                 </Animated.View>
@@ -1702,6 +1910,10 @@ export default function FriendsFeedScreen() {
               onPress={() => {
                 setShowPostModal(false);
                 setSelectedPhotos([]);
+                setSelectedPhotosData([]);
+                setSelectedVideos([]);
+                setVideoDurations({});
+                setFavoritePhotos([]);
                 setCaption('');
               }}
               style={styles.modalCloseButton}
@@ -1713,11 +1925,11 @@ export default function FriendsFeedScreen() {
             
             <TouchableOpacity 
               onPress={createPost}
-              disabled={isPosting || selectedPhotos.length === 0}
+              disabled={isPosting || (selectedPhotos.length === 0 && selectedVideos.length === 0)}
             >
               <Text style={[
                 styles.modalShareText,
-                (isPosting || selectedPhotos.length === 0) && styles.modalShareTextDisabled
+                (isPosting || (selectedPhotos.length === 0 && selectedVideos.length === 0)) && styles.modalShareTextDisabled
               ]}>
                 {isPosting ? 'Sharing...' : 'Share'}
               </Text>
@@ -1733,16 +1945,31 @@ export default function FriendsFeedScreen() {
             keyboardShouldPersistTaps="handled"
           >
             {/* Selected Photos Carousel */}
-            {selectedPhotos.length > 0 && (
+            {(selectedPhotos.length > 0 || selectedVideos.length > 0) && (
               <View style={styles.selectedPhotosPreview}>
                 
                 <View style={styles.photoCarousel}>
-                  <Image 
-                    source={{ uri: selectedPhotos[currentPhotoIndex] }} 
-                    style={styles.selectedPhotoMain} 
-                  />
+                  {selectedVideos.length > 0 ? (
+                    <View style={styles.videoPreview}>
+                      <Image 
+                        source={{ uri: selectedVideos[0] }} 
+                        style={styles.selectedPhotoMain} 
+                      />
+                      <View style={styles.videoOverlay}>
+                        <Ionicons name="play-circle" size={48} color="#fff" />
+                        <Text style={styles.videoDuration}>
+                          {Math.round(videoDurations[selectedVideos[0]] || 0)}s
+                        </Text>
+                      </View>
+                    </View>
+                  ) : (
+                    <Image 
+                      source={{ uri: selectedPhotos[currentPhotoIndex] }} 
+                      style={styles.selectedPhotoMain} 
+                    />
+                  )}
                   
-                  {/* Navigation Arrows */}
+                  {/* Navigation Arrows - only for multiple photos */}
                   {selectedPhotos.length > 1 && (
                     <>
                       <TouchableOpacity
@@ -1761,7 +1988,7 @@ export default function FriendsFeedScreen() {
                     </>
                   )}
                   
-                  {/* Photo Indicators */}
+                  {/* Photo Indicators - only for multiple photos */}
                   {selectedPhotos.length > 1 && (
                     <View style={styles.photoIndicators}>
                       {selectedPhotos.map((_, index) => (
@@ -1798,82 +2025,103 @@ export default function FriendsFeedScreen() {
             <View style={styles.gallerySection}>
               <View style={styles.galleryHeader}>
                 <Text style={styles.galleryTitle}>Gallery</Text>
+                
+                {/* Category Menu Dropdown */}
+                <TouchableOpacity
+                  style={styles.categoryMenuButton}
+                  onPress={() => setShowCategoryMenu(!showCategoryMenu)}
+                >
+                  <Text style={styles.categoryMenuText}>
+                    {getCategoryDisplayName(galleryCategory)}
+                  </Text>
+                  <Ionicons 
+                    name={showCategoryMenu ? "chevron-up" : "chevron-down"} 
+                    size={16} 
+                    color="#fff" 
+                  />
+                </TouchableOpacity>
               </View>
               
-              {/* Gallery Category Tabs */}
-              <View style={styles.galleryTabs}>
-                <TouchableOpacity
-                  style={[
-                    styles.galleryTab,
-                    galleryCategory === 'recents' && styles.galleryTabActive
-                  ]}
-                  onPress={() => {
-                    setGalleryCategory('recents');
-                    loadGalleryPhotosByCategory('recents');
-                  }}
-                >
-                  <Text style={[
-                    styles.galleryTabText,
-                    galleryCategory === 'recents' && styles.galleryTabTextActive
-                  ]}>
-                    Recents
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.galleryTab,
-                    galleryCategory === 'favorites' && styles.galleryTabActive
-                  ]}
-                  onPress={() => {
-                    setGalleryCategory('favorites');
-                    loadGalleryPhotosByCategory('favorites');
-                  }}
-                >
-                  <Text style={[
-                    styles.galleryTabText,
-                    galleryCategory === 'favorites' && styles.galleryTabTextActive
-                  ]}>
-                    Favorites
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.galleryTab,
-                    galleryCategory === 'videos' && styles.galleryTabActive
-                  ]}
-                  onPress={() => {
-                    setGalleryCategory('videos');
-                    loadGalleryPhotosByCategory('videos');
-                  }}
-                >
-                  <Text style={[
-                    styles.galleryTabText,
-                    galleryCategory === 'videos' && styles.galleryTabTextActive
-                  ]}>
-                    Videos
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={[
-                    styles.galleryTab,
-                    galleryCategory === 'all' && styles.galleryTabActive
-                  ]}
-                  onPress={() => {
-                    setGalleryCategory('all');
-                    loadGalleryPhotosByCategory('all');
-                  }}
-                >
-                  <Text style={[
-                    styles.galleryTabText,
-                    galleryCategory === 'all' && styles.galleryTabTextActive
-                  ]}>
-                    All Photos
-                  </Text>
-                </TouchableOpacity>
-              </View>
+              {/* Category Menu Dropdown */}
+              {showCategoryMenu && (
+                <View style={styles.categoryMenuDropdown}>
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryMenuItem,
+                      galleryCategory === 'recents' && styles.categoryMenuItemActive
+                    ]}
+                    onPress={() => {
+                      setGalleryCategory('recents');
+                      loadGalleryPhotosByCategory('recents');
+                      setShowCategoryMenu(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.categoryMenuItemText,
+                      galleryCategory === 'recents' && styles.categoryMenuItemTextActive
+                    ]}>
+                      Recents
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryMenuItem,
+                      galleryCategory === 'favorites' && styles.categoryMenuItemActive
+                    ]}
+                    onPress={() => {
+                      setGalleryCategory('favorites');
+                      loadGalleryPhotosByCategory('favorites');
+                      setShowCategoryMenu(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.categoryMenuItemText,
+                      galleryCategory === 'favorites' && styles.categoryMenuItemTextActive
+                    ]}>
+                      Favorites
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryMenuItem,
+                      galleryCategory === 'videos' && styles.categoryMenuItemActive
+                    ]}
+                    onPress={() => {
+                      setGalleryCategory('videos');
+                      loadGalleryPhotosByCategory('videos');
+                      setShowCategoryMenu(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.categoryMenuItemText,
+                      galleryCategory === 'videos' && styles.categoryMenuItemTextActive
+                    ]}>
+                      Videos
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryMenuItem,
+                      galleryCategory === 'all' && styles.categoryMenuItemActive
+                    ]}
+                    onPress={() => {
+                      setGalleryCategory('all');
+                      loadGalleryPhotosByCategory('all');
+                      setShowCategoryMenu(false);
+                    }}
+                  >
+                    <Text style={[
+                      styles.categoryMenuItemText,
+                      galleryCategory === 'all' && styles.categoryMenuItemTextActive
+                    ]}>
+                      All Photos
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               
               {isLoadingGallery ? (
                 <View style={styles.galleryLoading}>
@@ -1888,39 +2136,37 @@ export default function FriendsFeedScreen() {
                         key={index}
                         style={[
                           styles.galleryPhotoItem,
-                          selectedPhotos.includes(photoUri) && styles.galleryPhotoSelected
+                          (galleryCategory === 'videos' ? selectedVideos.includes(photoUri) : selectedPhotos.includes(photoUri)) && styles.galleryPhotoSelected
                         ]}
-                        onPress={() => selectPhotoFromGallery(photoUri)}
+                        onPress={() => {
+                          if (galleryCategory === 'videos') {
+                            selectVideoFromGallery(photoUri);
+                          } else {
+                            selectPhotoFromGallery(photoUri);
+                          }
+                        }}
                         activeOpacity={0.8}
                       >
                         <Image source={{ uri: photoUri }} style={styles.galleryPhoto} />
-                        {selectedPhotos.includes(photoUri) && (
+                        {(galleryCategory === 'videos' ? selectedVideos.includes(photoUri) : selectedPhotos.includes(photoUri)) && (
                           <View style={styles.galleryPhotoOverlay}>
                             <View style={styles.galleryPhotoCheckmark}>
                               <Ionicons name="checkmark-circle" size={20} color="#fff" />
                             </View>
                             <View style={styles.galleryPhotoNumber}>
                               <Text style={styles.galleryPhotoNumberText}>
-                                {selectedPhotos.indexOf(photoUri) + 1}
+                                {galleryCategory === 'videos' ? 1 : selectedPhotos.indexOf(photoUri) + 1}
                               </Text>
                             </View>
                           </View>
                         )}
                         
-                        {/* Favorite Button */}
-                        <TouchableOpacity
-                          style={styles.galleryFavoriteButton}
-                          onPress={(e) => {
-                            e.stopPropagation();
-                            toggleFavorite(photoUri);
-                          }}
-                        >
-                          <Ionicons 
-                            name={favoritePhotos.includes(photoUri) ? "heart" : "heart-outline"} 
-                            size={16} 
-                            color={favoritePhotos.includes(photoUri) ? "#FF3B30" : "#fff"} 
-                          />
-                        </TouchableOpacity>
+                        {/* Video indicator for videos */}
+                        {galleryCategory === 'videos' && (
+                          <View style={styles.videoIndicator}>
+                            <Ionicons name="play" size={12} color="#fff" />
+                          </View>
+                        )}
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -2259,8 +2505,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#F2F2F7',
+    backgroundColor: '#fff',
+    borderBottomWidth: 0,
   },
   modalTitle: {
     fontSize: 18,
@@ -2276,13 +2522,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalContentContainer: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 100, // Increased bottom padding for better keyboard handling
-    flexGrow: 1, // Ensure content can expand
+    paddingHorizontal: 0,
+    paddingTop: 0,
+    paddingBottom: 100,
+    flexGrow: 1,
+    backgroundColor: '#fff',
   },
   selectedPhotosPreview: {
     marginBottom: 24,
+    paddingHorizontal: 20,
   },
   selectedPhotosHeader: {
     flexDirection: 'row',
@@ -2307,6 +2555,36 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  videoPreview: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+    position: 'relative',
+  },
+  videoOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  videoDuration: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    fontFamily: 'Onest',
   },
   navArrow: {
     position: 'absolute',
@@ -2379,48 +2657,70 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA',
   },
   gallerySection: {
-    marginTop: 24,
-    borderTopWidth: 1,
-    borderTopColor: '#F2F2F7',
-    paddingTop: 24,
-  },
-  galleryTabs: {
-    flexDirection: 'row',
-    marginBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F2F2F7',
-  },
-  galleryTab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  galleryTabActive: {
-    borderBottomColor: '#007AFF',
-  },
-  galleryTabText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#8E8E93',
-    fontFamily: 'Onest',
-  },
-  galleryTabTextActive: {
-    color: '#007AFF',
-    fontWeight: '600',
+    marginTop: 0,
+    borderTopWidth: 0,
+    paddingTop: 0,
+    backgroundColor: '#fff',
   },
   galleryHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
+    paddingHorizontal: 20,
   },
   galleryTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
     fontFamily: 'Onest',
+  },
+  categoryMenuButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F2F2F7',
+    borderRadius: 8,
+  },
+  categoryMenuText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#000',
+    fontFamily: 'Onest',
+  },
+  categoryMenuDropdown: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    paddingVertical: 4,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  categoryMenuItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minWidth: 120,
+  },
+  categoryMenuItemActive: {
+    backgroundColor: '#F2F2F7',
+  },
+  categoryMenuItemText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#000',
+    fontFamily: 'Onest',
+  },
+  categoryMenuItemTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
   },
   gallerySubtitle: {
     fontSize: 14,
@@ -2454,19 +2754,18 @@ const styles = StyleSheet.create({
   galleryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 2, // No gap between photos
+    backgroundColor: '#fff',
+    gap: 1, // Thin white spacing like Instagram
   },
   galleryPhotoItem: {
-    width: (Dimensions.get('window').width - 50) / 5, // 5 columns with no spacing
-    height: (Dimensions.get('window').width - 50) / 5, // Square aspect ratio
-    borderRadius: 4, // No rounded corners
+    width: ((Dimensions.get('window').width) - 4) / 5, // 5 columns accounting for gaps
+    height: ((Dimensions.get('window').width) - 4) / 5, // Square aspect ratio
     overflow: 'hidden',
     position: 'relative',
-    marginBottom: 1, // No margin between rows
   },
   galleryPhotoSelected: {
     borderWidth: 3,
-    borderColor: '#34C759',
+    borderColor: '#007AFF',
   },
   galleryPhoto: {
     width: '100%',
@@ -2475,11 +2774,14 @@ const styles = StyleSheet.create({
   },
   galleryPhotoCheckmark: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(52, 199, 89, 0.9)',
-    borderRadius: 10,
-    padding: 2,
+    top: 8,
+    right: 8,
+    backgroundColor: '#007AFF',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   galleryPhotoOverlay: {
     position: 'absolute',
@@ -2487,17 +2789,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(52, 199, 89, 0.3)',
+    backgroundColor: 'rgba(0, 122, 255, 0.3)',
     justifyContent: 'space-between',
-    padding: 4,
+    padding: 8,
   },
   galleryPhotoNumber: {
     position: 'absolute',
-    top: 4,
-    left: 4,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    top: 8,
+    left: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: '#007AFF',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2508,13 +2810,16 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontFamily: 'Onest',
   },
-  galleryFavoriteButton: {
+  videoIndicator: {
     position: 'absolute',
-    top: 4,
-    right: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
     borderRadius: 12,
-    padding: 4,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
     zIndex: 10,
   },
   loadMoreButton: {
@@ -2592,17 +2897,20 @@ const styles = StyleSheet.create({
   },
   captionSection: {
     marginTop: 24,
-    marginBottom: 24,
+    marginBottom: 0, // Removed gap completely for maximum connection
+    paddingHorizontal: 20,
   },
   captionInput: {
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 0,
+    padding: 0,
     fontSize: 16,
     fontFamily: 'Onest',
     minHeight: 100,
     textAlignVertical: 'top',
     marginBottom: 8,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: 'transparent',
+    color: '#000',
+    borderWidth: 0,
   },
   captionFooter: {
     flexDirection: 'row',

@@ -1,10 +1,10 @@
--- Fix Friends Feed Function - Restore SECURITY DEFINER but keep friendship filtering
--- The issue is that removing SECURITY DEFINER made the function subject to RLS policies
+-- Fix Friends Feed Privacy - Remove SECURITY DEFINER to ensure RLS works
+-- The issue might be that SECURITY DEFINER bypasses RLS policies
 
 -- Drop the existing function
 DROP FUNCTION IF EXISTS public.get_friends_photo_shares_with_privacy(current_user_id uuid, limit_count integer);
 
--- Create the corrected function WITH SECURITY DEFINER but proper friendship filtering
+-- Create the corrected function WITHOUT SECURITY DEFINER
 CREATE OR REPLACE FUNCTION public.get_friends_photo_shares_with_privacy(current_user_id uuid, limit_count integer DEFAULT 20)
 RETURNS TABLE (
   update_id uuid,
@@ -21,7 +21,7 @@ RETURNS TABLE (
   created_at timestamp with time zone
 )
 LANGUAGE plpgsql
-SECURITY DEFINER -- Restore this to bypass RLS
+-- REMOVED: SECURITY DEFINER (this was bypassing RLS)
 AS $$
 BEGIN
   RETURN QUERY
@@ -74,40 +74,3 @@ $$;
 
 -- Grant execute permission
 GRANT EXECUTE ON FUNCTION public.get_friends_photo_shares_with_privacy(uuid, integer) TO authenticated;
-
--- Test the updated function
--- Replace 'YOUR_USER_ID' with your actual user ID to test
-SELECT 'Testing updated friends feed function:' as info;
-SELECT 
-    update_id,
-    user_name,
-    user_username,
-    photo_url,
-    caption,
-    source_type,
-    source_title,
-    created_at
-FROM get_friends_photo_shares_with_privacy(
-    'YOUR_USER_ID'::UUID, -- Replace with your actual user ID
-    10
-)
-ORDER BY created_at DESC;
-
--- Show all photo shares in the database for verification
-SELECT 'All photo shares in database:' as info;
-SELECT 
-    su.id,
-    su.user_id,
-    p.full_name as user_name,
-    p.username as user_username,
-    su.type,
-    su.photo_url,
-    su.caption,
-    su.source_type,
-    su.source_id,
-    su.is_public,
-    su.created_at
-FROM social_updates su
-JOIN profiles p ON su.user_id = p.id
-WHERE su.type = 'photo_share'
-ORDER BY su.created_at DESC; 
