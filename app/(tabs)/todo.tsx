@@ -239,6 +239,7 @@ export default function TodoScreen() {
 
   const [user, setUser] = useState<User | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [forceUpdate, setForceUpdate] = useState(0);
 
   // Initialize notifications for todo screen
   useEffect(() => {
@@ -436,49 +437,19 @@ export default function TodoScreen() {
       }
     };
 
-    // Check for date changes every minute when app is active
-    const checkDateChange = () => {
-      const now = moment().startOf('day');
-      const nowStr = now.format('YYYY-MM-DD');
-      const currentTime = moment().format('HH:mm:ss');
-      const currentHour = now.hour();
-      const currentMinute = now.minute();
-      
-      // Check if it's midnight (12:00-12:05 AM) and we haven't run today
-      const isMidnight = currentHour === 0 && currentMinute <= 5;
-      const shouldRun = lastRunDateRef.current !== nowStr;
-      
-      if (shouldRun) {
-        console.log('🔄 [Todo] Date change detected, running auto-move tasks');
-        checkAndMoveTasksIfNeeded(user.id);
-        lastRunDateRef.current = nowStr;
-      } else if (isMidnight && lastRunDateRef.current === nowStr) {
-        // If it's midnight and we haven't moved tasks yet today, force a check
-        console.log('🔄 [Todo] Midnight detected, checking if tasks need to be moved');
-        checkAndMoveTasksIfNeeded(user.id);
-      }
-    };
-
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       handleAppStateChange(nextAppState).catch(error => {
         console.error('❌ Error in AppState change handler:', error);
       });
     });
     
-    // Set up interval to check for date changes every minute
-    const intervalId = setInterval(checkDateChange, 60000); // Check every minute
-    
     // Run once on mount
     handleAppStateChange('active').catch(error => {
       console.error('❌ Error in initial AppState check:', error);
     });
     
-    // Also check for task movement on mount
-    checkAndMoveTasksIfNeeded(user.id);
-    
     return () => {
       subscription.remove();
-      clearInterval(intervalId);
     };
   }, [user]);
 
@@ -512,7 +483,20 @@ export default function TodoScreen() {
         const { data, error } = await supabase
           .from('todos')
           .select(`
-            *,
+            id,
+            text,
+            description,
+            completed,
+            category_id,
+            date,
+            repeat,
+            repeat_end_date,
+            reminder_time,
+            auto_move,
+            custom_repeat_dates,
+            created_at,
+            updated_at,
+            user_id,
             category:category_id (
               id,
               label,
@@ -531,15 +515,47 @@ export default function TodoScreen() {
         console.log('🗑️ [Fetch] Current date string for filtering:', currentDateString);
         console.log('🗑️ [Fetch] Current date object:', currentDate);
         
+        console.log('🔍 [Debug] Raw database result sample:', result[0]);
+        console.log('🔍 [Debug] Raw auto_move field:', result[0]?.auto_move);
+        console.log('🔍 [Debug] Raw auto_move type:', typeof result[0]?.auto_move);
+        console.log('🔍 [Debug] Raw auto_move === true:', result[0]?.auto_move === true);
+        console.log('🔍 [Debug] Raw auto_move === "true":', result[0]?.auto_move === "true");
+        console.log('🔍 [Debug] All tasks with auto_move=true:', result.filter((task: any) => task.auto_move === true));
+        console.log('🔍 [Debug] All tasks with auto_move="true":', result.filter((task: any) => task.auto_move === "true"));
+        console.log('🔍 [Debug] All tasks with truthy auto_move:', result.filter((task: any) => !!task.auto_move));
+        
+        // Debug specific "gather" task
+        const gatherTask = result.find((task: any) => task.text?.toLowerCase().includes('gather'));
+        if (gatherTask) {
+          console.log('🎯 [Gather Debug] Found gather task:', gatherTask.text);
+          console.log('🎯 [Gather Debug] Raw auto_move:', gatherTask.auto_move, 'type:', typeof gatherTask.auto_move);
+          console.log('🎯 [Gather Debug] auto_move === true:', gatherTask.auto_move === true);
+          console.log('🎯 [Gather Debug] auto_move === "true":', gatherTask.auto_move === "true");
+          console.log('🎯 [Gather Debug] auto_move === 1:', gatherTask.auto_move === 1);
+          console.log('🎯 [Gather Debug] !!auto_move:', !!gatherTask.auto_move);
+        }
+        
         const mappedTasks = result
           .map((task: any) => ({
             ...task,
             date: task.date ? new Date(task.date) : new Date(),
             repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
             reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
-            autoMove: task.auto_move || false,
+            autoMove: task.auto_move === true || task.auto_move === "true" || task.auto_move === 1,
             category: task.category || null, // category object from join
           }));
+        
+        console.log('🔍 [Debug] Mapped task sample:', mappedTasks[0]);
+        console.log('🔍 [Debug] Mapped autoMove field:', mappedTasks[0]?.autoMove);
+        console.log('🔍 [Debug] All mapped tasks with autoMove=true:', mappedTasks.filter((task: any) => task.autoMove === true));
+        
+        // Debug specific "gather" task after mapping
+        const mappedGatherTask = mappedTasks.find((task: any) => task.text?.toLowerCase().includes('gather'));
+        if (mappedGatherTask) {
+          console.log('🎯 [Gather Mapped] Found mapped gather task:', mappedGatherTask.text);
+          console.log('🎯 [Gather Mapped] Mapped autoMove:', mappedGatherTask.autoMove, 'type:', typeof mappedGatherTask.autoMove);
+          console.log('🎯 [Gather Mapped] autoMove === true:', mappedGatherTask.autoMove === true);
+        }
         
         setTodos(mappedTasks);
         updateData('todos', mappedTasks);
@@ -854,6 +870,60 @@ export default function TodoScreen() {
   const [taskDate, setTaskDate] = useState<Date | null>(null);
   const [modalAutoRollover, setModalAutoRollover] = useState(false);
   
+  // Load saved auto-move preference on component mount
+  useEffect(() => {
+    const loadAutoMovePreference = async () => {
+      try {
+        const savedPreference = await AsyncStorage.getItem('modalAutoRollover');
+        console.log('🔍 [Toggle] Raw saved preference:', savedPreference);
+        if (savedPreference !== null) {
+          const parsedValue = JSON.parse(savedPreference);
+          setModalAutoRollover(parsedValue);
+          console.log('✅ [Toggle] Loaded auto-move preference:', parsedValue, 'type:', typeof parsedValue);
+        } else {
+          // Default to false if no preference is saved
+          setModalAutoRollover(false);
+          console.log('✅ [Toggle] Set default auto-move preference: false (no saved preference)');
+        }
+      } catch (error) {
+        console.error('❌ [Toggle] Error loading auto-move preference:', error);
+        setModalAutoRollover(false);
+      }
+    };
+
+    loadAutoMovePreference();
+  }, []);
+
+  // Force refresh todos to get auto_move data on mount
+  useEffect(() => {
+    if (user?.id) {
+      console.log('🔄 [Auto-Move] Force refreshing todos to get auto_move data');
+      fetchTodosOnly(user);
+    }
+  }, [user?.id]);
+
+  // Save auto-move preference whenever it changes
+  const saveAutoMovePreference = async (value: boolean) => {
+    try {
+      await AsyncStorage.setItem('modalAutoRollover', JSON.stringify(value));
+      console.log('✅ [Toggle] Saved auto-move preference:', value, 'type:', typeof value);
+    } catch (error) {
+      console.error('❌ [Toggle] Error saving auto-move preference:', error);
+    }
+  };
+  
+  // Debug: Monitor modalAutoRollover changes
+  useEffect(() => {
+    console.log('🔄 [Toggle] modalAutoRollover state changed to:', modalAutoRollover, 'type:', typeof modalAutoRollover);
+  }, [modalAutoRollover]);
+
+  // Debug: Monitor todos state changes
+  useEffect(() => {
+    console.log('📋 [Todos] Todos state changed, count:', todos.length);
+    console.log('📋 [Todos] Tasks with autoMove=true:', todos.filter(todo => todo.autoMove === true).length);
+    console.log('📋 [Todos] Sample todo autoMove:', todos[0]?.autoMove, 'type:', typeof todos[0]?.autoMove);
+  }, [todos]);
+  
   // Debug: Monitor taskDate changes
   useEffect(() => {
     console.log('📅 taskDate state changed to:', taskDate);
@@ -932,8 +1002,6 @@ export default function TodoScreen() {
   const lastMidnightCheckRef = useRef<Date>(new Date());
   const [appState, setAppState] = useState('active');
   
-  // Configurable auto-move time (default: 12:00 AM)
-  const [autoMoveTime, setAutoMoveTime] = useState({ hour: 0, minute: 0 }); // 12:00 AM (midnight)
 
   // Add timeout refs for debouncing picker closes
   const timeoutRefs = {
@@ -977,38 +1045,6 @@ export default function TodoScreen() {
   const [isNewHabitModalVisible, setIsNewHabitModalVisible] = useState(false);
   const [newHabit, setNewHabit] = useState('');
   const [quickAddText, setQuickAddText] = useState('');
-  const [quickAddAutoRollover, setQuickAddAutoRollover] = useState(true);
-
-  // Load saved auto-rollover preference on component mount
-  useEffect(() => {
-    const loadAutoRolloverPreference = async () => {
-      try {
-        const savedPreference = await AsyncStorage.getItem('quickAddAutoRollover');
-              if (savedPreference !== null) {
-        setQuickAddAutoRollover(JSON.parse(savedPreference));
-        console.log('✅ Loaded auto-rollover preference:', JSON.parse(savedPreference));
-      } else {
-        // Default to true if no preference is saved
-        setQuickAddAutoRollover(true);
-        console.log('✅ Set default auto-rollover preference: true');
-      }
-      } catch (error) {
-        console.error('❌ Error loading auto-rollover preference:', error);
-      }
-    };
-
-    loadAutoRolloverPreference();
-  }, []);
-
-  // Save auto-rollover preference whenever it changes
-  const saveAutoRolloverPreference = async (value: boolean) => {
-    try {
-      await AsyncStorage.setItem('quickAddAutoRollover', JSON.stringify(value));
-      console.log('✅ Saved auto-rollover preference:', value);
-    } catch (error) {
-      console.error('❌ Error saving auto-rollover preference:', error);
-    }
-  };
   const [isQuickAdding, setIsQuickAdding] = useState(false);
   const quickAddInputRef = useRef<TextInput>(null);
   const [newHabitDescription, setNewHabitDescription] = useState('');
@@ -1215,10 +1251,6 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
-    // Only reset auto-rollover if we're not editing a task
-    if (!editingTodo) {
-      setModalAutoRollover(true); // Default to true for new tasks
-    }
     // Clear the quick add text so it's ready for the next task
     setQuickAddText('');
   };
@@ -1350,24 +1382,29 @@ export default function TodoScreen() {
       updateData('todos', [newTodoItem, ...todos]);
       
       // Save task to Supabase
+      console.log('💾 [Create] Creating task with autoMove:', modalAutoRollover);
+      console.log('💾 [Create] Database auto_move value:', modalAutoRollover);
+      
+      const insertData = {
+        id: newTodoItem.id,
+        text: newTodoItem.text,
+        description: newTodoItem.description,
+        completed: newTodoItem.completed,
+        category_id: newTodoItem.categoryId,
+        date: newTodoItem.date.toISOString(),
+        repeat: newTodoItem.repeat,
+        repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
+        user_id: user.id,
+        reminder_time: newTodoItem.reminderTime?.toISOString(),
+        auto_move: modalAutoRollover,
+        custom_repeat_dates: selectedRepeat === 'custom'
+          ? customSelectedDates
+          : null,
+      };
+      
       const { error: taskError } = await supabase
         .from('todos')
-        .insert({
-          id: newTodoItem.id,
-          text: newTodoItem.text,
-          description: newTodoItem.description,
-          completed: newTodoItem.completed,
-          category_id: newTodoItem.categoryId,
-          date: newTodoItem.date.toISOString(),
-          repeat: newTodoItem.repeat,
-          repeat_end_date: newTodoItem.repeatEndDate?.toISOString(),
-          user_id: user.id,
-          reminder_time: newTodoItem.reminderTime?.toISOString(),
-          auto_move: modalAutoRollover,
-          custom_repeat_dates: selectedRepeat === 'custom'
-            ? customSelectedDates
-            : null,
-        });
+        .insert(insertData);
       
       if (taskError) {
         console.error('Error saving task:', taskError);
@@ -1517,23 +1554,26 @@ export default function TodoScreen() {
         // Update task in Supabase if user is logged in
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          console.log('💾 [Edit Save] About to update database with reminder_time:', updatedTodo.reminderTime?.toISOString());
+          console.log('✏️ [Edit] Updating task with autoMove:', modalAutoRollover);
+          console.log('✏️ [Edit] Database auto_move value:', modalAutoRollover);
+          
+          const updateData = {
+            text: updatedTodo.text,
+            description: updatedTodo.description,
+            category_id: updatedTodo.categoryId,
+            date: updatedTodo.date.toISOString(),
+            repeat: updatedTodo.repeat,
+            repeat_end_date: updatedTodo.repeatEndDate?.toISOString(),
+            reminder_time: updatedTodo.reminderTime?.toISOString(),
+            auto_move: modalAutoRollover,
+            custom_repeat_dates: selectedRepeat === 'custom'
+              ? customSelectedDates
+              : null,
+          };
           
           const { error } = await supabase
             .from('todos')
-            .update({
-              text: updatedTodo.text,
-              description: updatedTodo.description,
-              category_id: updatedTodo.categoryId,
-              date: updatedTodo.date.toISOString(),
-              repeat: updatedTodo.repeat,
-              repeat_end_date: updatedTodo.repeatEndDate?.toISOString(),
-              reminder_time: updatedTodo.reminderTime?.toISOString(),
-              auto_move: modalAutoRollover,
-              custom_repeat_dates: selectedRepeat === 'custom'
-                ? customSelectedDates
-                : null,
-            })
+            .update(updateData)
             .eq('id', updatedTodo.id)
             .eq('user_id', user.id);
           
@@ -1991,8 +2031,8 @@ export default function TodoScreen() {
         return updatedHabits;
       });
 
-      // Force a re-render to ensure all UI elements update
-      setCurrentDate(new Date());
+      // Force a re-render by updating a dummy state (without changing the current date)
+      setForceUpdate(prev => prev + 1);
 
       // Show success feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -2045,8 +2085,8 @@ export default function TodoScreen() {
         return updatedHabits;
       });
 
-      // Force a re-render to ensure all UI elements update
-      setCurrentDate(new Date());
+      // Force a re-render by updating a dummy state (without changing the current date)
+      setForceUpdate(prev => prev + 1);
 
       // Show success feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -2193,8 +2233,8 @@ export default function TodoScreen() {
           : habit
       ));
 
-      // Force a re-render to ensure all UI elements update
-      setCurrentDate(new Date());
+      // Force a re-render by updating a dummy state (without changing the current date)
+      setForceUpdate(prev => prev + 1);
 
       // Automatically share photo to friends feed (like events do)
       if (user?.id) {
@@ -2327,8 +2367,8 @@ export default function TodoScreen() {
           : habit
       ));
 
-      // Force a re-render to ensure all UI elements update
-      setCurrentDate(new Date());
+      // Force a re-render by updating a dummy state (without changing the current date)
+      setForceUpdate(prev => prev + 1);
       
       // Provide haptic feedback
       if (Platform.OS !== 'web') {
@@ -2642,6 +2682,20 @@ export default function TodoScreen() {
   };
 
   const renderTodoItem = (todo: Todo) => {
+    // Debug: Log auto-move status for each task
+    console.log('🎯 [Render] Task:', todo.text, 'autoMove:', todo.autoMove, 'type:', typeof todo.autoMove);
+    console.log('🎯 [Render] Should show icon?', todo.autoMove === true);
+    console.log('🎯 [Render] Task ID:', todo.id, 'Raw autoMove value:', todo.autoMove);
+    
+    // Special debug for "gather" task
+    if (todo.text?.toLowerCase().includes('gather')) {
+      console.log('🎯 [Gather Render] GATHER TASK RENDERING:');
+      console.log('🎯 [Gather Render] Text:', todo.text);
+      console.log('🎯 [Gather Render] autoMove:', todo.autoMove, 'type:', typeof todo.autoMove);
+      console.log('🎯 [Gather Render] autoMove === true:', todo.autoMove === true);
+      console.log('🎯 [Gather Render] Will show icon?', todo.autoMove && true);
+    }
+    
     const handleDelete = async () => {
       try {
         // Get the current user
@@ -2772,9 +2826,19 @@ export default function TodoScreen() {
         setReminderTime(todo.reminderTime || null);
         setSelectedRepeat(todo.repeat || 'none');
         setRepeatEndDate(todo.repeatEndDate || null);
-        setModalAutoRollover(todo.autoMove || false);
+        // Set modalAutoRollover to the specific task's auto-move setting for editing
+        setModalAutoRollover(todo.autoMove === true);
+        console.log('✏️ [Edit] Loading task autoMove:', todo.autoMove, 'type:', typeof todo.autoMove);
+        console.log('✏️ [Edit] Setting modalAutoRollover to task value:', todo.autoMove === true);
         
-        console.log('✏️ [Edit] Set reminderTime state to:', todo.reminderTime || null);
+        // Special debug for "gather" task
+        if (todo.text?.toLowerCase().includes('gather')) {
+          console.log('🎯 [Gather Edit] EDITING GATHER TASK:');
+          console.log('🎯 [Gather Edit] Text:', todo.text);
+          console.log('🎯 [Gather Edit] autoMove:', todo.autoMove, 'type:', typeof todo.autoMove);
+          console.log('🎯 [Gather Edit] autoMove === true:', todo.autoMove === true);
+          console.log('🎯 [Gather Edit] Setting modalAutoRollover to:', todo.autoMove === true);
+        }
         if (todo.repeat === 'custom' && todo.customRepeatDates) {
           setCustomSelectedDates(todo.customRepeatDates.map(date => date.toISOString().split('T')[0]));
         }
@@ -2876,6 +2940,7 @@ export default function TodoScreen() {
             elevation: 5,
           },
         ]}
+        delayLongPress={200}
         onPress={() => {
           // Handle double-click for task editing
           const now = Date.now();
@@ -3149,7 +3214,11 @@ export default function TodoScreen() {
 
   // Add these memoized functions near the top of the component, after the state declarations
   const filteredTodos = useMemo(() => {
-    return (todos || []).filter(todo => doesTodoBelongToday(todo, currentDate));
+    const filtered = (todos || []).filter(todo => doesTodoBelongToday(todo, currentDate));
+    console.log('🔍 [Filtered] Filtered todos count:', filtered.length);
+    console.log('🔍 [Filtered] Tasks with autoMove=true:', filtered.filter(todo => todo.autoMove === true).length);
+    console.log('🔍 [Filtered] Sample filtered todo autoMove:', filtered[0]?.autoMove, 'type:', typeof filtered[0]?.autoMove);
+    return filtered;
   }, [todos, currentDate]);
 
   const categorizedTodos = useMemo(() => {
@@ -3183,7 +3252,9 @@ export default function TodoScreen() {
         tasksWithoutCategory: filteredTodos.filter(t => !(t as any).category?.id).length,
         uncategorizedCount: result['uncategorized'].length,
         completedCount: result['completed'].length,
-        categorizedCount: Object.keys(result).filter(key => key !== 'uncategorized' && key !== 'completed').reduce((sum, key) => sum + result[key].length, 0)
+        categorizedCount: Object.keys(result).filter(key => key !== 'uncategorized' && key !== 'completed').reduce((sum, key) => sum + result[key].length, 0),
+        tasksWithAutoMove: filteredTodos.filter(t => t.autoMove === true).length,
+        uncategorizedWithAutoMove: result['uncategorized'].filter(t => t.autoMove === true).length
       });
     }
     
@@ -3257,13 +3328,39 @@ export default function TodoScreen() {
         });
       
         if (result) {
+          console.log('🔍 [Debug] Raw database result sample:', result[0]);
+          console.log('🔍 [Debug] Sample task auto_move value:', result[0]?.auto_move);
+          console.log('🔍 [Debug] Sample task auto_move type:', typeof result[0]?.auto_move);
+          console.log('🔍 [Debug] Sample task auto_move === true:', result[0]?.auto_move === true);
+          
+          // Debug specific "gather" task
+          const gatherTask = result.find((task: any) => task.text?.toLowerCase().includes('gather'));
+          if (gatherTask) {
+            console.log('🎯 [Gather Debug] Found gather task:', gatherTask.text);
+            console.log('🎯 [Gather Debug] Raw auto_move:', gatherTask.auto_move, 'type:', typeof gatherTask.auto_move);
+            console.log('🎯 [Gather Debug] auto_move === true:', gatherTask.auto_move === true);
+          }
+          
           const mappedTasks = result.map((task: any) => ({
             ...task,
             date: task.date ? new Date(task.date) : new Date(),
             repeatEndDate: task.repeat_end_date ? new Date(task.repeat_end_date) : null,
             reminderTime: task.reminder_time ? new Date(task.reminder_time) : null,
             category: task.category || null, // category object from join
+            autoMove: task.auto_move === true || task.auto_move === "true" || task.auto_move === 1, // Map database field to frontend field
           }));
+          
+          console.log('🔍 [Debug] Mapped task sample:', mappedTasks[0]);
+          console.log('🔍 [Debug] Sample mapped autoMove value:', mappedTasks[0]?.autoMove);
+          console.log('🔍 [Debug] All mapped tasks with autoMove=true:', mappedTasks.filter((task: any) => task.autoMove === true));
+          
+          // Debug specific "gather" task after mapping
+          const mappedGatherTask = mappedTasks.find((task: any) => task.text?.toLowerCase().includes('gather'));
+          if (mappedGatherTask) {
+            console.log('🎯 [Gather Mapped] Found mapped gather task:', mappedGatherTask.text);
+            console.log('🎯 [Gather Mapped] Mapped autoMove:', mappedGatherTask.autoMove, 'type:', typeof mappedGatherTask.autoMove);
+            console.log('🎯 [Gather Mapped] autoMove === true:', mappedGatherTask.autoMove === true);
+          }
           
           setTodos(mappedTasks);
           updateData('todos', mappedTasks);
@@ -3608,6 +3705,11 @@ export default function TodoScreen() {
   
   const hideModal = () => {
     setIsNewTaskModalVisible(false);
+    
+    // Reset modalAutoRollover to default when creating new tasks
+    setModalAutoRollover(false);
+    console.log('🔄 [Hide Modal] Reset auto-move toggle for new task creation');
+    
     // Reset form when modal is closed
     setNewTodo('');
     setNewDescription('');
@@ -3661,7 +3763,6 @@ export default function TodoScreen() {
     setSelectedWeekDays([]);
     setSelectedFriends([]);
     setSearchFriend('');
-    setModalAutoRollover(quickAddAutoRollover); // Pass the quick add auto-rollover setting
     
     // Clear the quick add input since we're moving to the modal
     setQuickAddText('');
@@ -3687,11 +3788,14 @@ export default function TodoScreen() {
         reminderTime: null,
         photo: undefined,
         deletedInstances: [],
-        autoMove: quickAddAutoRollover,
+        autoMove: modalAutoRollover,
         sharedFriends: [],
       };
 
       // Save to Supabase
+      console.log('⚡ [Quick Add] Creating task with autoMove:', modalAutoRollover);
+      console.log('⚡ [Quick Add] Database auto_move value:', modalAutoRollover);
+      
       const { error } = await supabase
         .from('todos')
         .insert({
@@ -3705,7 +3809,7 @@ export default function TodoScreen() {
           custom_repeat_dates: newTodoItem.customRepeatDates?.map(date => date.toISOString()) || [],
           repeat_end_date: newTodoItem.repeatEndDate?.toISOString() || null,
           reminder_time: newTodoItem.reminderTime?.toISOString() || null,
-          auto_move: newTodoItem.autoMove,
+          auto_move: modalAutoRollover,
           photo: newTodoItem.photo || undefined,
           deleted_instances: newTodoItem.deletedInstances || [],
           user_id: user.id,
@@ -3905,7 +4009,20 @@ export default function TodoScreen() {
 
   // Use preloaded data from DataContext
   useEffect(() => {
-    if (user && appData.isPreloaded && !isDeleting) {
+    // Check if preloaded data has autoMove field
+    const hasAutoMoveField = appData.todos && appData.todos.length > 0 && 
+      appData.todos.some((todo: any) => 'autoMove' in todo);
+    
+    console.log('🔄 [Preloaded] Checking preloaded data:', {
+      isPreloaded: appData.isPreloaded,
+      todosCount: appData.todos?.length || 0,
+      hasAutoMoveField,
+      sampleTodo: appData.todos?.[0]
+    });
+    
+    if (user && appData.isPreloaded && !isDeleting && hasAutoMoveField) {
+      console.log('🔄 [Preloaded] Using preloaded data with autoMove field');
+      
       // Update local state with preloaded data
       if (appData.todos) {
         
@@ -3920,7 +4037,13 @@ export default function TodoScreen() {
             deletedInstances: todo.deletedInstances || [],
             photo: todo.photo || undefined,
             category: (todo as any).category || null, // Preserve category object from preloaded data
+            autoMove: todo.autoMove === true || (todo as any).autoMove === "true" || (todo as any).autoMove === 1, // Ensure autoMove is properly mapped
           }));
+        
+        console.log('🔄 [Preloaded] Processing preloaded todos:', appData.todos.length);
+        console.log('🔄 [Preloaded] Sample preloaded todo autoMove:', appData.todos[0]?.autoMove, 'type:', typeof appData.todos[0]?.autoMove);
+        console.log('🔄 [Preloaded] Sample processed todo autoMove:', processedTodos[0]?.autoMove, 'type:', typeof processedTodos[0]?.autoMove);
+        console.log('🔄 [Preloaded] Tasks with autoMove=true:', processedTodos.filter(todo => todo.autoMove === true).length);
         
         setTodos(processedTodos);
         
@@ -4043,9 +4166,10 @@ export default function TodoScreen() {
       
       setLastRefreshTime(new Date());
       setIsLoading(false);
-    } else if (user && !appData.isPreloaded && !isLoading) {
-      // Only fetch if data is not preloaded and we're not already loading
-      console.log('🔄 [Todo] Fetching data - not preloaded and not loading');
+    } else if (user && !isLoading) {
+      // Force fetch to get auto_move data (either no preloaded data or missing autoMove field)
+      console.log('🔄 [Todo] Force fetching data to get auto_move field');
+      console.log('🔄 [Todo] Reason: isPreloaded=', appData.isPreloaded, 'hasAutoMoveField=', hasAutoMoveField);
       fetchData(user);
     } else {
       console.log('🔄 [Todo] No fetch triggered:', {
@@ -4657,19 +4781,7 @@ export default function TodoScreen() {
     );
   };
 
-  // Function to set auto-move time
-  const setAutoMoveTimeHandler = (hour: number, minute: number) => {
-    setAutoMoveTime({ hour, minute });
-    console.log(`🕛 Auto-move time set to ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
-  };
 
-  // Function to manually trigger auto-move (for testing)
-  const triggerAutoMove = () => {
-    console.log('🕛 Manually triggering auto-move');
-    moveTasksToNextDay();
-  };
-
-  // NEW IMPLEMENTATION: Move tasks to next day at 12:40 AM
   const moveTasksToNextDay = async () => {
     console.log('🕛 ===== NEW AUTO-MOVE: Starting task movement =====');
     console.log('🕛 Function entered successfully');
@@ -4801,43 +4913,82 @@ export default function TodoScreen() {
     }
   };
 
-  // Test function to manually trigger auto-move
-  const testAutoMove = () => {
-    console.log('🕛 ===== MANUAL TEST: testAutoMove called =====');
-    console.log('🕛 About to call moveTasksToNextDay...');
-    
-    // Reset the "moved today" flag for testing
-    lastMidnightCheckRef.current = new Date(0); // Reset to epoch time
-    console.log('🕛 Reset lastMidnightCheckRef for testing');
-    
-    moveTasksToNextDay().then(() => {
-      console.log('🕛 moveTasksToNextDay completed');
-    }).catch((error) => {
-      console.error('🕛 Error in moveTasksToNextDay:', error);
-    });
+
+
+  // AUTO-MOVE: Move incomplete tasks with auto-move enabled to next day at midnight
+  const moveAutoMoveTasks = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get current date (end of today)
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      
+      // Get tomorrow's date (start of tomorrow)
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+
+      // Find incomplete tasks with auto-move enabled that are due today or earlier
+      const { data: tasksToMove, error } = await supabase
+        .from('todos')
+        .select('id, text')
+        .eq('user_id', user.id)
+        .eq('completed', false)
+        .eq('auto_move', true)
+        .lte('date', today.toISOString());
+
+      if (error) {
+        console.error('Error fetching auto-move tasks:', error);
+        return;
+      }
+
+      if (!tasksToMove || tasksToMove.length === 0) {
+        console.log('No auto-move tasks to move');
+        return;
+      }
+
+      // Move tasks to tomorrow
+      const { error: updateError } = await supabase
+        .from('todos')
+        .update({ date: tomorrow.toISOString() })
+        .in('id', tasksToMove.map(task => task.id));
+
+      if (updateError) {
+        console.error('Error moving auto-move tasks:', updateError);
+        return;
+      }
+
+      console.log(`✅ Moved ${tasksToMove.length} auto-move tasks to tomorrow`);
+      
+      // Refresh the todos list
+      await fetchTodosOnly();
+      
+    } catch (error) {
+      console.error('Error in moveAutoMoveTasks:', error);
+    }
   };
 
-  // MIDNIGHT AUTO-MOVE: Automatically move tasks at 12:00 AM (midnight)
+  // Auto-Move Scheduler: Check every minute and move tasks at midnight
   useEffect(() => {
-    const checkAndTriggerAutoMove = () => {
+    const checkAutoMove = () => {
       const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
       
-      console.log(`🕛 Midnight auto-move check at ${currentHour}:${currentMinute.toString().padStart(2, '0')}`);
-      
-      // Check if it's exactly 12:00 AM (midnight)
-      if (currentHour === 0 && currentMinute === 0) {
-        console.log('🕛 ===== MIDNIGHT AUTO-MOVE: TRIGGERING AT 12:00 AM =====');
-        testAutoMove(); // Automatically call the test function
+      // Move tasks at exactly midnight (12:00 AM)
+      if (hour === 0 && minute === 0) {
+        console.log('🕛 Midnight reached - triggering auto-move');
+        moveAutoMoveTasks();
       }
     };
-    
+
     // Check immediately
-    checkAndTriggerAutoMove();
+    checkAutoMove();
     
-    // Set up interval to check every 30 seconds for precise midnight detection
-    const interval = setInterval(checkAndTriggerAutoMove, 30000);
+    // Check every minute
+    const interval = setInterval(checkAutoMove, 60000);
     
     return () => clearInterval(interval);
   }, []);
@@ -5480,26 +5631,27 @@ export default function TodoScreen() {
             </TouchableOpacity>
             </View>
 
-            {/* DEBUG: Test Auto-Move Button - HIDDEN */}
-            {/* <TouchableOpacity
-              onPress={testAutoMove}
+            {/* DEBUG: Test Auto-Move Button */}
+            <TouchableOpacity
+              onPress={moveAutoMoveTasks}
               style={{
-                backgroundColor: '#FF6B6B',
-                paddingHorizontal: 8,
-                paddingVertical: 4,
-                borderRadius: 4,
-                marginLeft: 10,
+                backgroundColor: Colors.light.accent,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                borderRadius: 8,
+                marginBottom: 16,
+                alignSelf: 'center',
               }}
             >
               <Text style={{
                 color: 'white',
-                fontSize: 10,
-                fontWeight: '500',
+                fontSize: 14,
+                fontWeight: '600',
                 fontFamily: 'Onest',
               }}>
-                Test Move
+                Test Auto-Move
               </Text>
-            </TouchableOpacity> */}
+            </TouchableOpacity>
 
             {/* Tasks and Habits Icons */}
             <View style={{
@@ -6232,36 +6384,36 @@ export default function TodoScreen() {
                   }}
                 />
                 
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  
-                  {/* Auto-rollover toggle button */}
-                  <TouchableOpacity
-                    onPress={() => {
-                      const newValue = !quickAddAutoRollover;
-                      setQuickAddAutoRollover(newValue);
-                      saveAutoRolloverPreference(newValue);
-                      if (Platform.OS !== 'web') {
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }
-                    }}
-                    style={{
-                      paddingHorizontal: 8,
-                      paddingVertical: 6,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: quickAddAutoRollover ? Colors.light.accent : Colors.light.border,
-                      backgroundColor: quickAddAutoRollover ? Colors.light.accent + '20' : 'transparent',
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons 
-                      name="arrow-forward-circle" 
-                      size={16} 
-                      color={quickAddAutoRollover ? Colors.light.accent : Colors.light.icon} 
-                    />
-                  </TouchableOpacity>
-                  
-                  {/* More options button */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                   
+                   {/* Auto-move toggle button */}
+                   <TouchableOpacity
+                     onPress={() => {
+                       const newValue = !modalAutoRollover;
+                       setModalAutoRollover(newValue);
+                       saveAutoMovePreference(newValue);
+                       if (Platform.OS !== 'web') {
+                         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                       }
+                     }}
+                     style={{
+                       paddingHorizontal: 8,
+                       paddingVertical: 6,
+                       borderRadius: 8,
+                       borderWidth: 1,
+                       borderColor: modalAutoRollover ? Colors.light.accent : Colors.light.border,
+                       backgroundColor: modalAutoRollover ? Colors.light.accent + '20' : 'transparent',
+                     }}
+                     activeOpacity={0.7}
+                   >
+                     <Ionicons 
+                       name="arrow-forward-circle" 
+                       size={16} 
+                       color={modalAutoRollover ? Colors.light.accent : Colors.light.icon} 
+                     />
+                   </TouchableOpacity>
+                   
+                   {/* More options button */}
                 <TouchableOpacity
                     onPress={() => {
                       handleAddButtonPress();
@@ -7145,7 +7297,7 @@ export default function TodoScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Auto-Rollover Card */}
+                {/* Auto-Move Card */}
                 <View style={{
                   backgroundColor: Colors.light.background,
                   borderRadius: 12,
@@ -7170,7 +7322,7 @@ export default function TodoScreen() {
                         marginBottom: 4,
                         fontFamily: 'Onest'
                       }}>
-                        Auto-Rollover
+                        Auto-Move
                       </Text>
                       <Text style={{
                         fontSize: 12,
@@ -7182,7 +7334,14 @@ export default function TodoScreen() {
                       </Text>
                     </View>
                     <TouchableOpacity
-                      onPress={() => setModalAutoRollover(prev => !prev)}
+                      onPress={() => {
+                        const newValue = !modalAutoRollover;
+                        setModalAutoRollover(newValue);
+                        saveAutoMovePreference(newValue);
+                        if (Platform.OS !== 'web') {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        }
+                      }}
                       style={{
                         width: 44,
                         height: 24,
