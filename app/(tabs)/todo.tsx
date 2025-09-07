@@ -5620,6 +5620,15 @@ export default function TodoScreen() {
               }}>
                 {moment(currentDate).format('MMMM D')}
               </Text>
+              <Text style={{
+                fontSize: 28,
+                fontWeight: '700',
+                color: Colors.light.text,
+                fontFamily: 'Onest',
+                marginLeft: 8,
+              }}>
+                {moment(currentDate).format('ddd')}
+              </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={showHeaderDatePickerPanel}
@@ -5631,27 +5640,6 @@ export default function TodoScreen() {
             </TouchableOpacity>
             </View>
 
-            {/* DEBUG: Test Auto-Move Button */}
-            <TouchableOpacity
-              onPress={moveAutoMoveTasks}
-              style={{
-                backgroundColor: Colors.light.accent,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderRadius: 8,
-                marginBottom: 16,
-                alignSelf: 'center',
-              }}
-            >
-              <Text style={{
-                color: 'white',
-                fontSize: 14,
-                fontWeight: '600',
-                fontFamily: 'Onest',
-              }}>
-                Test Auto-Move
-              </Text>
-            </TouchableOpacity>
 
             {/* Tasks and Habits Icons */}
             <View style={{

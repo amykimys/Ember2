@@ -15,9 +15,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Dimensions,
   AppState,
+  Keyboard,
+  Animated,
 } from 'react-native';
+import { Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useData } from '../../contexts/DataContext';
 import { useTabBar } from '../../contexts/TabBarContext';
@@ -29,13 +31,6 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { PanGestureHandler, GestureHandlerRootView, State } from 'react-native-gesture-handler';
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  useAnimatedGestureHandler,
-  withSpring,
-  runOnJS
-} from 'react-native-reanimated';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -108,6 +103,7 @@ export default function FriendsFeedScreen() {
   const [isLoadingGallery, setIsLoadingGallery] = useState(false);
   const [galleryEndCursor, setGalleryEndCursor] = useState<string | null>(null); // Store end cursor for pagination
   const galleryScrollViewRef = useRef<ScrollView>(null);
+  const commentsScrollViewRef = useRef<ScrollView>(null);
   
   // Gallery categorization state
   const [galleryCategory, setGalleryCategory] = useState<'recents' | 'favorites' | 'videos' | 'all'>('recents');
@@ -129,6 +125,10 @@ export default function FriendsFeedScreen() {
   // Comment modal height state
   const [commentModalHeight, setCommentModalHeight] = useState<'compact' | 'expanded'>('compact');
   
+  // Keyboard state for comment input
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  
   // Swipe gesture state
   const [swipeOffset, setSwipeOffset] = useState<{[key: string]: number}>({});
   const [swipeInProgress, setSwipeInProgress] = useState<{[key: string]: boolean}>({});
@@ -144,6 +144,25 @@ export default function FriendsFeedScreen() {
       checkCommentsTable(); // Check if comments table exists
     }
   }, [user]);
+
+  // Keyboard event listeners for comment input
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener('keyboardDidShow', (e) => {
+      // Update with actual keyboard height when measured
+      setKeyboardHeight(e.endCoordinates.height);
+      setIsKeyboardVisible(true);
+    });
+
+    const keyboardDidHideListener = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+      setIsKeyboardVisible(false);
+    });
+
+    return () => {
+      keyboardDidShowListener?.remove();
+      keyboardDidHideListener?.remove();
+    };
+  }, []);
 
   // Debug effect for selectedPhotos state
   useEffect(() => {
@@ -1392,6 +1411,12 @@ export default function FriendsFeedScreen() {
     }
   };
 
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      commentsScrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 50); // Faster scroll timing
+  };
+
   const handleAddComment = async (postId: string) => {
     if (!user?.id || !commentText.trim()) return;
 
@@ -1475,6 +1500,9 @@ export default function FriendsFeedScreen() {
 
       // Clear comment text
       setCommentText('');
+      
+      // Scroll to bottom to show the new comment
+      scrollToBottom();
       
       Toast.show({
         type: 'success',
@@ -2245,14 +2273,18 @@ export default function FriendsFeedScreen() {
             {/* Content */}
             <KeyboardAvoidingView 
               style={styles.commentsModalContent}
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+              behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             >
               {/* Scrollable comments area */}
               <ScrollView 
+                ref={commentsScrollViewRef}
                 style={styles.commentsModalScrollView}
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.commentsModalScrollContent}
+                contentContainerStyle={[
+                  styles.commentsModalScrollContent,
+                  isKeyboardVisible && { paddingBottom: keyboardHeight + 80 }
+                ]}
                 keyboardShouldPersistTaps="handled"
               >
                 {selectedPostForComments && (
@@ -2316,8 +2348,17 @@ export default function FriendsFeedScreen() {
                 )}
               </ScrollView>
 
-              {/* Fixed comment input at bottom */}
-              <View style={styles.commentModalInput}>
+              {/* Comment input positioned above keyboard */}
+              <View style={[
+                styles.commentModalInput,
+                {
+                  position: 'absolute',
+                  bottom: keyboardHeight,
+                  left: 0,
+                  right: 0,
+                  zIndex: 1000,
+                }
+              ]}>
                 <TextInput
                   style={styles.commentModalTextInput}
                   placeholder="Add a comment..."
@@ -2326,6 +2367,18 @@ export default function FriendsFeedScreen() {
                   multiline={false}
                   maxLength={200}
                   returnKeyType="send"
+                  onFocus={() => {
+                    // Immediately position above keyboard when focused
+                    const estimatedKeyboardHeight = Platform.OS === 'ios' ? 350 : 300;
+                    setKeyboardHeight(estimatedKeyboardHeight);
+                    setIsKeyboardVisible(true);
+                    scrollToBottom();
+                  }}
+                  onBlur={() => {
+                    // Reset when not focused
+                    setKeyboardHeight(0);
+                    setIsKeyboardVisible(false);
+                  }}
                   onSubmitEditing={() => {
                     if (selectedPostForComments && commentText.trim()) {
                       handleAddComment(selectedPostForComments.update_id);
